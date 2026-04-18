@@ -1,0 +1,41 @@
+model
+  schema 1.2
+
+type user
+
+type workspace
+  relations
+    define owner: [user]
+    define admin: [user] or owner
+    define member: [user] or admin
+    define billing_manager: [user] or owner
+
+type brain
+  relations
+    define workspace: [workspace]
+    define owner: [user] or owner from workspace
+    define admin: [user] or admin from workspace
+    define writer: [user] or admin
+    define reader: [user] or writer
+    define can_delete: admin
+
+type collection
+  relations
+    define brain: [brain]
+    define reader: [user] or reader from brain
+    define writer: [user] or writer from brain
+    define admin: [user] or admin from brain
+
+type document
+  relations
+    define collection: [collection]
+    define reader: [user] or reader from collection
+    define writer: [user] or writer from collection
+    define can_export: reader
+
+type api_key
+  relations
+    define workspace: [workspace]
+    define owner: [user]
+    define scope_reader: [brain#reader, collection#reader, document#reader]
+    define scope_writer: [brain#writer, collection#writer, document#writer]

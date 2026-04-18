@@ -1,0 +1,8 @@
+{
+  "files": [],
+  "references": [
+    { "path": "./sdks/ts/memory" },
+    { "path": "./sdks/ts/memory-postgres" },
+    { "path": "./sdks/ts/memory-openfga" }
+  ]
+}

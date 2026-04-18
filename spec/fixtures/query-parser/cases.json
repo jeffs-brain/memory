@@ -1,0 +1,190 @@
+{
+  "description": "Representative input/AST pairs for the Jeffs Brain query parser. Extracted from packages/memory/src/query/parser.test.ts. Every SDK parser must emit an AST structurally equivalent to `expectedAst` for the given `input`. `raw` is the normalised form of `input` after NFC + whitespace collapse.",
+  "cases": [
+    {
+      "name": "empty input yields empty AST",
+      "input": "",
+      "expectedAst": { "raw": "", "tokens": [], "hasOperators": false }
+    },
+    {
+      "name": "lowercases bare terms and drops stop words",
+      "input": "The Kubernetes Deployment",
+      "expectedAst": {
+        "raw": "The Kubernetes Deployment",
+        "tokens": [
+          { "kind": "term", "text": "kubernetes" },
+          { "kind": "term", "text": "deployment" }
+        ],
+        "hasOperators": false
+      }
+    },
+    {
+      "name": "preserves quoted phrases exactly including stop words",
+      "input": "\"the quick brown fox\" jumps",
+      "expectedAst": {
+        "raw": "\"the quick brown fox\" jumps",
+        "tokens": [
+          { "kind": "phrase", "text": "the quick brown fox" },
+          { "kind": "term", "text": "jumps" }
+        ],
+        "hasOperators": true
+      }
+    },
+    {
+      "name": "honours explicit AND/OR/NOT operators without filtering stop words",
+      "input": "foo AND the OR bar NOT baz",
+      "expectedAst": {
+        "raw": "foo AND the OR bar NOT baz",
+        "tokens": [
+          { "kind": "term", "text": "foo" },
+          { "kind": "term", "text": "the", "operator": "AND" },
+          { "kind": "term", "text": "bar", "operator": "OR" },
+          { "kind": "term", "text": "baz", "operator": "NOT" }
+        ],
+        "hasOperators": true
+      }
+    },
+    {
+      "name": "supports trailing prefix wildcards",
+      "input": "kube* cluster",
+      "expectedAst": {
+        "raw": "kube* cluster",
+        "tokens": [
+          { "kind": "prefix", "text": "kube" },
+          { "kind": "term", "text": "cluster" }
+        ],
+        "hasOperators": false
+      }
+    },
+    {
+      "name": "NFC normalises composed vs decomposed characters",
+      "input": "cafe\u0301",
+      "expectedAst": {
+        "raw": "caf\u00e9",
+        "tokens": [ { "kind": "term", "text": "caf\u00e9" } ],
+        "hasOperators": false
+      }
+    },
+    {
+      "name": "strips zero-width joiners",
+      "input": "hello\u200bworld",
+      "expectedAst": {
+        "raw": "helloworld",
+        "tokens": [ { "kind": "term", "text": "helloworld" } ],
+        "hasOperators": false
+      }
+    },
+    {
+      "name": "bare stop-word-only query collapses to empty tokens",
+      "input": "to do list",
+      "expectedAst": {
+        "raw": "to do list",
+        "tokens": [],
+        "hasOperators": false
+      }
+    },
+    {
+      "name": "quoted stop-word phrase is preserved",
+      "input": "\"to do list\"",
+      "expectedAst": {
+        "raw": "\"to do list\"",
+        "tokens": [ { "kind": "phrase", "text": "to do list" } ],
+        "hasOperators": true
+      }
+    },
+    {
+      "name": "drops lowercase boolean words from bare natural-language queries",
+      "input": "not cocktail and snacks or dessert",
+      "expectedAst": {
+        "raw": "not cocktail and snacks or dessert",
+        "tokens": [
+          { "kind": "term", "text": "cocktail" },
+          { "kind": "term", "text": "snacks" },
+          { "kind": "term", "text": "dessert" }
+        ],
+        "hasOperators": false
+      }
+    },
+    {
+      "name": "drops recommendation filler words from long natural-language queries",
+      "input": "I've been thinking about making a cocktail for an upcoming get-together, but I'm not sure which one to choose. Any suggestions?",
+      "expectedAst": {
+        "raw": "I've been thinking about making a cocktail for an upcoming get-together, but I'm not sure which one to choose. Any suggestions?",
+        "tokens": [
+          { "kind": "term", "text": "cocktail" },
+          { "kind": "term", "text": "gettogether" },
+          { "kind": "term", "text": "one" },
+          { "kind": "term", "text": "choose" }
+        ],
+        "hasOperators": false
+      }
+    },
+    {
+      "name": "strips generic question scaffolding (pick up / return)",
+      "input": "How many items of clothing do I need to pick up or return from a store?",
+      "expectedAst": {
+        "raw": "How many items of clothing do I need to pick up or return from a store?",
+        "tokens": [
+          { "kind": "term", "text": "clothing" },
+          { "kind": "term", "text": "pick" },
+          { "kind": "term", "text": "return" },
+          { "kind": "term", "text": "store" }
+        ],
+        "hasOperators": false
+      }
+    },
+    {
+      "name": "strips generic question scaffolding (movie recommendation)",
+      "input": "Can you recommend a show or movie for me to watch tonight?",
+      "expectedAst": {
+        "raw": "Can you recommend a show or movie for me to watch tonight?",
+        "tokens": [ { "kind": "term", "text": "movie" } ],
+        "hasOperators": false
+      }
+    },
+    {
+      "name": "strips generic question scaffolding (battery tips)",
+      "input": "I have been having trouble with the battery life on my phone lately. Any tips?",
+      "expectedAst": {
+        "raw": "I have been having trouble with the battery life on my phone lately. Any tips?",
+        "tokens": [
+          { "kind": "term", "text": "battery" },
+          { "kind": "term", "text": "life" },
+          { "kind": "term", "text": "phone" }
+        ],
+        "hasOperators": false
+      }
+    },
+    {
+      "name": "first-person doctor question",
+      "input": "What types of doctors have I seen?",
+      "expectedAst": {
+        "raw": "What types of doctors have I seen?",
+        "tokens": [ { "kind": "term", "text": "doctors" } ],
+        "hasOperators": false
+      }
+    }
+  ],
+  "compileToFTS": [
+    {
+      "name": "ORs bare terms by default",
+      "input": "kubernetes deployment",
+      "expectedFTS": "kubernetes OR deployment"
+    },
+    {
+      "name": "rewrites NOT into AND NOT after the first token",
+      "input": "foo AND bar NOT baz",
+      "expectedFTS": "foo AND bar AND NOT baz"
+    },
+    {
+      "name": "drops a leading NOT because FTS5 cannot start with NOT",
+      "input": "NOT alpha bravo",
+      "expectedFTS": "alpha OR bravo"
+    },
+    {
+      "name": "wraps phrases and preserves prefix wildcards",
+      "input": "\"hello world\" kube*",
+      "expectedFTS": "\"hello world\" OR kube*"
+    }
+  ]
+}

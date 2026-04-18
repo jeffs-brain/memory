@@ -1,0 +1,28 @@
+{
+  "name": "@jeffs-brain/memory-openfga",
+  "version": "0.0.1",
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "files": ["dist", "README.md", "LICENSE"],
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    },
+    "./package.json": "./package.json"
+  },
+  "scripts": {
+    "test": "vitest run --passWithNoTests",
+    "typecheck": "tsc -b",
+    "build": "tsc -b"
+  },
+  "peerDependencies": {
+    "@jeffs-brain/memory": "workspace:*"
+  },
+  "devDependencies": {
+    "@jeffs-brain/memory": "workspace:*",
+    "vitest": "^2.1.8"
+  }
+}

@@ -1,0 +1,323 @@
+{
+  "description": "Language-neutral HTTP conformance cases for the Jeffs Brain store protocol. Each case is a replayable request/response pair derived from e2e/http-store.contract.test.ts. Where the reference test drives its assertions through the SDK's HttpStore + in-memory backing MemStore, these cases restate the observable HTTP behaviour so a generic harness can replay them against any language's `memory serve` implementation. See spec/conformance/README.md for the harness contract. BRAIN_ID is a placeholder; the harness substitutes a freshly provisioned brain id per suite run. Paths are URL-encoded by the harness before dispatch.",
+  "placeholders": {
+    "BRAIN_ID": "the brain id provisioned at suite start",
+    "BASE64_HELLO": "aGVsbG8=",
+    "BASE64_WORLD": "d29ybGQ=",
+    "BASE64_FIRST": "Zmlyc3Q=",
+    "BASE64_SECOND": "c2Vjb25k",
+    "BASE64_A": "YQ==",
+    "BASE64_B": "Yg==",
+    "BASE64_C": "Yw==",
+    "BASE64_T": "dA==",
+    "BASE64_X": "eA==",
+    "BASE64_CONTENT": "Y29udGVudA=="
+  },
+  "cases": [
+    {
+      "name": "read missing returns 404",
+      "request": { "method": "GET", "path": "/v1/brains/BRAIN_ID/documents/read?path=memory%2Fnope.md", "headers": { "accept": "application/octet-stream" } },
+      "expectedResponse": { "status": 404 }
+    },
+    {
+      "name": "write then read round-trips",
+      "setup": [
+        { "method": "PUT", "path": "/v1/brains/BRAIN_ID/documents?path=memory%2Fa.md", "headers": { "content-type": "application/octet-stream" }, "bodyBase64": "BASE64_HELLO", "expectedStatus": 204 }
+      ],
+      "request": { "method": "GET", "path": "/v1/brains/BRAIN_ID/documents/read?path=memory%2Fa.md", "headers": { "accept": "application/octet-stream" } },
+      "expectedResponse": { "status": 200, "bodyBase64": "BASE64_HELLO" }
+    },
+    {
+      "name": "write overwrites existing content",
+      "setup": [
+        { "method": "PUT", "path": "/v1/brains/BRAIN_ID/documents?path=wiki%2Fdoc.md", "bodyBase64": "BASE64_FIRST", "expectedStatus": 204 },
+        { "method": "PUT", "path": "/v1/brains/BRAIN_ID/documents?path=wiki%2Fdoc.md", "bodyBase64": "BASE64_SECOND", "expectedStatus": 204 }
+      ],
+      "request": { "method": "GET", "path": "/v1/brains/BRAIN_ID/documents/read?path=wiki%2Fdoc.md" },
+      "expectedResponse": { "status": 200, "bodyBase64": "BASE64_SECOND" }
+    },
+    {
+      "name": "append creates then extends",
+      "setup": [
+        { "method": "POST", "path": "/v1/brains/BRAIN_ID/documents/append?path=wiki%2Flog.md", "bodyBase64": "YQo=", "expectedStatus": 204 },
+        { "method": "POST", "path": "/v1/brains/BRAIN_ID/documents/append?path=wiki%2Flog.md", "bodyBase64": "Ygo=", "expectedStatus": 204 }
+      ],
+      "request": { "method": "GET", "path": "/v1/brains/BRAIN_ID/documents/read?path=wiki%2Flog.md" },
+      "expectedResponse": { "status": 200, "bodyBase64": "YQpiCg==" },
+      "notes": "'a\\n' then 'b\\n' appended; final content is 'a\\nb\\n'"
+    },
+    {
+      "name": "delete removes the file",
+      "setup": [
+        { "method": "PUT", "path": "/v1/brains/BRAIN_ID/documents?path=memory%2Ftmp.md", "bodyBase64": "Ynll", "expectedStatus": 204 },
+        { "method": "DELETE", "path": "/v1/brains/BRAIN_ID/documents?path=memory%2Ftmp.md", "expectedStatus": 204 }
+      ],
+      "request": { "method": "HEAD", "path": "/v1/brains/BRAIN_ID/documents?path=memory%2Ftmp.md" },
+      "expectedResponse": { "status": 404 }
+    },
+    {
+      "name": "delete missing returns 404",
+      "request": { "method": "DELETE", "path": "/v1/brains/BRAIN_ID/documents?path=memory%2Fnever.md" },
+      "expectedResponse": { "status": 404 }
+    },
+    {
+      "name": "rename moves content",
+      "setup": [
+        { "method": "PUT", "path": "/v1/brains/BRAIN_ID/documents?path=raw%2Fold.md", "bodyBase64": "BASE64_CONTENT", "expectedStatus": 204 },
+        { "method": "POST", "path": "/v1/brains/BRAIN_ID/documents/rename", "headers": { "content-type": "application/json" }, "bodyJson": { "from": "raw/old.md", "to": "raw/new.md" }, "expectedStatus": 204 }
+      ],
+      "request": { "method": "GET", "path": "/v1/brains/BRAIN_ID/documents/read?path=raw%2Fnew.md" },
+      "expectedResponse": { "status": 200, "bodyBase64": "BASE64_CONTENT" }
+    },
+    {
+      "name": "rename source disappears after rename",
+      "setup": [
+        { "method": "PUT", "path": "/v1/brains/BRAIN_ID/documents?path=raw%2Fold2.md", "bodyBase64": "BASE64_CONTENT", "expectedStatus": 204 },
+        { "method": "POST", "path": "/v1/brains/BRAIN_ID/documents/rename", "headers": { "content-type": "application/json" }, "bodyJson": { "from": "raw/old2.md", "to": "raw/new2.md" }, "expectedStatus": 204 }
+      ],
+      "request": { "method": "HEAD", "path": "/v1/brains/BRAIN_ID/documents?path=raw%2Fold2.md" },
+      "expectedResponse": { "status": 404 }
+    },
+    {
+      "name": "rename over existing overwrites",
+      "setup": [
+        { "method": "PUT", "path": "/v1/brains/BRAIN_ID/documents?path=wiki%2Fsrc.md", "bodyBase64": "bmV3", "expectedStatus": 204 },
+        { "method": "PUT", "path": "/v1/brains/BRAIN_ID/documents?path=wiki%2Fdst.md", "bodyBase64": "b2xk", "expectedStatus": 204 },
+        { "method": "POST", "path": "/v1/brains/BRAIN_ID/documents/rename", "headers": { "content-type": "application/json" }, "bodyJson": { "from": "wiki/src.md", "to": "wiki/dst.md" }, "expectedStatus": 204 }
+      ],
+      "request": { "method": "GET", "path": "/v1/brains/BRAIN_ID/documents/read?path=wiki%2Fdst.md" },
+      "expectedResponse": { "status": 200, "bodyBase64": "bmV3" }
+    },
+    {
+      "name": "rename missing returns 404",
+      "request": { "method": "POST", "path": "/v1/brains/BRAIN_ID/documents/rename", "headers": { "content-type": "application/json" }, "bodyJson": { "from": "memory/nope.md", "to": "memory/other.md" } },
+      "expectedResponse": { "status": 404 }
+    },
+    {
+      "name": "stat returns size and modtime",
+      "setup": [
+        { "method": "PUT", "path": "/v1/brains/BRAIN_ID/documents?path=memory%2Fstat.md", "bodyBase64": "dHdlbHZlIGJ5dGVz", "expectedStatus": 204 }
+      ],
+      "request": { "method": "GET", "path": "/v1/brains/BRAIN_ID/documents/stat?path=memory%2Fstat.md" },
+      "expectedResponse": {
+        "status": 200,
+        "body": { "path": "memory/stat.md", "size": 12, "is_dir": false, "mtime": "<ISO-8601>" }
+      },
+      "notes": "mtime is an ISO-8601 timestamp; harness asserts presence and parseability rather than exact value"
+    },
+    {
+      "name": "list flat returns sorted children",
+      "setup": [
+        { "method": "PUT", "path": "/v1/brains/BRAIN_ID/documents?path=memory%2Fc.md", "bodyBase64": "Yw==", "expectedStatus": 204 },
+        { "method": "PUT", "path": "/v1/brains/BRAIN_ID/documents?path=memory%2Fa.md", "bodyBase64": "YQ==", "expectedStatus": 204 },
+        { "method": "PUT", "path": "/v1/brains/BRAIN_ID/documents?path=memory%2Fb.md", "bodyBase64": "Yg==", "expectedStatus": 204 }
+      ],
+      "request": { "method": "GET", "path": "/v1/brains/BRAIN_ID/documents?dir=memory&recursive=false&include_generated=false" },
+      "expectedResponse": {
+        "status": 200,
+        "body": { "items": [
+          { "path": "memory/a.md" },
+          { "path": "memory/b.md" },
+          { "path": "memory/c.md" }
+        ] }
+      }
+    },
+    {
+      "name": "list hides generated by default",
+      "setup": [
+        { "method": "PUT", "path": "/v1/brains/BRAIN_ID/documents?path=wiki%2F_index.md", "bodyBase64": "aWR4", "expectedStatus": 204 },
+        { "method": "PUT", "path": "/v1/brains/BRAIN_ID/documents?path=wiki%2Farticle.md", "bodyBase64": "Ym9keQ==", "expectedStatus": 204 }
+      ],
+      "request": { "method": "GET", "path": "/v1/brains/BRAIN_ID/documents?dir=wiki&recursive=false&include_generated=false" },
+      "expectedResponse": {
+        "status": 200,
+        "bodyAssertions": [
+          { "kind": "items-exclude-path", "path": "wiki/_index.md" }
+        ]
+      }
+    },
+    {
+      "name": "list includes generated when requested",
+      "setup": [
+        { "method": "PUT", "path": "/v1/brains/BRAIN_ID/documents?path=wiki%2F_index.md", "bodyBase64": "aWR4", "expectedStatus": 204 },
+        { "method": "PUT", "path": "/v1/brains/BRAIN_ID/documents?path=wiki%2Farticle.md", "bodyBase64": "Ym9keQ==", "expectedStatus": 204 }
+      ],
+      "request": { "method": "GET", "path": "/v1/brains/BRAIN_ID/documents?dir=wiki&recursive=false&include_generated=true" },
+      "expectedResponse": {
+        "status": 200,
+        "bodyAssertions": [
+          { "kind": "items-include-path", "path": "wiki/_index.md" }
+        ]
+      }
+    },
+    {
+      "name": "list recursive walks subtree",
+      "setup": [
+        { "method": "PUT", "path": "/v1/brains/BRAIN_ID/documents?path=wiki%2Fgo%2Fa.md", "bodyBase64": "YQ==", "expectedStatus": 204 },
+        { "method": "PUT", "path": "/v1/brains/BRAIN_ID/documents?path=wiki%2Fgo%2Fb.md", "bodyBase64": "Yg==", "expectedStatus": 204 },
+        { "method": "PUT", "path": "/v1/brains/BRAIN_ID/documents?path=wiki%2Frust%2Fc.md", "bodyBase64": "Yw==", "expectedStatus": 204 }
+      ],
+      "request": { "method": "GET", "path": "/v1/brains/BRAIN_ID/documents?dir=wiki&recursive=true&include_generated=false" },
+      "expectedResponse": {
+        "status": 200,
+        "bodyAssertions": [
+          { "kind": "items-files-equal", "paths": ["wiki/go/a.md", "wiki/go/b.md", "wiki/rust/c.md"] }
+        ]
+      }
+    },
+    {
+      "name": "list non-recursive returns directory entries",
+      "setup": [
+        { "method": "PUT", "path": "/v1/brains/BRAIN_ID/documents?path=wiki%2Fgo%2Fa.md", "bodyBase64": "YQ==", "expectedStatus": 204 },
+        { "method": "PUT", "path": "/v1/brains/BRAIN_ID/documents?path=wiki%2Ftop.md", "bodyBase64": "dA==", "expectedStatus": 204 }
+      ],
+      "request": { "method": "GET", "path": "/v1/brains/BRAIN_ID/documents?dir=wiki&recursive=false&include_generated=false" },
+      "expectedResponse": {
+        "status": 200,
+        "bodyAssertions": [
+          { "kind": "items-dirs-equal", "paths": ["wiki/go"] },
+          { "kind": "items-files-equal", "paths": ["wiki/top.md"] }
+        ]
+      }
+    },
+    {
+      "name": "list applies glob filter on base names",
+      "setup": [
+        { "method": "PUT", "path": "/v1/brains/BRAIN_ID/documents?path=wiki%2Fa.md", "bodyBase64": "YQ==", "expectedStatus": 204 },
+        { "method": "PUT", "path": "/v1/brains/BRAIN_ID/documents?path=wiki%2Fb.txt", "bodyBase64": "Yg==", "expectedStatus": 204 },
+        { "method": "PUT", "path": "/v1/brains/BRAIN_ID/documents?path=wiki%2Fc.md", "bodyBase64": "Yw==", "expectedStatus": 204 }
+      ],
+      "request": { "method": "GET", "path": "/v1/brains/BRAIN_ID/documents?dir=wiki&recursive=false&include_generated=false&glob=*.md" },
+      "expectedResponse": {
+        "status": 200,
+        "bodyAssertions": [
+          { "kind": "items-files-equal", "paths": ["wiki/a.md", "wiki/c.md"] }
+        ]
+      }
+    },
+    {
+      "name": "batch commits on success",
+      "request": {
+        "method": "POST",
+        "path": "/v1/brains/BRAIN_ID/documents/batch-ops",
+        "headers": { "content-type": "application/json" },
+        "bodyJson": {
+          "reason": "test",
+          "ops": [
+            { "type": "write", "path": "memory/x.md", "content_base64": "b25l" },
+            { "type": "write", "path": "memory/y.md", "content_base64": "dHdv" }
+          ]
+        }
+      },
+      "expectedResponse": { "status": 200, "body": { "committed": 2 } }
+    },
+    {
+      "name": "batch write + delete cancels both (client-materialised)",
+      "request": {
+        "method": "POST",
+        "path": "/v1/brains/BRAIN_ID/documents/batch-ops",
+        "headers": { "content-type": "application/json" },
+        "bodyJson": {
+          "reason": "test",
+          "ops": [
+            { "type": "write",  "path": "memory/ephem.md", "content_base64": "QQ==" },
+            { "type": "delete", "path": "memory/ephem.md" }
+          ]
+        }
+      },
+      "expectedResponse": { "status": 200, "body": { "committed": 2 } },
+      "followUp": [
+        { "method": "HEAD", "path": "/v1/brains/BRAIN_ID/documents?path=memory%2Fephem.md", "expectedStatus": 404 }
+      ]
+    },
+    {
+      "name": "batch write + write keeps latter (client-materialised)",
+      "request": {
+        "method": "POST",
+        "path": "/v1/brains/BRAIN_ID/documents/batch-ops",
+        "headers": { "content-type": "application/json" },
+        "bodyJson": {
+          "reason": "test",
+          "ops": [
+            { "type": "write", "path": "memory/ow.md", "content_base64": "Zmlyc3Q=" },
+            { "type": "write", "path": "memory/ow.md", "content_base64": "c2Vjb25k" }
+          ]
+        }
+      },
+      "expectedResponse": { "status": 200, "body": { "committed": 2 } },
+      "followUp": [
+        { "method": "GET", "path": "/v1/brains/BRAIN_ID/documents/read?path=memory%2Fow.md", "expectedStatus": 200, "expectedBodyBase64": "c2Vjb25k" }
+      ]
+    },
+    {
+      "name": "rejects invalid path: traversal",
+      "request": { "method": "PUT", "path": "/v1/brains/BRAIN_ID/documents?path=..%2Fetc%2Fpasswd", "bodyBase64": "eA==" },
+      "expectedResponse": { "status": 400 }
+    },
+    {
+      "name": "rejects invalid path: leading slash",
+      "request": { "method": "PUT", "path": "/v1/brains/BRAIN_ID/documents?path=%2Fabsolute.md", "bodyBase64": "eA==" },
+      "expectedResponse": { "status": 400 }
+    },
+    {
+      "name": "rejects invalid path: trailing slash",
+      "request": { "method": "PUT", "path": "/v1/brains/BRAIN_ID/documents?path=memory%2Fdir%2F", "bodyBase64": "eA==" },
+      "expectedResponse": { "status": 400 }
+    },
+    {
+      "name": "rejects invalid path: null byte",
+      "request": { "method": "PUT", "path": "/v1/brains/BRAIN_ID/documents?path=memory%2Fa%00b.md", "bodyBase64": "eA==" },
+      "expectedResponse": { "status": 400 }
+    },
+    {
+      "name": "exists returns 200 for present file",
+      "setup": [
+        { "method": "PUT", "path": "/v1/brains/BRAIN_ID/documents?path=memory%2Fhead.md", "bodyBase64": "eA==", "expectedStatus": 204 }
+      ],
+      "request": { "method": "HEAD", "path": "/v1/brains/BRAIN_ID/documents?path=memory%2Fhead.md" },
+      "expectedResponse": { "status": 200 }
+    },
+    {
+      "name": "exists returns 404 for missing file",
+      "request": { "method": "HEAD", "path": "/v1/brains/BRAIN_ID/documents?path=memory%2Fmissing.md" },
+      "expectedResponse": { "status": 404 }
+    },
+    {
+      "name": "auth header forwarded when apiKey is set",
+      "request": { "method": "PUT", "path": "/v1/brains/BRAIN_ID/documents?path=memory%2Fauth.md", "headers": { "authorization": "Bearer jbk_test_secret", "content-type": "application/octet-stream" }, "bodyBase64": "c2VjcmV0" },
+      "expectedResponse": { "status": 204 },
+      "notes": "When the SDK is configured with apiKey, every request must carry `Authorization: Bearer <apiKey>`."
+    },
+    {
+      "name": "SSE events stream sends a ready frame on attach",
+      "request": { "method": "GET", "path": "/v1/brains/BRAIN_ID/events", "headers": { "accept": "text/event-stream" } },
+      "expectedResponse": {
+        "status": 200,
+        "contentType": "text/event-stream",
+        "streamAssertions": [
+          { "kind": "expect-event", "event": "ready" }
+        ]
+      },
+      "notes": "Harness opens the stream, waits for the `ready` frame, then closes. Subsequent mutations should produce `change` frames; see the change-event case below."
+    },
+    {
+      "name": "SSE change event fires after a commit",
+      "setup": [
+        { "kind": "open-sse", "name": "watcher", "path": "/v1/brains/BRAIN_ID/events" },
+        { "kind": "await-sse-event", "name": "watcher", "event": "ready" },
+        { "method": "PUT", "path": "/v1/brains/BRAIN_ID/documents?path=memory%2Fe1.md", "bodyBase64": "b25l", "expectedStatus": 204 }
+      ],
+      "request": { "kind": "await-sse-event", "name": "watcher", "event": "change" },
+      "expectedResponse": {
+        "status": 200,
+        "bodyAssertions": [
+          { "kind": "json-field-equals", "field": "kind", "value": "created" },
+          { "kind": "json-field-equals", "field": "path", "value": "memory/e1.md" }
+        ]
+      },
+      "teardown": [
+        { "kind": "close-sse", "name": "watcher" }
+      ]
+    }
+  ]
+}
