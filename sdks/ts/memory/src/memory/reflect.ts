@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Reflect stage. End-of-session pass that asks the provider to extract
  * generalisable heuristics + a short summary, then persists a reflection

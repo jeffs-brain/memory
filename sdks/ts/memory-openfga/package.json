@@ -1,11 +1,33 @@
 {
   "name": "@jeffs-brain/memory-openfga",
-  "version": "0.0.1",
+  "version": "0.1.0",
+  "description": "OpenFGA authorisation adapter for @jeffs-brain/memory, implementing the AccessControlProvider contract over plain fetch.",
   "license": "Apache-2.0",
+  "author": "Alex J <alex@lleverage.ai>",
+  "homepage": "https://github.com/jeffs-brain/memory#readme",
+  "bugs": {
+    "url": "https://github.com/jeffs-brain/memory/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jeffs-brain/memory.git",
+    "directory": "sdks/ts/memory-openfga"
+  },
+  "keywords": [
+    "memory",
+    "llm",
+    "rag",
+    "authorisation",
+    "openfga",
+    "rbac",
+    "acl",
+    "ai-agent"
+  ],
   "type": "module",
-  "main": "./src/index.ts",
-  "types": "./src/index.ts",
-  "files": ["dist", "README.md", "LICENSE"],
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "sideEffects": false,
+  "files": ["dist", "README.md", "LICENSE", "NOTICE"],
   "exports": {
     ".": {
       "import": "./dist/index.js",
@@ -13,10 +35,17 @@
     },
     "./package.json": "./package.json"
   },
+  "engines": {
+    "node": ">=20"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run --passWithNoTests",
-    "typecheck": "tsc -b",
-    "build": "tsc -b"
+    "prepublishOnly": "bun run typecheck && bun run test && bun run build"
   },
   "peerDependencies": {
     "@jeffs-brain/memory": "workspace:*"

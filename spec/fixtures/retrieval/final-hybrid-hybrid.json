@@ -1,0 +1,206 @@
+{
+  "generated_at": "2026-04-11T18:20:11.999561087+02:00",
+  "schema_version": 1,
+  "brain": {
+    "root": "/home/jaythegeek/.config/jeff",
+    "backend": "fsstore"
+  },
+  "corpus": {
+    "wiki_articles": 5822,
+    "raw_files": 20265,
+    "compiled_files": 4043,
+    "uncompiled_files": 16222,
+    "total_sources": 9143
+  },
+  "retrieval": {
+    "queries_run": 10,
+    "queries_passed": 10,
+    "recall_at_k": 1,
+    "k": 10,
+    "with_synthesis": false,
+    "queries": [
+      {
+        "id": "machine-learning-clients",
+        "question": "our machine learning clients",
+        "passed": true,
+        "retrieved": [
+          "administrative/walmart.md",
+          "entities/pixelz.md",
+          "partners/boomerang.md",
+          "technology/promo-classification-dataset.md",
+          "architecture/predictive-model-layering.md",
+          "clients/heineken.md",
+          "business/cargill.md",
+          "clients/oude-reimer-quote-automation.md",
+          "administrative/lleverage-v2-learning-loop.md",
+          "suppliers/emag.md"
+        ],
+        "missing_must": null
+      },
+      {
+        "id": "document-processing-pipelines",
+        "question": "automated document processing pipelines",
+        "passed": true,
+        "retrieved": [
+          "architecture/workflow-patterns/invoice-processing-pipeline.md",
+          "workflows/sales-order-processing.md",
+          "workflows/spl-order-processing.md",
+          "technology/invoice-processing-pipeline.md",
+          "architecture/workflow-patterns/order-processing-pipeline.md",
+          "workflows/microtechniek-order-automation.md",
+          "workflows/contract-data-extraction.md",
+          "administrative/order-processing-workshop.md",
+          "workflows/miraclon-order-intake.md",
+          "workflows/kb-ingestion-pipeline.md"
+        ],
+        "missing_must": null
+      },
+      {
+        "id": "food-industry-clients",
+        "question": "food industry clients",
+        "passed": true,
+        "retrieved": [
+          "clients/central-food-products-co-ltd.md",
+          "business/big-creek-foods.md",
+          "clients/cargill.md",
+          "business/pt-tata-nutrisana.md",
+          "business/central-food-products-co-ltd.md",
+          "clients/petmax-industria-e-comercio-de-alimentos-ltda.md",
+          "companies/baha-food-gmbh.md",
+          "business/champion-petfoods-ltd.md",
+          "administrative/melton-foods.md",
+          "companies/dr-oetker.md"
+        ],
+        "missing_must": null
+      },
+      {
+        "id": "invoice-automation",
+        "question": "what do we do for invoice automation",
+        "passed": true,
+        "retrieved": [
+          "projects/stippt-invoice-automation.md",
+          "architecture/workflow-patterns/invoice-processing-pipeline.md",
+          "workflows/fusion-colors-invoice-processing.md",
+          "tooling/spendcloud.md",
+          "workflows/purchase-invoice-extraction.md",
+          "workflows/invoice-processing.md",
+          "clients/technivorm/invoice-processing.md",
+          "workflows/spendcloud-invoice-processing.md",
+          "technology/invoice-processing-pipeline.md",
+          "clients/fusion-colors.md"
+        ],
+        "missing_must": null
+      },
+      {
+        "id": "data-quality-work",
+        "question": "our data quality work",
+        "passed": true,
+        "retrieved": [
+          "clients/cargill.md",
+          "projects/cargill-dq-poc.md",
+          "workflows/sitech-quote-generation.md",
+          "processes/automatic-work-order-approval.md",
+          "projects/cargill-data-quality-automation.md",
+          "business/cargill-data-quality-framework.md",
+          "workflows/zendesk-feedback-mechanism.md",
+          "administrative/llev-product-roadmap.md",
+          "business/dq-0004-weight-validation.md",
+          "workflows/contract-data-extraction.md"
+        ],
+        "missing_must": null
+      },
+      {
+        "id": "lleverage-bosch",
+        "question": "what can you tell me about the relationship between lleverage and bosch",
+        "passed": true,
+        "retrieved": [
+          "companies/bosch-pt.md",
+          "administrative/bosch-power-tools-na.md",
+          "companies/robert-bosch-tool-corporation-na.md",
+          "legal/lleverage-terms-of-service.md",
+          "administrative/lleverage-v2-commercial-model.md",
+          "companies/lleverage.md",
+          "clients/robert-bosch-tool-corporation.md",
+          "tooling/lleverage.md",
+          "administrative/servicepower.md",
+          "people/tim-beyer.md"
+        ],
+        "missing_must": null
+      },
+      {
+        "id": "oude-reimer-relationship",
+        "question": "how do we work with oude reimer",
+        "passed": true,
+        "retrieved": [
+          "workflows/oude-reimer-chat-assistant.md",
+          "administrative/oude-reimer-corporate-details.md",
+          "technology/oude-reimer-cooling-filter-systems.md",
+          "technology/oude-reimer-delivery-terms.md",
+          "workflows/oude-reimer-service-proposal-generation.md",
+          "administrative/oude-reimer-contact-details.md",
+          "administrative/oude-reimer-standard-delivery-terms.md",
+          "technology/oude-reimer-quality-control-systems.md",
+          "technology/oude-reimer-equipment-packages.md",
+          "technology/oude-reimer-regulating-spindle.md"
+        ],
+        "missing_must": null
+      },
+      {
+        "id": "quote-generation-tools",
+        "question": "tools that help generate quotes",
+        "passed": true,
+        "retrieved": [
+          "projects/quote-generation-automation.md",
+          "software/oude-reimer-quote-gen.md",
+          "workflows/sitech-quote-generation.md",
+          "technology/quote-generation-agent.md",
+          "technology/quote-calculator-poc.md",
+          "workflows/quote-generation.md",
+          "projects/oude-reimer-quote-generation.md",
+          "technology/oude-reimer-quote-automation.md",
+          "tooling/dell-build-up-tool.md",
+          "people/bram.md"
+        ],
+        "missing_must": null
+      },
+      {
+        "id": "production-planning-projects",
+        "question": "production planning and scheduling",
+        "passed": true,
+        "retrieved": [
+          "workflows/royal-aware-production-scheduling-ai.md",
+          "workflows/production-planning-benchmarking.md",
+          "workflows/royal-aware-production-scheduling-output.md",
+          "workflows/production-planning-pattern.md",
+          "workflows/royal-aware-production-planning.md",
+          "operations/production-proposals-ops.md",
+          "workflows/royal-aware-production-planning-output-spec.md",
+          "operations/gbo-planning-adherence.md",
+          "technology/gbo-planning-adherence.md",
+          "production/gbo-planning-adherence.md"
+        ],
+        "missing_must": null
+      },
+      {
+        "id": "agent-orchestration",
+        "question": "how agents are orchestrated across workflows",
+        "passed": true,
+        "retrieved": [
+          "architecture/multi-agent-orchestration-patterns.md",
+          "administrative/agents-at-work-platform.md",
+          "architecture/agent-execution-loop.md",
+          "architecture/agent-node-orchestration.md",
+          "architecture/agent-orchestration-engine.md",
+          "architecture/agent-dispatch-system.md",
+          "architecture/intelligent-orchestration-engine.md",
+          "administrative/mission-control.md",
+          "technology/agent-architecture.md",
+          "architecture/coordinator-pattern.md"
+        ],
+        "missing_must": null
+      }
+    ]
+  },
+  "issues": [],
+  "elapsed_ns": 1010524017
+}

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 import type { RecordEpisodeResult } from './episodes.js'
 import type {
   ConsolidateArgs,

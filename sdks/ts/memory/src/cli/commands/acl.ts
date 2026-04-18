@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * ACL operations. Uses the in-memory RBAC adapter as the reference
  * implementation; tuples are held in a JSON sidecar at

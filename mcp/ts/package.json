@@ -1,0 +1,65 @@
+{
+  "name": "@jeffs-brain/memory-mcp",
+  "version": "0.1.0",
+  "description": "Model Context Protocol stdio server for @jeffs-brain/memory, exposing eleven memory tools with zero-config local and hosted modes.",
+  "license": "Apache-2.0",
+  "author": "Alex J <alex@lleverage.ai>",
+  "homepage": "https://github.com/jeffs-brain/memory#readme",
+  "bugs": {
+    "url": "https://github.com/jeffs-brain/memory/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jeffs-brain/memory.git",
+    "directory": "mcp/ts"
+  },
+  "keywords": [
+    "memory",
+    "mcp",
+    "model-context-protocol",
+    "llm",
+    "rag",
+    "retrieval",
+    "claude",
+    "cursor",
+    "ai-agent"
+  ],
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "sideEffects": false,
+  "bin": {
+    "memory-mcp": "./dist/index.js"
+  },
+  "files": ["dist", "README.md", "LICENSE", "NOTICE"],
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    },
+    "./package.json": "./package.json"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run --passWithNoTests",
+    "prepublishOnly": "bun run typecheck && bun run test && bun run build"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "zod": "^3.23.0"
+  },
+  "peerDependencies": {
+    "@jeffs-brain/memory": "workspace:*"
+  },
+  "devDependencies": {
+    "@jeffs-brain/memory": "workspace:*",
+    "vitest": "^2.1.8"
+  }
+}

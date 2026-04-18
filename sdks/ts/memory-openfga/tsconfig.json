@@ -5,5 +5,6 @@
     "rootDir": "./src"
   },
   "include": ["src/**/*"],
+  "exclude": ["**/*.test.ts", "**/*.integration.test.ts"],
   "references": [{ "path": "../memory" }]
 }

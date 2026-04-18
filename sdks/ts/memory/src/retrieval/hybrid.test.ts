@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Integration-level tests for the hybrid retrieval pipeline. Drives the
  * real SQLite + FTS5 + sqlite-vec index (via `createSearchIndex`) with

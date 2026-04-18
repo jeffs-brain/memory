@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 import { describe, expect, it } from 'vitest'
 import { noopLogger, type CompletionRequest, type CompletionResponse, type Provider } from '../llm/index.js'
 import { joinPath } from '../store/index.js'

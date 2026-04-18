@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Report writer. Aggregates per-example results into the canonical
  * `LMEReport`, persists JSON under `<outDir>/<timestamp>/report.json`,

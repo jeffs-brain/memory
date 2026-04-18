@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * LME judge. The prompts are copied verbatim from the official
  * LongMemEval codebase (xiaowu0162/LongMemEval) so verdict semantics stay

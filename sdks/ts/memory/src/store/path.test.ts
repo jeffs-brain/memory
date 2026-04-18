@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 import { describe, expect, it } from 'vitest'
 import { ErrInvalidPath } from './errors.js'
 import { isGenerated, joinPath, matchGlob, toPath, validatePath } from './path.js'

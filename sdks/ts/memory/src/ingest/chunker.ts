@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Markdown-aware + plain-text chunkers used by the ingest pipeline. The
  * token count is an approximation (chars / 4) — good enough to keep chunks

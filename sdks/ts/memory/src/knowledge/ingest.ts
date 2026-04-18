@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Raw-content ingest. Produces an ingested/<hash>.md entry and a matching
  * operations-log line in a single Batch with Reason: "ingest". Ported from

@@ -1,7 +1,9 @@
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Ad-hoc hybrid search over a brain.
  *
- * Each `jbmem search` invocation builds an in-memory SQLite index from
+ * Each `memory search` invocation builds an in-memory SQLite index from
  * every markdown/text file the brain exposes through its Store, then
  * delegates to the shared retrieval pipeline (`createRetrieval`) so the
  * CLI and the backend share the same BM25 + vector + RRF + rerank +

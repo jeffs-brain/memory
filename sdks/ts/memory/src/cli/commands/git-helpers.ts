@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 import { execFile as execFileCallback } from 'node:child_process'
 import { access, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import * as nodeFs from 'node:fs'

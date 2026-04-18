@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 import { extractJSON, type Logger, type Provider } from '../llm/index.js'
 import { joinPath, pathUnder, toPath, type Path, type Store } from '../store/index.js'
 import { archivedSourcePath, INGESTED_ARCHIVE_PREFIX } from './archive.js'

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Bounded-parallelism batch runner used by the LLM reranker. Callers
  * supply the batched payloads and a per-batch worker; the runner

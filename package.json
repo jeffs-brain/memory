@@ -2,12 +2,13 @@
   "name": "jeffs-brain-memory",
   "private": true,
   "type": "module",
-  "workspaces": ["sdks/ts/*"],
+  "workspaces": ["sdks/ts/*", "mcp/ts"],
   "packageManager": "bun@1.3.8",
   "scripts": {
     "test": "vitest run --passWithNoTests",
     "typecheck": "tsc -b",
     "build": "tsc -b",
+    "build:packages": "tsc -b sdks/ts/memory sdks/ts/memory-postgres sdks/ts/memory-openfga mcp/ts",
     "lint": "biome check ."
   },
   "devDependencies": {

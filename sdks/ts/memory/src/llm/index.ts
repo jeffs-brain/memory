@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Public entry-point for the LLM provider + embedder layer. Re-exports
  * the types and the three provider implementations plus the factory.

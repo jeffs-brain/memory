@@ -1,0 +1,28 @@
+# Sample alias fixture used by the aliases_test.go suite.
+#
+# Format:
+#   aliases:
+#     <trigger>:
+#       - <alternative>
+#       - <alternative>
+#
+# Triggers and alternatives are lowercased and trimmed on load. A
+# trigger with zero non-empty alternatives is ignored. Case is
+# irrelevant at lookup time. See internal/search/aliases.go for the
+# loader and ParseQuery integration.
+aliases:
+  a-ware:
+    - royal-aware
+    - royal-a-ware
+    - a-ware
+  aware:
+    - royal-aware
+    - a-ware
+  bosch:
+    - bosch
+    - robert-bosch
+  dude:
+    - oude
+  reimer:
+    - reimer
+    - oude-reimer

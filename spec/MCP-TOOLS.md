@@ -329,7 +329,242 @@ Streaming behaviour: each `answer_delta` SSE frame triggers a `notifications/pro
 
 Error events from the stream surface as `{ code, message, retryable }` in the text response.
 
-## TODOs / ambiguities
+## Response type shapes
 
-- **TODO**: Nail down the exact shape of `IngestResponse`, `DocumentRecord`, `SessionMessageRecord`, `AskCitationEvent`, and `RetrievedChunk` in this spec rather than deferring to `@jeffs-brain/shared`. Until then SDK implementers should treat those types as the canonical source.
-- **TODO**: Define a cross-language convention for MCP progress tokens so the Go and Python SDK ports can share behaviour tests with TypeScript.
+The wire contract for every `structuredContent` payload is pinned here. Types are lifted from `packages/shared/src/schemas/` in the platform monorepo (`ask.ts`, `document.ts`, `knowledge.ts`, `search.ts`, `session.ts`). Timestamps are RFC 3339 with offset. IDs are opaque strings. Keys are `snake_case` on the wire (mirroring the Zod schemas); SDK ports MUST preserve this even when the idiomatic in-memory naming convention differs.
+
+### `IngestResponse`
+
+Returned by `memory_ingest_file` (always, from `POST /v1/brains/{id}/documents/ingest/file`) and by `memory_ingest_url` on the server path (`POST /v1/brains/{id}/documents/ingest/url`). It is a discriminated union on `status`. Source: `schemas/knowledge.ts`.
+
+```ts
+type IngestCompletedResponse = {
+  status?: 'completed'          // omitted by the completed-path for back-compat
+  document_id: string
+  path: string
+  hash: string
+  chunk_count: number           // non-negative integer
+  embedded_count: number        // non-negative integer
+  duration_ms: number           // non-negative integer
+  reused: boolean               // default false
+  // Additional keys allowed (schema is `.loose()`); SDKs MUST preserve unknown fields verbatim.
+}
+
+type IngestQueuedResponse = IngestCompletedResponse & {
+  status: 'queued'
+  job_id: string
+}
+
+type IngestResponse = IngestCompletedResponse | IngestQueuedResponse
+```
+
+Example (`completed`):
+
+```json
+{
+  "status": "completed",
+  "document_id": "doc_01hxyz...",
+  "path": "/ingest/readme.md",
+  "hash": "2fbe9c...",
+  "chunk_count": 18,
+  "embedded_count": 18,
+  "duration_ms": 412,
+  "reused": false
+}
+```
+
+Example (`queued`):
+
+```json
+{
+  "status": "queued",
+  "job_id": "job_01hxyz...",
+  "document_id": "doc_01hxyz...",
+  "path": "/ingest/big-manual.pdf",
+  "hash": "b3cafe...",
+  "chunk_count": 0,
+  "embedded_count": 0,
+  "duration_ms": 7,
+  "reused": false
+}
+```
+
+### `DocumentRecord`
+
+The full persisted document as returned by `POST /v1/brains/{id}/documents` and surfaced in `memory_remember`, the `memory_ingest_url` fallback path, and `memory_extract` transcript mode. Source: `schemas/document.ts`.
+
+```ts
+type DocumentMetadata = Record<string, string | number | boolean | null>   // keys 1..128 chars
+
+type DocumentRecord = {
+  id: string                     // opaque document id
+  brain_id: string
+  title: string                  // 1..512 chars
+  path: string                   // 1..1024 chars, NUL-free
+  source: 'ingest' | 'extract' | 'compile' | 'reflect'
+  content_type: string           // default 'text/markdown'
+  byte_size: number              // non-negative integer, canonical text size
+  checksum_sha256: string        // 64-char lowercase hex
+  metadata: DocumentMetadata     // defaults to {}
+  commit_sha: string             // 7..64 char lowercase hex
+  created_at: string             // RFC 3339 with offset
+  updated_at: string
+  deleted_at: string | null
+}
+```
+
+Example:
+
+```json
+{
+  "id": "doc_01hxyz...",
+  "brain_id": "brn_01hxyz...",
+  "title": "Saturday run notes",
+  "path": "/memory/global/user-preference-running.md",
+  "source": "ingest",
+  "content_type": "text/markdown",
+  "byte_size": 1842,
+  "checksum_sha256": "2fbe9c34a1...b7",
+  "metadata": { "tags": "running,health" },
+  "commit_sha": "a1b2c3d4e5f6",
+  "created_at": "2026-04-18T08:12:00+00:00",
+  "updated_at": "2026-04-18T08:12:00+00:00",
+  "deleted_at": null
+}
+```
+
+`DocumentRecord` is **not** included in `structuredContent` as a standalone key; it is always nested under `document` (extract transcript mode and ingest-url fallback) or inlined at the top level (remember) via spread.
+
+### `SessionMessageRecord`
+
+Returned by `memory_extract` session mode, one entry per message created via `POST /v1/brains/{id}/sessions/{sessionId}/messages`. Source: `schemas/session.ts` (`MessageSchema`).
+
+```ts
+type SessionMessageRecord = {
+  id: string                     // opaque message id
+  session_id: string
+  role: 'system' | 'user' | 'assistant' | 'tool'
+  content: string                // up to 1_000_000 chars
+  name?: string                  // tool name when role is 'tool'; 1..128 chars
+  created_at: string             // RFC 3339 with offset
+}
+```
+
+Note: the `metadata` bag (including `actor_id` and the `skip_extract` flag used by `memory_extract`) is accepted on the **create** request (`CreateMessageSchema`) but is not echoed back on the returned `MessageSchema`. SDK ports MUST NOT surface `metadata` on the read shape even when the server happens to include it.
+
+Example:
+
+```json
+{
+  "id": "msg_01hxyz...",
+  "session_id": "ses_01hxyz...",
+  "role": "user",
+  "content": "what did I watch last Friday?",
+  "created_at": "2026-04-18T08:12:00+00:00"
+}
+```
+
+### `AskCitationEvent`
+
+SSE event streamed during `memory_ask` alongside `answer_delta` frames. Collected into the `citations` array on the final tool response. Source: `schemas/ask.ts` (`AskCitationEventSchema`).
+
+```ts
+type AskCitationEvent = {
+  type: 'citation'
+  chunk_id: string
+  document_id: string
+  answer_start: number           // non-negative integer, char offset into the accumulated answer
+  answer_end: number             // non-negative integer
+  quote: string                  // the supporting text lifted from the chunk
+}
+```
+
+Example:
+
+```json
+{
+  "type": "citation",
+  "chunk_id": "chk_01hxyz...",
+  "document_id": "doc_01hxyz...",
+  "answer_start": 184,
+  "answer_end": 231,
+  "quote": "I finished the 10k route in under 55 minutes."
+}
+```
+
+Other SSE event types that flow alongside citations during `memory_ask` (`retrieve`, `answer_delta`, `done`, `error`) are defined in `schemas/ask.ts` under the `AskEvent` discriminated union and are out of scope for this spec section; only `AskCitationEvent` surfaces in the tool's `structuredContent`.
+
+### `RetrievedChunk`
+
+The shape of each entry in `memory_ask`'s `structuredContent.retrieved` array, copied from the `chunks` field of the first `retrieve` SSE event. Source: `schemas/ask.ts` (`AskRetrieveEventSchema.chunks[*]`).
+
+```ts
+type RetrievedChunk = {
+  chunk_id: string
+  document_id: string
+  score: number
+  preview: string                // up to 512 chars
+}
+```
+
+Example:
+
+```json
+{
+  "chunk_id": "chk_01hxyz...",
+  "document_id": "doc_01hxyz...",
+  "score": 0.874,
+  "preview": "## Saturday\n\nI finished the 10k route in under 55 minutes..."
+}
+```
+
+Note: this is intentionally thinner than the `SearchResultChunk` shape returned by `memory_search` (which carries `brain_id`, `metadata`, `highlights`, and optional `component_scores`). `memory_ask` trades detail for streaming throughput. SDK ports MUST NOT substitute the richer `SearchResultChunk` here; the two endpoints speak different wire shapes by design, and cross-mixing will break conformance.
+
+## Progress tokens
+
+Long-running tools emit MCP progress notifications using the standard `notifications/progress` method defined in the Model Context Protocol spec. The reference implementation in `memory_ask` (see `apps/mcp/src/tools/ask.ts`) is the canonical pattern; every SDK port MUST follow the same conventions.
+
+### Token lifecycle
+
+1. The **client** generates a `progressToken` and includes it in the tool call's `_meta.progressToken` field. The token is an opaque string (typically a UUIDv4, but any non-empty string is accepted; the server never parses it). A tool call without `_meta.progressToken` MUST NOT emit any `notifications/progress` messages.
+2. The **server** reads `extra._meta?.progressToken` at the top of the tool handler. If absent, streaming updates are suppressed and only the final response is returned.
+3. The **server** sends progress notifications via `extra.sendNotification({ method: 'notifications/progress', params: { progressToken, progress, message? } })`. The `progressToken` MUST match what the client provided, verbatim.
+4. On completion (normal or error), the final tool response is returned via the usual `content[0].text` + `structuredContent` path. There is no explicit "progress done" notification: the tool reply itself terminates the progress stream.
+
+### Notification payload
+
+`params.progress` is a **monotonically increasing counter** (an integer in TS, starting at 0 and incremented by 1 per emitted event). It is **not** a percentage and it is **not** paired with a `total` field in the v1.0 SDKs. The counter is semantically "events emitted so far"; clients that want a percentage should scale it against their own expectations or wait for `total` to be populated in a future spec version.
+
+`params.message` is an optional free-form string. `memory_ask` uses it to carry the incremental `answer_delta.delta` string so clients can render tokens as they stream. Other tools either omit `message` or supply a short human-readable stage label.
+
+### Per-tool progress semantics
+
+| Tool | Emits progress? | Counter unit | `message` contents |
+| --- | --- | --- | --- |
+| `memory_ask` | Yes, when `progressToken` present. | Number of `answer_delta` SSE frames received. | The delta text for that frame. |
+| `memory_ingest_file` | **Reserved.** The v1.0 TS implementation does not emit `notifications/progress` frames; the tool runs synchronously end-to-end and the final response carries a `status` of `queued` or `completed`. | n/a | n/a |
+| `memory_ingest_url` | **Reserved.** Same as `memory_ingest_file`. | n/a | n/a |
+| `memory_consolidate` | **Reserved.** Fire-and-forget; the tool returns whatever `brains.consolidate`/`brains.compile` resolves with. | n/a | n/a |
+| `memory_reflect` | No. Synchronous close + reflect; no progress stream. | n/a | n/a |
+| All other tools | No. | n/a | n/a |
+
+SDK ports that add progress support to a tool marked **Reserved** MUST land a spec update first. Until then, their absence of progress emission is part of the wire contract: clients MUST tolerate tools that honour `progressToken` with zero notifications before the final reply.
+
+### Example notification (from `memory_ask`)
+
+```json
+{
+  "method": "notifications/progress",
+  "params": {
+    "progressToken": "b7f2a5d2-9b1c-4ed9-9a1d-0a7f3c1c9e4c",
+    "progress": 42,
+    "message": " cor"
+  }
+}
+```
+
+The client concatenates `message` values in order to reconstruct the streaming answer. The final `done` SSE event on the underlying stream still populates `structuredContent.answer` with the full assembled text, so clients that miss a frame can fall back to the final payload.
+
+### Error handling during streaming
+
+If the underlying SSE stream emits an `error` event (see `schemas/ask.ts` `AskErrorEventSchema`), the server stops emitting `notifications/progress` and returns a text-only tool response describing the error with `{ code, message, retryable }`. Clients MUST treat the absence of a final reply accompanied by no terminal `notifications/progress` as an abort and surface the error code verbatim.

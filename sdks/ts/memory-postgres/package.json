@@ -1,11 +1,34 @@
 {
   "name": "@jeffs-brain/memory-postgres",
-  "version": "0.0.1",
+  "version": "0.1.0",
+  "description": "Postgres and pgvector adapter for @jeffs-brain/memory: tsvector BM25, halfvec cosine, and RRF hybrid retrieval.",
   "license": "Apache-2.0",
+  "author": "Alex J <alex@lleverage.ai>",
+  "homepage": "https://github.com/jeffs-brain/memory#readme",
+  "bugs": {
+    "url": "https://github.com/jeffs-brain/memory/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jeffs-brain/memory.git",
+    "directory": "sdks/ts/memory-postgres"
+  },
+  "keywords": [
+    "memory",
+    "llm",
+    "rag",
+    "retrieval",
+    "postgres",
+    "pgvector",
+    "bm25",
+    "vector-search",
+    "ai-agent"
+  ],
   "type": "module",
-  "main": "./src/index.ts",
-  "types": "./src/index.ts",
-  "files": ["dist", "migrations", "README.md", "LICENSE"],
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "sideEffects": false,
+  "files": ["dist", "migrations", "README.md", "LICENSE", "NOTICE"],
   "exports": {
     ".": {
       "import": "./dist/index.js",
@@ -13,10 +36,17 @@
     },
     "./package.json": "./package.json"
   },
+  "engines": {
+    "node": ">=20"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run --passWithNoTests",
-    "typecheck": "tsc -b",
-    "build": "tsc -b"
+    "prepublishOnly": "bun run typecheck && bun run test && bun run build"
   },
   "dependencies": {
     "drizzle-orm": "^0.45.2",

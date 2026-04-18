@@ -1,5 +1,7 @@
+// SPDX-License-Identifier: Apache-2.0
+
 /**
- * Root command definition for the jbmem CLI. Kept as its own module so
+ * Root command definition for the memory CLI. Kept as its own module so
  * tests can import `rootCommand` without triggering `runMain`.
  */
 
@@ -20,7 +22,7 @@ import { CliError, CliUsageError } from './config.js'
 
 export const rootCommand = defineCommand({
   meta: {
-    name: 'jbmem',
+    name: 'memory',
     description: 'Slim CLI for @jeffs-brain/memory',
   },
   subCommands: {

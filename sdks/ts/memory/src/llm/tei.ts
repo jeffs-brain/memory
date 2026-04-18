@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Hugging Face Text Embeddings Inference (TEI) client. Provides both an
  * Embedder and a Reranker over the stock TEI HTTP endpoints.

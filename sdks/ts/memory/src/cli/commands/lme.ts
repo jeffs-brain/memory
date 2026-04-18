@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 import { access, mkdir, readFile } from 'node:fs/promises'
 import path from 'node:path'
 import { defineCommand } from 'citty'
@@ -132,7 +134,7 @@ const parseSplit = (value: unknown): LMEUpstreamDatasetName => {
 
 const parseIngestMode = (value: unknown) => {
   const raw =
-    resolveOptionalString(value, 'JBMEM_LME_INGEST_MODE') ?? 'replay'
+    resolveOptionalString(value, 'JB_LME_INGEST_MODE') ?? 'replay'
   if (raw === 'bulk' || raw === 'replay' || raw === 'agentic') return raw
   throw new CliUsageError(
     `invalid ingest mode '${raw}'; expected bulk|replay|agentic`,
@@ -141,7 +143,7 @@ const parseIngestMode = (value: unknown) => {
 
 const parseRetrievalMode = (value: unknown) => {
   const raw =
-    resolveOptionalString(value, 'JBMEM_LME_RETRIEVAL_MODE') ?? 'bm25'
+    resolveOptionalString(value, 'JB_LME_RETRIEVAL_MODE') ?? 'bm25'
   if (raw === 'bm25' || raw === 'semantic' || raw === 'hybrid') return raw
   throw new CliUsageError(
     `invalid retrieval mode '${raw}'; expected bm25|semantic|hybrid`,
@@ -152,7 +154,7 @@ const parseMetricModel = (
   value: unknown,
 ): 'gpt-4o' | 'gpt-4o-mini' | 'llama-3.1-70b-instruct' => {
   const raw =
-    resolveOptionalString(value, 'JBMEM_LME_METRIC_MODEL') ??
+    resolveOptionalString(value, 'JB_LME_METRIC_MODEL') ??
     DEFAULT_METRIC_MODEL
   if (
     raw === 'gpt-4o' ||
@@ -189,10 +191,10 @@ const parseCsv = (value: unknown): readonly string[] | undefined => {
 }
 
 const resolveCacheDir = (value: unknown): string =>
-  path.resolve(resolveOptionalString(value, 'JBMEM_LME_CACHE_DIR') ?? DEFAULT_CACHE_DIR)
+  path.resolve(resolveOptionalString(value, 'JB_LME_CACHE_DIR') ?? DEFAULT_CACHE_DIR)
 
 const resolveOutDir = (value: unknown): string =>
-  path.resolve(resolveOptionalString(value, 'JBMEM_LME_OUT_DIR') ?? DEFAULT_OUT_DIR)
+  path.resolve(resolveOptionalString(value, 'JB_LME_OUT_DIR') ?? DEFAULT_OUT_DIR)
 
 const defaultDatasetDir = (
   cacheDir: string,
@@ -226,7 +228,7 @@ const resolveReportPath = async (
   reportArg: unknown,
   outDirArg: unknown,
 ): Promise<string> => {
-  const explicit = resolveOptionalString(reportArg, 'JBMEM_LME_REPORT')
+  const explicit = resolveOptionalString(reportArg, 'JB_LME_REPORT')
   if (explicit !== undefined) return path.resolve(explicit)
   const outDir = resolveOutDir(outDirArg)
   return path.join(await latestRunDir(outDir), 'report.json')
@@ -237,7 +239,7 @@ const resolveManifestPath = async (
   reportArg: unknown,
   outDirArg: unknown,
 ): Promise<string> => {
-  const explicit = resolveOptionalString(manifestArg, 'JBMEM_LME_MANIFEST')
+  const explicit = resolveOptionalString(manifestArg, 'JB_LME_MANIFEST')
   if (explicit !== undefined) return path.resolve(explicit)
   return path.join(path.dirname(await resolveReportPath(reportArg, outDirArg)), 'manifest.json')
 }
@@ -273,7 +275,7 @@ const fetchCommand = defineCommand({
     },
     cacheDir: {
       type: 'string',
-      description: 'Cache directory (overrides JBMEM_LME_CACHE_DIR)',
+      description: 'Cache directory (overrides JB_LME_CACHE_DIR)',
     },
     datasetDir: {
       type: 'string',
@@ -304,11 +306,11 @@ const fetchCommand = defineCommand({
     const splits = parseSplits(args.splits)
     const cacheDir = resolveCacheDir(args.cacheDir)
     const datasetDir = path.resolve(
-      resolveOptionalString(args.datasetDir, 'JBMEM_LME_DATASET_DIR') ??
+      resolveOptionalString(args.datasetDir, 'JB_LME_DATASET_DIR') ??
         defaultDatasetDir(cacheDir, bundle),
     )
     const repoDir = path.resolve(
-      resolveOptionalString(args.repoDir, 'JBMEM_LME_REPO_DIR') ??
+      resolveOptionalString(args.repoDir, 'JB_LME_REPO_DIR') ??
         defaultRepoDir(cacheDir),
     )
     const skipRepo = parseBoolean(args.skipRepo, false)
@@ -328,7 +330,7 @@ const fetchCommand = defineCommand({
         : await fetchOfficialRepo({
             dir: repoDir,
             ref:
-              resolveOptionalString(args.repoRef, 'JBMEM_LME_REPO_REF') ??
+              resolveOptionalString(args.repoRef, 'JB_LME_REPO_REF') ??
               LONG_MEM_EVAL_OFFICIAL_REPO_REF,
           })
 
@@ -464,37 +466,37 @@ const runCommand = defineCommand({
     const outDir = resolveOutDir(args.outDir)
     const cacheDir = resolveCacheDir(args.cacheDir)
     const datasetPath = path.resolve(
-      resolveOptionalString(args.dataset, 'JBMEM_LME_DATASET') ??
+      resolveOptionalString(args.dataset, 'JB_LME_DATASET') ??
         resolveUpstreamDatasetPath(
           bundle,
           split,
-          resolveOptionalString(undefined, 'JBMEM_LME_DATASET_DIR') ??
+          resolveOptionalString(undefined, 'JB_LME_DATASET_DIR') ??
             defaultDatasetDir(cacheDir, bundle),
         ),
     )
     const repoDir = path.resolve(
-      resolveOptionalString(args.repoDir, 'JBMEM_LME_REPO_DIR') ??
+      resolveOptionalString(args.repoDir, 'JB_LME_REPO_DIR') ??
         defaultRepoDir(cacheDir),
     )
     const { provider, embedder, reranker } = buildProviders()
     const ingestMode = parseIngestMode(args.ingestMode)
     if (ingestMode !== 'bulk' && provider === undefined) {
       throw new CliUsageError(
-        'lme run: replay and agentic modes require JBMEM_PROVIDER',
+        'lme run: replay and agentic modes require JB_LLM_PROVIDER',
       )
     }
     if (!(await pathExists(datasetPath))) {
         throw new CliUsageError(
-          `lme run: dataset not found at ${datasetPath}; run \`jbmem eval lme fetch\` first or pass --dataset`,
+          `lme run: dataset not found at ${datasetPath}; run \`memory eval lme fetch\` first or pass --dataset`,
         )
     }
 
     const compareReportPath = resolveOptionalString(
       args.compareReport,
-      'JBMEM_LME_COMPARE_REPORT',
+      'JB_LME_COMPARE_REPORT',
     )
     const questionCategories = parseCsv(
-      resolveOptionalString(args.categories, 'JBMEM_LME_CATEGORIES'),
+      resolveOptionalString(args.categories, 'JB_LME_CATEGORIES'),
     )
     const outcome = await runStandaloneLMEEval({
       datasetPath,
@@ -506,10 +508,10 @@ const runCommand = defineCommand({
       topK: parsePositiveInt(args.topK, 50, 'lme run'),
       candidateK: parsePositiveInt(args.candidateK, 50, 'lme run'),
       rerankTopN: parsePositiveInt(args.rerankTopN, 20, 'lme run'),
-      ...(resolveOptionalString(args.sampleSize, 'JBMEM_LME_SAMPLE_SIZE') !== undefined
+      ...(resolveOptionalString(args.sampleSize, 'JB_LME_SAMPLE_SIZE') !== undefined
         ? {
             sampleSize: parsePositiveInt(
-              resolveOptionalString(args.sampleSize, 'JBMEM_LME_SAMPLE_SIZE'),
+              resolveOptionalString(args.sampleSize, 'JB_LME_SAMPLE_SIZE'),
               1,
               'lme run',
             ),
@@ -535,29 +537,29 @@ const runCommand = defineCommand({
       ...(questionCategories !== undefined ? { questionCategories } : {}),
       outDir,
       cacheDir,
-      ...(resolveOptionalString(args.runId, 'JBMEM_LME_RUN_ID') !== undefined
-        ? { runId: resolveRequiredString(args.runId, 'JBMEM_LME_RUN_ID', 'lme run') }
+      ...(resolveOptionalString(args.runId, 'JB_LME_RUN_ID') !== undefined
+        ? { runId: resolveRequiredString(args.runId, 'JB_LME_RUN_ID', 'lme run') }
         : {}),
-      ...(resolveOptionalString(args.actorId, 'JBMEM_LME_ACTOR_ID') !== undefined
-        ? { actorId: resolveRequiredString(args.actorId, 'JBMEM_LME_ACTOR_ID', 'lme run') }
+      ...(resolveOptionalString(args.actorId, 'JB_LME_ACTOR_ID') !== undefined
+        ? { actorId: resolveRequiredString(args.actorId, 'JB_LME_ACTOR_ID', 'lme run') }
         : {}),
       ...(provider !== undefined ? { provider } : {}),
       ...(embedder !== undefined ? { embedder } : {}),
       ...(reranker !== undefined ? { reranker } : {}),
-      ...(resolveOptionalString(args.readerModel, 'JBMEM_LME_READER_MODEL') !== undefined
+      ...(resolveOptionalString(args.readerModel, 'JB_LME_READER_MODEL') !== undefined
         ? {
             readerModel: resolveRequiredString(
               args.readerModel,
-              'JBMEM_LME_READER_MODEL',
+              'JB_LME_READER_MODEL',
               'lme run',
             ),
           }
         : {}),
-      ...(resolveOptionalString(args.judgeModel, 'JBMEM_LME_JUDGE_MODEL') !== undefined
+      ...(resolveOptionalString(args.judgeModel, 'JB_LME_JUDGE_MODEL') !== undefined
         ? {
             judgeModel: resolveRequiredString(
               args.judgeModel,
-              'JBMEM_LME_JUDGE_MODEL',
+              'JB_LME_JUDGE_MODEL',
               'lme run',
             ),
           }
@@ -648,17 +650,17 @@ const scoreCommand = defineCommand({
       const manifestPath = await resolveManifestPath(args.manifest, args.report, args.outDir)
       const manifest = await readManifest(manifestPath)
       const repoDir = path.resolve(
-        resolveOptionalString(args.repoDir, 'JBMEM_LME_REPO_DIR') ??
+        resolveOptionalString(args.repoDir, 'JB_LME_REPO_DIR') ??
           manifest.officialRepo?.dir ??
           defaultRepoDir(resolveCacheDir(undefined)),
       )
       const predictionsPath = path.resolve(
-        resolveOptionalString(args.predictions, 'JBMEM_LME_PREDICTIONS') ??
+        resolveOptionalString(args.predictions, 'JB_LME_PREDICTIONS') ??
           manifest.outputs.predictionsPath ??
           path.join(path.dirname(reportPath), 'predictions.jsonl'),
       )
       const datasetPath = path.resolve(
-        resolveOptionalString(args.dataset, 'JBMEM_LME_DATASET') ??
+        resolveOptionalString(args.dataset, 'JB_LME_DATASET') ??
           manifest.dataset.path,
       )
       const official = await runOfficialScorer({
@@ -666,7 +668,7 @@ const scoreCommand = defineCommand({
         datasetPath,
         predictionsPath,
         metricModel: parseMetricModel(args.metricModel),
-        pythonBin: resolveOptionalString(args.python, 'JBMEM_PYTHON_BIN') ?? 'python3',
+        pythonBin: resolveOptionalString(args.python, 'JB_PYTHON_BIN') ?? 'python3',
       })
       officialSummary = {
         resultPath: official.resultPath,
@@ -704,10 +706,10 @@ const compareCommand = defineCommand({
   },
   run: async ({ args }) => {
     const leftPath = path.resolve(
-      resolveRequiredString(args.left, 'JBMEM_LME_LEFT_REPORT', 'lme compare'),
+      resolveRequiredString(args.left, 'JB_LME_LEFT_REPORT', 'lme compare'),
     )
     const rightPath = path.resolve(
-      resolveRequiredString(args.right, 'JBMEM_LME_RIGHT_REPORT', 'lme compare'),
+      resolveRequiredString(args.right, 'JB_LME_RIGHT_REPORT', 'lme compare'),
     )
     const comparison = compareReports(
       await readReport(leftPath),
@@ -765,7 +767,7 @@ const doctorCommand = defineCommand({
     const split = parseSplit(args.split)
     const cacheDir = resolveCacheDir(args.cacheDir)
     const datasetPath = path.resolve(
-      resolveOptionalString(args.dataset, 'JBMEM_LME_DATASET') ??
+      resolveOptionalString(args.dataset, 'JB_LME_DATASET') ??
         resolveUpstreamDatasetPath(
           bundle,
           split,
@@ -773,7 +775,7 @@ const doctorCommand = defineCommand({
         ),
     )
     const repoDir = path.resolve(
-      resolveOptionalString(args.repoDir, 'JBMEM_LME_REPO_DIR') ??
+      resolveOptionalString(args.repoDir, 'JB_LME_REPO_DIR') ??
         defaultRepoDir(cacheDir),
     )
     const outDir = resolveOutDir(args.outDir)
@@ -810,7 +812,7 @@ const doctorCommand = defineCommand({
         detail:
           provider !== undefined
             ? 'provider configuration is valid'
-            : 'JBMEM_PROVIDER not set',
+            : 'JB_LLM_PROVIDER not set',
         ...(provider !== undefined
           ? { value: { kind: provider.kind, model: provider.model } }
           : {}),
@@ -832,7 +834,7 @@ const doctorCommand = defineCommand({
         detail:
           embedder !== undefined
             ? 'embedder configuration is valid'
-            : 'JBMEM_EMBEDDER not set',
+            : 'JB_EMBED_PROVIDER not set',
         ...(embedder !== undefined ? { value: embedder } : {}),
       })
     } catch (err) {
@@ -852,7 +854,7 @@ const doctorCommand = defineCommand({
         detail:
           reranker !== undefined
             ? 'reranker configuration is valid'
-            : 'JBMEM_RERANKER not set',
+            : 'JB_RERANK_PROVIDER not set',
         ...(reranker !== undefined ? { value: reranker } : {}),
       })
     } catch (err) {
@@ -886,7 +888,7 @@ const doctorCommand = defineCommand({
       try {
         await verifyOfficialScorer(
           repoDir,
-          resolveOptionalString(args.python, 'JBMEM_PYTHON_BIN') ?? 'python3',
+          resolveOptionalString(args.python, 'JB_PYTHON_BIN') ?? 'python3',
         )
         checks.push({
           name: 'official',

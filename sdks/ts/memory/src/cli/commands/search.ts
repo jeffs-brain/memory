@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 import { defineCommand } from 'citty'
 import { openBrain } from '../brain.js'
 import {
@@ -23,7 +25,7 @@ export const searchCommand = defineCommand({
     },
     brain: {
       type: 'string',
-      description: 'Brain directory (overrides JBMEM_BRAIN)',
+      description: 'Brain directory (overrides JB_BRAIN)',
     },
     mode: {
       type: 'string',

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 import { randomBytes } from 'node:crypto'
 import {
   mkdir,

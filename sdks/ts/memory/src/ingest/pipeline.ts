@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Ingest pipeline orchestrator: raw content → store → chunks → embeddings
  * → search index. Re-entrant: ingesting identical bytes a second time

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 import { describe, expect, it, vi } from 'vitest'
 import { createMemoryLifecycle } from './lifecycle.js'
 import type { Memory } from './types.js'

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Public types for the knowledge pipeline. Ported (and simplified) from
  * apps/jeff/internal/knowledge/{knowledge,ingest,compile,promote,lint,

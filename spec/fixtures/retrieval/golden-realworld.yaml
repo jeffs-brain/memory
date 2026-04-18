@@ -1,0 +1,116 @@
+queries:
+  # Natural-language queries that mimic what the LLM's kb_search tool
+  # constructs during a real TUI conversation. Every one of these
+  # returned zero hits before Layer 1 + 2 landed. A query passes when
+  # any_of listed alternatives appears in top-K, or when every
+  # must_retrieve target appears. Real-world questions have many
+  # legitimate answers, so any_of is the common shape.
+
+  # --- Bosch coverage ---
+
+  - id: lleverage-bosch-relationship
+    q: "what can you tell me about the relationship between lleverage and bosch"
+    any_of:
+      - companies/bosch.md
+      - companies/bosch-pt.md
+      - clients/bosch.md
+      - clients/bosch-pt.md
+      - clients/bsh.md
+      - workflows/bosch-pt-contract-extraction.md
+      - workflows/bosch-contract-data-extraction.md
+      - companies/lleverage.md
+      - clients/lleverage.md
+      - tooling/lleverage.md
+    notes: "Screenshot evidence: returned zero pre-fix. Any Bosch or Lleverage article is a legitimate hit for a relationship question."
+
+  - id: bosch-direct
+    q: "bosch"
+    any_of:
+      - companies/bosch.md
+      - companies/bosch-pt.md
+      - clients/bosch.md
+      - clients/bosch-pt.md
+      - clients/bsh.md
+      - companies/bs-home-products.md
+      - people/paul-bosch-pt.md
+      - workflows/bosch-contract-data-extraction.md
+    notes: "Bare entity lookup. BSH (Bosch Siemens Home) and any Bosch entity article passes."
+
+  - id: bosch-power-tools
+    q: "bosch power tools contract extraction"
+    any_of:
+      - workflows/bosch-pt-contract-extraction.md
+      - workflows/bosch-contract-data-extraction.md
+      - administrative/bosch-power-tools-na.md
+    notes: "Multi-term entity + capability query."
+
+  - id: bosch-service-claims
+    q: "how do we handle bosch service claims"
+    any_of:
+      - workflows/bosch-service-claims-automation.md
+      - workflows/bosch-service-claims-extraction.md
+      - administrative/bosch-skil-service-claims.md
+    notes: "Question-form natural-language query."
+
+  # --- Dutch entity coverage ---
+
+  - id: oude-reimer-direct
+    q: "oude reimer"
+    any_of:
+      - companies/oude-reimer.md
+      - companies/oude-reimer-bv.md
+      - clients/oude-reimer.md
+      - clients/oude-reimer-bv.md
+      - clients/oude-reimer-suppliers.md
+      - technology/oude-reimer-delivery-terms.md
+      - technology/oude-reimer-cutting-machines.md
+      - administrative/oude-reimer-corporate-details.md
+    notes: "Dutch two-word entity. Porter stemmer must not mangle. Any canonical Oude Reimer article counts."
+
+  - id: oude-reimer-quotes
+    q: "oude reimer quote generation"
+    any_of:
+      - projects/oude-reimer-quote-generation.md
+      - software/oude-reimer-quote-gen.md
+      - workflows/oude-reimer-quote-transformation.md
+    notes: "Project lookup, three-term query."
+
+  - id: heller-oude-reimer
+    q: "heller oude reimer machining"
+    any_of:
+      - companies/heller-oude-reimer.md
+      - administrative/heller-oude-reimer.md
+      - products/heller-ode-reimer-machinery.md
+      - technology/heller-machining-centres.md
+      - equipment/heller-f-10000-apc.md
+    notes: "Relationship query with two Dutch entities. Adding 'machining' biases semantic toward the Heller side."
+
+  # --- Broader domain queries ---
+
+  - id: cargill-project
+    q: "cargill data quality project"
+    any_of:
+      - projects/cargill-data-quality-automation.md
+      - projects/cargill-dq-poc.md
+      - projects/cargill-ai-agent.md
+    notes: "Project lookup with client + capability."
+
+  - id: a-ware-production
+    q: "a ware production optimisation"
+    any_of:
+      - projects/a-ware-production-optimisation.md
+      - workflows/royal-aware-production-scheduling-ai.md
+      - workflows/royal-aware-production-planning.md
+      - projects/royal-aware-production-planning-poc.md
+    notes: "Hyphenated client name; any production-planning article for A-Ware passes."
+
+  - id: lleverage-billing
+    q: "lleverage billing credit system"
+    any_of:
+      - administrative/billing-and-credit-system.md
+      - administrative/platform-billing-model.md
+      - administrative/billing-dashboard.md
+      - administrative/stripe-configuration.md
+      - administrative/pricing-model.md
+      - administrative/billing-migration-per-agent.md
+    notes: "Entity + capability query. Keyword 'billing credit system' steers retrieval to billing articles rather than lleverage-about articles."

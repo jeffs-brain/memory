@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 export class StoreError extends Error {
   override readonly name: string = 'StoreError'
   constructor(

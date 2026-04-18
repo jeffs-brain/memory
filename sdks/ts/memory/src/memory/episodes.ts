@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 import { noopLogger, type Logger, type Message } from '../llm/index.js'
 import { joinPath, toPath, type Path, type Store } from '../store/index.js'
 import { buildFrontmatter, parseFrontmatter } from './frontmatter.js'

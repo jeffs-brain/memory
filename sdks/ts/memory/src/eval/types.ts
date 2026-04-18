@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Public types for the LME (LongMemEval) harness. Mirrors the Go surface
  * in apps/jeff/internal/knowledge/eval/lme trimmed to the primitives the

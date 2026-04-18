@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Public types for the LLM provider / embedder layer. Shared across
  * Anthropic, OpenAI, Ollama, and TEI clients. Ported from

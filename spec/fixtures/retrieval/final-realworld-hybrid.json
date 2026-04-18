@@ -1,0 +1,206 @@
+{
+  "generated_at": "2026-04-11T18:20:10.297246781+02:00",
+  "schema_version": 1,
+  "brain": {
+    "root": "/home/jaythegeek/.config/jeff",
+    "backend": "fsstore"
+  },
+  "corpus": {
+    "wiki_articles": 5822,
+    "raw_files": 20265,
+    "compiled_files": 4043,
+    "uncompiled_files": 16222,
+    "total_sources": 9143
+  },
+  "retrieval": {
+    "queries_run": 10,
+    "queries_passed": 10,
+    "recall_at_k": 1,
+    "k": 10,
+    "with_synthesis": false,
+    "queries": [
+      {
+        "id": "lleverage-bosch-relationship",
+        "question": "what can you tell me about the relationship between lleverage and bosch",
+        "passed": true,
+        "retrieved": [
+          "companies/bosch-pt.md",
+          "administrative/bosch-power-tools-na.md",
+          "companies/robert-bosch-tool-corporation-na.md",
+          "legal/lleverage-terms-of-service.md",
+          "administrative/lleverage-v2-commercial-model.md",
+          "companies/lleverage.md",
+          "clients/robert-bosch-tool-corporation.md",
+          "tooling/lleverage.md",
+          "administrative/servicepower.md",
+          "people/tim-beyer.md"
+        ],
+        "missing_must": null
+      },
+      {
+        "id": "bosch-direct",
+        "question": "bosch",
+        "passed": true,
+        "retrieved": [
+          "companies/robert-bosch-tool-corporation-na.md",
+          "clients/robert-bosch-tool-corporation.md",
+          "administrative/bosch-power-tools-na.md",
+          "workflows/bosch-benchmark-analysis.md",
+          "companies/bosch.md",
+          "clients/bsh.md",
+          "clients/bosch.md",
+          "workflows/bosch-oven-scraper.md",
+          "clients/bosch-ovens-benchmark.md",
+          "workflows/bosch-dishwasher-scraper.md"
+        ],
+        "missing_must": null
+      },
+      {
+        "id": "bosch-power-tools",
+        "question": "bosch power tools contract extraction",
+        "passed": true,
+        "retrieved": [
+          "business/bosch-power-tools.md",
+          "workflows/bosch-contract-data-extraction.md",
+          "administrative/bosch-power-tools-na.md",
+          "companies/robert-bosch-tool-corporation-na.md",
+          "clients/robert-bosch-tool-corporation.md",
+          "clients/bosch-pt.md",
+          "workflows/bosch-service-claims-extraction.md",
+          "workflows/bosch-pt-contract-extraction.md",
+          "companies/bosch-pt.md",
+          "tooling/servicepower.md"
+        ],
+        "missing_must": null
+      },
+      {
+        "id": "bosch-service-claims",
+        "question": "how do we handle bosch service claims",
+        "passed": true,
+        "retrieved": [
+          "administrative/servicepower.md",
+          "workflows/bosch-service-claims-extraction.md",
+          "administrative/bosch-skil-service-claims.md",
+          "companies/robert-bosch-tool-corporation-na.md",
+          "workflows/bosch-service-claims-automation.md",
+          "people/jeff-martini.md",
+          "companies/servicepower.md",
+          "business/bosch-power-tools.md",
+          "clients/robert-bosch-tool-corporation.md",
+          "tooling/servicepower.md"
+        ],
+        "missing_must": null
+      },
+      {
+        "id": "oude-reimer-direct",
+        "question": "oude reimer",
+        "passed": true,
+        "retrieved": [
+          "administrative/oude-reimer-corporate-details.md",
+          "technology/oude-reimer-delivery-terms.md",
+          "administrative/oude-reimer-contact-details.md",
+          "technology/oude-reimer-cutting-machines.md",
+          "technology/oude-reimer-cooling-filter-systems.md",
+          "technology/oude-reimer-technical-options.md",
+          "technology/oude-reimer-product-taxonomy.md",
+          "technology/oude-reimer-commissioning-standards.md",
+          "technology/oude-reimer-pricing-data.md",
+          "tooling/oude-reimer-chat-assistant.md"
+        ],
+        "missing_must": null
+      },
+      {
+        "id": "oude-reimer-quotes",
+        "question": "oude reimer quote generation",
+        "passed": true,
+        "retrieved": [
+          "projects/oude-reimer-quote-generation.md",
+          "workflows/oude-reimer-quote-generation.md",
+          "software/oude-reimer-quote-gen.md",
+          "clients/oude-reimer-quote-automation.md",
+          "templates/or-quote-template.md",
+          "technology/oude-reimer-quote-automation.md",
+          "technology/quote-generation-agent.md",
+          "administrative/oude-reimer-bv.md",
+          "workflows/oude-reimer-quote-transformation.md",
+          "workflows/quote-generation-eval-criteria.md"
+        ],
+        "missing_must": null
+      },
+      {
+        "id": "heller-oude-reimer",
+        "question": "heller oude reimer machining",
+        "passed": true,
+        "retrieved": [
+          "companies/heller-oude-reimer.md",
+          "administrative/heller-oude-reimer.md",
+          "clients/oude-reimer-suppliers.md",
+          "technology/heller-machining-centres.md",
+          "administrative/almi-machinefabriek-bv.md",
+          "people/richard-leise.md",
+          "companies/oude-reimer-bv.md",
+          "technology/oude-reimer-product-taxonomy.md",
+          "technology/oude-reimer-cutting-machines.md",
+          "companies/oude-reimer.md"
+        ],
+        "missing_must": null
+      },
+      {
+        "id": "cargill-project",
+        "question": "cargill data quality project",
+        "passed": true,
+        "retrieved": [
+          "projects/cargill-data-quality-automation.md",
+          "projects/cargill-dq-poc.md",
+          "business/cargill-data-quality-framework.md",
+          "clients/cargill.md",
+          "business/cargill-data-objects.md",
+          "people/annemarth.md",
+          "technology/cargill-data-quality-framework.md",
+          "business/dq-0004-weight-validation.md",
+          "business/cargill-dq-rule-dq0005.md",
+          "business/dq-0009-customer-district-postal-code-control.md"
+        ],
+        "missing_must": null
+      },
+      {
+        "id": "a-ware-production",
+        "question": "a ware production optimisation",
+        "passed": true,
+        "retrieved": [
+          "companies/royal-a-ware.md",
+          "projects/a-ware-production-optimisation.md",
+          "workflows/royal-aware-production-scheduling-ai.md",
+          "workflows/royal-aware-production-planning.md",
+          "projects/royal-aware-production-planning-poc.md",
+          "workflows/royal-aware-production-scheduling-output.md",
+          "projects/royal-a-ware-production-planning-poc.md",
+          "clients/royal-aware.md",
+          "workflows/royal-aware-llm-suggestions-prompt.md",
+          "projects/royal-a-ware-ai-planning.md"
+        ],
+        "missing_must": null
+      },
+      {
+        "id": "lleverage-billing",
+        "question": "lleverage billing credit system",
+        "passed": true,
+        "retrieved": [
+          "administrative/billing-and-credit-system.md",
+          "legal/lleverage-sla.md",
+          "technology/lleverage-oauth-strategy.md",
+          "administrative/credit-system-architecture.md",
+          "administrative/credit-system-technical-spec.md",
+          "administrative/billing-and-pricing.md",
+          "technology/erys-credit-system.md",
+          "administrative/credit-system.md",
+          "business/erys-pricing-and-billing.md",
+          "administrative/pricing-model.md"
+        ],
+        "missing_must": null
+      }
+    ]
+  },
+  "issues": [],
+  "elapsed_ns": 1628987402
+}

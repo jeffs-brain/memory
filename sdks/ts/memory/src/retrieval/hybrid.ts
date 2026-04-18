@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Top-level hybrid retrieval pipeline. Port of
  * apps/jeff/internal/knowledge.KnowledgeBase.SearchHybrid +

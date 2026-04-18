@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Structured-output helpers shared by every provider. The extract /
  * validate logic is provider-agnostic; providers wire their own

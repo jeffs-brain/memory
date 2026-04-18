@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * FTS5 query compilation and BM25 ranking.
  *

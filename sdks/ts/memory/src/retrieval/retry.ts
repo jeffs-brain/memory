@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Retry ladder for zero-hit queries. Ported from
  * apps/jeff/internal/knowledge/search.go:SearchWithOpts. Each rung

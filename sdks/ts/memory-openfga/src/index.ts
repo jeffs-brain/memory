@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * OpenFGA adapter for `@jeffs-brain/memory`.
  *

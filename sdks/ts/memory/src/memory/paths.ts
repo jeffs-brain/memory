@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Logical memory path helpers. Mirrors `brain.MemoryGlobalPrefix` /
  * `brain.MemoryProjectPrefix` / `brain.MemoryProjectTopic` from Go so the

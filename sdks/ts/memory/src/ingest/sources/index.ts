@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Dispatch façade for ingest source adapters. Callers pass a classified
  * input + the raw bytes (or URL) and get a `LoadedSource` back.

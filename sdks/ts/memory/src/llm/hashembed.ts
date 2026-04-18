@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Deterministic dev-only fallback embedder. Tokenises input on whitespace
  * and Unicode punctuation boundaries, hashes each token with FNV-1a 64-bit,

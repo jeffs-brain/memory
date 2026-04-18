@@ -1,0 +1,620 @@
+queries:
+  # Distillation-sensitive golden set. These queries mimic patterns where
+  # the raw user input would benefit from LLM rewriting before retrieval.
+  # Categories: long error pastes, shallow/vague queries, anaphoric
+  # references, multi-intent, negation, domain jargon, conversational,
+  # and code-heavy queries.
+
+  # ====================================================================
+  # Category 1: Long error pastes (10 queries)
+  # The actual question is buried inside or after a wall of error output.
+  # A distiller should extract the core question and discard the noise.
+  # ====================================================================
+
+  - id: error-paste-deployment-fail
+    q: |
+      I ran deploy and got this:
+      ERROR: gcloud run services replace service.yaml
+      Deploying new revision...
+      Setting IAM Policy...
+      ERROR: (gcloud.run.services.replace) PERMISSION_DENIED: Permission 'run.services.update' denied on resource 'namespaces/lleverage-staging/services/gemma4-31b'
+      Revision deployment failed with 1 error(s):
+        * Permission denied on service account
+      at Object.deployRevision (/deploy/steps.ts:142:11)
+      at async /deploy/pipeline.ts:89:5
+      How do we grant the service account deploy permissions in staging?
+    any_of:
+      - operations/cloud-run-deployment.md
+      - operations/gcp-iam-permissions.md
+      - operations/staging-environment.md
+      - infrastructure/service-accounts.md
+    notes: "Category: long-error-paste. Question is the last line. Distiller should extract: 'How to grant service account deploy permissions in staging?'"
+
+  - id: error-paste-compile-crash
+    q: |
+      brain compile just died:
+
+      2026-04-10T14:23:01Z ERR compile wave=3 file=documents/business-case-detail-wk8-15-v2-raw.md err="vLLM returned HTTP 500: {\"object\":\"error\",\"message\":\"ValueError: Input too long for max_model_len=32767\",\"type\":\"invalid_request_error\",\"code\":null}"
+      2026-04-10T14:23:01Z ERR compile wave=3 file=documents/fresh-food-planner-23-03-26.md err="vLLM returned HTTP 500: {\"object\":\"error\",\"message\":\"ValueError: Input too long for max_model_len=32767\",\"type\":\"invalid_request_error\",\"code\":null}"
+      2026-04-10T14:23:02Z ERR compile wave=3 total=42 compiled=38 failed=4
+
+      Is this the same poison file issue from last time?
+    any_of:
+      - operations/brain-compile-troubleshooting.md
+      - operations/vllm-configuration.md
+      - operations/known-poison-files.md
+      - technology/gemma4-deployment.md
+    notes: "Category: long-error-paste. Actual question is 'Is this the poison file issue?' buried after multi-line error log."
+
+  - id: error-paste-fts-index
+    q: |
+      jeff brain search "bosch contracts" --bm25
+
+      panic: runtime error: index out of range [5] with length 5
+
+      goroutine 1 [running]:
+      github.com/jaythegeek/jeff/apps/jeff/internal/search.(*Index).Search(0xc0001a2000, {0x7ffd2a1b3e10, 0x10}, 0x5)
+              /home/jaythegeek/code/jeff/apps/jeff/internal/search/index.go:247 +0x3a5
+      github.com/jaythegeek/jeff/apps/jeff/internal/knowledge.(*KnowledgeBase).Search(0xc0001b4000, {0x7ffd2a1b3e10, 0x10}, 0x5)
+              /home/jaythegeek/code/jeff/apps/jeff/internal/knowledge/search.go:89 +0x85
+      main.runBrainSearch(0xc0000ae300, {0xc0001e6040, 0x1, 0x1})
+              /home/jaythegeek/code/jeff/apps/jeff/cmd/jeff/brain.go:156 +0x1a5
+
+      What's causing this FTS panic?
+    any_of:
+      - technology/fts5-search-index.md
+      - operations/brain-search-troubleshooting.md
+      - architecture/search-pipeline.md
+    notes: "Category: long-error-paste. Go stack trace dominates; real question is the last line about FTS panic."
+
+  - id: error-paste-slack-disconnect
+    q: |
+      jeff serve keeps dropping:
+
+      2026-04-13T09:14:22Z WRN slack socket disconnected reason="websocket: close 1006 (abnormal closure)"
+      2026-04-13T09:14:22Z INF slack reconnecting attempt=1
+      2026-04-13T09:14:23Z INF slack connected
+      2026-04-13T09:14:45Z WRN slack socket disconnected reason="websocket: close 1006 (abnormal closure)"
+      2026-04-13T09:14:45Z INF slack reconnecting attempt=2
+      2026-04-13T09:14:46Z INF slack connected
+      2026-04-13T09:15:01Z WRN slack socket disconnected reason="websocket: close 1006 (abnormal closure)"
+      2026-04-13T09:15:01Z INF slack reconnecting attempt=3
+      2026-04-13T09:15:02Z ERR slack max reconnects exceeded, backing off 60s
+
+      This has been happening every 20 seconds for the last hour. Is there a known fix for the socket mode flapping?
+    any_of:
+      - operations/slack-socket-mode.md
+      - operations/jeff-serve-troubleshooting.md
+      - integrations/slack-configuration.md
+      - architecture/channel-adapters.md
+    notes: "Category: long-error-paste. Repeated log lines pad the query; actual ask is about socket mode flapping fix."
+
+  - id: error-paste-embed-timeout
+    q: |
+      Running jeff brain embed and it's stalling:
+
+      $ jeff brain embed --model bge-m3
+      2026-04-12T16:00:01Z INF embed starting articles=5373 model=bge-m3
+      2026-04-12T16:00:02Z INF embed batch=1/108 embedded=50
+      2026-04-12T16:00:04Z INF embed batch=2/108 embedded=100
+      ...
+      2026-04-12T16:05:22Z INF embed batch=54/108 embedded=2700
+      2026-04-12T16:05:52Z WRN embed ollama timeout batch=55 err="context deadline exceeded"
+      2026-04-12T16:06:22Z WRN embed ollama timeout batch=55 err="context deadline exceeded"
+      2026-04-12T16:06:52Z WRN embed ollama timeout batch=55 err="context deadline exceeded"
+
+      It gets halfway and then Ollama stops responding. GPU memory maybe? How do I check?
+    any_of:
+      - operations/ollama-configuration.md
+      - operations/embedding-pipeline.md
+      - technology/bge-m3-embeddings.md
+      - infrastructure/gpu-memory-management.md
+    notes: "Category: long-error-paste. Embed progress log dominates; question is about GPU memory check for Ollama timeouts."
+
+  - id: error-paste-git-push-conflict
+    q: |
+      jeff brain push failed:
+
+      To github.com:jaythegeek/jeff-brain.git
+       ! [rejected]        main -> main (non-fast-forward)
+      error: failed to push some refs to 'github.com:jaythegeek/jeff-brain.git'
+      hint: Updates were rejected because the tip of your current branch is behind
+      hint: its remote counterpart. If you want to integrate the remote changes,
+      hint: use 'git pull' before pushing again.
+      hint: See the 'Note about fast-forwards' in 'git push --help' for details.
+
+      2026-04-13T11:00:01Z ERR brain push failed err="non-fast-forward update rejected"
+
+      Do I need to pull first or is there a force option?
+    any_of:
+      - operations/brain-git-sync.md
+      - operations/brain-conflict-resolution.md
+      - architecture/gitstore-backend.md
+    notes: "Category: long-error-paste. Git rejection output pads the query; question is about pull-first vs force push."
+
+  - id: error-paste-telegram-webhook
+    q: |
+      Telegram adapter won't start:
+
+      2026-04-14T08:00:01Z ERR telegram start err="getUpdates conflict: terminated by other getUpdates request; make sure that only one bot instance is running"
+      2026-04-14T08:00:01Z INF telegram retrying in=5s
+      2026-04-14T08:00:06Z ERR telegram start err="getUpdates conflict: terminated by other getUpdates request; make sure that only one bot instance is running"
+
+      Is there another instance running somewhere? How do I check?
+    any_of:
+      - operations/telegram-configuration.md
+      - operations/jeff-serve-troubleshooting.md
+      - integrations/telegram-bot-setup.md
+    notes: "Category: long-error-paste. Repeated error lines; actual question is about detecting duplicate bot instances."
+
+  - id: error-paste-drizzle-migration
+    q: |
+      office migration failed:
+
+      $ bun run db:migrate
+      [drizzle-kit] Applying migration 0042_add_agent_sessions...
+      LibsqlError: SQLITE_ERROR: table agent_sessions already exists
+          at Database.exec (/home/jaythegeek/code/jeff/apps/office/node_modules/better-sqlite3/lib/methods/exec.js:14:14)
+          at Object.run (/home/jaythegeek/code/jeff/apps/office/node_modules/drizzle-kit/bin.cjs:48291:21)
+          at migrate (/home/jaythegeek/code/jeff/apps/office/node_modules/drizzle-kit/bin.cjs:48412:7)
+
+      Has anyone hit this before? What's the recovery?
+    any_of:
+      - operations/drizzle-migrations.md
+      - operations/office-database.md
+      - technology/sqlite-troubleshooting.md
+    notes: "Category: long-error-paste. Node stack trace noise; question is about duplicate table migration recovery."
+
+  - id: error-paste-cloud-run-oom
+    q: |
+      gemma4 container keeps dying:
+
+      $ gcloud logging read 'resource.labels.service_name="gemma4-31b" severity>=ERROR' --limit=5
+      2026-04-14T02:00:01Z The container was terminated by the operating system because it ran out of memory. Container memory limit (80Gi) exceeded.
+      2026-04-14T01:45:01Z The container was terminated by the operating system because it ran out of memory. Container memory limit (80Gi) exceeded.
+      2026-04-14T01:30:01Z The container was terminated by the operating system because it ran out of memory. Container memory limit (80Gi) exceeded.
+
+      vLLM metrics before crash showed KV cache at 94%. Is gpu-memory-utilization too high at 0.95?
+    any_of:
+      - operations/vllm-configuration.md
+      - operations/cloud-run-memory-limits.md
+      - technology/gemma4-deployment.md
+      - infrastructure/gpu-memory-management.md
+    notes: "Category: long-error-paste. OOM logs pad the query; actual question is whether gpu-memory-utilisation 0.95 is too aggressive."
+
+  - id: error-paste-linear-webhook
+    q: |
+      Linear webhook receiver is returning 401:
+
+      $ curl -X POST https://aaw.llev.dev/webhooks/linear/personal \
+        -H "Content-Type: application/json" \
+        -H "Linear-Signature: sha256=abc123" \
+        -d '{"action":"create","type":"Issue","data":{"id":"test"}}'
+      {"error":"HMAC verification failed"}
+
+      $ jeff linear status --workspace personal
+      Workspace: personal
+      Webhook: installed (https://aaw.llev.dev/webhooks/linear/personal)
+      Signing secret: configured
+      Last event: 2026-04-13T22:00:00Z (14h ago)
+
+      The signing secret looks configured but HMAC keeps failing. Did the secret rotate?
+    any_of:
+      - operations/linear-webhook-troubleshooting.md
+      - integrations/linear-sync-setup.md
+      - operations/linear-credential-management.md
+    notes: "Category: long-error-paste. Curl output + status output pad the query; question is about HMAC secret rotation."
+
+  # ====================================================================
+  # Category 2: Shallow/vague queries (8 queries)
+  # One or two word queries that need expansion to retrieve anything
+  # useful. A distiller should infer the likely intent and expand.
+  # ====================================================================
+
+  - id: vague-config
+    q: "config"
+    any_of:
+      - operations/jeff-configuration.md
+      - architecture/config-yaml-reference.md
+      - operations/config-merge-chain.md
+    notes: "Category: shallow-vague. Bare 'config' could mean anything. Distiller should expand based on context (e.g. 'Jeff CLI configuration reference')."
+
+  - id: vague-deployment
+    q: "deployment"
+    any_of:
+      - operations/deployment-guide.md
+      - operations/cloud-run-deployment.md
+      - infrastructure/scaleway-deployment.md
+      - operations/deploy-script.md
+    notes: "Category: shallow-vague. 'deployment' alone is too broad. Distiller should expand to the user's likely domain."
+
+  - id: vague-permissions
+    q: "permissions"
+    any_of:
+      - operations/gcp-iam-permissions.md
+      - architecture/tool-permissions.md
+      - operations/permission-enforcement.md
+    notes: "Category: shallow-vague. Could mean GCP IAM, tool permissions, or file permissions. Needs context expansion."
+
+  - id: vague-memory
+    q: "memory"
+    any_of:
+      - architecture/memory-system.md
+      - architecture/memory-extract-recall.md
+      - operations/memory-consolidation.md
+      - technology/persistent-memory.md
+    notes: "Category: shallow-vague. Jeff's memory system vs GPU memory vs OOM. Distiller should disambiguate."
+
+  - id: vague-sync
+    q: "sync"
+    any_of:
+      - operations/brain-git-sync.md
+      - integrations/linear-sync-setup.md
+      - operations/brain-sync-guide.md
+    notes: "Category: shallow-vague. Could mean brain sync, Linear sync, or file sync. Needs disambiguation."
+
+  - id: vague-tools
+    q: "tools"
+    any_of:
+      - architecture/core-tools.md
+      - architecture/tool-registration.md
+      - architecture/custom-shell-tools.md
+      - architecture/agent-tool.md
+    notes: "Category: shallow-vague. Jeff has many tool concepts. Distiller should expand to the most likely intent."
+
+  - id: vague-errors
+    q: "errors"
+    any_of:
+      - operations/error-handling-guide.md
+      - architecture/error-types.md
+      - operations/common-errors.md
+    notes: "Category: shallow-vague. Generic 'errors' needs expansion. Distiller should qualify with domain context."
+
+  - id: vague-webhooks
+    q: "webhooks"
+    any_of:
+      - integrations/linear-webhook-setup.md
+      - operations/linear-webhook-troubleshooting.md
+      - architecture/webhook-receiver.md
+      - integrations/slack-events-api.md
+    notes: "Category: shallow-vague. Could mean Linear webhooks, Slack events, or generic HTTP webhooks."
+
+  # ====================================================================
+  # Category 3: Anaphoric references (8 queries)
+  # Queries using pronouns or demonstratives that only make sense with
+  # conversational context. A distiller should resolve the referent.
+  # ====================================================================
+
+  - id: anaphoric-it-broken
+    q: "is it broken again?"
+    any_of:
+      - operations/brain-compile-troubleshooting.md
+      - operations/jeff-serve-troubleshooting.md
+      - operations/vllm-configuration.md
+    notes: "Category: anaphoric. 'it' is unresolvable without context. Distiller must substitute the referent from conversation history."
+
+  - id: anaphoric-same-one
+    q: "use the same one as last time"
+    any_of:
+      - operations/jeff-configuration.md
+      - architecture/provider-selection.md
+    notes: "Category: anaphoric. 'the same one' requires conversational context. Distiller should resolve or flag as ambiguous."
+
+  - id: anaphoric-that-file
+    q: "what does that file do?"
+    any_of:
+      - architecture/config-yaml-reference.md
+      - operations/aliases-yaml.md
+    notes: "Category: anaphoric. 'that file' has no referent without context. Distiller needs to resolve from prior turns."
+
+  - id: anaphoric-the-other-one
+    q: "no, the other one"
+    any_of:
+      - operations/jeff-configuration.md
+    notes: "Category: anaphoric. Pure correction referencing a prior result. Distiller must resolve from conversation state."
+
+  - id: anaphoric-try-again
+    q: "try it again but with the new model"
+    any_of:
+      - operations/provider-configuration.md
+      - technology/model-selection.md
+    notes: "Category: anaphoric. Both 'it' and 'the new model' require prior context. Distiller should expand both referents."
+
+  - id: anaphoric-why-did-it-fail
+    q: "why did it fail this time?"
+    any_of:
+      - operations/brain-compile-troubleshooting.md
+      - operations/common-errors.md
+    notes: "Category: anaphoric. 'it' and 'this time' both need resolution. Without context, query is nearly useless for retrieval."
+
+  - id: anaphoric-update-that
+    q: "can you update that to use the latest version?"
+    any_of:
+      - operations/dependency-management.md
+      - operations/version-upgrades.md
+    notes: "Category: anaphoric. 'that' and 'latest version' are both unresolved. Distiller must expand from context."
+
+  - id: anaphoric-like-before
+    q: "do it like we did before for the Dutch client"
+    any_of:
+      - clients/oude-reimer.md
+      - projects/oude-reimer-quote-generation.md
+      - workflows/oude-reimer-chat-assistant.md
+    notes: "Category: anaphoric. 'it' and 'the Dutch client' need resolution. 'Before' implies a historical workflow pattern."
+
+  # ====================================================================
+  # Category 4: Multi-intent queries (6 queries)
+  # Queries asking about multiple distinct things at once. A distiller
+  # should either split into separate queries or pick the primary intent.
+  # ====================================================================
+
+  - id: multi-intent-deploy-and-rollback
+    q: "how do I deploy to staging and also what's the rollback procedure if something goes wrong?"
+    any_of:
+      - operations/deployment-guide.md
+      - operations/staging-environment.md
+      - operations/rollback-procedures.md
+      - operations/cloud-run-deployment.md
+    notes: "Category: multi-intent. Two distinct questions: deployment steps AND rollback procedure. Distiller should split or prioritise."
+
+  - id: multi-intent-search-and-eval
+    q: "explain the search pipeline and then show me how to run the eval suite against it"
+    any_of:
+      - architecture/search-pipeline.md
+      - operations/eval-suite-guide.md
+      - architecture/retrieval-stack.md
+    notes: "Category: multi-intent. Architecture explanation AND operational howto. Two separate retrieval intents."
+
+  - id: multi-intent-slack-telegram
+    q: "what's the difference between the slack and telegram adapters and which config keys do each need?"
+    any_of:
+      - architecture/channel-adapters.md
+      - integrations/slack-configuration.md
+      - integrations/telegram-bot-setup.md
+    notes: "Category: multi-intent. Comparison question AND config reference. Distiller should split into adapter comparison + config lookup."
+
+  - id: multi-intent-memory-and-wiki
+    q: "how does memory extraction work and is it different from wiki compilation?"
+    any_of:
+      - architecture/memory-system.md
+      - architecture/memory-extract-recall.md
+      - technology/wiki-compilation.md
+      - operations/brain-compile-guide.md
+    notes: "Category: multi-intent. Memory extraction explanation AND comparison with wiki compile. Two retrieval domains."
+
+  - id: multi-intent-auth-billing
+    q: "set up auth for the new client and also configure their billing tier"
+    any_of:
+      - operations/client-onboarding.md
+      - operations/auth-configuration.md
+      - administrative/billing-configuration.md
+      - administrative/pricing-model.md
+    notes: "Category: multi-intent. Auth setup AND billing configuration. Completely separate operational concerns."
+
+  - id: multi-intent-brain-doctor-lint
+    q: "what's the difference between brain doctor and brain lint and when should I run each?"
+    any_of:
+      - operations/brain-doctor-guide.md
+      - operations/brain-lint-guide.md
+      - operations/brain-health-checks.md
+    notes: "Category: multi-intent. Comparison of two tools AND usage guidance. Distiller could split: 'brain doctor purpose' + 'brain lint purpose' + 'when to use each'."
+
+  # ====================================================================
+  # Category 5: Negation queries (5 queries)
+  # Queries asking about exclusion, absence, or negation. Standard
+  # retrieval often ignores NOT/except. A distiller should reframe.
+  # ====================================================================
+
+  - id: negation-not-bosch
+    q: "which clients are not Bosch?"
+    any_of:
+      - clients/oude-reimer.md
+      - clients/cargill.md
+      - clients/heineken.md
+      - administrative/client-list.md
+    notes: "Category: negation. BM25 will match Bosch articles. Distiller should reframe as 'list all clients excluding Bosch'."
+
+  - id: negation-everything-except-production
+    q: "show me all environments except production"
+    any_of:
+      - operations/staging-environment.md
+      - operations/development-environment.md
+      - infrastructure/environment-list.md
+    notes: "Category: negation. 'except production' is hard for retrieval. Distiller should expand to 'staging, development, and test environments'."
+
+  - id: negation-non-dutch-entities
+    q: "companies that aren't based in the Netherlands"
+    any_of:
+      - clients/cargill.md
+      - clients/bosch-pt.md
+      - administrative/international-clients.md
+    notes: "Category: negation. Negating geography. Distiller should reframe to search for specific non-NL geographies or list all companies."
+
+  - id: negation-no-gpu
+    q: "which deployment options don't need a GPU?"
+    any_of:
+      - operations/cpu-only-deployment.md
+      - operations/deployment-guide.md
+      - infrastructure/deployment-options.md
+    notes: "Category: negation. 'don't need GPU' should be reframed to 'CPU-only deployment options'."
+
+  - id: negation-without-oauth
+    q: "auth methods that work without OAuth"
+    any_of:
+      - architecture/auth-chain.md
+      - operations/api-key-auth.md
+      - operations/auth-configuration.md
+    notes: "Category: negation. 'without OAuth' needs reframing to 'API key authentication' or 'non-OAuth auth methods'."
+
+  # ====================================================================
+  # Category 6: Domain jargon (5 queries)
+  # Queries using abbreviations, acronyms, or domain-specific shorthand
+  # that need expansion for effective retrieval.
+  # ====================================================================
+
+  - id: jargon-raw
+    q: "RAW production schedule"
+    any_of:
+      - projects/a-ware-production-optimisation.md
+      - workflows/royal-aware-production-scheduling-ai.md
+      - workflows/royal-aware-production-planning.md
+      - clients/royal-a-ware.md
+    notes: "Category: domain-jargon. 'RAW' is shorthand for Royal A-Ware. Distiller should expand to 'Royal A-Ware production schedule'."
+
+  - id: jargon-bpt
+    q: "BPT contract extraction status"
+    any_of:
+      - workflows/bosch-pt-contract-extraction.md
+      - workflows/bosch-contract-data-extraction.md
+      - clients/bosch-pt.md
+    notes: "Category: domain-jargon. 'BPT' abbreviates Bosch Power Tools. Distiller should expand."
+
+  - id: jargon-dq-poc
+    q: "DQ PoC results"
+    any_of:
+      - projects/cargill-dq-poc.md
+      - projects/cargill-data-quality-automation.md
+    notes: "Category: domain-jargon. 'DQ' = data quality, 'PoC' = proof of concept. Both need expansion for retrieval."
+
+  - id: jargon-rrf-k60
+    q: "what happens if we change the RRF k to 30?"
+    any_of:
+      - architecture/search-pipeline.md
+      - architecture/retrieval-stack.md
+      - technology/rrf-fusion.md
+    notes: "Category: domain-jargon. 'RRF k' = reciprocal rank fusion constant. Distiller should expand to 'reciprocal rank fusion constant parameter'."
+
+  - id: jargon-fts-porter
+    q: "FTS porter tokeniser weights"
+    any_of:
+      - technology/fts5-search-index.md
+      - architecture/search-pipeline.md
+      - operations/fts-configuration.md
+    notes: "Category: domain-jargon. 'FTS' = full-text search, 'porter' = Porter stemming algorithm. Distiller should expand both abbreviations."
+
+  # ====================================================================
+  # Category 7: Conversational/informal queries (4 queries)
+  # Natural language with filler words, hedging, or chattiness that
+  # needs formalisation for effective retrieval.
+  # ====================================================================
+
+  - id: conversational-brain-thingy
+    q: "hey so that brain thingy where it saves stuff to git, how does that actually work?"
+    any_of:
+      - architecture/gitstore-backend.md
+      - operations/brain-git-sync.md
+      - architecture/brain-storage.md
+    notes: "Category: conversational. Informal phrasing. Distiller should formalise to 'How does the git-backed brain storage backend work?'"
+
+  - id: conversational-dunno-search
+    q: "I dunno, something about search being slow? like it was taking ages before we fixed it"
+    any_of:
+      - operations/search-performance.md
+      - architecture/search-pipeline.md
+      - technology/fts5-search-index.md
+    notes: "Category: conversational. Vague recollection with filler. Distiller should extract 'search performance issue and fix'."
+
+  - id: conversational-whats-the-deal
+    q: "what's the deal with those aliases, do they even do anything?"
+    any_of:
+      - operations/aliases-yaml.md
+      - architecture/entity-aliases.md
+      - technology/search-aliases.md
+    notes: "Category: conversational. Casual tone with scepticism. Distiller should formalise to 'What do entity aliases do in the search pipeline?'"
+
+  - id: conversational-remind-me
+    q: "remind me again, why can't we just use json mode on gemma?"
+    any_of:
+      - operations/vllm-configuration.md
+      - technology/gemma4-deployment.md
+      - operations/brain-compile-troubleshooting.md
+    notes: "Category: conversational. Request for reminder implies prior knowledge. Distiller should formalise to 'Why is JSON mode disabled for Gemma 4 on vLLM?'"
+
+  # ====================================================================
+  # Category 8: Code-heavy queries (4 queries)
+  # Queries with embedded code snippets where the intent needs to be
+  # extracted from surrounding natural language.
+  # ====================================================================
+
+  - id: code-heavy-store-interface
+    q: |
+      I'm looking at this interface:
+
+      type Store interface {
+          Read(ctx context.Context, p Path) ([]byte, error)
+          Write(ctx context.Context, p Path, data []byte) error
+          Delete(ctx context.Context, p Path) error
+          List(ctx context.Context, prefix Path) ([]Path, error)
+          Batch(ctx context.Context, fn func(tx StoreTx) error, opts BatchOptions) error
+          Exists(ctx context.Context, p Path) (bool, error)
+      }
+
+      Which backends implement this and what are the trade-offs?
+    any_of:
+      - architecture/brain-storage.md
+      - architecture/store-interface.md
+      - architecture/fsstore-backend.md
+      - architecture/gitstore-backend.md
+      - architecture/memstore-backend.md
+    notes: "Category: code-heavy. Go interface pasted inline; question is about backend implementations and trade-offs."
+
+  - id: code-heavy-hybrid-options
+    q: |
+      This struct in search_hybrid.go:
+
+      opts := knowledge.HybridOptions{
+          K:      k,
+          Mode:   knowledge.HybridFused,
+          Rerank: true,
+      }
+
+      What does HybridFused do differently from HybridAuto?
+    any_of:
+      - architecture/search-pipeline.md
+      - architecture/retrieval-stack.md
+      - technology/hybrid-search-modes.md
+    notes: "Category: code-heavy. Go code snippet with a specific question about enum values. Distiller should extract: 'Difference between HybridFused and HybridAuto modes'."
+
+  - id: code-heavy-yaml-config
+    q: |
+      My config looks like this:
+
+      providers:
+        gemma:
+          base_url: "https://gemma4-31b-585310675348.europe-west4.run.app"
+          api_key: "..."
+          model: "gemma-4-31B-it"
+          max_model_len: 32767
+          json_mode: false
+          reasoning_effort: ""
+
+      brain:
+        provider: "gemma"
+        concurrency: 48
+
+      Is the concurrency too high for a single GPU instance?
+    any_of:
+      - operations/jeff-configuration.md
+      - operations/vllm-configuration.md
+      - technology/gemma4-deployment.md
+      - operations/brain-compile-guide.md
+    notes: "Category: code-heavy. Full YAML config block dominates the query; actual question is about concurrency limits per GPU."
+
+  - id: code-heavy-error-handler
+    q: |
+      We have this pattern in the serve daemon:
+
+      if errors.Is(err, brain.ErrConflict) {
+          log.Warn().Err(err).Msg("conflict on brain push, pulling first")
+          if pullErr := store.Pull(ctx); pullErr != nil {
+              return fmt.Errorf("pull after conflict: %w", pullErr)
+          }
+          return store.Push(ctx)
+      }
+
+      Is this the right way to handle gitstore conflicts or should we retry the whole batch?
+    any_of:
+      - architecture/gitstore-backend.md
+      - architecture/brain-storage.md
+      - operations/brain-conflict-resolution.md
+    notes: "Category: code-heavy. Go error handling snippet; question is about conflict resolution strategy for gitstore."

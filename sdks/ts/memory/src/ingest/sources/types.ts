@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Shared types for ingest source adapters. Each adapter accepts a raw
  * payload and produces a `LoadedSource` that the pipeline can hand off to

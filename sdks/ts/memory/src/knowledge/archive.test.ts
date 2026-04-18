@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 import { mkdtemp, rm, utimes } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -13,7 +15,7 @@ import {
 const createdDirs: string[] = []
 
 const makeTempDir = async (): Promise<string> => {
-  const dir = await mkdtemp(join(tmpdir(), 'jbmem-archive-'))
+  const dir = await mkdtemp(join(tmpdir(), 'memory-archive-'))
   createdDirs.push(dir)
   return dir
 }

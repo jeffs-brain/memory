@@ -1,0 +1,24 @@
+# SPDX-License-Identifier: Apache-2.0
+name: go-lint
+on:
+  pull_request:
+    paths:
+      - 'sdks/go/**'
+      - '.github/workflows/go-lint.yml'
+  workflow_dispatch: {}
+
+jobs:
+  golangci:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+          cache: true
+          cache-dependency-path: sdks/go/go.sum
+      - uses: golangci/golangci-lint-action@v6
+        with:
+          version: latest
+          working-directory: sdks/go
+          args: --timeout=5m

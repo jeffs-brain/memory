@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Bridge primitives for the official LongMemEval scorer.
  *

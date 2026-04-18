@@ -1,5 +1,7 @@
+// SPDX-License-Identifier: Apache-2.0
+
 /**
- * Minimal HTTP surface for `jbmem serve`.
+ * Minimal HTTP surface for `memory serve`.
  *
  * No framework: just Bun.serve (or node:http when available). Exposes
  * `/search`, `/ingest`, `/extract`, `/recall`, plus a health probe. The
@@ -47,7 +49,7 @@ type BunGlobal = { serve?: BunServe }
 export const startServer = async (opts: ServeOptions): Promise<Serving> => {
   const bun = (globalThis as unknown as { Bun?: BunGlobal }).Bun
   if (bun === undefined || typeof bun.serve !== 'function') {
-    throw new Error('jbmem serve requires Bun runtime (global Bun.serve missing)')
+    throw new Error('memory serve requires Bun runtime (global Bun.serve missing)')
   }
   const handler = buildHandler(opts)
   const server = bun.serve({

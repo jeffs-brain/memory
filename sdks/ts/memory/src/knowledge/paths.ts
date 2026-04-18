@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 import { ErrInvalidPath } from '../store/index.js'
 
 const ARTICLE_SEGMENT_RE = /^[a-z0-9][a-z0-9-]*$/

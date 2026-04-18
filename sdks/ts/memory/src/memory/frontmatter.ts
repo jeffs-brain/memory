@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Minimal YAML-frontmatter parser. Matches the subset produced by the Go
  * memory writer: `key: value` scalars plus a `tags:` list in either inline

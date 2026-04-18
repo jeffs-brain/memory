@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Phase 1 reader. For each LME example, call the injected retrieval
  * function to gather context, then pipe that context through the reader

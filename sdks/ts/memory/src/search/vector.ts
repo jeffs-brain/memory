@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * sqlite-vec integration. Manages the `knowledge_vectors` virtual table
  * and a text-id to integer-rowid mapping so callers can continue to refer

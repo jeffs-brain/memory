@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 const QUESTION_DATE_RE =
   /^(\d{4})[/-](\d{2})[/-](\d{2})(?:\s+\([A-Za-z]{3}\))?(?:\s+(\d{2}):(\d{2})(?::(\d{2}))?)?$/
 

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Ollama chat + embeddings client. Shares the Provider interface via
  * the OpenAI-compatible chat path, and bundles an Embedder with:

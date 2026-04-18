@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Extract stage. Given a batch of conversation messages, ask the provider
  * to distil durable knowledge, then persist each note via the Store using

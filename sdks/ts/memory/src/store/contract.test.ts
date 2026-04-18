@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -28,7 +30,7 @@ const factories: Factory[] = [
     name: 'fsstore',
     supportsLocalPath: true,
     create: async () => {
-      const dir = await mkdtemp(join(tmpdir(), 'jbmem-fsstore-'))
+      const dir = await mkdtemp(join(tmpdir(), 'memory-fsstore-'))
       const store = await createFsStore({ root: dir })
       return {
         store,
@@ -43,7 +45,7 @@ const factories: Factory[] = [
     name: 'gitstore',
     supportsLocalPath: true,
     create: async () => {
-      const dir = await mkdtemp(join(tmpdir(), 'jbmem-gitstore-'))
+      const dir = await mkdtemp(join(tmpdir(), 'memory-gitstore-'))
       const store = await createGitStore({ dir, init: true })
       return {
         store,

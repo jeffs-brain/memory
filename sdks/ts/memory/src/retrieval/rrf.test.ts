@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * RRF fusion tests. Scope is the pure algorithm: the expected score
  * formula must hold for deterministic hand-computed inputs, and the

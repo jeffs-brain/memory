@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Rerank contracts used by the retrieval pipeline. The interface is a
  * superset of the llm/Reranker shape: callers pass the query plus the

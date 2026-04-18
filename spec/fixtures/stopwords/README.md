@@ -4,8 +4,8 @@ These JSON files are the **canonical** English and Dutch stopword sets used by t
 
 ## Files
 
-- `en.json` — English stopword set, sorted ascending. Combines articles, determiners, conjunctions, pronouns, common verbs, question words, prepositions, and a curated set of natural-language noise terms.
-- `nl.json` — Dutch stopword set, sorted ascending. Covers articles, determiners, conjunctions, pronouns, common verbs, question words, prepositions, and affirmation noise.
+- `en.json`: English stopword set, sorted ascending. Combines articles, determiners, conjunctions, pronouns, common verbs, question words, prepositions, and a curated set of natural-language noise terms.
+- `nl.json`: Dutch stopword set, sorted ascending. Covers articles, determiners, conjunctions, pronouns, common verbs, question words, prepositions, and affirmation noise.
 
 ## Keeping implementations in sync
 

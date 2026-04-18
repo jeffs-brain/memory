@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Knowledge pipeline factory. Returns per-call bound instances of the
  * ingest / compile / query / promote / lint / lint-fix / dedup / scrub

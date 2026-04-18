@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Phase 0 agentic ingest. Runs `Memory.extract` on a sliding window of
  * messages per session, simulating a live agent observing the haystack

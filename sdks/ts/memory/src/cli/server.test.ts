@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Serve integration test. Boots the HTTP server against a temp brain,
  * hits `/search` with a stub embedder, and shuts down cleanly.
@@ -71,7 +73,7 @@ const stubProvider = (content: string): Provider => ({
 })
 
 const makeBrain = async () => {
-  const root = await mkdtemp(join(tmpdir(), 'jbmem-srv-'))
+  const root = await mkdtemp(join(tmpdir(), 'memory-srv-'))
   createdDirs.push(root)
   const brainDir = join(root, 'brain')
   const initStore = await initBrain(brainDir)
@@ -89,7 +91,7 @@ const isBunRuntime = (): boolean => {
   return bun !== undefined && typeof bun.serve === 'function'
 }
 
-describe('jbmem serve', () => {
+describe('memory serve', () => {
   it('handles /search via the shared handler with a stub embedder', async () => {
     const { store } = await makeBrain()
     try {

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * End-to-end integration test for the CLI core:
  *   init -> ingest -> search
@@ -33,7 +35,7 @@ afterEach(async () => {
 })
 
 const makeTempDir = async (): Promise<string> => {
-  const dir = await mkdtemp(join(tmpdir(), 'jbmem-it-'))
+  const dir = await mkdtemp(join(tmpdir(), 'memory-it-'))
   createdDirs.push(dir)
   return dir
 }
@@ -61,7 +63,7 @@ const pickSub = (parent: RunnableCommand, name: string): RunnableCommand => {
   return entry
 }
 
-describe('jbmem init + ingest + search', () => {
+describe('memory init + ingest + search', () => {
   it('initialises a brain, ingests a file, and surfaces it via BM25 search', async () => {
     const root = await makeTempDir()
     const brainDir = join(root, 'brain')

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Minimal Server-Sent Events parser. Built for Anthropic / OpenAI /
  * Ollama streaming completions, not for full W3C conformance: we do

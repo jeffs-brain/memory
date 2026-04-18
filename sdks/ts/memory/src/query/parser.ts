@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Parser that walks a normalised query string into a token AST. Quoted
  * phrases, explicit AND/OR/NOT boolean operators, and trailing prefix

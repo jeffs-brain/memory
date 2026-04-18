@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * English and Dutch stop-word sets used when filtering bare-word queries
  * before they are compiled to an FTS5 MATCH expression. Mirrors the

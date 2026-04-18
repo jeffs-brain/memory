@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Reciprocal Rank Fusion (RRF) — the fusion step that merges the BM25
  * and vector candidate lists into a single ranked slate.

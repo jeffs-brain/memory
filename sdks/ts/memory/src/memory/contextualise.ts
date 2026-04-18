@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Contextualise stage. Given a raw user message, run `recall` and wrap
  * the result into a structured `PromptContext` suitable for direct

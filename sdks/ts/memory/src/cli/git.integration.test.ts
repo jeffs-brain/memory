@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 import { execFile as execFileCallback } from 'node:child_process'
 import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -17,7 +19,7 @@ type RunnableCommand = {
 }
 
 const makeTempDir = async (): Promise<string> => {
-  const dir = await mkdtemp(join(tmpdir(), 'jbmem-git-cli-'))
+  const dir = await mkdtemp(join(tmpdir(), 'memory-git-cli-'))
   createdDirs.push(dir)
   return dir
 }
@@ -68,7 +70,7 @@ afterEach(async () => {
   vi.restoreAllMocks()
 })
 
-describe('jbmem git operator commands', () => {
+describe('memory git operator commands', () => {
   it('reports dirty working-tree changes via `git diff`', async () => {
     const brainDir = await makeTempDir()
     const store = await createGitStore({ dir: brainDir, init: true })

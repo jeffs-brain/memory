@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Read-side primitives: BM25 search, vector search, chunk hydration.
  *

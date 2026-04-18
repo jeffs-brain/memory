@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * CrossEncoderReranker adapts the llm/TEIReranker (a thin HTTP client
  * over TEI /rerank) into the retrieval-pipeline Reranker contract.

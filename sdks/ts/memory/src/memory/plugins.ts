@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Plugin invocation helpers. Plugins fire in registration order for Start
  * events and in reverse order for End events so "last registered = first

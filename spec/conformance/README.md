@@ -21,11 +21,11 @@ This suite drives any Jeffs Brain SDK's HTTP store implementation against the ca
 
 ## Assertion shapes
 
-- `expectedResponse.status` — exact HTTP status.
-- `expectedResponse.body` — structural match; ISO-8601 placeholders (`"<ISO-8601>"`) only check parseability.
-- `expectedResponse.bodyBase64` — exact byte-for-byte match after base64 decoding.
-- `expectedResponse.bodyAssertions` — list of fine-grained assertions over the returned JSON body (`items-include-path`, `items-exclude-path`, `items-files-equal`, `items-dirs-equal`, `json-field-equals`).
-- `expectedResponse.streamAssertions` — assertions over an SSE stream (`expect-event`, etc.).
+- `expectedResponse.status`: exact HTTP status.
+- `expectedResponse.body`: structural match; ISO-8601 placeholders (`"<ISO-8601>"`) only check parseability.
+- `expectedResponse.bodyBase64`: exact byte-for-byte match after base64 decoding.
+- `expectedResponse.bodyAssertions`: list of fine-grained assertions over the returned JSON body (`items-include-path`, `items-exclude-path`, `items-files-equal`, `items-dirs-equal`, `json-field-equals`).
+- `expectedResponse.streamAssertions`: assertions over an SSE stream (`expect-event`, etc.).
 
 ## Scope
 

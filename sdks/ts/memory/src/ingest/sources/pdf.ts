@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * PDF source adapter. Delegates text extraction to `pdf-parse`, which is
  * a node-only dependency. When the module cannot be loaded we throw a

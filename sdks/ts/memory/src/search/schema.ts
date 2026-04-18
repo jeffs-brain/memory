@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * SQLite schema for the hybrid BM25 + vector search index.
  *

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Structural lint. Pure — no LLM calls, no Store mutations. Inspects
  * draft + wiki articles in the Store and reports issues. Ported (and

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 import type { LoadedDataset } from './dataset.js'
 import { createLMECacheKey, type LMECacheKeyInput } from './cache-key.js'
 import type { IngestMode } from './types.js'

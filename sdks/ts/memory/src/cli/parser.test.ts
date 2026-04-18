@@ -1,5 +1,7 @@
+// SPDX-License-Identifier: Apache-2.0
+
 /**
- * Parser smoke tests for the jbmem CLI.
+ * Parser smoke tests for the memory CLI.
  *
  * We exercise only citty's argument parsing — each subcommand is asked to
  * parse a representative argv and we assert the shape of the result. No
@@ -44,7 +46,7 @@ const pickSub = (parent: AnyCommand, name: string): AnyCommand => {
 
 const asAny = (cmd: unknown): AnyCommand => cmd as AnyCommand
 
-describe('jbmem arg parsing', () => {
+describe('memory arg parsing', () => {
   it('parses `init <path>`', () => {
     const parsed = parseArgs(['/tmp/brain'], argsOf(asAny(initCommand)))
     expect(parsed['path']).toBe('/tmp/brain')

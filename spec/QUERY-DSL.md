@@ -168,7 +168,96 @@ Input: `to do list`
 
 All three tokens are stopword noise after the length-2 and stopword-list checks. AST: `tokens: []`. FTS5: empty string; retrieval layer must treat that as "no FTS leg" and fall back to other signals.
 
-## TODOs / ambiguities
+## Temporal expansion
 
-- **TODO**: Document temporal expansion in `packages/memory/src/query/temporal.ts`. That module augments the AST with date-range tokens when the user asks about `yesterday`, `last week`, etc.; it is not yet captured in this spec.
-- **TODO**: Decide whether Go and Python SDKs should use the same `AliasTable` source format. The TS `AliasTable` is an in-memory map; a persisted representation (JSON/YAML) will need a schema.
+Temporal expansion is an **optional augmentation** that runs before retrieval, not inside the parser. The reference implementation lives in `query/temporal.ts` and is used by callers who pass both a question and a `questionDate` anchor. Expansion does not modify the query AST; it produces a rewritten query string (and, separately, a set of date-search tokens) that the retrieval layer concatenates onto the user's input before parsing. The parser in `query/parser.ts` is temporally blind by design.
+
+The expander is **English-locale only**. Dutch and other languages are out of scope for v1.0: non-English phrases pass through unchanged and expansion is reported as `resolved: false`. Go and Python SDKs MUST mirror the three recognisers below bit-for-bit and MUST NOT introduce locale-specific variants without a spec update.
+
+### Recognised phrases
+
+Three independent recognisers, applied in order. All matching is case-insensitive.
+
+| Recogniser | Pattern (surface form) | Behaviour |
+| --- | --- | --- |
+| Relative time | `<N> day[s] ago`, `<N> week[s] ago`, `<N> month[s] ago` | Replace with the original phrase suffixed by `(around <YYYY/MM/DD>)`. |
+| Last weekday | `last monday` .. `last sunday` | Walk back at most 7 days from the anchor until weekday matches, suffix with `(<YYYY/MM/DD>)`. |
+| Ordering hint | case-insensitive substring match on `first`, `earlier`, `before`, `most recent`, `latest`, `last time` | Append either `[Note: look for the earliest dated event]` or `[Note: look for the most recently dated event]` to the query. |
+
+Phrases not matched by any recogniser (including `today`, `yesterday`, `this week`, `last month`, `this quarter`, month names, ISO dates, and natural-language constructions like `the week of 12 March`) are **not** expanded. The list above is exhaustive for v1.0. Additional recognisers are tracked as future work and MUST land in the spec before being shipped in any SDK.
+
+### Anchor handling
+
+- The caller supplies `questionDate` as a string. Accepted surface forms, all parsed in UTC via `parseQuestionDate`:
+  - `YYYY-MM-DD` or `YYYY/MM/DD`
+  - Either of the above with an optional `(DOW)` suffix (e.g. `2026-04-18 (Sat)`) which is ignored
+  - Either of the above with an optional `HH:MM[:SS]` suffix
+  - Any string that `new Date()` can parse (e.g. full ISO-8601) as a fallback
+- When `questionDate` is absent, undefined, or unparseable, `expandTemporal` returns `{ resolved: false }` and the query string is passed through unchanged.
+- All date arithmetic uses UTC (`getUTCDate`, `setUTCDate`, `setUTCMonth`). There is no local-timezone conversion, no DST handling, and no IANA timezone database lookup. Callers that care about local time must normalise the anchor to UTC before passing it in.
+- "Now" is not a distinct anchor. The current wall-clock time is never read inside `temporal.ts`. Any sense of "now" is whatever `questionDate` resolves to.
+
+### Month-boundary and day-arithmetic edge cases
+
+- `N months ago` uses `setUTCMonth(getUTCMonth() - N)`. This inherits JavaScript `Date` semantics: if the resulting month has fewer days than the anchor day, the date rolls forward into the next month. For example, anchor `2026-03-31`, `1 month ago` resolves to `2026-03-03`, not `2026-02-28`. SDK implementers MUST reproduce this behaviour even in languages with a stricter default (subtract N months, then let an overflow day roll forward).
+- `N weeks ago` and `N days ago` are simple UTC-day subtraction (`setUTCDate(getUTCDate() - N)` and `… - N * 7`). No weekend or working-day awareness.
+- `last <weekday>` walks back exactly one UTC day at a time and returns as soon as `getUTCDay()` matches. The anchor day itself is never returned; "last monday" on a Monday resolves to seven days earlier.
+
+### Emitted date formats
+
+Expansion appends ordinary text to the surface query, which is then re-fed to the parser. Dates are emitted in two forms so either the slash or the hyphen form matches indexed chunk text:
+
+- `YYYY/MM/DD` (used inside the `(around …)` / `(…)` suffixes).
+- `YYYY-MM-DD` (added separately by `augmentQueryWithTemporal` alongside the slash form as extra search tokens).
+
+`dateSearchTokens(value)` additionally derives the four-digit year, the weekday name, and the month name (all in English) from a parsed anchor, so retrieval can match documents that spell the date out in prose.
+
+### Worked example
+
+Input (anchor `2026-04-18 (Sat)`, question `what did I watch 2 weeks ago last Friday?`):
+
+```json
+{
+  "originalQuery": "what did I watch 2 weeks ago last Friday?",
+  "expandedQuery": "what did I watch 2 weeks ago (around 2026/04/04) last Friday (2026/04/17)? [Note: look for the most recently dated event]",
+  "dateHints": ["2026/04/04", "2026/04/17"],
+  "resolved": true
+}
+```
+
+`augmentQueryWithTemporal` for the same input yields:
+
+```
+what did I watch 2 weeks ago last Friday? 2026/04/04 2026-04-04 2026/04/17 2026-04-17
+```
+
+The result is an ordinary query string: it is re-parsed and re-compiled through the standard pipeline, so stopword filtering and alias expansion still apply.
+
+## Alias tables
+
+The `AliasTable` type is an **in-memory contract** only. The reference declaration in `query/aliases.ts` is:
+
+```ts
+export type AliasTable = ReadonlyMap<string, readonly string[]>
+```
+
+A persisted on-disk representation is **reserved for a future spec version**. The v1.0 TS SDK does not ship a loader, a writer, or a file-format schema: callers construct the map programmatically (typically by iterating their domain-specific entity store) and hand it to `createRetrieval({ aliases })` or call `expandAliases(ast, table)` directly. Go and Python SDKs MUST expose an equivalent in-memory type and MUST NOT invent an on-disk format unilaterally.
+
+### Runtime semantics (normative)
+
+- Keys are lowercase surface tokens. The lookup in `query/aliases.ts` accepts either the exact key or the `toLocaleLowerCase('en')` form.
+- Values are an ordered list of alternative surface strings. Alternatives are lowercased and split on non-(letter|digit) runs at expansion time. Single-word survivors become `term` tokens; multi-word survivors join with a single space and become `phrase` tokens.
+- Expansion applies to **`term` tokens only**. `phrase` and `prefix` tokens pass through unchanged.
+- If the original `term` carried an explicit `operator`, that operator is copied onto the first emitted alternative.
+- Deduplication keys on `(kind, text)` so overlapping alternatives collapse to a single emitted token.
+
+### When a file-backed schema lands
+
+The expected shape is flagged here so downstream implementers can plan for it, but **none of the SDKs read or write this file today**. Any SDK that ships support for persisted alias tables before the spec is updated is non-conformant.
+
+- Scope: **per-brain**, one file per brain, stored at an SDK-defined path under the brain's storage root (candidate path `aliases.json` sibling to the brain's knowledge index). Global cross-brain aliases are out of scope for v1.0.
+- Format: JSON object, top-level keys are lowercase surface tokens, values are `string[]` of alternative surface strings. No TTL, no versioning field, no per-entry metadata.
+- Loading: SDKs MUST construct the `AliasTable` from the file at retrieval construction time. Mutations require a rebuild; there is no hot-reload contract.
+- Updates: out of scope. The v1.0 contract is read-only from the SDK's perspective; writes come from whatever upstream process maintains the file.
+
+Until this section is upgraded from "reserved" to "normative", SDK implementers MUST treat alias-table persistence as a caller concern and MUST NOT assume cross-language compatibility of any file they happen to ship.

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 import { describe, expect, it, vi } from 'vitest'
 import type { Resource, Subject } from '@jeffs-brain/memory/acl'
 import { createOpenFgaProvider, OpenFgaHttpError, type FetchLike } from './openfga.js'

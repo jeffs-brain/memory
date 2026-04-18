@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 import { ErrInvalidPath } from './errors.js'
 
 export type Path = string & { readonly __brand: 'BrainPath' }

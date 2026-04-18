@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 import { defineCommand } from 'citty'
 import { openBrain } from '../brain.js'
 import {
@@ -20,7 +22,7 @@ export const serveCommand = defineCommand({
   args: {
     brain: {
       type: 'string',
-      description: 'Brain directory (overrides JBMEM_BRAIN)',
+      description: 'Brain directory (overrides JB_BRAIN)',
     },
     port: {
       type: 'string',
@@ -38,7 +40,7 @@ export const serveCommand = defineCommand({
     const brainDir = resolveBrainDir(typeof args.brain === 'string' ? args.brain : undefined)
     const embedderSettings = embedderFromEnv()
     const embedder = embedderSettings !== undefined ? buildEmbedder(embedderSettings) : undefined
-    const providerEnv = process.env.JBMEM_PROVIDER
+    const providerEnv = process.env.JB_LLM_PROVIDER
     const provider =
       providerEnv !== undefined && providerEnv !== '' ? buildProvider(providerFromEnv()) : undefined
     const store = await openBrain(brainDir)
@@ -49,9 +51,9 @@ export const serveCommand = defineCommand({
       ...(embedder !== undefined ? { embedder } : {}),
       ...(provider !== undefined ? { provider } : {}),
     })
-    process.stderr.write(`jbmem serve: listening on ${server.url}\n`)
+    process.stderr.write(`memory serve: listening on ${server.url}\n`)
     const shutdown = async (): Promise<void> => {
-      process.stderr.write('jbmem serve: shutting down\n')
+      process.stderr.write('memory serve: shutting down\n')
       await server.stop()
       await store.close()
       process.exit(0)

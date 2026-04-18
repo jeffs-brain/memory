@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 export const MEMORY_PACKAGE = '@jeffs-brain/memory' as const
 
 export * from './store/index.js'

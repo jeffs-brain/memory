@@ -3,6 +3,7 @@
   "references": [
     { "path": "./sdks/ts/memory" },
     { "path": "./sdks/ts/memory-postgres" },
-    { "path": "./sdks/ts/memory-openfga" }
+    { "path": "./sdks/ts/memory-openfga" },
+    { "path": "./mcp/ts" }
   ]
 }

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * LongMemEval (LME) benchmark harness. `createLMERunner` wires the
  * ingest modes, read pipeline, judge, and reporter into a single object

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 import { describe, expect, it } from 'vitest'
 import { noopLogger } from '../llm/index.js'
 import { createMemStore } from '../store/memstore.js'

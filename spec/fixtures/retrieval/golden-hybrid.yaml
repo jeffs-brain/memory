@@ -1,0 +1,111 @@
+queries:
+  # Hybrid-specific golden set. These questions are intentionally
+  # phrased in ways that lexical (BM25) retrieval struggles with
+  # because the expected answer articles do not contain the query
+  # terms verbatim. Semantic retrieval via bge-m3 should surface
+  # the right articles. Hybrid fusion (BM25 + vector) should be
+  # the best of both worlds.
+
+  # --- Concept queries ---
+
+  - id: machine-learning-clients
+    q: "our machine learning clients"
+    any_of:
+      - administrative/walmart.md
+      - clients/heineken.md
+      - business/cargill.md
+      - partners/boomerang.md
+      - clients/bosch-pt.md
+    notes: "Client articles that mention AI use cases but not 'machine learning' verbatim. Pure semantic target."
+
+  - id: document-processing-pipelines
+    q: "automated document processing pipelines"
+    any_of:
+      - workflows/invoice-processing-pipeline-pattern.md
+      - technology/invoice-processing-pipeline.md
+      - workflows/purchase-invoice-extraction.md
+      - workflows/sales-order-processing.md
+    notes: "Document processing is the conceptual query; answers are the specific pipelines."
+
+  - id: food-industry-clients
+    q: "food industry clients"
+    any_of:
+      - business/cargill.md
+      - clients/cargill.md
+      - business/alimentsa-sa.md
+      - business/central-food-products-co-ltd.md
+    notes: "Food/agri clients without the literal term 'food industry'."
+
+  - id: invoice-automation
+    q: "what do we do for invoice automation"
+    any_of:
+      - technology/invoice-processing-pipeline.md
+      - workflows/invoice-processing-pipeline-pattern.md
+      - workflows/fusion-colors-invoice-processing.md
+      - workflows/purchase-invoice-extraction.md
+    notes: "Natural-language question, many legitimate workflow answers."
+
+  - id: data-quality-work
+    q: "our data quality work"
+    any_of:
+      - projects/cargill-dq-poc.md
+      - business/cargill-data-quality-framework.md
+      - clients/cargill.md
+    notes: "DQ / data quality recurs across the Cargill project family."
+
+  # --- Relationship queries (v1 screenshot issues, must still pass) ---
+
+  - id: lleverage-bosch
+    q: "what can you tell me about the relationship between lleverage and bosch"
+    any_of:
+      - companies/bosch.md
+      - companies/bosch-pt.md
+      - clients/bosch-pt.md
+      - workflows/bosch-pt-contract-extraction.md
+      - technology/lleverage.md
+    notes: "Original screenshot failure. Hybrid should surface Bosch and Lleverage together."
+
+  - id: oude-reimer-relationship
+    q: "how do we work with oude reimer"
+    any_of:
+      - companies/oude-reimer.md
+      - companies/oude-reimer-bv.md
+      - clients/oude-reimer.md
+      - projects/oude-reimer-quote-generation.md
+      - software/oude-reimer-quote-gen.md
+      - administrative/oude-reimer-corporate-details.md
+      - administrative/oude-reimer-contact-details.md
+      - workflows/oude-reimer-chat-assistant.md
+      - workflows/oude-reimer-service-proposal-generation.md
+      - technology/oude-reimer-delivery-terms.md
+    notes: "Dutch entity, natural-language question form. Any canonical Oude Reimer relationship article counts."
+
+  # --- Capability queries ---
+
+  - id: quote-generation-tools
+    q: "tools that help generate quotes"
+    any_of:
+      - projects/oude-reimer-quote-generation.md
+      - software/oude-reimer-quote-gen.md
+      - workflows/oude-reimer-quote-transformation.md
+      - workflows/quote-generation.md
+    notes: "Capability-first query."
+
+  - id: production-planning-projects
+    q: "production planning and scheduling"
+    any_of:
+      - projects/a-ware-production-optimisation.md
+      - workflows/royal-aware-production-scheduling-ai.md
+      - workflows/royal-aware-production-planning.md
+      - projects/royal-aware-production-planning-poc.md
+    notes: "Optimisation vs planning/scheduling: semantic rewrite."
+
+  - id: agent-orchestration
+    q: "how agents are orchestrated across workflows"
+    any_of:
+      - architecture/multi-agent-orchestration-patterns.md
+      - architecture/agent-orchestration-layer.md
+      - architecture/agent-node-orchestration.md
+      - architecture/intelligent-orchestration-engine.md
+      - architecture/agent-execution-loop.md
+    notes: "Architecture question, pure concept retrieval."

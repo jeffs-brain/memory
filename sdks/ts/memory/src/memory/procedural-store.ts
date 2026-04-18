@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 import { createHash } from 'node:crypto'
 import type { Message } from '../llm/index.js'
 import { ErrNotFound, type Store } from '../store/index.js'

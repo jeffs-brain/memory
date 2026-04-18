@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 import type { Embedder } from '@jeffs-brain/memory/llm'
 import { augmentQueryWithTemporal, type AliasTable } from '@jeffs-brain/memory/query'
 import type { Reranker } from '@jeffs-brain/memory/rerank'

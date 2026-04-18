@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 import { joinPath, pathUnder, type Path, type Store } from '../store/index.js'
 import { hashContent, INGESTED_PREFIX } from './ingest.js'
 

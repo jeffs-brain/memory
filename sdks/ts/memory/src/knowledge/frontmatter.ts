@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Frontmatter parser / serialiser. YAML-flavour only — matches the Go
  * implementation in apps/jeff/internal/knowledge/frontmatter.go which

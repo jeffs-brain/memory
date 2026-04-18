@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 export { aclCommand } from './acl.js'
 export { consolidateCommand } from './consolidate.js'
 export { evalCommand } from './eval.js'

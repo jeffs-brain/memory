@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Canonical error taxonomy for the provider layer. Callers can decide
  * which failures are retryable by inspecting the class rather than

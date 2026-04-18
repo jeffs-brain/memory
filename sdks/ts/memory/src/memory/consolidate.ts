@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Consolidate stage. Walks the scope prefix, finds candidate duplicates
  * (Jaccard similarity over significant words from the filenames), asks

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 import { pathUnder, type Path, type Store } from '../store/index.js'
 import { parseFrontmatter, serialiseFrontmatter } from './frontmatter.js'
 import { INGESTED_PREFIX } from './ingest.js'

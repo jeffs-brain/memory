@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 import type { Message, ToolCall } from '../llm/index.js'
 import type {
   L0BufferAppendResult,

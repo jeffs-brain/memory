@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Hand-rolled Anthropic Messages API client. Supports streaming via SSE
  * and structured output via tool-use: we declare a single

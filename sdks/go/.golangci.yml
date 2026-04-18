@@ -1,0 +1,28 @@
+# SPDX-License-Identifier: Apache-2.0
+run:
+  timeout: 5m
+  go: '1.25'
+linters:
+  enable:
+    - errcheck
+    - gosimple
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+    - misspell
+    - unconvert
+    - unparam
+    - gofmt
+    - goimports
+linters-settings:
+  misspell:
+    locale: UK
+issues:
+  exclude-dirs:
+    - testdata
+    - vendor
+  exclude-rules:
+    - path: _test\.go
+      linters:
+        - unparam

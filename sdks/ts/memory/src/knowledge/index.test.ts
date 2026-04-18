@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 import { describe, expect, it } from 'vitest'
 import type { CompletionRequest, CompletionResponse, Provider } from '../llm/index.js'
 import { joinPath } from '../store/index.js'

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -13,7 +15,7 @@ type RunnableCommand = {
 }
 
 const makeTempDir = async (): Promise<string> => {
-  const dir = await mkdtemp(join(tmpdir(), 'jbmem-lme-cli-'))
+  const dir = await mkdtemp(join(tmpdir(), 'memory-lme-cli-'))
   createdDirs.push(dir)
   return dir
 }
@@ -131,7 +133,7 @@ afterEach(async () => {
   vi.unstubAllEnvs()
 })
 
-describe('jbmem eval lme', () => {
+describe('memory eval lme', () => {
   it('executes `compare` against two local reports', async () => {
     const root = await makeTempDir()
     const leftPath = join(root, 'left.json')
@@ -223,10 +225,10 @@ describe('jbmem eval lme', () => {
     const cacheDir = join(root, 'cache')
     await writeDataset(datasetPath)
 
-    vi.stubEnv('JBMEM_PROVIDER', 'ollama')
-    vi.stubEnv('JBMEM_MODEL', 'llama3.2')
-    vi.stubEnv('JBMEM_EMBEDDER', 'hash')
-    vi.stubEnv('JBMEM_RERANKER', 'tei')
+    vi.stubEnv('JB_LLM_PROVIDER', 'ollama')
+    vi.stubEnv('JB_LLM_MODEL', 'llama3.2')
+    vi.stubEnv('JB_EMBED_PROVIDER', 'hash')
+    vi.stubEnv('JB_RERANK_PROVIDER', 'tei')
 
     const payload = await runLMECommand('doctor', {
       dataset: datasetPath,
@@ -324,7 +326,7 @@ describe('jbmem eval lme', () => {
     const outDir = join(root, 'out')
     const cacheDir = join(root, 'cache')
 
-    vi.stubEnv('JBMEM_PROVIDER', 'broken')
+    vi.stubEnv('JB_LLM_PROVIDER', 'broken')
 
     const { payload, error } = await captureLMECommand('doctor', {
       dataset: missingDatasetPath,
@@ -344,7 +346,7 @@ describe('jbmem eval lme', () => {
         expect.objectContaining({
           name: 'provider',
           ok: false,
-          detail: "invalid JBMEM_PROVIDER='broken'; expected anthropic|openai|ollama",
+          detail: "invalid JB_LLM_PROVIDER='broken'; expected anthropic|openai|ollama",
         }),
         expect.objectContaining({
           name: 'paths',

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 import { execSync } from 'node:child_process'
 import { readFileSync, readdirSync } from 'node:fs'
 import path from 'node:path'

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Phase 0 bulk ingest. Writes each LME session into the eval brain as a
  * single `raw/lme/session-<id>.md` file with frontmatter, skipping any

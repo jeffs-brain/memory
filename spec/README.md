@@ -6,13 +6,13 @@ The canonical contents of `spec/` will eventually move into a top-level `spec/` 
 
 ## Layout
 
-- `PROTOCOL.md` — HTTP store + SSE event stream wire contract consumed by the HTTP-backed `Store`.
-- `QUERY-DSL.md` — query grammar, tokenisation rules, stopword filtering, alias expansion, FTS5 compilation.
-- `ALGORITHMS.md` — hybrid retrieval pipeline, Reciprocal Rank Fusion, unanimity shortcut, rerank tail preservation, retry ladder.
-- `STORAGE.md` — `Store` interface, path validation rules, batch semantics, error taxonomy, `ChangeEvent` shape.
-- `MCP-TOOLS.md` — the `memory_*` MCP tool surface every SDK's MCP wrapper must expose.
-- `fixtures/` — language-neutral test inputs: stopword lists, query parser cases.
-- `conformance/` — replayable case files that drive any SDK's HTTP store implementation against the contract.
+- `PROTOCOL.md`: HTTP store + SSE event stream wire contract consumed by the HTTP-backed `Store`.
+- `QUERY-DSL.md`: query grammar, tokenisation rules, stopword filtering, alias expansion, FTS5 compilation.
+- `ALGORITHMS.md`: hybrid retrieval pipeline, Reciprocal Rank Fusion, unanimity shortcut, rerank tail preservation, retry ladder.
+- `STORAGE.md`: `Store` interface, path validation rules, batch semantics, error taxonomy, `ChangeEvent` shape.
+- `MCP-TOOLS.md`: the `memory_*` MCP tool surface every SDK's MCP wrapper must expose.
+- `fixtures/`: language-neutral test inputs: stopword lists, query parser cases.
+- `conformance/`: replayable case files that drive any SDK's HTTP store implementation against the contract.
 
 ## Status
 

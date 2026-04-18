@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 import { describe, expect, it } from 'vitest'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'

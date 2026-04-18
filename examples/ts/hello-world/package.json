@@ -1,0 +1,18 @@
+{
+  "name": "@jeffs-brain/example-hello-world",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Minimal BM25 search example against a small markdown corpus.",
+  "scripts": {
+    "start": "bun run src/index.ts",
+    "build": "tsc"
+  },
+  "dependencies": {
+    "@jeffs-brain/memory": "file:../../../sdks/ts/memory"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.5",
+    "typescript": "^5.7.3"
+  }
+}

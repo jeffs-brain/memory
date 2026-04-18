@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Provider + embedder factories. Picks implementations by discriminator so
  * callers can swap backends via config without branching.

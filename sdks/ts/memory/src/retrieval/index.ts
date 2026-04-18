@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Public entry for the hybrid retrieval pipeline. Re-exports the
  * factory, types, and pure RRF helper so downstream packages can build

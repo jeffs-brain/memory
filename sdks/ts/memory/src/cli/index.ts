@@ -1,5 +1,7 @@
+// SPDX-License-Identifier: Apache-2.0
+
 /**
- * Public surface of the jbmem CLI. Re-exports the root command plus the
+ * Public surface of the memory CLI. Re-exports the root command plus the
  * helpers library consumers need to embed the CLI in a custom runner.
  */
 

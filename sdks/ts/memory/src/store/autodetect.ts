@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 import { access } from 'node:fs/promises'
 import { join } from 'node:path'
 import { createFsStore } from './fsstore.js'

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 import { execFile as execFileCallback } from 'node:child_process'
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -25,7 +27,7 @@ describe('gitstore specifics', () => {
   const extraDirs: string[] = []
 
   beforeEach(async () => {
-    dir = await mkdtemp(join(tmpdir(), 'jbmem-gitstore-spec-'))
+    dir = await mkdtemp(join(tmpdir(), 'memory-gitstore-spec-'))
     store = await createGitStore({ dir, init: true })
   })
 
@@ -41,14 +43,14 @@ describe('gitstore specifics', () => {
   })
 
   const makeRemote = async (): Promise<string> => {
-    const remote = await mkdtemp(join(tmpdir(), 'jbmem-gitstore-remote-'))
+    const remote = await mkdtemp(join(tmpdir(), 'memory-gitstore-remote-'))
     extraDirs.push(remote)
     await runGit(['init', '--bare', '--initial-branch=main', remote])
     return remote
   }
 
   const cloneRemote = async (remote: string): Promise<string> => {
-    const clone = await mkdtemp(join(tmpdir(), 'jbmem-gitstore-clone-'))
+    const clone = await mkdtemp(join(tmpdir(), 'memory-gitstore-clone-'))
     extraDirs.push(clone)
     await runGit(['clone', remote, clone])
     await runGit(['config', 'user.name', 'Remote Tester'], clone)
@@ -154,7 +156,7 @@ describe('gitstore specifics', () => {
   })
 
   it('init: false against a fresh directory refuses to create the repo', async () => {
-    const empty = await mkdtemp(join(tmpdir(), 'jbmem-gitstore-empty-'))
+    const empty = await mkdtemp(join(tmpdir(), 'memory-gitstore-empty-'))
     try {
       await expect(createGitStore({ dir: empty })).rejects.toThrow(/no git repo/)
     } finally {
@@ -163,7 +165,7 @@ describe('gitstore specifics', () => {
   })
 
   it('sign callback is invoked on each commit', async () => {
-    const signed = await mkdtemp(join(tmpdir(), 'jbmem-gitstore-sign-'))
+    const signed = await mkdtemp(join(tmpdir(), 'memory-gitstore-sign-'))
     const signatures: string[] = []
     const signed_store = await createGitStore({
       dir: signed,

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Plugin hook ordering: Start events fire in registration order, End
  * events fire in reverse registration order. Payload contents are sane.

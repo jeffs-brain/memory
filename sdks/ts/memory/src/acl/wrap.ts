@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * `withAccessControl(store, acl, subject, opts)` - wrap a `Store` with an
  * authorisation check on every read/write surface.

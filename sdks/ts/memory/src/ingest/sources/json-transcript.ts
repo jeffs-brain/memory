@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * JSON transcript adapter. Accepts { messages: [{ role, content, timestamp? }] }
  * and lowers it to a markdown document with per-turn headings so the

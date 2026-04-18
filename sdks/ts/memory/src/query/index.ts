@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Query parser entry point. Exposes the AST + compile helpers used by
  * the retrieval pipeline to turn a raw user query into an FTS5 MATCH

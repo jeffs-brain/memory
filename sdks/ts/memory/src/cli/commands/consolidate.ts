@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 import { defineCommand } from 'citty'
 import { createStoreBackedCursorStore } from '../../memory/cursor.js'
 import { createMemory } from '../../memory/index.js'
@@ -16,7 +18,7 @@ export const consolidateCommand = defineCommand({
   args: {
     brain: {
       type: 'string',
-      description: 'Brain directory (overrides JBMEM_BRAIN)',
+      description: 'Brain directory (overrides JB_BRAIN)',
     },
   },
   run: async ({ args }) => {

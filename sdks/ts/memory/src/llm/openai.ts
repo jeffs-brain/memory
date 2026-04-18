@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Hand-rolled OpenAI Chat Completions client. Streams SSE, maps finish
  * reasons onto the shared stop-reason taxonomy, and supports structured

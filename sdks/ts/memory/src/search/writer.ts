@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Write-side primitives: upsert chunks, delete by path, batch write.
  *

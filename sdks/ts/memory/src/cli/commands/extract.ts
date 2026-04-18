@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 import { readFile } from 'node:fs/promises'
 import { defineCommand } from 'citty'
 import type { Message } from '../../llm/index.js'
@@ -22,7 +24,7 @@ export const extractCommand = defineCommand({
   args: {
     brain: {
       type: 'string',
-      description: 'Brain directory (overrides JBMEM_BRAIN)',
+      description: 'Brain directory (overrides brain id)',
     },
     from: {
       type: 'string',

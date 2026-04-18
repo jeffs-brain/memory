@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * End-to-end test for the ingest pipeline against the real SQLite search
  * index. Uses hashembed + memstore so it stays offline.

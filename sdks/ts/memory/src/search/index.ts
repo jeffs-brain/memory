@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Public surface for the hybrid SQLite search index (BM25 + sqlite-vec).
  *

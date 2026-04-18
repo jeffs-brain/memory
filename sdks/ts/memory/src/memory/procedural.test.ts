@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 import { describe, expect, it } from 'vitest'
 import type { Message } from '../llm/index.js'
 import { detectProceduralRecords, formatProceduralRecord } from './procedural.js'

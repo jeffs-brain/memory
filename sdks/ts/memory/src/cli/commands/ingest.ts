@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 import { readFile } from 'node:fs/promises'
 import { basename, resolve } from 'node:path'
 import { defineCommand } from 'citty'
@@ -19,7 +21,7 @@ export const ingestCommand = defineCommand({
     },
     brain: {
       type: 'string',
-      description: 'Brain directory (overrides JBMEM_BRAIN)',
+      description: 'Brain directory (overrides JB_BRAIN)',
     },
   },
   run: async ({ args }) => {

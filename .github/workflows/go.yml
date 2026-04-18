@@ -1,0 +1,47 @@
+# SPDX-License-Identifier: Apache-2.0
+name: go
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'sdks/go/**'
+      - 'spec/**'
+      - '.github/workflows/go.yml'
+  pull_request:
+    paths:
+      - 'sdks/go/**'
+      - 'spec/**'
+      - '.github/workflows/go.yml'
+  workflow_dispatch: {}
+
+jobs:
+  go:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        go: ['1.25']
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: sdks/go
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ matrix.go }}
+          cache: true
+          cache-dependency-path: sdks/go/go.sum
+      - name: Verify go.mod tidy
+        run: |
+          go mod tidy
+          git diff --exit-code -- go.mod go.sum
+      - name: Build
+        run: go build ./...
+      - name: Vet
+        run: go vet ./...
+      - name: Test
+        run: go test -race -timeout 10m -coverprofile=coverage.out ./...
+      - name: Coverage summary
+        run: go tool cover -func=coverage.out | tail -20

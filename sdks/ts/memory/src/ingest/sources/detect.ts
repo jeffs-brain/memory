@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Source detection. Uses a combination of URL scheme, magic bytes, and
  * file extension to classify an ingest input. All heuristics are pure and

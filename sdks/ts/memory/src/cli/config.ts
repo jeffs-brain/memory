@@ -1,9 +1,11 @@
+// SPDX-License-Identifier: Apache-2.0
+
 /**
- * Shared configuration for the jbmem CLI.
+ * Shared configuration for the memory CLI.
  *
  * Resolution order for the brain directory:
  *   1. explicit `--brain` flag
- *   2. `JBMEM_BRAIN` environment variable
+ *   2. `JB_BRAIN` environment variable
  *   3. process cwd
  *
  * LLM provider and embedder configuration is driven entirely by env
@@ -27,7 +29,7 @@ export type BrainConfig = {
 
 export const resolveBrainDir = (flag: string | undefined): string => {
   const trimmed = flag !== undefined && flag !== '' ? flag : undefined
-  const fromEnv = process.env['JBMEM_BRAIN']
+  const fromEnv = process.env['JB_BRAIN']
   const picked =
     trimmed !== undefined
       ? trimmed
@@ -57,27 +59,27 @@ export class CliError extends Error {
 }
 
 export const providerFromEnv = (): ProviderSettings => {
-  const kindRaw = process.env['JBMEM_PROVIDER']
+  const kindRaw = process.env['JB_LLM_PROVIDER']
   if (kindRaw === undefined || kindRaw === '') {
     throw new CliError(
-      'JBMEM_PROVIDER not set; expected one of anthropic|openai|ollama',
+      'JB_LLM_PROVIDER not set; expected one of anthropic|openai|ollama',
     )
   }
   if (!isProviderKind(kindRaw)) {
     throw new CliUsageError(
-      `invalid JBMEM_PROVIDER='${kindRaw}'; expected anthropic|openai|ollama`,
+      `invalid JB_LLM_PROVIDER='${kindRaw}'; expected anthropic|openai|ollama`,
     )
   }
-  const model = process.env['JBMEM_MODEL'] ?? defaultModelFor(kindRaw)
-  const apiKey = process.env['JBMEM_API_KEY'] ?? ''
+  const model = process.env['JB_LLM_MODEL'] ?? defaultModelFor(kindRaw)
+  const apiKey = process.env['JB_LLM_API_KEY'] ?? ''
   if (kindRaw !== 'ollama' && apiKey === '') {
-    throw new CliError(`JBMEM_API_KEY required for provider '${kindRaw}'`)
+    throw new CliError(`JB_LLM_API_KEY required for provider '${kindRaw}'`)
   }
   return { kind: kindRaw, model, apiKey }
 }
 
 export const providerFromEnvOptional = (): ProviderSettings | undefined => {
-  const kindRaw = process.env['JBMEM_PROVIDER']
+  const kindRaw = process.env['JB_LLM_PROVIDER']
   if (kindRaw === undefined || kindRaw === '') return undefined
   return providerFromEnv()
 }
@@ -130,18 +132,18 @@ const DEFAULT_OLLAMA_URL = 'http://localhost:11434'
 const DEFAULT_TEI_URL = 'http://localhost:8080'
 
 export const embedderFromEnv = (): EmbedderSettings | undefined => {
-  const raw = process.env['JBMEM_EMBEDDER']
+  const raw = process.env['JB_EMBED_PROVIDER']
   if (raw === undefined || raw === '') return undefined
   if (!isEmbedderKind(raw)) {
     throw new CliUsageError(
-      `invalid JBMEM_EMBEDDER='${raw}'; expected hash|ollama|tei`,
+      `invalid JB_EMBED_PROVIDER='${raw}'; expected hash|ollama|tei`,
     )
   }
   const baseURL =
-    process.env['JBMEM_EMBEDDER_URL'] ??
+    process.env['JB_EMBED_URL'] ??
     (raw === 'ollama' ? DEFAULT_OLLAMA_URL : DEFAULT_TEI_URL)
   const model =
-    process.env['JBMEM_EMBEDDER_MODEL'] ??
+    process.env['JB_EMBED_MODEL'] ??
     (raw === 'hash' ? 'hash' : raw === 'ollama' ? 'bge-m3' : 'tei')
   return { kind: raw, baseURL, model }
 }
@@ -174,15 +176,15 @@ export type RerankerSettings = {
 }
 
 export const rerankerFromEnv = (): RerankerSettings | undefined => {
-  const raw = process.env['JBMEM_RERANKER']
+  const raw = process.env['JB_RERANK_PROVIDER']
   if (raw === undefined || raw === '') return undefined
   if (!isRerankerKind(raw)) {
     throw new CliUsageError(
-      `invalid JBMEM_RERANKER='${raw}'; expected tei`,
+      `invalid JB_RERANK_PROVIDER='${raw}'; expected tei`,
     )
   }
-  const baseURL = process.env['JBMEM_RERANKER_URL'] ?? DEFAULT_TEI_URL
-  const label = process.env['JBMEM_RERANKER_LABEL'] ?? 'cross-encoder'
+  const baseURL = process.env['JB_RERANK_URL'] ?? DEFAULT_TEI_URL
+  const label = process.env['JB_RERANK_LABEL'] ?? 'cross-encoder'
   return {
     kind: raw,
     baseURL,

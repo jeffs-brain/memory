@@ -1,0 +1,52 @@
+# SPDX-License-Identifier: Apache-2.0
+name: release
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch: {}
+jobs:
+  publish-ts:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.8'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          registry-url: 'https://registry.npmjs.org'
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+      - name: Typecheck
+        run: bun run typecheck
+      - name: Test
+        run: bun run test
+      - name: Build
+        run: bun run build
+      - name: Publish @jeffs-brain/memory
+        run: npm publish --access public --provenance
+        working-directory: sdks/ts/memory
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - name: Publish @jeffs-brain/memory-postgres
+        run: npm publish --access public --provenance
+        working-directory: sdks/ts/memory-postgres
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - name: Publish @jeffs-brain/memory-openfga
+        run: npm publish --access public --provenance
+        working-directory: sdks/ts/memory-openfga
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - name: Publish @jeffs-brain/memory-mcp
+        run: npm publish --access public --provenance
+        working-directory: mcp/ts
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true

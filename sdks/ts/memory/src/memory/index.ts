@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Memory module entry point. `createMemory` wires the Store, Provider,
  * Embedder, CursorStore, logger, and plugins into the five canonical

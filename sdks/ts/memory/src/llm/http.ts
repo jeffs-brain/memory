@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Shared fetch helpers. Keeps the provider files free of
  * boilerplate around timeouts, status classification, and error

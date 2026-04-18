@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Verbatim prompts carried over from the Go implementation.
  *

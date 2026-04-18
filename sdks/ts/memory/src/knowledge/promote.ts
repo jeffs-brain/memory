@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Promote: move drafts/<slug>.md → wiki/<slug>.md inside a single Batch
  * with Reason: "promote". Ported from apps/jeff/internal/knowledge/

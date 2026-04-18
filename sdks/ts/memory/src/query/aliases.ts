@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Entity alias expansion. Callers supply an AliasTable mapping a
  * surface token to one or more alternatives; the parser only expands

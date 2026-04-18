@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Brain directory helpers. `openBrain` opens the git-backed store for an
  * existing brain and reads its on-disk config. `initBrain` creates a new

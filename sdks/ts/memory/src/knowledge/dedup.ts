@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Article dedup. Suggests merges where two articles share either a
  * normalised title or a content-body hash, or whose titles are highly

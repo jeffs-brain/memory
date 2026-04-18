@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 import { extname } from 'node:path'
 import type { LoadedSource, SourceFetchLike, SourceLoadOptions } from './types.js'
 

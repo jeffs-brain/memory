@@ -1,0 +1,10 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "./dist",
+    "rootDir": "./src"
+  },
+  "include": ["src/**/*"],
+  "exclude": ["**/*.test.ts", "**/*.integration.test.ts"],
+  "references": [{ "path": "../../sdks/ts/memory" }]
+}

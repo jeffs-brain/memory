@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Map-based LRU cache. Relies on the Map preserving insertion order:
  * deleting-then-re-setting a key bumps it to the tail. Eviction walks

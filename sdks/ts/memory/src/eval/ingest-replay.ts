@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Phase 0 replay ingest. Re-renders each haystack session as a message
  * transcript, then feeds it through the caller-supplied `Memory.extract`

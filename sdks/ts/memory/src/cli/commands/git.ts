@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 import * as nodeFs from 'node:fs'
 import { defineCommand } from 'citty'
 import * as git from 'isomorphic-git'

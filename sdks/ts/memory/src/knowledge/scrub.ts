@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * PII scrub for ingested/ content. Regex-based (email + phone by
  * default), with pluggable custom patterns. Mutations go through a

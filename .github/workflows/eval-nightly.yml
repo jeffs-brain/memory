@@ -1,0 +1,65 @@
+# SPDX-License-Identifier: Apache-2.0
+name: eval-nightly
+
+on:
+  schedule:
+    - cron: '0 3 * * *'  # 03:00 UTC daily
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Git ref to evaluate (branch, tag, or SHA). Useful for release-candidate runs.'
+        required: false
+        default: ''
+
+jobs:
+  eval:
+    name: eval (${{ matrix.sdk }})
+    strategy:
+      fail-fast: false
+      matrix:
+        sdk: [ts, go]
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.8
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+      - uses: astral-sh/setup-uv@v3
+      - name: Install TS workspace
+        run: bun install --frozen-lockfile
+      - name: Sync eval deps
+        run: uv sync
+        working-directory: eval
+      - name: Build ${{ matrix.sdk }} SDK
+        run: |
+          case "${{ matrix.sdk }}" in
+            ts) bun run --filter @jeffs-brain/memory build ;;
+            go) cd sdks/go && go build ./... && go build ./cmd/memory ;;
+          esac
+      - name: Run eval
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          JB_EVAL_BUDGET_USD: '10'
+        run: |
+          uv run python runner.py \
+            --sdk ${{ matrix.sdk }} \
+            --dataset datasets/lme.jsonl \
+            --scorer judge \
+            --floor 0.90 \
+            --output results/
+        working-directory: eval
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: eval-${{ matrix.sdk }}
+          path: eval/results/
+          if-no-files-found: warn

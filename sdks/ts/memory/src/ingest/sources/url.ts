@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * URL source: fetch the resource and strip it down to a markdown-like text
  * blob. The HTML stripper is intentionally simple — it removes script /

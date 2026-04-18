@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 import { createHash } from 'node:crypto'
 import { mkdir } from 'node:fs/promises'
 import { dirname } from 'node:path'

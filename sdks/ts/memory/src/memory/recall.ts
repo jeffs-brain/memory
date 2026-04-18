@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Recall stage. Given a query string, use the injected SearchIndex +
  * Embedder to find relevant memory notes, then hydrate them from the

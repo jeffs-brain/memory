@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 import { describe, expect, it } from 'vitest'
 import { createMemStore } from '../store/memstore.js'
 import { createIngest, hashContent, ingestedPath } from './ingest.js'

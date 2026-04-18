@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 import { execFile as execFileCallback } from 'node:child_process'
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path'
 import * as nodeFs from 'node:fs'

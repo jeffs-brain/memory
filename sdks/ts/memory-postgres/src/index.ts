@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 export const MEMORY_POSTGRES_PACKAGE = '@jeffs-brain/memory-postgres' as const
 
 export {

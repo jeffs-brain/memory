@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Persistent cursor store. Cursors are stored as JSON blobs in the Store
  * at `memory/_cursors/<actorId>.json`, with optional per-session entries

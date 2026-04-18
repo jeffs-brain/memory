@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Knowledge query. Collects wiki articles from the Store, ranks the
  * most relevant hits, and asks the provider to synthesise a cited

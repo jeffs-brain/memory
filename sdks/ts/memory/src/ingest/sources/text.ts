@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 import type { LoadedSource, SourceLoadOptions } from './types.js'
 
 export const loadText = async (

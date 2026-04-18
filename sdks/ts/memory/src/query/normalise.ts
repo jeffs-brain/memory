@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Normalisation helpers for raw query strings before parsing. Applies
  * Unicode NFC, collapses whitespace, and strips zero-width / BOM

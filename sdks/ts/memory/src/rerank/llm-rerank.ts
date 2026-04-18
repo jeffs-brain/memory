@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * LLMReranker drives an LLM provider over the retrieval candidates to
  * score each one 0-10. The fused ranking is sliced into fixed-size

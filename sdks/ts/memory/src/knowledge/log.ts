@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Operations-log append helper. Writes Markdown entries to `_log.md`
  * at the root of the Store. The log is append-only; we never rewrite

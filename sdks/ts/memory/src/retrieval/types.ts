@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Public types for the hybrid retrieval pipeline. Mirrors the shape of
  * apps/jeff/internal/knowledge.HybridTrace + SearchTrace so consumers
