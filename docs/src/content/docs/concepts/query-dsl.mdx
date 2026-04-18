@@ -1,0 +1,64 @@
+---
+title: Query DSL
+description: Grammar, tokenisation, stopwords, alias expansion, FTS5 compilation.
+sidebar:
+  order: 4
+---
+
+Every query to `memory search`, `memory recall`, or `memory_search` runs through the query DSL. It's a small grammar that compiles down to FTS5 match syntax while preserving intent.
+
+## Grammar at a glance
+
+```
+query      := clause ( ( WS | "AND" | "OR" ) clause )*
+clause     := term | phrase | field | group | not
+term       := WORD
+phrase     := '"' WORD ( WS WORD )* '"'
+field      := FIELD_NAME ":" ( term | phrase | group )
+group      := "(" query ")"
+not        := "NOT" clause
+```
+
+- `WORD` is a maximal run of non-whitespace, non-operator characters.
+- `FIELD_NAME` is one of the indexed fields: `title`, `tags`, `path`, `content`. Implementations may extend.
+- Operators are case-insensitive (`AND`, `and`, `And` all work).
+- Juxtaposition is implicit `AND`: `hedgehog winter` is the same as `hedgehog AND winter`.
+
+## Example queries
+
+```
+hedgehog winter                    # implicit AND
+"gardens and parks"                # phrase
+tags:wildlife                      # field selector
+(hedgehog OR shrew) NOT urban      # grouping + NOT
+title:"rural England"              # phrase in a field
+```
+
+## Tokenisation
+
+Tokens are folded to lowercase, stripped of diacritics, and filtered through the stopword list (`a`, `the`, `of`, ...). Phrases bypass the stopword filter so `"the great escape"` survives.
+
+## Alias expansion
+
+Before compiling to FTS5, the DSL expands caller-supplied aliases. An alias is a term-to-term map, typically `{ "ts": "typescript", "go": "golang" }`. Alias expansion runs only on bare terms, never inside phrases or fields — so `tags:ts` stays unchanged but `hedgehogs ts` becomes `hedgehogs typescript`.
+
+## FTS5 compilation
+
+The AST compiles to SQLite FTS5 `MATCH` syntax:
+
+- `term` -> `term`
+- `phrase` -> `"phrase"`
+- `field:value` -> `column: value` (using FTS5's column filter)
+- `AND` / `OR` -> `AND` / `OR`
+- `NOT` -> `NOT`
+- Group parentheses are preserved.
+
+FTS5-reserved tokens (`*`, trailing punctuation, unbalanced quotes) are escaped so user input can't smuggle operators.
+
+## Why a DSL
+
+A tiny grammar means every SDK implements the same parser and every caller gets predictable behaviour across TS, Go, and Python. The alternative (pass the raw string to FTS5) fails badly on operator characters in ingested content.
+
+## Reference
+
+See [`spec/QUERY-DSL.md`](/spec/query-dsl/) for the normative grammar, stopword list, and FTS5 escaping rules.

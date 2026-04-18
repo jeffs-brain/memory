@@ -1,0 +1,57 @@
+---
+title: Python
+description: Install the Python SDK and run the reference CLI.
+sidebar:
+  order: 3
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components'
+
+## Install
+
+<Tabs>
+  <TabItem label="pip">
+    ```bash
+    pip install jeffs-brain-memory
+    ```
+  </TabItem>
+  <TabItem label="uv">
+    ```bash
+    uv add jeffs-brain-memory
+    ```
+  </TabItem>
+</Tabs>
+
+Requires Python `>=3.11`.
+
+## CLI quick start
+
+```bash
+memory init ./my-brain
+memory ingest ./docs/hedgehogs.md --brain ./my-brain
+memory search "where do hedgehogs live?" --brain ./my-brain
+memory serve --host 127.0.0.1 --port 8080
+```
+
+Same subcommands as the TypeScript and Go CLIs. See the [CLI reference](/reference/cli/).
+
+## Environment variables
+
+| Variable      | Purpose                                                                 |
+| ------------- | ----------------------------------------------------------------------- |
+| `JB_HOME`     | Storage root (default `~/.jeffs-brain/`).                               |
+| `JB_TOKEN`    | Hosted bearer token. When set the SDK drives the platform `HttpStore`.  |
+| `JB_ENDPOINT` | Hosted endpoint URL when `JB_TOKEN` is set.                             |
+
+## Programmatic use
+
+:::note
+Phase 4 scaffold. Module layout, CLI entry point, and HTTP daemon skeleton are in place; real implementations land incrementally. The public Python API is TODO while the core modules (`store`, `query`, `search`, `retrieval`) are ported from the TS reference. Track progress in the [Python SDK README](https://github.com/jeffs-brain/memory/tree/main/sdks/py).
+:::
+
+A minimal snippet will appear here once the `store` and `search` modules are wired.
+
+## Next steps
+
+- [Concepts](/concepts/brains/).
+- [Spec](/spec/protocol/): protocol the Python SDK targets.

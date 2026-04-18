@@ -1,0 +1,49 @@
+---
+title: Windsurf
+description: Register the jeffs-brain MCP server with Windsurf.
+sidebar:
+  order: 4
+---
+
+## Prerequisites
+
+- [Windsurf](https://windsurf.com) installed.
+- Node `>=20` on your `PATH`.
+
+## Install
+
+Windsurf reads MCP servers from `~/.codeium/windsurf/mcp_config.json`. Add:
+
+```json
+{
+  "mcpServers": {
+    "jeffs-brain": {
+      "command": "npx",
+      "args": ["-y", "@jeffs-brain/memory-mcp"],
+      "env": {
+        "JB_TOKEN": "optional-hosted-token"
+      }
+    }
+  }
+}
+```
+
+Restart Windsurf. The tool appears in the Cascade side panel.
+
+## Smoke test
+
+Ask Cascade:
+
+> Remember the repo path I'm working in.
+
+Then later:
+
+> Which repo was I in?
+
+Both should show tool calls in the reasoning trace.
+
+## Troubleshooting
+
+- Config changes require a full app restart, not just a reload.
+- If the server never connects, run `npx -y @jeffs-brain/memory-mcp` directly in a terminal and confirm it exits cleanly on `EOF`.
+- Token auth failures surface in the Cascade error bubble; verify `JB_TOKEN` against your hosted dashboard.

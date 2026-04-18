@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "other-tool": {
+      "command": "node",
+      "args": ["/opt/other/index.js"],
+      "env": {}
+    }
+  },
+  "telemetry": { "enabled": false }
+}

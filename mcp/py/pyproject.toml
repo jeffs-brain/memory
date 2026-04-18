@@ -1,0 +1,76 @@
+[project]
+name = "jeffs-brain-memory-mcp"
+version = "0.1.0"
+description = "Model Context Protocol stdio server for jeffs-brain memory, exposing eleven memory tools with zero-config local and hosted modes."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "Apache-2.0" }
+authors = [{ name = "Alex J", email = "alex@lleverage.ai" }]
+keywords = [
+    "memory",
+    "mcp",
+    "model-context-protocol",
+    "llm",
+    "rag",
+    "retrieval",
+    "claude",
+    "cursor",
+    "ai-agent",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+dependencies = [
+    "mcp>=1.0",
+    "jeffs-brain-memory",
+    "httpx>=0.27",
+    "pydantic>=2.8",
+]
+
+[project.scripts]
+memory-mcp = "jeffs_brain_memory_mcp.__main__:main"
+
+[project.urls]
+Homepage = "https://github.com/jeffs-brain/memory"
+Repository = "https://github.com/jeffs-brain/memory"
+Issues = "https://github.com/jeffs-brain/memory/issues"
+Documentation = "https://github.com/jeffs-brain/memory/tree/main/spec"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/jeffs_brain_memory_mcp"]
+
+[tool.uv.sources]
+jeffs-brain-memory = { path = "../../sdks/py", editable = true }
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+    "pytest-asyncio>=0.24",
+    "anyio>=4.0",
+    "ruff>=0.6",
+    "mypy>=1.11",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.mypy]
+python_version = "3.11"
+strict = true

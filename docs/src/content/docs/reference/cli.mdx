@@ -1,0 +1,146 @@
+---
+title: CLI reference
+description: Every memory subcommand with flags and examples.
+sidebar:
+  order: 1
+---
+
+The `memory` CLI is the reference interface to a brain. It's shipped by every SDK and exposes the same subcommand surface across TypeScript, Go, and Python.
+
+Exit codes:
+
+- `0` — success
+- `1` — expected runtime failure (network, missing brain, invalid config)
+- `2` — usage error (bad flags, missing required positional)
+
+## Global environment variables
+
+| Variable      | Default                      | Effect                                                     |
+| ------------- | ---------------------------- | ---------------------------------------------------------- |
+| `JB_HOME`     | `~/.jeffs-brain`             | Storage root used when `--brain` is omitted.               |
+| `JB_BRAIN`    | unset                        | Default brain id applied when `--brain` is omitted.        |
+| `JB_TOKEN`    | unset                        | Hosted bearer token. When set, flips to `HttpStore`.       |
+| `JB_ENDPOINT` | `https://api.jeffsbrain.com` | Hosted API base URL.                                       |
+| `OLLAMA_HOST` | `http://localhost:11434`     | Local embedder endpoint. BM25-only when unreachable.       |
+
+## `memory init <path>`
+
+Create a new brain directory with git-backed storage.
+
+```bash
+memory init ./my-brain
+```
+
+Output: a JSON line `{"brain":"./my-brain","ok":true}`.
+
+## `memory ingest <file>`
+
+Ingest a file into the brain. Chunks the content, writes it to the store, and upserts the chunks into the SQLite index.
+
+```bash
+memory ingest ./docs/hedgehogs.md --brain ./my-brain
+```
+
+Flags:
+
+- `--brain <path>` — override the default brain directory (also set via `JB_BRAIN`).
+
+Output: a JSON line with `path`, `hash`, `bytes`, and `skipped` (null when new, otherwise the reason).
+
+## `memory search <query>`
+
+Run a hybrid BM25 + vector query against the brain.
+
+```bash
+memory search "where do hedgehogs live?" --brain ./my-brain
+memory search "tags:wildlife" --mode bm25 --json --limit 20
+```
+
+Flags:
+
+- `--brain <path>` — override the default brain directory.
+- `--mode <hybrid|bm25|semantic>` — default `hybrid`. Falls back to `bm25` when no embedder is configured.
+- `--rerank` — apply reranking (reserved; currently a no-op).
+- `--json` — emit JSON results on stdout instead of human-friendly text.
+- `--limit <N>` — maximum number of results (default 10).
+
+## `memory extract`
+
+Submit a transcript so the server can asynchronously derive memorable facts. Delegates to the same logic as the [`memory_extract`](/spec/mcp-tools/) MCP tool.
+
+## `memory reflect`
+
+Close a session and trigger reflection. Mirrors [`memory_reflect`](/spec/mcp-tools/).
+
+## `memory consolidate`
+
+Trigger a compaction pass over `memory/` and `wiki/`. Mirrors [`memory_consolidate`](/spec/mcp-tools/). Reserved; today delegates to `brains.compile` where available.
+
+## `memory remember` (Go only)
+
+Capture a single, atomic memory note.
+
+```bash
+memory remember "I prefer British English in code" --tags style,english
+```
+
+## `memory recall` (Go only)
+
+Recall memories for a query, optionally weighted by session context.
+
+```bash
+memory recall "style preferences" --limit 5
+```
+
+## `memory serve`
+
+Start the HTTP daemon that speaks the [protocol](/spec/protocol/).
+
+```bash
+memory serve --host 127.0.0.1 --port 8080
+```
+
+Flags:
+
+- `--host <host>` — bind address (default `127.0.0.1`).
+- `--port <port>` — listen port (default `8080`).
+- `--home <path>` — override `JB_HOME` for this process.
+
+## `memory acl` (TS only)
+
+Manage OpenFGA-backed authorisation when the brain is wired to `@jeffs-brain/memory-openfga`. See [`acl.ts`](https://github.com/jeffs-brain/memory/blob/main/sdks/ts/memory/src/cli/commands/acl.ts).
+
+## `memory git` (TS only)
+
+Helpers for the git-backed store: sign a commit, push, fetch, check status. See [`git.ts`](https://github.com/jeffs-brain/memory/blob/main/sdks/ts/memory/src/cli/commands/git.ts).
+
+## `memory eval` (TS only)
+
+Run the Long-Memory-Eval harness against the brain. See [`lme.ts`](https://github.com/jeffs-brain/memory/blob/main/sdks/ts/memory/src/cli/commands/lme.ts).
+
+## `memory create-brain` / `memory list-brains` (Go only)
+
+Create or list brains hosted at the configured endpoint. Mirror [`memory_create_brain`](/spec/mcp-tools/) and [`memory_list_brains`](/spec/mcp-tools/).
+
+## Parity notes
+
+Subcommand coverage differs by SDK while implementations catch up. The canonical surface every SDK must eventually expose:
+
+| Command         | TS    | Go    | Py            |
+| --------------- | ----- | ----- | ------------- |
+| `init`          | yes   | stub  | stub          |
+| `ingest`        | yes   | stub  | stub          |
+| `search`        | yes   | yes   | stub          |
+| `extract`       | yes   | stub  | stub          |
+| `reflect`       | yes   | stub  | stub          |
+| `consolidate`   | yes   | stub  | stub          |
+| `serve`         | yes   | yes   | stub          |
+| `remember`      | -     | stub  | -             |
+| `recall`        | -     | stub  | -             |
+| `create-brain`  | -     | stub  | -             |
+| `list-brains`   | -     | stub  | -             |
+| `acl`           | yes   | -     | -             |
+| `git`           | yes   | -     | -             |
+| `eval`          | yes   | stub  | -             |
+
+TODO: surface the Go `remember`, `recall`, `create-brain`, `list-brains` commands as first-class CLI verbs in TS and Py as well, once those land.

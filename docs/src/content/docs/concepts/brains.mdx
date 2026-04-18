@@ -1,0 +1,59 @@
+---
+title: Brains
+description: A brain is one git-backed store plus one SQLite index. Here's the layout.
+sidebar:
+  order: 1
+---
+
+A **brain** is the unit of isolation in jeffs-brain/memory. Think of it as "one agent's mind", "one team's knowledge base", or "one customer's data" depending on how you use it. Every brain owns its own storage root, its own search index, and its own event stream.
+
+## Anatomy
+
+A brain has two on-disk components:
+
+1. **Store** — raw content, exposed via the `Store` interface. Implementations: `FsStore` (plain filesystem), `GitStore` (filesystem plus a git history), `HttpStore` (remote backend), `MemStore` (ephemeral, for tests), `PostgresStore` (Postgres + pgvector).
+2. **Search index** — a SQLite database alongside the store that holds an FTS5 BM25 index plus an optional vector index.
+
+Both are scoped by `brainId`. A single process can open many brains concurrently, each with its own `Store`, index, and subscribers.
+
+## Layout on disk
+
+A filesystem-backed brain rooted at `$JB_HOME/<brainId>/` looks like this:
+
+```
+~/.jeffs-brain/<brainId>/
+├── .git/                     # when using GitStore
+├── .search.db                # SQLite FTS5 + vector index
+├── memory/                   # facts derived via the memory pipeline
+├── wiki/                     # consolidated / reflected summaries
+└── raw/
+    ├── documents/            # user-ingested documents
+    └── .sources/             # ingest provenance metadata
+```
+
+- `memory/` and `wiki/` are the "curated" surface area — short-form memory notes and consolidated summaries.
+- `raw/documents/` holds originals ingested via `memory ingest` or `knowledge.Ingest`.
+- `raw/.sources/` tracks where each raw document came from (URL, local path, content hash).
+- The SQLite index walks `memory/`, `wiki/`, `raw/documents/`, and `raw/.sources/` so any content in those trees is discoverable.
+
+## Paths
+
+Every path is validated before it reaches the store:
+
+- Non-empty, POSIX-style, relative.
+- No `.` or `..` segments, no empty segments, no backslashes, no NUL bytes, no leading or trailing slash.
+- Already canonical (`cleanPosix(p) === p`).
+
+A leading underscore on the base name (`_index.md`) marks a path as **generated** and hides it from default listings. Pass `includeGenerated: true` to surface those.
+
+See [`spec/STORAGE.md`](/spec/storage/) for the full validation rules, batch semantics, and change-event shape.
+
+## Multi-brain in one process
+
+Every SDK exposes:
+
+- A factory to open/create a brain (`createFsStore`, `brain.Open`, `fs.New`).
+- A brain listing tool via MCP (`memory_list_brains`) and CLI (`memory brain list`, where implemented).
+- A `JB_BRAIN` env var that supplies the default brain id when a tool call or CLI invocation omits it.
+
+Brains are independent: mutating one never affects another, and subscribers only see change events from their own brain.

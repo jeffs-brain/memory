@@ -33,6 +33,7 @@
 import type { Embedder, Logger } from '../llm/types.js'
 import {
   type AliasTable,
+  type Distiller,
   compileToFTS,
   expandAliases,
   parseQuery,
@@ -92,6 +93,13 @@ export type CreateRetrievalOptions = {
   reranker?: Reranker
   aliases?: AliasTable
   logger?: Logger
+  /**
+   * Optional query distiller. When supplied, the raw request query is
+   * rewritten via `distiller.distill(query)` before parsing. A distiller
+   * failure falls back to the original query; the trace records both
+   * the rewrite and the fallback.
+   */
+  distiller?: Distiller
   /**
    * Optional supplier for the trigram fallback. When omitted, the
    * retrieval pipeline reads chunk metadata directly from the
@@ -162,7 +170,29 @@ export function createRetrieval(opts: CreateRetrievalOptions): Retrieval {
     const rerankTopN = req.rerankTopN ?? DEFAULT_RERANK_TOP_N
     const rerankEnabled = req.rerank ?? true
 
-    const ast = parseQuery(req.query)
+    // Run the optional distiller before parsing so the rewritten text
+    // feeds every downstream leg (parser, compile, embedder, retry).
+    let effectiveQuery = req.query
+    let usedDistill = false
+    let distilledQuery: string | undefined
+    let distillElapsed: number | undefined
+    if (opts.distiller !== undefined) {
+      const distillStart = Date.now()
+      try {
+        const rewritten = await opts.distiller.distill(req.query, req.signal)
+        distillElapsed = Date.now() - distillStart
+        if (rewritten !== '') {
+          effectiveQuery = rewritten
+          usedDistill = true
+          distilledQuery = rewritten
+        }
+      } catch (err) {
+        distillElapsed = Date.now() - distillStart
+        log?.warn?.('distiller failed; using raw query', { err: String(err) })
+      }
+    }
+
+    const ast = parseQuery(effectiveQuery)
     const expanded = opts.aliases !== undefined ? expandAliases(ast, opts.aliases) : ast
     const compiled = compileToFTS(expanded)
 
@@ -227,8 +257,8 @@ export function createRetrieval(opts: CreateRetrievalOptions): Retrieval {
 
       if (bmCandidates.length === 0 && req.skipRetryLadder !== true) {
         // Rung 1: strongest term.
-        const strongest = strongestTerm(req.query)
-        if (strongest !== undefined && strongest !== req.query.trim().toLowerCase()) {
+        const strongest = strongestTerm(effectiveQuery)
+        if (strongest !== undefined && strongest !== effectiveQuery.trim().toLowerCase()) {
           bmCandidates = runBM25(strongest)
           attempts.push({
             strategy: 'strongest_term',
@@ -240,7 +270,7 @@ export function createRetrieval(opts: CreateRetrievalOptions): Retrieval {
         if (bmCandidates.length === 0) {
           // Rung 2: force-refresh (no-op) + rung 3: refreshed sanitised.
           forceRefreshIndex()
-          const sanitised = sanitiseQuery(req.query)
+          const sanitised = sanitiseQuery(effectiveQuery)
           if (sanitised !== '') {
             bmCandidates = runBM25(sanitised)
             attempts.push({
@@ -253,7 +283,7 @@ export function createRetrieval(opts: CreateRetrievalOptions): Retrieval {
 
         if (bmCandidates.length === 0) {
           // Rung 4: refreshed strongest term.
-          const strongest = strongestTerm(sanitiseQuery(req.query))
+          const strongest = strongestTerm(sanitiseQuery(effectiveQuery))
           if (strongest !== undefined) {
             bmCandidates = runBM25(strongest)
             attempts.push({
@@ -266,7 +296,7 @@ export function createRetrieval(opts: CreateRetrievalOptions): Retrieval {
 
         if (bmCandidates.length === 0) {
           // Rung 5: trigram fuzzy fallback.
-          const tokens = queryTokens(req.query)
+          const tokens = queryTokens(effectiveQuery)
           const tri = ensureTrigramIndex()
           if (tri !== undefined && tokens.length > 0) {
             const fuzzy: readonly TrigramHit[] = tri.search(tokens, candidateK)
@@ -300,7 +330,7 @@ export function createRetrieval(opts: CreateRetrievalOptions): Retrieval {
 
     if (opts.embedder !== undefined && (mode === 'hybrid' || mode === 'semantic')) {
       try {
-        const vectors = await opts.embedder.embed([req.query], req.signal)
+        const vectors = await opts.embedder.embed([effectiveQuery], req.signal)
         const first = vectors[0]
         if (first !== undefined && first.length > 0) {
           trace.embedderUsed = true
@@ -345,7 +375,7 @@ export function createRetrieval(opts: CreateRetrievalOptions): Retrieval {
       if (vecCandidates.length > 0) lists.push(vecCandidates)
       fused = reciprocalRankFusion(lists, RRF_DEFAULT_K)
     }
-    fused = reweightSharedMemoryRanking(req.query, fused)
+    fused = reweightSharedMemoryRanking(effectiveQuery, fused)
     trace.fusionElapsed = Date.now() - fuseStart
     trace.fusedCount = fused.length
 
@@ -373,7 +403,7 @@ export function createRetrieval(opts: CreateRetrievalOptions): Retrieval {
         try {
           const reranked = await opts.reranker.rerank(
             {
-              query: req.query,
+              query: effectiveQuery,
               documents: head.map((r) => ({
                 id: r.id,
                 text: composeRerankText(r),
@@ -403,6 +433,9 @@ export function createRetrieval(opts: CreateRetrievalOptions): Retrieval {
 
     trace.attempts = attempts
     trace.totalElapsed = Date.now() - started
+    if (usedDistill) trace.usedDistill = true
+    if (distilledQuery !== undefined) trace.distilledQuery = distilledQuery
+    if (distillElapsed !== undefined) trace.distillElapsed = distillElapsed
     return { results: final, trace }
   }
 

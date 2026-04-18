@@ -1,0 +1,49 @@
+---
+title: Claude Desktop
+description: Register the jeffs-brain MCP server with Claude Desktop.
+sidebar:
+  order: 2
+---
+
+## Prerequisites
+
+- [Claude Desktop](https://claude.ai/download) installed.
+- Node `>=20` on your `PATH`.
+
+## Install
+
+Open **Settings -> Developer -> Edit Config** and add a `mcpServers` entry:
+
+```json
+{
+  "mcpServers": {
+    "jeffs-brain": {
+      "command": "npx",
+      "args": ["-y", "@jeffs-brain/memory-mcp"],
+      "env": {
+        "JB_TOKEN": "optional-hosted-token"
+      }
+    }
+  }
+}
+```
+
+Restart Claude Desktop after saving. The `jeffs-brain` server should appear in the tool picker (hammer icon) with eleven `memory_*` tools.
+
+## Smoke test
+
+Ask Claude Desktop:
+
+> Remember that I'm working on jeffs-brain.
+
+Then in a later turn:
+
+> What am I working on?
+
+Both calls should show the MCP tool invocation in the response UI.
+
+## Troubleshooting
+
+- Tools missing from the hammer menu — reopen the app; MCP config is read at launch.
+- Logs live under `~/Library/Logs/Claude/mcp-server-jeffs-brain.log` on macOS and `%APPDATA%\Claude\logs\` on Windows.
+- For the full tool surface see [`memory_*` tools](/spec/mcp-tools/).

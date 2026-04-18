@@ -1,12 +1,15 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Reciprocal Rank Fusion + retry ladder. Stub."""
+"""Backwards-compatible shim — the hybrid pipeline now lives in
+:mod:`retriever`.
+
+Kept so callers that imported ``retrieval.hybrid.retrieve`` during the
+phase-4 stub era keep compiling. New code should construct
+:class:`Retriever` directly.
+"""
 
 from __future__ import annotations
 
-from ..query import CompiledQuery
-from . import RetrievedChunk
+from .retriever import Retriever
+from .types import Request, Response
 
-
-async def retrieve(query: CompiledQuery, *, limit: int = 20) -> list[RetrievedChunk]:
-    """Run the hybrid retrieval pipeline. Stub."""
-    raise NotImplementedError("retrieval.hybrid.retrieve")
+__all__ = ["Retriever", "Request", "Response"]

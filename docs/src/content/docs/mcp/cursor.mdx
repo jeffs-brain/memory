@@ -1,0 +1,49 @@
+---
+title: Cursor
+description: Register the jeffs-brain MCP server with Cursor.
+sidebar:
+  order: 3
+---
+
+## Prerequisites
+
+- [Cursor](https://cursor.com) installed.
+- Node `>=20` on your `PATH`.
+
+## Install
+
+Cursor reads MCP servers from `~/.cursor/mcp.json` (global) or `<repo>/.cursor/mcp.json` (project). Add:
+
+```json
+{
+  "mcpServers": {
+    "jeffs-brain": {
+      "command": "npx",
+      "args": ["-y", "@jeffs-brain/memory-mcp"],
+      "env": {
+        "JB_TOKEN": "optional-hosted-token"
+      }
+    }
+  }
+}
+```
+
+Reload Cursor. Open **Settings -> MCP** to confirm the server shows as connected.
+
+## Smoke test
+
+In Composer or the chat panel:
+
+> Remember: my test framework is vitest.
+
+Then later:
+
+> What test framework do I use?
+
+Both turns should show tool calls.
+
+## Troubleshooting
+
+- Server appears disconnected — check Cursor's MCP logs via the command palette: "MCP: Show Logs".
+- `env` vars not picked up — Cursor requires a reload after editing `mcp.json`.
+- Global vs project scope: `~/.cursor/mcp.json` applies everywhere; the project copy overrides.

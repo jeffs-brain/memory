@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 
 	"github.com/jeffs-brain/memory/go/brain"
@@ -293,7 +294,7 @@ func (bm *BrainManager) build(ctx context.Context, brainID string) (*BrainResour
 	mem := memory.New(store)
 
 	// Search index lives next to the brain root so it is portable.
-	idx, src, retr := buildSearchAndRetrieval(ctx, root, store, bm.d.Embedder, bm.d.Logger)
+	idx, src, retr := buildSearchAndRetrieval(ctx, root, store, bm.d, bm.d.Logger)
 
 	kbase, kerr := knowledge.New(knowledge.Options{
 		BrainID:   brainID,
@@ -340,9 +341,13 @@ func buildSearchAndRetrieval(
 	ctx context.Context,
 	root string,
 	store brain.Store,
-	embedder llm.Embedder,
+	d *Daemon,
 	log *slog.Logger,
 ) (*search.Index, retrieval.Source, retrieval.Retriever) {
+	var embedder llm.Embedder
+	if d != nil {
+		embedder = d.Embedder
+	}
 	dbPath := filepath.Join(root, ".search.db")
 	db, err := search.OpenDB(dbPath)
 	if err != nil {
@@ -360,10 +365,61 @@ func buildSearchAndRetrieval(
 		log.Warn("daemon: build index source", "root", root, "err", err)
 		return idx, nil, nil
 	}
-	retr, err := retrieval.New(retrieval.Config{Source: src, Embedder: embedder})
+	reranker := buildReranker(d, log)
+	retr, err := retrieval.New(retrieval.Config{Source: src, Embedder: embedder, Reranker: reranker})
 	if err != nil {
 		log.Warn("daemon: build retriever", "root", root, "err", err)
 		return idx, src, nil
 	}
 	return idx, src, retr
+}
+
+// buildReranker wires an optional cross-encoder rerank pass based on
+// environment configuration. Returns nil when the operator has not
+// selected a reranker; the retrieval pipeline treats a nil reranker as
+// "rerank disabled" and records RerankSkipReason="no_reranker" on the
+// trace.
+//
+// Recognised JB_RERANK_PROVIDER values:
+//   - "llm": LLMReranker backed by the daemon's configured LLM
+//     provider. Respects JB_RERANK_MODEL (forwarded to the provider).
+//   - "http": HTTPReranker pointing at JB_RERANK_URL. Optional
+//     JB_RERANK_API_KEY forwards a bearer token; JB_RERANK_MODEL is
+//     sent in the request body (defaults to bge-reranker-v2-m3).
+//
+// Any other value (or an empty variable) leaves the reranker nil.
+func buildReranker(d *Daemon, log *slog.Logger) retrieval.Reranker {
+	provider := strings.ToLower(strings.TrimSpace(os.Getenv("JB_RERANK_PROVIDER")))
+	if provider == "" {
+		return nil
+	}
+	switch provider {
+	case "llm":
+		if d == nil || d.LLM == nil {
+			log.Warn("daemon: rerank provider=llm but no llm provider configured")
+			return nil
+		}
+		model := strings.TrimSpace(os.Getenv("JB_RERANK_MODEL"))
+		return retrieval.NewLLMReranker(d.LLM, model)
+	case "http":
+		endpoint := strings.TrimSpace(os.Getenv("JB_RERANK_URL"))
+		if endpoint == "" {
+			log.Warn("daemon: rerank provider=http but JB_RERANK_URL is empty")
+			return nil
+		}
+		rr, err := retrieval.NewHTTPReranker(retrieval.HTTPRerankerConfig{
+			Endpoint: endpoint,
+			APIKey:   strings.TrimSpace(os.Getenv("JB_RERANK_API_KEY")),
+			Model:    strings.TrimSpace(os.Getenv("JB_RERANK_MODEL")),
+			Logger:   log,
+		})
+		if err != nil {
+			log.Warn("daemon: build http reranker", "err", err)
+			return nil
+		}
+		return rr
+	default:
+		log.Warn("daemon: unknown rerank provider", "provider", provider)
+		return nil
+	}
 }

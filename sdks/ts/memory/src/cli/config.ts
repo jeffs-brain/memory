@@ -48,6 +48,7 @@ export type ProviderSettings = {
   readonly kind: ProviderKind
   readonly model: string
   readonly apiKey: string
+  readonly baseURL?: string
 }
 
 export class CliUsageError extends Error {
@@ -75,7 +76,8 @@ export const providerFromEnv = (): ProviderSettings => {
   if (kindRaw !== 'ollama' && apiKey === '') {
     throw new CliError(`JB_LLM_API_KEY required for provider '${kindRaw}'`)
   }
-  return { kind: kindRaw, model, apiKey }
+  const baseURL = process.env['JB_LLM_BASE_URL']
+  return baseURL ? { kind: kindRaw, model, apiKey, baseURL } : { kind: kindRaw, model, apiKey }
 }
 
 export const providerFromEnvOptional = (): ProviderSettings | undefined => {
@@ -108,6 +110,7 @@ export const buildProvider = (settings: ProviderSettings): Provider => {
         type: 'openai',
         apiKey: settings.apiKey,
         model: settings.model,
+        ...(settings.baseURL ? { baseURL: settings.baseURL } : {}),
       })
     case 'ollama':
       return createProvider({

@@ -1,0 +1,65 @@
+{
+  "name": "@jeffs-brain/install",
+  "version": "0.1.0",
+  "description": "One-shot npx orchestrator that wires the @jeffs-brain/memory-mcp server into Claude Code, Claude Desktop, Cursor, Windsurf, and Zed configs.",
+  "license": "Apache-2.0",
+  "author": "Alex J <alex@lleverage.ai>",
+  "homepage": "https://github.com/jeffs-brain/memory#readme",
+  "bugs": {
+    "url": "https://github.com/jeffs-brain/memory/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jeffs-brain/memory.git",
+    "directory": "install"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "claude",
+    "claude-code",
+    "claude-desktop",
+    "cursor",
+    "windsurf",
+    "zed",
+    "installer",
+    "jeffs-brain",
+    "memory",
+    "ai-agent"
+  ],
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "sideEffects": false,
+  "bin": {
+    "jeffs-brain-install": "./dist/index.js"
+  },
+  "files": ["dist", "README.md", "LICENSE", "NOTICE"],
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    },
+    "./package.json": "./package.json"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run --passWithNoTests",
+    "prepublishOnly": "bun run typecheck && bun run test && bun run build"
+  },
+  "dependencies": {
+    "@inquirer/prompts": "^7.2.1",
+    "citty": "^0.1.6",
+    "zod": "^3.23.0"
+  },
+  "devDependencies": {
+    "vitest": "^2.1.8"
+  }
+}

@@ -1,0 +1,50 @@
+---
+title: Claude Code
+description: Register the jeffs-brain MCP server with Anthropic's Claude Code CLI.
+sidebar:
+  order: 1
+---
+
+## Prerequisites
+
+- [Claude Code](https://docs.claude.com/claude-code) installed and authenticated.
+- Node `>=20` on your `PATH` (the MCP wrapper runs as a stdio Node process via `npx`).
+
+## Install
+
+```bash
+# Local brain (default: ~/.jeffs-brain)
+claude mcp add jeffs-brain -- npx -y @jeffs-brain/memory-mcp
+
+# Hosted brain
+claude mcp add jeffs-brain --env JB_TOKEN=... -- npx -y @jeffs-brain/memory-mcp
+```
+
+## Smoke test
+
+Open a new Claude Code session and ask:
+
+> Remember that I prefer British English in all my code.
+
+Claude should call the `memory_remember` tool. Then:
+
+> What language do I prefer in my code?
+
+Claude should call `memory_recall` and return the fact you stored.
+
+## Environment variables
+
+| Variable      | Default                      | Effect                                               |
+| ------------- | ---------------------------- | ---------------------------------------------------- |
+| `JB_TOKEN`    | unset                        | When set, flips to hosted mode.                      |
+| `JB_ENDPOINT` | `https://api.jeffsbrain.com` | Hosted API base URL.                                 |
+| `JB_HOME`     | `~/.jeffs-brain`             | Local FsStore root.                                  |
+| `JB_BRAIN`    | unset                        | Default brain id applied when a tool call omits it.  |
+| `OLLAMA_HOST` | `http://localhost:11434`     | Local embedder endpoint. BM25-only when unreachable. |
+
+## Troubleshooting
+
+- `command not found: npx` — install Node `>=20` or pass a fully qualified path to `npx`.
+- Tools register but every call fails — check `claude mcp list` and inspect `~/.claude/logs/` for the stdio server output.
+- Hosted mode: confirm `JB_TOKEN` is scoped correctly and `JB_ENDPOINT` is reachable from your machine.
+- For the full tool surface see [`memory_*` tools](/spec/mcp-tools/).
