@@ -11,7 +11,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        sdk: [ts, go]
+        sdk: [ts, go, py]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -36,6 +36,7 @@ jobs:
           case "${{ matrix.sdk }}" in
             ts) bun run --filter @jeffs-brain/memory build ;;
             go) cd sdks/go && go build ./... && go build ./cmd/memory ;;
+            py) cd sdks/py && uv sync && uv run memory --version ;;
           esac
       - name: Run smoke eval
         run: |

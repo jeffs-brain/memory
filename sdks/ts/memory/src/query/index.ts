@@ -14,6 +14,8 @@ import { type QueryAST, type Token, parseQuery, renderToken } from './parser.js'
 export type { QueryAST, Token, TokenKind, BooleanOp } from './parser.js'
 export type { AliasTable } from './aliases.js'
 export type { TemporalExpansion } from './temporal.js'
+export type { Cache, CacheOptions } from './cache.js'
+export type { Distiller, DistillerOptions } from './distill.js'
 export { parseQuery } from './parser.js'
 export { expand } from './aliases.js'
 export {
@@ -26,6 +28,13 @@ export {
 } from './temporal.js'
 export { normalise, lowerToken } from './normalise.js'
 export { EN_STOP_WORDS, NL_STOP_WORDS, STOP_WORDS, isStopWord } from './stopwords.js'
+export { cacheKey, createCache } from './cache.js'
+export { createDistiller } from './distill.js'
+export {
+  DISTILL_PROMPT_VERSION,
+  DISTILL_SYSTEM_PROMPT,
+  callDistillLLM,
+} from './prompt.js'
 
 /**
  * compileToFTS walks the AST and produces a valid FTS5 MATCH

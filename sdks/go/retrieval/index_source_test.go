@@ -476,44 +476,16 @@ func TestIndexSource_EndToEnd_TrigramFallback(t *testing.T) {
 	}
 }
 
-func TestIndexSource_LLMReranker_StubReturnsInputUnchanged(t *testing.T) {
+func TestIndexSource_LLMReranker_NameReflectsModel(t *testing.T) {
 	t.Parallel()
-	provider := llm.NewFake([]string{"rank: 1,2,3"})
-	rr, err := NewLLMReranker(provider, "fake-model")
-	if err != nil {
-		t.Fatalf("NewLLMReranker: %v", err)
-	}
-	chunks := []RetrievedChunk{
-		{ChunkID: "a", Path: "wiki/a.md", Score: 0.9},
-		{ChunkID: "b", Path: "wiki/b.md", Score: 0.8},
-		{ChunkID: "c", Path: "wiki/c.md", Score: 0.7},
-	}
-	out, err := rr.Rerank(context.Background(), "test query", chunks)
-	if err != nil {
-		t.Fatalf("Rerank: %v", err)
-	}
-	if len(out) != len(chunks) {
-		t.Fatalf("Rerank length %d, want %d", len(out), len(chunks))
-	}
-	for i, c := range out {
-		if c.ChunkID != chunks[i].ChunkID {
-			t.Errorf("Rerank reordered at %d: got %q, want %q (stub must preserve order)",
-				i, c.ChunkID, chunks[i].ChunkID)
-		}
-	}
+	provider := llm.NewFake([]string{`[{"id":0,"score":1}]`})
+	rr := NewLLMReranker(provider, "fake-model")
 	if rr.Name() != "llm:fake-model" {
 		t.Errorf("Name = %q, want llm:fake-model", rr.Name())
 	}
-}
-
-func TestIndexSource_LLMReranker_RejectsNilProvider(t *testing.T) {
-	t.Parallel()
-	if _, err := NewLLMReranker(nil, "model"); err == nil {
-		t.Fatal("expected error for nil provider")
-	}
-	provider := llm.NewFake([]string{"resp"})
-	if _, err := NewLLMReranker(provider, ""); err == nil {
-		t.Fatal("expected error for empty model")
+	empty := NewLLMReranker(provider, "")
+	if empty.Name() != "llm-reranker" {
+		t.Errorf("Name = %q, want llm-reranker for empty model", empty.Name())
 	}
 }
 

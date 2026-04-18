@@ -1,0 +1,24 @@
+jeffs-brain/memory
+Copyright 2026 Alex J and contributors
+
+Licensed under the Apache License, Version 2.0. See LICENSE for details.
+
+This product bundles or depends on the following third-party components:
+
+- sqlite-vec                 Apache-2.0    https://github.com/asg017/sqlite-vec
+- isomorphic-git             MIT           https://github.com/isomorphic-git/isomorphic-git
+- better-sqlite3             MIT           https://github.com/WiseLibs/better-sqlite3
+- citty                      MIT           https://github.com/unjs/citty
+- pdf-parse                  MIT           https://gitlab.com/autokent/pdf-parse
+- drizzle-orm                Apache-2.0    https://github.com/drizzle-team/drizzle-orm  (memory-postgres)
+- postgres                   Unlicense     https://github.com/porsager/postgres         (memory-postgres)
+- @modelcontextprotocol/sdk  MIT           https://github.com/modelcontextprotocol/typescript-sdk  (memory-mcp)
+- zod                        MIT           https://github.com/colinhacks/zod             (memory-mcp)
+
+Planned additions as SDKs ship:
+- go-git          Apache-2.0    https://github.com/go-git/go-git                (Go SDK)
+- modernc.org/sqlite  BSD-3-Clause  https://gitlab.com/cznic/sqlite             (Go SDK)
+- sqlite-vec-go-bindings  Apache-2.0    https://github.com/asg017/sqlite-vec    (Go SDK)
+- pygit2          GPLv2 with linking exception  https://github.com/libgit2/pygit2  (Python SDK)
+- pdfplumber      MIT           https://github.com/jsvine/pdfplumber             (Python SDK)
+- starlette       BSD-3-Clause  https://github.com/encode/starlette              (Python SDK)

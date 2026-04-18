@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "jeffs-brain": {
+      "command": "npx",
+      "args": ["-y", "@jeffs-brain/memory-mcp"],
+      "env": { "JB_HOME": "/old/path" }
+    }
+  }
+}

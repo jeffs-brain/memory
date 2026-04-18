@@ -1,0 +1,11 @@
+{
+  "theme": "One Dark",
+  "context_servers": {
+    "some-server": {
+      "source": "custom",
+      "command": "/usr/local/bin/some",
+      "args": [],
+      "env": {}
+    }
+  }
+}

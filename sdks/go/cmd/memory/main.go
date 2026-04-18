@@ -34,6 +34,7 @@ func rootCmd() *cobra.Command {
 		consolidateCmd(),
 		createBrainCmd(),
 		listBrainsCmd(),
+		evalCmd(),
 	)
 
 	return root

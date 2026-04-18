@@ -1,0 +1,129 @@
+---
+title: Go
+description: Install the Go SDK and run the reference CLI.
+sidebar:
+  order: 2
+---
+
+## Install
+
+```bash
+go install github.com/jeffs-brain/memory/go/cmd/memory@latest
+```
+
+The binary is named `memory` and lives under `$GOPATH/bin` (usually `~/go/bin`). Ensure that's on your `PATH`.
+
+Build from source if you'd rather:
+
+```bash
+git clone https://github.com/jeffs-brain/memory
+cd memory/sdks/go
+go build ./...
+go install ./cmd/memory
+```
+
+## CLI quick start
+
+```bash
+memory init ./my-brain
+memory ingest ./docs/hedgehogs.md --brain ./my-brain
+memory search "where do hedgehogs live?" --brain ./my-brain
+```
+
+Same subcommand shapes as the TypeScript CLI. See the [CLI reference](/reference/cli/) for every flag.
+
+## Programmatic use
+
+End-to-end hello-world taken from [`examples/go/hello-world/`](https://github.com/jeffs-brain/memory/tree/main/examples/go/hello-world). It opens a filesystem-backed brain, ingests a markdown file through `knowledge.Ingest`, and runs `knowledge.Search` against the FTS5-backed index.
+
+```go
+// SPDX-License-Identifier: Apache-2.0
+package main
+
+import (
+	"context"
+	"fmt"
+	"log"
+	"os"
+	"path/filepath"
+
+	"github.com/jeffs-brain/memory/go/brain"
+	"github.com/jeffs-brain/memory/go/knowledge"
+	"github.com/jeffs-brain/memory/go/search"
+	"github.com/jeffs-brain/memory/go/store/fs"
+)
+
+const brainID = "hello-world"
+
+func main() {
+	ctx := context.Background()
+
+	root, err := filepath.Abs("./data/" + brainID)
+	if err != nil {
+		log.Fatalf("resolve brain root: %v", err)
+	}
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		log.Fatalf("mkdir brain root: %v", err)
+	}
+
+	store, err := fs.New(root)
+	if err != nil {
+		log.Fatalf("fs.New: %v", err)
+	}
+	defer func() { _ = store.Close() }()
+
+	b, err := brain.Open(ctx, brain.Options{ID: brainID, Root: root, Store: store})
+	if err != nil {
+		log.Fatalf("brain.Open: %v", err)
+	}
+	defer func() { _ = b.Close() }()
+
+	db, err := search.OpenDB(filepath.Join(root, ".search.db"))
+	if err != nil {
+		log.Fatalf("search.OpenDB: %v", err)
+	}
+	defer func() { _ = search.CloseDB(db) }()
+
+	idx, err := search.NewIndex(db, b.Store())
+	if err != nil {
+		log.Fatalf("search.NewIndex: %v", err)
+	}
+	unsub := idx.Subscribe(b.Store())
+	defer unsub()
+
+	kb, err := knowledge.New(knowledge.Options{
+		BrainID: brainID,
+		Store:   b.Store(),
+		Index:   idx,
+	})
+	if err != nil {
+		log.Fatalf("knowledge.New: %v", err)
+	}
+	defer func() { _ = kb.Close() }()
+
+	docPath, _ := filepath.Abs("./docs/hedgehogs.md")
+	ingestResp, err := kb.Ingest(ctx, knowledge.IngestRequest{Path: docPath})
+	if err != nil {
+		log.Fatalf("ingest: %v", err)
+	}
+	fmt.Printf("Ingested %s (%d chunks, %d bytes)\n", ingestResp.Path, ingestResp.ChunkCount, ingestResp.Bytes)
+
+	resp, err := kb.Search(ctx, knowledge.SearchRequest{Query: "where do hedgehogs live?", MaxResults: 3})
+	if err != nil {
+		log.Fatalf("search: %v", err)
+	}
+	for i, h := range resp.Hits {
+		fmt.Printf("%d. [%.3f] %s\n   %s\n", i+1, h.Score, h.Path, h.Snippet)
+	}
+}
+```
+
+## Status
+
+Phase 3 scaffold. Interfaces and types compile; the CLI and reference daemon are in active development. See the [Go SDK README](https://github.com/jeffs-brain/memory/tree/main/sdks/go) for the current implementation state.
+
+## Next steps
+
+- [Concepts](/concepts/brains/).
+- [MCP integration](/mcp/claude-code/) (TypeScript wrapper today, Go wrapper in flight).
+- [Spec](/spec/protocol/): the source of truth the Go SDK implements.

@@ -1,0 +1,95 @@
+---
+title: TypeScript hello-world
+description: Minimal end-to-end ingest and BM25 search against a markdown file.
+sidebar:
+  order: 1
+---
+
+Source: [`examples/ts/hello-world/`](https://github.com/jeffs-brain/memory/tree/main/examples/ts/hello-world).
+
+## Run it
+
+```bash
+git clone https://github.com/jeffs-brain/memory
+cd memory
+bun install
+bun run build:packages
+
+cd examples/ts/hello-world
+bun install
+bun run start
+```
+
+Expected output: the top 3 matches for "where do hedgehogs live?" against `docs/hedgehogs.md`, with the hedgerow sentence scoring highest.
+
+## What it does
+
+1. Creates a filesystem-backed `Store` under `./data/hello-world/`.
+2. Opens a SQLite search index at `./data/hello-world/search.db`.
+3. Reads `docs/hedgehogs.md`, writes the raw content under `ingested/` via a batched `store.batch` call, then chunks the markdown with `chunkMarkdown` and upserts the chunks into the index.
+4. Runs a BM25 query (`index.searchBM25`) and prints the top 3 hits.
+
+No embedder is wired, so retrieval is BM25-only. For hybrid search, supply an `Embedder` and call `createRetrieval` instead.
+
+## The code
+
+```ts
+// SPDX-License-Identifier: Apache-2.0
+import { readFile, mkdir } from 'node:fs/promises'
+import { basename, resolve } from 'node:path'
+import {
+  chunkMarkdown,
+  createFsStore,
+  createSearchIndex,
+  toPath,
+  type SqliteSearchIndexChunk,
+} from '@jeffs-brain/memory'
+
+const BRAIN_ID = 'hello-world'
+
+async function main(): Promise<void> {
+  const dataRoot = resolve('./data')
+  const brainRoot = resolve(dataRoot, BRAIN_ID)
+  await mkdir(brainRoot, { recursive: true })
+
+  const store = await createFsStore({ root: brainRoot })
+  const index = await createSearchIndex({ dbPath: resolve(brainRoot, 'search.db') })
+
+  try {
+    const docPath = resolve('./docs/hedgehogs.md')
+    const raw = await readFile(docPath)
+    const storedPath = `ingested/${basename(docPath)}`
+    await store.batch({ reason: 'ingest' }, async (batch) => {
+      await batch.write(toPath(storedPath), raw)
+    })
+
+    const chunks = chunkMarkdown(raw.toString('utf8'))
+    const indexChunks: SqliteSearchIndexChunk[] = chunks.map((chunk) => ({
+      id: `${BRAIN_ID}:${basename(docPath)}:${chunk.ordinal}`,
+      path: storedPath,
+      ordinal: chunk.ordinal,
+      title: chunk.headingPath.join(' > '),
+      content: chunk.content,
+    }))
+    index.upsertChunks(indexChunks)
+
+    const query = 'where do hedgehogs live?'
+    const topK = 3
+    const results = index.searchBM25(query, topK)
+
+    console.log(`Top ${results.length} results for "${query}":`)
+    for (const [i, hit] of results.entries()) {
+      const snippet = hit.chunk.content.replace(/\s+/g, ' ').trim().slice(0, 120)
+      console.log(`${i + 1}. [${hit.score.toFixed(3)}] ${snippet}...`)
+    }
+  } finally {
+    await index.close()
+    await store.close()
+  }
+}
+
+main().catch((err: unknown) => {
+  console.error(err)
+  process.exit(1)
+})
+```

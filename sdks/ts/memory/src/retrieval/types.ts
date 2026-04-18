@@ -86,6 +86,12 @@ export type HybridTrace = {
   unanimity?: { agreements: number }
   errorStage?: string
   errorDetail?: string
+  /** True when a distiller rewrote the query before parsing. */
+  usedDistill?: boolean
+  /** Distilled query text when distillation ran. */
+  distilledQuery?: string
+  /** Elapsed wall-clock for the distill step in milliseconds. */
+  distillElapsed?: number
 }
 
 /**

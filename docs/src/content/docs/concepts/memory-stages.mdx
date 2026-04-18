@@ -1,0 +1,71 @@
+---
+title: Memory stages
+description: remember -> extract -> reflect -> consolidate -> recall. The five-stage pipeline.
+sidebar:
+  order: 2
+---
+
+jeffs-brain/memory treats "memory" as a pipeline rather than a single write. Each stage has a clear purpose, and each stage is exposed as both an SDK function and an MCP tool.
+
+```
+remember -> extract -> reflect -> consolidate -> recall
+```
+
+## 1. Remember
+
+**Purpose**: capture a single, atomic fact.
+
+**Where it lives**: one markdown note in `memory/` with frontmatter metadata.
+
+**SDK**: `memory.remember({ content, tags?, source?, ... })`.
+**MCP**: [`memory_remember`](/spec/mcp-tools/).
+
+Typical use: an agent hears "I prefer vitest over jest" and calls `memory_remember` with the fact plus a tag.
+
+## 2. Extract
+
+**Purpose**: turn a conversation transcript into zero or more memorable facts, asynchronously.
+
+**Where it lives**: appends to a session (or creates a transcript document in `raw/`), then schedules server-side extraction that writes resulting facts into `memory/`.
+
+**SDK**: `memory.extract({ sessionId?, messages })`.
+**MCP**: [`memory_extract`](/spec/mcp-tools/).
+
+Typical use: at the end of each agent turn, submit the transcript so the system can distil durable facts without blocking the reply.
+
+## 3. Reflect
+
+**Purpose**: close a session and summarise it. Turns ephemeral conversation into a single durable reflection.
+
+**Where it lives**: writes a reflection document (often into `wiki/`) linked back to the session messages.
+
+**SDK**: `memory.reflect({ sessionId })`.
+**MCP**: [`memory_reflect`](/spec/mcp-tools/).
+
+Typical use: "end-of-day" pass that takes the day's chats and produces a summary per thread.
+
+## 4. Consolidate
+
+**Purpose**: compact the accumulated memory and wiki into a smaller, higher-quality set of notes. Deduplicates, merges contradicting facts, and promotes durable knowledge up the hierarchy.
+
+**Where it lives**: rewrites `memory/` and `wiki/` in place with a commit whose `reason` is `consolidate`. See the [storage spec](/spec/storage/) for batch semantics.
+
+**SDK**: `memory.consolidate({ brainId })` (reserved; today delegates to `brains.compile` where available).
+**MCP**: [`memory_consolidate`](/spec/mcp-tools/).
+
+Typical use: a nightly cron. Prevents unbounded memory growth.
+
+## 5. Recall
+
+**Purpose**: answer "what do I know about X?" Uses hybrid retrieval (BM25 + vector + reranker) weighted by session context when one is supplied.
+
+**Where it lives**: reads from `memory/`, `wiki/`, and `raw/documents/` via the SQLite FTS5 + vector index.
+
+**SDK**: `memory.recall({ query, sessionId?, limit? })`.
+**MCP**: [`memory_recall`](/spec/mcp-tools/) (with no `sessionId`, falls back to `memory_search`).
+
+Typical use: at the start of an agent turn, recall relevant memory so the LLM has durable context.
+
+## Why five stages
+
+Splitting write into `remember` / `extract` / `reflect` / `consolidate` lets each stage optimise for a different latency and quality target. `remember` is cheap and synchronous; `extract` is async and LLM-driven; `reflect` is per-session closure; `consolidate` is a periodic compaction. `recall` is the only read on the hot path.

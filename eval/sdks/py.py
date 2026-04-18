@@ -2,6 +2,8 @@
 """Python SDK runner.
 
 Launches `uv run memory serve --addr 127.0.0.1:<port>` from `sdks/py`.
+Matches the Go daemon's `--addr host:port` spelling so cross-SDK ops can
+pass identical flags.
 TODO(eval): consider `uv run --locked` once `uv.lock` is committed to the
 Python SDK to guarantee reproducible CI runs.
 """

@@ -1,0 +1,84 @@
+---
+title: jeffs-brain/memory
+description: Cross-language memory library for LLM agents. Local-first, hosted-optional, Apache-2.0.
+template: splash
+hero:
+  tagline: One memory library. Three languages. One spec.
+  actions:
+    - text: Get started (TypeScript)
+      link: /getting-started/typescript/
+      icon: right-arrow
+      variant: primary
+    - text: Hook up MCP
+      link: /mcp/claude-code/
+      icon: external
+---
+
+import { Tabs, TabItem, Card, CardGrid } from '@astrojs/starlight/components'
+
+`jeffs-brain/memory` is a cross-language memory library for LLM agents, driven by a shared HTTP and storage specification so every SDK behaves the same. Local-first, hosted-optional, Apache-2.0.
+
+## Quick install
+
+<Tabs>
+  <TabItem label="TypeScript">
+    ```bash
+    npm i -g @jeffs-brain/memory
+    memory init ./my-brain
+    memory ingest ./docs
+    memory search "question"
+    ```
+  </TabItem>
+  <TabItem label="Go">
+    ```bash
+    go install github.com/jeffs-brain/memory/go/cmd/memory@latest
+    memory init ./my-brain
+    memory ingest ./docs
+    memory search "question"
+    ```
+  </TabItem>
+  <TabItem label="Python">
+    ```bash
+    pip install jeffs-brain-memory
+    memory init ./my-brain
+    memory ingest ./docs
+    memory search "question"
+    ```
+  </TabItem>
+</Tabs>
+
+## MCP in four lines
+
+```bash
+claude mcp add jeffs-brain -- npx -y @jeffs-brain/memory-mcp
+```
+
+That registers a stdio MCP server with Claude Code. The same package works with Claude Desktop, Cursor, Windsurf, and Zed via the standard `mcpServers` JSON block.
+
+## Explore
+
+<CardGrid>
+  <Card title="Concepts" icon="open-book">
+    Brains, memory stages, and the retrieval ladder. [Start here](/concepts/brains/).
+  </Card>
+  <Card title="MCP Integration" icon="puzzle">
+    Wire the stdio server into [Claude Code](/mcp/claude-code/), [Claude Desktop](/mcp/claude-desktop/), [Cursor](/mcp/cursor/), [Windsurf](/mcp/windsurf/), or [Zed](/mcp/zed/).
+  </Card>
+  <Card title="Spec" icon="document">
+    [Protocol](/spec/protocol/), [storage](/spec/storage/), [query DSL](/spec/query-dsl/), [algorithms](/spec/algorithms/), [MCP tools](/spec/mcp-tools/).
+  </Card>
+  <Card title="Reference" icon="setting">
+    Every `memory` subcommand with flags and examples. [CLI reference](/reference/cli/).
+  </Card>
+</CardGrid>
+
+## Status
+
+| Language   | Package                        | Status                 |
+| ---------- | ------------------------------ | ---------------------- |
+| TypeScript | `@jeffs-brain/memory`          | v0.1.0 (pre-publish)   |
+| TypeScript | `@jeffs-brain/memory-mcp`      | v0.0.1 (pre-publish)   |
+| TypeScript | `@jeffs-brain/memory-postgres` | v0.0.1 (pre-publish)   |
+| TypeScript | `@jeffs-brain/memory-openfga`  | v0.0.1 (pre-publish)   |
+| Go         | `github.com/jeffs-brain/memory/sdks/go` | Scaffold (Phase 3) |
+| Python     | `jeffs-brain-memory`           | Scaffold (Phase 4)     |

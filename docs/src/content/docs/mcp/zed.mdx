@@ -1,0 +1,51 @@
+---
+title: Zed
+description: Register the jeffs-brain MCP server with Zed's Agent panel.
+sidebar:
+  order: 5
+---
+
+## Prerequisites
+
+- [Zed](https://zed.dev) installed with the Agent panel enabled.
+- Node `>=20` on your `PATH`.
+
+## Install
+
+Zed reads MCP servers from its `context_servers` setting in `~/.config/zed/settings.json`:
+
+```json
+{
+  "context_servers": {
+    "jeffs-brain": {
+      "command": {
+        "path": "npx",
+        "args": ["-y", "@jeffs-brain/memory-mcp"],
+        "env": {
+          "JB_TOKEN": "optional-hosted-token"
+        }
+      }
+    }
+  }
+}
+```
+
+Reload Zed. The Agent panel should list `jeffs-brain` under context servers.
+
+## Smoke test
+
+Open the Agent panel and ask:
+
+> Remember: I deploy with Cloudflare Pages.
+
+Then later:
+
+> How do I deploy?
+
+Both turns should invoke the MCP tools.
+
+## Troubleshooting
+
+- Nothing shows in the Agent panel — confirm `context_servers` is valid JSON and reopen Zed.
+- `npx` not found — install Node `>=20` or use an absolute path.
+- Logs live at `~/Library/Logs/Zed/Zed.log` on macOS and equivalent locations on other platforms.

@@ -1,0 +1,62 @@
+---
+title: Retrieval
+description: Hybrid RRF plus five-rung retry ladder plus intent-aware reweighting.
+sidebar:
+  order: 3
+---
+
+Every jeffs-brain SDK implements the same retrieval pipeline, specified in [`spec/ALGORITHMS.md`](/spec/algorithms/). At a glance:
+
+1. Parse the query into an AST (see [query DSL](/concepts/query-dsl/)).
+2. Expand aliases.
+3. Run BM25 over FTS5.
+4. If BM25 returns zero hits, walk the **retry ladder**.
+5. In parallel, embed the query and run a vector search.
+6. Fuse the two lists with **Reciprocal Rank Fusion** (RRF).
+7. Apply **intent-aware reweighting** based on query type.
+8. Optionally rerank the top N with a cross-encoder, preserving the tail.
+
+## Reciprocal Rank Fusion
+
+RRF is order-independent and tuning-free. For each candidate across each input list:
+
+```
+score = 1 / (k + rank + 1)          # k = 60 by default
+```
+
+A candidate's final score is the sum of its contributions across every list it appears in. Ties break on path ascending for determinism.
+
+The key property: the order of the two input lists doesn't matter. BM25-first or vector-first produces the same ranking.
+
+## Retry ladder
+
+When BM25 returns zero candidates, the ladder retries with progressively looser queries:
+
+1. Original query.
+2. Stopword-stripped query.
+3. Trigram approximation over indexed chunks.
+4. Alias-expanded query.
+5. Bare content FTS (no phrase, no operators).
+
+The first rung that returns hits wins; the rest are skipped. Each attempt is bounded so the ladder terminates fast on genuinely empty indexes.
+
+## Intent-aware reweighting
+
+After fusion, the retrieval layer inspects the query for intent signals (questions, commands, references to "memory" or "shared"). When those signals fire, specific candidate sources get a multiplicative boost or damping applied to their RRF score. This keeps shared-memory-first queries from being drowned by raw ingested content.
+
+## Rerank with tail preservation
+
+When a reranker is wired (cross-encoder or LLM-as-a-judge), it only reorders the top N candidates. The tail is appended unmodified, so rerank can never hide a borderline result that the reranker would have liked but never saw.
+
+## Modes
+
+- `bm25` — FTS5 only. Cheapest; always available.
+- `semantic` — vectors only. Requires an embedder.
+- `hybrid` — both, fused via RRF. Requires an embedder; falls back to `bm25` silently when the embedder isn't available and records `fellBackToBM25`.
+- `auto` — `hybrid` when an embedder is configured, `bm25` otherwise.
+
+## Where to look next
+
+- [`spec/ALGORITHMS.md`](/spec/algorithms/) — the normative spec with pseudocode.
+- [`spec/QUERY-DSL.md`](/spec/query-dsl/) — query grammar and compilation rules.
+- [Retrieval MCP tools](/spec/mcp-tools/) — `memory_search`, `memory_recall`, `memory_ask`.

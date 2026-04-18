@@ -1,21 +1,122 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Retrieval — hybrid fusion over BM25 and vector stages.
+"""Hybrid retrieval — BM25 + vector search with RRF fusion.
 
-See `spec/ALGORITHMS.md` for RRF, the retry ladder, and unanimity rules.
+See ``spec/ALGORITHMS.md`` for the pipeline definition and
+``sdks/go/retrieval`` for the reference Go implementation this package
+tracks bit-for-bit.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from .index_source import IndexedRow, IndexSource, SearchIndex, VectorStore
+from .intent import (
+    ATOMIC_EVENT_NOTE_RE,
+    DATE_TAG_RE,
+    ENUMERATION_OR_TOTAL_QUERY_RE,
+    FACT_LOOKUP_VERB_RE,
+    FIRST_PERSON_FACT_LOOKUP_RE,
+    GENERIC_NOTE_RE,
+    PREFERENCE_NOTE_RE,
+    PREFERENCE_QUERY_RE,
+    ROLLUP_NOTE_RE,
+    RetrievalIntent,
+    concrete_fact_intent_multiplier,
+    detect_retrieval_intent,
+    preference_intent_multiplier,
+    retrieval_intent_multiplier,
+    retrieval_result_text,
+    reweight_shared_memory_ranking,
+)
+from .reranker import LLMReranker, RERANK_SNIPPET_LIMIT, Reranker, compose_rerank_text
+from .retriever import (
+    DEFAULT_CANDIDATE_K,
+    DEFAULT_RERANK_TOP_N,
+    DEFAULT_TOP_K,
+    Retriever,
+    UNANIMITY_AGREE_MIN,
+    UNANIMITY_WINDOW,
+)
+from .retry import (
+    RETRY_STOP_WORDS,
+    TRIGRAM_JACCARD_THRESHOLD,
+    TrigramHit,
+    TrigramIndex,
+    build_trigram_index,
+    compute_trigrams,
+    force_refresh_index,
+    jaccard,
+    query_tokens,
+    sanitise_query,
+    slug_text_for,
+    strongest_term,
+)
+from .rrf import RRF_DEFAULT_K, RRFCandidate, reciprocal_rank_fusion
+from .source import BM25Hit, Source, TrigramChunk, VectorHit
+from .types import (
+    Attempt,
+    Filters,
+    Mode,
+    Request,
+    Response,
+    RetrievedChunk,
+    Trace,
+)
 
-from ..path import ChunkID
-
-__all__ = ["RetrievedChunk"]
-
-
-@dataclass(frozen=True, slots=True)
-class RetrievedChunk:
-    chunk_id: ChunkID
-    score: float
-    text: str
-    source_path: str | None = None
+__all__ = [
+    "ATOMIC_EVENT_NOTE_RE",
+    "Attempt",
+    "BM25Hit",
+    "DATE_TAG_RE",
+    "DEFAULT_CANDIDATE_K",
+    "DEFAULT_RERANK_TOP_N",
+    "DEFAULT_TOP_K",
+    "ENUMERATION_OR_TOTAL_QUERY_RE",
+    "FACT_LOOKUP_VERB_RE",
+    "FIRST_PERSON_FACT_LOOKUP_RE",
+    "Filters",
+    "GENERIC_NOTE_RE",
+    "IndexedRow",
+    "IndexSource",
+    "LLMReranker",
+    "Mode",
+    "PREFERENCE_NOTE_RE",
+    "PREFERENCE_QUERY_RE",
+    "RERANK_SNIPPET_LIMIT",
+    "RETRY_STOP_WORDS",
+    "ROLLUP_NOTE_RE",
+    "RRF_DEFAULT_K",
+    "Request",
+    "Reranker",
+    "Response",
+    "RetrievalIntent",
+    "RetrievedChunk",
+    "Retriever",
+    "RRFCandidate",
+    "SearchIndex",
+    "Source",
+    "TRIGRAM_JACCARD_THRESHOLD",
+    "Trace",
+    "TrigramChunk",
+    "TrigramHit",
+    "TrigramIndex",
+    "UNANIMITY_AGREE_MIN",
+    "UNANIMITY_WINDOW",
+    "VectorHit",
+    "VectorStore",
+    "build_trigram_index",
+    "compose_rerank_text",
+    "compute_trigrams",
+    "concrete_fact_intent_multiplier",
+    "detect_retrieval_intent",
+    "force_refresh_index",
+    "jaccard",
+    "preference_intent_multiplier",
+    "query_tokens",
+    "reciprocal_rank_fusion",
+    "retrieval_intent_multiplier",
+    "retrieval_result_text",
+    "reweight_shared_memory_ranking",
+    "sanitise_query",
+    "slug_text_for",
+    "strongest_term",
+]

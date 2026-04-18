@@ -1,0 +1,13 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+
+:root {
+  --sl-color-accent-low: #082f49;
+  --sl-color-accent: #0284c7;
+  --sl-color-accent-high: #bae6fd;
+}
+
+:root[data-theme='light'] {
+  --sl-color-accent-low: #bae6fd;
+  --sl-color-accent: #0284c7;
+  --sl-color-accent-high: #0c4a6e;
+}
