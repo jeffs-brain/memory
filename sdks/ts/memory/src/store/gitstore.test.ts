@@ -106,13 +106,13 @@ describe('gitstore specifics', () => {
     expect(head?.authorEmail).toBe('alex@lleverage.ai')
   })
 
-  it('default author falls back to jeffsbrain/noreply', async () => {
+  it('default author falls back to jeffs-brain/noreply', async () => {
     await store.batch({ reason: 'write' }, async (b) => {
       await b.write(p('memory/default.md'), buf('x'))
     })
     const [head] = await readGitLog(dir, 1)
-    expect(head?.authorName).toBe('jeffsbrain')
-    expect(head?.authorEmail).toBe('noreply@jeffs-brain.com')
+    expect(head?.authorName).toBe('jeffs-brain')
+    expect(head?.authorEmail).toBe('noreply@jeffsbrain.com')
   })
 
   it('commit message embeds reason and message', async () => {

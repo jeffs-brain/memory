@@ -30,7 +30,7 @@ maybe('PostgresSearchIndex (testcontainers)', () => {
   beforeAll(async () => {
     const { PostgreSqlContainer } = await import('@testcontainers/postgresql')
     const container = await new PostgreSqlContainer('pgvector/pgvector:pg17')
-      .withDatabase('jeffsbrain')
+      .withDatabase('jeffs_brain')
       .withUsername('postgres')
       .withPassword('postgres')
       .start()
@@ -38,7 +38,7 @@ maybe('PostgresSearchIndex (testcontainers)', () => {
     sql = postgres(container.getConnectionUri(), { max: 2, prepare: false })
 
     const here = path.dirname(fileURLToPath(import.meta.url))
-    const migrationsDir = path.join(here, '..', '..', 'db', 'migrations')
+    const migrationsDir = path.join(here, '..', 'migrations')
     const migrations = readdirSync(migrationsDir)
       .filter((entry) => /^\d+_.*\.sql$/.test(entry))
       .sort()

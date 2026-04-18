@@ -8,7 +8,7 @@ This suite drives any Jeffs Brain SDK's HTTP store implementation against the ca
 
    - TypeScript: `bunx @jeffs-brain/memory serve --brain <id> --port <port>`
    - Go: `memory serve --brain <id> --port <port>` (forthcoming)
-   - Python: `python -m jeffsbrain.memory serve --brain <id> --port <port>` (forthcoming)
+   - Python: `python -m jeffs_brain_memory serve --brain <id> --port <port>` (forthcoming)
 
 2. Run the harness against the base URL and a freshly provisioned brain id. The harness:
 

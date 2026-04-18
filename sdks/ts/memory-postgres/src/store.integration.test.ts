@@ -32,7 +32,7 @@ maybe('PostgresStore (testcontainers)', () => {
   beforeAll(async () => {
     const { PostgreSqlContainer } = await import('@testcontainers/postgresql')
     const container = await new PostgreSqlContainer('pgvector/pgvector:pg17')
-      .withDatabase('jeffsbrain')
+      .withDatabase('jeffs_brain')
       .withUsername('postgres')
       .withPassword('postgres')
       .start()
@@ -42,7 +42,7 @@ maybe('PostgresStore (testcontainers)', () => {
 
     const here = path.dirname(fileURLToPath(import.meta.url))
     const migration = readFileSync(
-      path.join(here, '..', '..', 'db', 'migrations', '0001_init.sql'),
+      path.join(here, '..', 'migrations', '0001_init.sql'),
       'utf8',
     )
     await superSql.unsafe(migration).simple()

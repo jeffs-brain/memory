@@ -1,10 +1,10 @@
 /**
  * Postgres-backed Store adapter.
  *
- * The memory package is OSS-standalone. Postgres is a managed-cloud concern,
- * so `@jeffs-brain/db` is an *optional* peerDependency. This module only
- * imports the package via dynamic import inside {@link createPostgresStore}
- * so a consumer that never calls it pays no cost.
+ * The core memory package is OSS-standalone. This package is an optional
+ * adapter that adds a PostgreSQL-backed Store + SearchIndex. It ships its
+ * own SQL migrations under `./migrations/` and depends only on the
+ * `postgres` driver; no Drizzle dep.
  *
  * Contract:
  *   - `memory.documents` stores metadata (path, content_hash, size, source).
@@ -62,9 +62,9 @@ export type PgPendingQuery<T> = Promise<ReadonlyArray<T>> & {
 
 export type PostgresStoreOptions = {
   /**
-   * A raw `postgres.Sql` client. In practice callers pass `db.$queryClient`
-   * from `@jeffs-brain/db`; we take the tagged-template client rather than
-   * the drizzle wrapper to keep SET LOCAL and RLS paths explicit.
+   * A raw `postgres.Sql` client (from `postgres` / `postgres.js`). We take
+   * the tagged-template client directly rather than any ORM wrapper so that
+   * SET LOCAL and RLS paths stay explicit.
    */
   readonly sql: PgSql
   readonly tenantId: string

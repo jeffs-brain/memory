@@ -40,13 +40,13 @@ export type GitStoreOptions = {
 }
 
 const DEFAULT_AUTHOR: GitSignature = {
-  name: 'jeffsbrain',
-  email: 'noreply@jeffs-brain.com',
+  name: 'jeffs-brain',
+  email: 'noreply@jeffsbrain.com',
 }
 
 const DEFAULT_BRANCH = 'main'
 const DEFAULT_REMOTE = 'origin'
-const AUTO_STASH_MESSAGE = 'jeffsbrain-sync-autostash'
+const AUTO_STASH_MESSAGE = 'jeffs-brain-sync-autostash'
 const REMOTE_FETCH_SPEC = '+refs/heads/*:refs/remotes/origin/*'
 const execFile = promisify(execFileCallback)
 
@@ -110,7 +110,7 @@ export const createGitStore = async (opts: GitStoreOptions): Promise<GitStore> =
 // gitstore supply a single `sign` callback that owns the key material itself
 // (SSH agent, KMS, GPG, whatever) — the placeholder key here is never used by
 // the callback, it just arms the signing path inside isomorphic-git.
-const CALLBACK_SIGN_KEY_PLACEHOLDER = 'jeffsbrain-callback-sign-key'
+const CALLBACK_SIGN_KEY_PLACEHOLDER = 'jeffs-brain-callback-sign-key'
 
 type IsoSignCallback = (args: {
   payload: string
@@ -526,7 +526,7 @@ const initialiseRepository = async (args: {
   await git.commit({
     fs: nodeFs,
     dir: args.dir,
-    message: '[init] jeffsbrain gitstore initialised',
+    message: '[init] jeffs-brain gitstore initialised',
     author: { name: args.defaultAuthor.name, email: args.defaultAuthor.email },
     committer: { name: args.defaultAuthor.name, email: args.defaultAuthor.email },
     ...signOptions(args.sign),

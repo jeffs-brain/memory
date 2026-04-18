@@ -4,7 +4,7 @@
  * dedup,scrub,frontmatter}.go.
  *
  * The Go implementation uses ~/.config/jeff/raw/... + ~/.config/jeff/wiki/...
- * We keep the same logical layout but use the jeffsbrain Store vocabulary:
+ * We keep the same logical layout but use the jeffs-brain Store vocabulary:
  *   - ingested/<hash>.md  -- raw inputs (Go: raw/)
  *   - drafts/<slug>.md    -- compiled intermediates (Go: raw/ post-compile)
  *   - wiki/<slug>.md      -- promoted final articles
