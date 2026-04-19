@@ -17,6 +17,7 @@ import { promisify } from 'node:util'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createIngest } from '../knowledge/ingest.js'
 import { noopLogger } from '../llm/index.js'
+import type { Reranker } from '../rerank/index.js'
 import { createGitStore } from '../store/index.js'
 import { toPath } from '../store/path.js'
 import { initBrain, openBrain, readBrainConfig, writeBrainConfig } from './brain.js'
@@ -47,6 +48,18 @@ const runGit = async (args: readonly string[], cwd?: string): Promise<string> =>
   })
   return stdout
 }
+
+const makePathPreferringReranker = (pathFragment: string): Reranker => ({
+  name: () => 'test-reranker',
+  rerank: async ({ documents }) =>
+    documents
+      .map((document, index) => ({
+        id: document.id,
+        index,
+        score: document.id.includes(pathFragment) ? 100 : documents.length - index,
+      }))
+      .sort((left, right) => right.score - left.score),
+})
 
 type RunnableCommand = {
   readonly run?: (ctx: { readonly args: Record<string, unknown> }) => Promise<void> | void
@@ -209,6 +222,43 @@ describe('memory init + ingest + search', () => {
 
       expect(hits.length).toBeGreaterThan(0)
       expect(hits[0]?.path).toContain('user-hotel-preference')
+    } finally {
+      await store.close()
+    }
+  })
+
+  it('applies hybrid-rerank mode even when retrieval falls back to BM25', async () => {
+    const root = await makeTempDir()
+    const brainDir = join(root, 'brain')
+
+    const initStore = await initBrain(brainDir)
+    await initStore.close()
+
+    const store = await openBrain(brainDir)
+    try {
+      await store.write(
+        toPath('memory/project/demo/hotel-a.md'),
+        Buffer.from('Hotel hotel hotel in Miami with a pool.', 'utf8'),
+      )
+      await store.write(
+        toPath('memory/project/demo/hotel-b.md'),
+        Buffer.from('Hotel in Miami with a balcony hot tub.', 'utf8'),
+      )
+
+      const baseline = await runSearch('hotel miami', {
+        store,
+        limit: 2,
+        mode: 'bm25',
+      })
+      expect(baseline[0]?.path).toContain('hotel-a')
+
+      const reranked = await runSearch('hotel miami', {
+        store,
+        limit: 2,
+        mode: 'hybrid-rerank',
+        reranker: makePathPreferringReranker('hotel-b'),
+      })
+      expect(reranked[0]?.path).toContain('hotel-b')
     } finally {
       await store.close()
     }

@@ -21,7 +21,15 @@ Cross-SDK evaluation runner for `jeffs-brain/memory`. Drives the TypeScript, Go,
 - Parity means the same request shape, transport shape, retrieval-mode semantics, and temporal forwarding rules across all three daemons.
 - `ask-basic` and `ask-augmented` are answer-scoring scenarios. `search-retrieve-only` is a retrieval-scoring scenario built from returned chunks only. It does not score a daemon-generated answer.
 - The runner is for pass/fail comparison and artefact inspection. We are not treating this README as a published benchmark page.
-- Full LongMemEval replay still lives in the native SDK runners. Go's `memory eval lme run --ingest-mode=replay` path remains the reference workflow there.
+- Native LongMemEval tooling is intentionally uneven today. Go remains the reference replay runner and tri-SDK orchestrator, TypeScript has native `memory eval lme` commands for single-SDK runs, and Python participates in LME parity through `memory serve` only.
+
+## Native LME status today
+
+| SDK | Status |
+| --- | ------ |
+| Go | Full native `memory eval lme run` surface, including replay ingest, extract-only runs, `actor-endpoint-style=retrieve-only`, and the shared tri-SDK orchestration in `eval/scripts/run_tri_lme.sh`. This is the reference path. |
+| TypeScript | Native `memory eval lme` commands exist for single-SDK fetch, run, compare, and check flows. They are not the coordinator for the replay-backed tri-SDK benchmark. |
+| Python | No native `memory eval lme` CLI today. Python joins parity runs through `memory serve`, either under this shared runner or under the Go tri-SDK orchestration. |
 
 ## Pre-ingestion
 
@@ -229,7 +237,7 @@ memory eval lme run \
 
 ### Tri-SDK run (recommended)
 
-The orchestrator extracts once and benchmarks all three daemons from the shared brain. It exercises the shared daemon `search-retrieve-only` scenario only, using actor-endpoint `retrieve-only` mode so retrieval happens in each daemon while the shared augmented reader and judge stay in the Go runner process:
+The orchestrator extracts once and benchmarks all three daemons from the shared brain. It exercises the shared daemon `search-retrieve-only` scenario only, using actor-endpoint `retrieve-only` mode so retrieval happens in each daemon while extraction, evidence rendering, the shared augmented reader, judging, and manifest writing stay in the Go runner process:
 
 ```bash
 set -a && source ~/code/jeffs-brain/memory/.env && set +a
@@ -248,7 +256,7 @@ bash eval/scripts/run_tri_lme.sh
 Phases:
 1. Go extracts into `$JB_HOME/brains/$BRAIN_ID` (`/tmp/jb-lme-shared/brains/eval-lme` by default).
 2. TS, Go, Py `memory serve` daemons spawn against the shared brain.
-3. Go LME runner fires three times in parallel with `--actor-endpoint` pointed at each daemon. In `retrieve-only` mode the daemon stays retrieval-only and the shared augmented reader + judge run in-process, which keeps the cross-SDK comparison aligned.
+3. Go LME runner fires three times in parallel with `--actor-endpoint` pointed at each daemon. In `retrieve-only` mode the daemon stays retrieval-only, returning `/search` payloads only. The scored answer still comes from the shared Go-side evidence renderer, augmented reader, and judge, which keeps the cross-SDK comparison aligned.
    For replay-backed tri-SDK runs we pin actor retrieval to replay memory only via `--actor-scope memory --actor-project <brain-id>`, which keeps global memory plus the eval brain's project memory in scope while excluding raw transcript rows.
 4. Tear daemons down; emit `tri-lme-<timestamp>/README.md` with the run summary plus `extract.json`, `manifest.json`, per-SDK result JSON, per-SDK manifests, and daemon or runner logs.
 

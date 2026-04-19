@@ -97,6 +97,33 @@ func TestRunSearchPipeline_PassesQuestionDateToRetriever(t *testing.T) {
 	}
 }
 
+func TestRunSearchPipeline_NormalisesInvalidModeToAuto(t *testing.T) {
+	t.Parallel()
+
+	retr := &captureRetriever{}
+	br := &BrainResources{
+		ID:        "eval-lme",
+		Retriever: retr,
+	}
+
+	chunks, _, _, _ := (&Daemon{}).runSearchPipeline(
+		httptest.NewRequest("POST", "/search", nil),
+		br,
+		searchRequest{
+			Query: "What happened last Friday?",
+			TopK:  5,
+			Mode:  "definitely-not-a-mode",
+		},
+	)
+
+	if len(chunks) != 1 {
+		t.Fatalf("chunks = %d, want 1", len(chunks))
+	}
+	if retr.req.Mode != retrieval.ModeAuto {
+		t.Fatalf("Mode = %q, want auto", retr.req.Mode)
+	}
+}
+
 func TestRunSearchPipeline_FallbackHydratesFullBodyAndMetadata(t *testing.T) {
 	t.Parallel()
 

@@ -85,6 +85,21 @@ func TestParseExtractionResult_NormalisesFields(t *testing.T) {
 	}
 }
 
+func TestParseExtractionResult_RewritesHeuristicFilenameForSessionID(t *testing.T) {
+	input := `{"memories":[{"action":"create","filename":"user-fact-2023-07-15-reading-progress.md","type":"user","scope":"global","content":"hello","sessionId":"session-a"}]}`
+
+	result := parseExtractionResult(input)
+	if len(result.Memories) != 1 {
+		t.Fatalf("expected 1 memory, got %d", len(result.Memories))
+	}
+	if got := result.Memories[0].Filename; got != "user-fact-2023-07-15-session-a-reading-progress.md" {
+		t.Fatalf("filename = %q, want session-aware rewrite", got)
+	}
+	if got := result.Memories[0].SessionID; got != "session-a" {
+		t.Fatalf("sessionID = %q, want session-a", got)
+	}
+}
+
 func TestRewriteHeuristicFilenameForSession(t *testing.T) {
 	cases := []struct {
 		name      string
@@ -126,6 +141,64 @@ func TestRewriteHeuristicFilenameForSession(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestExtractFromMessages_RewritesHeuristicFilenameUsingExistingSessionID(t *testing.T) {
+	mem, _ := newTestMemory(t)
+	provider := &extractStubProvider{reply: `{"memories":[{"action":"create","filename":"project-note.md","name":"Project note","type":"project","scope":"project","content":"Keep the plan handy.","sessionId":"session-a"}]}`}
+
+	out, err := ExtractFromMessages(context.Background(), provider, "test-model", mem, "/project", []Message{
+		{Role: RoleSystem, Content: "This conversation took place on 2023/07/15 (Sat) 22:42."},
+		{Role: RoleUser, Content: "I've been reading about the Amazon rainforest and I just finished my fifth issue."},
+		{Role: RoleAssistant, Content: "That sounds fascinating."},
+	})
+	if err != nil {
+		t.Fatalf("ExtractFromMessages: %v", err)
+	}
+
+	for _, memory := range out {
+		if !strings.Contains(memory.Content, "fifth issue") {
+			continue
+		}
+		if !strings.Contains(memory.Filename, "session-a") {
+			t.Fatalf("heuristic filename = %q, want session-aware segment", memory.Filename)
+		}
+		if memory.SessionID != "session-a" {
+			t.Fatalf("heuristic sessionID = %q, want session-a", memory.SessionID)
+		}
+		return
+	}
+
+	t.Fatalf("expected heuristic fact for quantified update, got %#v", out)
+}
+
+func TestExtractFromMessages_RewritesHeuristicFilenameUsingSystemSessionID(t *testing.T) {
+	mem, _ := newTestMemory(t)
+	provider := &extractStubProvider{reply: `{"memories":[]}`}
+
+	out, err := ExtractFromMessages(context.Background(), provider, "test-model", mem, "/project", []Message{
+		{Role: RoleSystem, Content: "session_id: session-b\nThis conversation took place on 2023/07/15 (Sat) 22:42."},
+		{Role: RoleUser, Content: "I've been reading about the Amazon rainforest and I just finished my fifth issue."},
+		{Role: RoleAssistant, Content: "That sounds fascinating."},
+	})
+	if err != nil {
+		t.Fatalf("ExtractFromMessages: %v", err)
+	}
+
+	for _, memory := range out {
+		if !strings.Contains(memory.Content, "fifth issue") {
+			continue
+		}
+		if !strings.Contains(memory.Filename, "session-b") {
+			t.Fatalf("heuristic filename = %q, want system-derived session-aware segment", memory.Filename)
+		}
+		if memory.SessionID != "session-b" {
+			t.Fatalf("heuristic sessionID = %q, want session-b", memory.SessionID)
+		}
+		return
+	}
+
+	t.Fatalf("expected heuristic fact for quantified update, got %#v", out)
 }
 
 func TestHasMemoryWrites_NoWrites(t *testing.T) {

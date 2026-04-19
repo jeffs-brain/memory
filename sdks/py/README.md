@@ -4,7 +4,7 @@ Python SDK for Jeffs Brain, the cross-language memory library for LLM agents.
 
 Part of the polyglot [`jeffs-brain/memory`](https://github.com/jeffs-brain/memory) monorepo. This SDK tracks the same [`spec/`](../../spec/) and conformance fixtures as the TypeScript and Go SDKs.
 
-Cross-SDK daemon parity today is `ask-basic`, `ask-augmented`, and `search-retrieve-only` through `memory serve`. Native LongMemEval replay and agentic flows are outside the Python SDK today.
+Cross-SDK daemon parity today is `ask-basic`, `ask-augmented`, and `search-retrieve-only` through `memory serve`. Python does not currently ship a native `memory eval lme` CLI, so LongMemEval parity work goes through the daemon surface only.
 
 ## Feature support
 
@@ -48,6 +48,13 @@ memory list-brains
 
 `memory serve` speaks the wire protocol documented in [`spec/PROTOCOL.md`](../../spec/PROTOCOL.md), so the cross-SDK eval runner and any TS or Go client drive it identically across `ask-basic`, `ask-augmented`, and `search-retrieve-only`. In the shared runner, `--mode auto` is the default, and the daemon resolves that to `hybrid` when embeddings are configured or `bm25` otherwise.
 
+Native LME status today:
+
+- Python does not currently ship a native `memory eval lme` command.
+- The shared `eval/runner.py` scenarios are the direct cross-SDK parity checks for Python.
+- The replay-backed tri-SDK retrieve-only workflow still runs from `eval/scripts/run_tri_lme.sh`, which extracts once with Go and then targets the Python daemon in `search-retrieve-only` / `actor-endpoint-style=retrieve-only` mode.
+- In that tri-SDK flow the Python daemon returns retrieval payloads via `/search`; the shared augmented reader, judge, and manifests stay in Go.
+
 ## Environment variables
 
 - `JB_HOME` - storage root (default `~/.jeffs-brain/`).
@@ -85,7 +92,7 @@ How we test it:
 - `questionDate` is forwarded only for `ask-augmented` and `search-retrieve-only`.
 - `candidateK` and `rerankTopN` are forwarded only for `search-retrieve-only`.
 - `mode` is forwarded unchanged. The daemon resolves `auto` locally.
-- The replay-backed tri-SDK run in `eval/scripts/run_tri_lme.sh` exercises `search-retrieve-only` only against a shared replay brain.
+- The replay-backed tri-SDK run in `eval/scripts/run_tri_lme.sh` exercises `search-retrieve-only` only against a shared replay brain. Python participates there as a daemon target only.
 
 Run the shared daemon scenario checks with:
 
@@ -105,6 +112,8 @@ OPENAI_API_KEY=sk-... uv run python runner.py --sdk py --dataset datasets/lme.js
 ```
 
 Use one output root per scenario so same-day runs do not overwrite `<output>/<date>/py.json`. For the full three-way comparison flow, see [`../../eval/README.md`](../../eval/README.md).
+
+Python does not currently have a native LME runner README section to mirror here. For replay-backed tri-SDK parity, use the Go-orchestrated workflow in [`../../eval/scripts/run_tri_lme.sh`](../../eval/scripts/run_tri_lme.sh).
 
 ## Authorisation
 

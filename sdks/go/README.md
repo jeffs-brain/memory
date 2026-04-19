@@ -8,6 +8,8 @@ Wire-compatible with the TypeScript and Python SDKs. Shared cross-SDK evaluation
 
 Cross-SDK daemon parity today is `ask-basic`, `ask-augmented`, and `search-retrieve-only` through `memory serve`. Full LongMemEval replay, replay ingest, and agentic loops stay in the native `memory eval lme run` path.
 
+Native LME status today is split by SDK. Go is the reference runner for replay ingest and the replay-backed tri-SDK benchmark, TypeScript ships native `memory eval lme` commands for single-SDK runs, and Python does not currently ship a native LME CLI.
+
 In the shared runner, `--mode auto` is the default, and the daemon resolves that to `hybrid` when embeddings are configured or `bm25` otherwise.
 
 ## Install
@@ -44,7 +46,7 @@ How we test it:
 - `questionDate` is forwarded only for `ask-augmented` and `search-retrieve-only`.
 - `candidateK` and `rerankTopN` are forwarded only for `search-retrieve-only`.
 - `mode` is forwarded unchanged. The daemon resolves `auto` locally.
-- The replay-backed tri-SDK run in `eval/scripts/run_tri_lme.sh` exercises `search-retrieve-only` only against a shared replay brain.
+- The replay-backed tri-SDK run in `eval/scripts/run_tri_lme.sh` exercises `search-retrieve-only` only against a shared replay brain. Go extracts once, then calls each SDK daemon in `actor-endpoint-style=retrieve-only`, so each daemon returns retrieval payloads via `/search` while the shared augmented reader, judge, and manifests stay in Go.
 
 Run the shared daemon scenario checks with:
 
@@ -86,6 +88,8 @@ memory serve --addr 127.0.0.1:18841
 ```
 
 ## LongMemEval replay
+
+Go is the reference native LME runner and also the coordinator for the replay-backed tri-SDK retrieve-only workflow. If you want the cross-SDK replay comparison, run [`../../eval/scripts/run_tri_lme.sh`](../../eval/scripts/run_tri_lme.sh) from the repo root rather than trying to stitch the three daemons together by hand.
 
 ```bash
 memory eval lme run \

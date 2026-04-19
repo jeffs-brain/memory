@@ -425,8 +425,15 @@ def test_ask_augmented_dispatches_lme_prompt(tmp_path) -> None:  # type: ignore[
     for phrase in (
         "most recent session date",
         "one per line",
+        "if any named part is missing or lacks an amount",
+        "count it once",
+        "prefer direct transactional facts over plans, budgets",
         "today is 2024-04-15 (monday)",
         "step by step",
+        "30-minute morning commute",
+        "combine them if the connection is explicit",
+        "state that clearly in the first sentence",
+        "the information provided is not enough to answer the question",
     ):
         assert phrase in lower, f"missing augmented phrase {phrase!r}"
     assert "Retrieved facts (" in body

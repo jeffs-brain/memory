@@ -180,6 +180,26 @@ func TestBuildAskCompleteRequest_AugmentedNoChunksOmitsSessionPath(t *testing.T)
 	}
 }
 
+func TestNormaliseAskReaderMode(t *testing.T) {
+	tests := []struct {
+		raw     string
+		want    string
+		wantOK  bool
+	}{
+		{raw: "", want: askReaderModeBasic, wantOK: true},
+		{raw: "basic", want: askReaderModeBasic, wantOK: true},
+		{raw: " BASIC ", want: askReaderModeBasic, wantOK: true},
+		{raw: "augmented", want: askReaderModeAugmented, wantOK: true},
+		{raw: "mystery", want: "", wantOK: false},
+	}
+	for _, tc := range tests {
+		got, ok := normaliseAskReaderMode(tc.raw)
+		if got != tc.want || ok != tc.wantOK {
+			t.Fatalf("normaliseAskReaderMode(%q) = (%q, %v), want (%q, %v)", tc.raw, got, ok, tc.want, tc.wantOK)
+		}
+	}
+}
+
 func TestRetrieveForAsk_PassesCandidateKnobsToRetriever(t *testing.T) {
 	t.Parallel()
 
@@ -207,6 +227,33 @@ func TestRetrieveForAsk_PassesCandidateKnobsToRetriever(t *testing.T) {
 	}
 	if retr.req.RerankTopN != req.RerankTopN {
 		t.Fatalf("RerankTopN = %d, want %d", retr.req.RerankTopN, req.RerankTopN)
+	}
+}
+
+func TestRetrieveForAsk_NormalisesInvalidModeToAuto(t *testing.T) {
+	t.Parallel()
+
+	retr := &captureRetriever{}
+	br := &BrainResources{
+		ID:        "eval-lme",
+		Retriever: retr,
+	}
+
+	chunks := (&Daemon{}).retrieveForAsk(
+		httptest.NewRequest("POST", "/ask", nil),
+		br,
+		askRequest{
+			Question: "Where is the bike?",
+			TopK:     5,
+			Mode:     "definitely-not-a-mode",
+		},
+	)
+
+	if len(chunks) != 1 {
+		t.Fatalf("chunks = %d, want 1", len(chunks))
+	}
+	if retr.req.Mode != retrieval.ModeAuto {
+		t.Fatalf("Mode = %q, want auto", retr.req.Mode)
 	}
 }
 

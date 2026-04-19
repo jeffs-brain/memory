@@ -53,6 +53,12 @@ func (d *Daemon) handleAsk(w http.ResponseWriter, r *http.Request) {
 		httpd.ValidationError(w, "question required")
 		return
 	}
+	readerMode, ok := normaliseAskReaderMode(req.ReaderMode)
+	if !ok {
+		httpd.ValidationError(w, "readerMode must be 'basic' or 'augmented'")
+		return
+	}
+	req.ReaderMode = readerMode
 	if req.TopK <= 0 {
 		req.TopK = 5
 	}
@@ -121,10 +127,7 @@ func (d *Daemon) retrieveForAsk(r *http.Request, br *BrainResources, req askRequ
 	br.WaitReady(r.Context())
 	var chunks []retrieval.RetrievedChunk
 	if br.Retriever != nil {
-		mode := retrieval.Mode(req.Mode)
-		if mode == "" {
-			mode = retrieval.ModeAuto
-		}
+		mode := normaliseRetrievalMode(req.Mode)
 		resp, err := br.Retriever.Retrieve(r.Context(), retrieval.Request{
 			Query:        req.Question,
 			QuestionDate: req.QuestionDate,
@@ -216,7 +219,7 @@ func buildAskPrompt(question string, chunks []retrieval.RetrievedChunk) string {
 // guidance, applies temporal expansion when a questionDate is supplied,
 // and pins generation params to the LME reader defaults.
 func buildAskCompleteRequest(req askRequest, chunks []retrieval.RetrievedChunk) llm.CompleteRequest {
-	mode := strings.ToLower(strings.TrimSpace(req.ReaderMode))
+	mode, _ := normaliseAskReaderMode(req.ReaderMode)
 	if mode == askReaderModeAugmented {
 		content := buildAugmentedAskContent(req.Question, req.QuestionDate, chunks)
 		prompt := lme.BuildReaderPrompt(req.Question, req.QuestionDate, content)
@@ -239,6 +242,17 @@ func buildAskCompleteRequest(req askRequest, chunks []retrieval.RetrievedChunk) 
 		},
 		Temperature: 0.2,
 		MaxTokens:   1024,
+	}
+}
+
+func normaliseAskReaderMode(raw string) (string, bool) {
+	switch mode := strings.ToLower(strings.TrimSpace(raw)); mode {
+	case "", askReaderModeBasic:
+		return askReaderModeBasic, true
+	case askReaderModeAugmented:
+		return askReaderModeAugmented, true
+	default:
+		return "", false
 	}
 }
 

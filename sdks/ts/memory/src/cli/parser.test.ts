@@ -63,11 +63,11 @@ describe('memory arg parsing', () => {
 
   it('parses `search` flags, defaulting mode to hybrid', () => {
     const parsed = parseArgs(
-      ['hello world', '--mode', 'bm25', '--rerank', '--json'],
+      ['hello world', '--mode', 'hybrid-rerank', '--rerank', '--json'],
       argsOf(asAny(searchCommand)),
     )
     expect(parsed['query']).toBe('hello world')
-    expect(parsed['mode']).toBe('bm25')
+    expect(parsed['mode']).toBe('hybrid-rerank')
     expect(parsed['rerank']).toBe(true)
     expect(parsed['json']).toBe(true)
 
