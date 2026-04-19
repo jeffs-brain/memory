@@ -1,8 +1,8 @@
 # jeffs-brain/memory docs
 
-Public documentation site for `jeffs-brain/memory`. Powered by [Astro Starlight](https://starlight.astro.build). Deployed to [docs.jeffsbrain.com](https://docs.jeffsbrain.com) on Cloudflare Pages.
+Public documentation site for `jeffs-brain/memory`. Built on Astro `^6.1.8` and [Starlight](https://starlight.astro.build) `^0.38.3`. Deployed to [docs.jeffsbrain.com](https://docs.jeffsbrain.com) on Cloudflare Pages.
 
-21 pages across the landing section, per-SDK getting-started (TypeScript, Go, Python), per-agent MCP integration guides (Claude Code, Claude Desktop, Cursor, Windsurf, Zed), concept pages (brains, memory stages, retrieval, query DSL), spec mirrors, example walkthroughs, and the CLI reference.
+28 pages across the landing section, per-SDK getting-started (TypeScript, Go, Python), per-agent MCP integration guides (Claude Code, Claude Desktop, Cursor, Windsurf, Zed), concept pages (brains, memory stages, retrieval, query DSL), topic guides (stores, knowledge, retrieval, memory lifecycle, authorisation), spec mirrors, example walkthroughs, and the reference section (CLI, configuration).
 
 ## Develop
 
@@ -61,12 +61,13 @@ Production domain `docs.jeffsbrain.com` is bound via **Custom domains** in the P
 ```
 src/content/docs/
 ├── index.mdx                 # landing
-├── getting-started/          # per-SDK quick starts
+├── getting-started/          # per-SDK quick starts (typescript, go, python)
 ├── mcp/                      # per-agent MCP integration guides
 ├── concepts/                 # brains, memory stages, retrieval, query DSL
-├── spec/                     # authoritative spec docs (copied from ../spec)
-├── examples/                 # runnable example walkthroughs
-└── reference/                # CLI reference
+├── guides/                   # stores, knowledge, retrieval, memory-lifecycle, authorization
+├── spec/                     # authoritative spec docs (mirrored from ../spec)
+├── examples/                 # runnable example walkthroughs (typescript, go, python)
+└── reference/                # CLI and configuration reference
 ```
 
 The `spec/` pages are generated from `../spec/*.md` at scaffold time; regenerate them whenever the upstream spec changes. A future task will automate this via an Astro content loader or prebuild step.

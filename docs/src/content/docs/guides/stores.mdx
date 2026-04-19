@@ -1,0 +1,374 @@
+---
+title: Stores
+description: Pluggable storage backends across the three SDKs.
+sidebar:
+  order: 1
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components'
+
+Every brain sits on a `Store`. The `Store` contract is identical across the TypeScript, Go, and Python SDKs (same operations, same path semantics, same error taxonomy), so the same code shape works regardless of where the bytes live. Pick a backend per use case: filesystem for local-first work, in-memory for tests, git for versioned history, HTTP for a remote daemon, and Postgres for managed multi-tenant deployments.
+
+## Backends at a glance
+
+| Backend         | Use case                                            | SDKs              |
+| --------------- | --------------------------------------------------- | ----------------- |
+| `FsStore`       | Local-first default; durable on a single host       | TS, Go, Python    |
+| `MemStore`      | Unit tests and ephemeral fixtures                   | TS, Go, Python    |
+| `GitStore`      | Versioned brain with full commit history            | TS, Go, Python    |
+| `HttpStore`     | Remote daemon over `spec/PROTOCOL.md`               | TS, Go, Python    |
+| `PostgresStore` | Multi-tenant managed deploys with RLS scoping       | TS only           |
+
+## FsStore
+
+Filesystem-backed and the default for local development. Writes are atomic via temp-file plus rename, and `localPath()` returns the on-disk path so external tools can read alongside.
+
+<Tabs>
+  <TabItem label="TypeScript">
+    ```ts
+    import { createFsStore, toPath } from '@jeffs-brain/memory'
+
+    const store = await createFsStore({ root: './data/my-brain' })
+    try {
+      await store.write(toPath('raw/documents/hello.txt'), Buffer.from('hello'))
+      const bytes = await store.read(toPath('raw/documents/hello.txt'))
+      console.log(bytes.toString('utf8'))
+    } finally {
+      await store.close()
+    }
+    ```
+  </TabItem>
+  <TabItem label="Go">
+    ```go
+    package main
+
+    import (
+        "context"
+        "fmt"
+
+        "github.com/jeffs-brain/memory/go/brain"
+        "github.com/jeffs-brain/memory/go/store/fs"
+    )
+
+    func main() {
+        ctx := context.Background()
+        store, err := fs.New("./data/my-brain")
+        if err != nil {
+            panic(err)
+        }
+        defer store.Close()
+
+        path := brain.RawDocument("hello.txt")
+        if err := store.Write(ctx, path, []byte("hello")); err != nil {
+            panic(err)
+        }
+        bytes, err := store.Read(ctx, path)
+        if err != nil {
+            panic(err)
+        }
+        fmt.Println(string(bytes))
+    }
+    ```
+  </TabItem>
+  <TabItem label="Python">
+    ```python
+    import asyncio
+
+    from jeffs_brain_memory.path import validate_path
+    from jeffs_brain_memory.store.fs import FsStore
+
+
+    async def main() -> None:
+        store = FsStore("./data/my-brain")
+        try:
+            path = validate_path("raw/documents/hello.txt")
+            await store.write(path, b"hello")
+            bytes_read = await store.read(path)
+            print(bytes_read.decode("utf-8"))
+        finally:
+            await store.close()
+
+
+    asyncio.run(main())
+    ```
+  </TabItem>
+</Tabs>
+
+## MemStore
+
+In-memory and ephemeral. Use it in unit tests where you want the contract without any disk I/O.
+
+<Tabs>
+  <TabItem label="TypeScript">
+    ```ts
+    import { createMemStore, toPath } from '@jeffs-brain/memory'
+
+    const store = createMemStore()
+    try {
+      await store.write(toPath('raw/documents/hello.txt'), Buffer.from('hello'))
+      const bytes = await store.read(toPath('raw/documents/hello.txt'))
+      console.log(bytes.toString('utf8'))
+    } finally {
+      await store.close()
+    }
+    ```
+  </TabItem>
+  <TabItem label="Go">
+    ```go
+    package main
+
+    import (
+        "context"
+        "fmt"
+
+        "github.com/jeffs-brain/memory/go/brain"
+        "github.com/jeffs-brain/memory/go/store/mem"
+    )
+
+    func main() {
+        ctx := context.Background()
+        store := mem.New()
+        defer store.Close()
+
+        path := brain.RawDocument("hello.txt")
+        if err := store.Write(ctx, path, []byte("hello")); err != nil {
+            panic(err)
+        }
+        bytes, err := store.Read(ctx, path)
+        if err != nil {
+            panic(err)
+        }
+        fmt.Println(string(bytes))
+    }
+    ```
+  </TabItem>
+  <TabItem label="Python">
+    ```python
+    import asyncio
+
+    from jeffs_brain_memory.path import validate_path
+    from jeffs_brain_memory.store.mem import MemStore
+
+
+    async def main() -> None:
+        store = MemStore()
+        try:
+            path = validate_path("raw/documents/hello.txt")
+            await store.write(path, b"hello")
+            bytes_read = await store.read(path)
+            print(bytes_read.decode("utf-8"))
+        finally:
+            await store.close()
+
+
+    asyncio.run(main())
+    ```
+  </TabItem>
+</Tabs>
+
+## GitStore
+
+Filesystem with a commit per batch. The reason on `BatchOptions` becomes the commit subject, so the brain has an audit trail you can `git log`. When a remote is configured the store fetches and rebases on open and pushes after each commit.
+
+<Tabs>
+  <TabItem label="TypeScript">
+    ```ts
+    import { createGitStore, toPath } from '@jeffs-brain/memory'
+
+    const store = await createGitStore({ dir: './data/my-brain', init: true })
+    try {
+      await store.batch({ reason: 'ingest hello' }, async (batch) => {
+        await batch.write(toPath('raw/documents/hello.txt'), Buffer.from('hello'))
+      })
+      const bytes = await store.read(toPath('raw/documents/hello.txt'))
+      console.log(bytes.toString('utf8'))
+    } finally {
+      await store.close()
+    }
+    ```
+  </TabItem>
+  <TabItem label="Go">
+    ```go
+    package main
+
+    import (
+        "context"
+        "fmt"
+
+        "github.com/jeffs-brain/memory/go/brain"
+        "github.com/jeffs-brain/memory/go/store/git"
+    )
+
+    func main() {
+        ctx := context.Background()
+        store, err := git.New(ctx, git.Options{Root: "./data/my-brain"})
+        if err != nil {
+            panic(err)
+        }
+        defer store.Close()
+
+        path := brain.RawDocument("hello.txt")
+        err = store.Batch(ctx, brain.BatchOptions{Reason: "ingest hello"}, func(b brain.Batch) error {
+            return b.Write(ctx, path, []byte("hello"))
+        })
+        if err != nil {
+            panic(err)
+        }
+        bytes, err := store.Read(ctx, path)
+        if err != nil {
+            panic(err)
+        }
+        fmt.Println(string(bytes))
+    }
+    ```
+  </TabItem>
+  <TabItem label="Python">
+    ```python
+    import asyncio
+
+    from jeffs_brain_memory.path import validate_path
+    from jeffs_brain_memory.store import BatchOptions
+    from jeffs_brain_memory.store.git import GitStore
+
+
+    async def main() -> None:
+        store = GitStore("./data/my-brain")
+        try:
+            path = validate_path("raw/documents/hello.txt")
+
+            async def write(batch) -> None:
+                await batch.write(path, b"hello")
+
+            await store.batch(write, BatchOptions(reason="ingest hello"))
+            bytes_read = await store.read(path)
+            print(bytes_read.decode("utf-8"))
+        finally:
+            await store.close()
+
+
+    asyncio.run(main())
+    ```
+  </TabItem>
+</Tabs>
+
+## HttpStore
+
+Mounts a remote brain served by `memory serve`, translating every `Store` op into a request that conforms to the [protocol spec](/spec/protocol/). Events arrive over SSE.
+
+<Tabs>
+  <TabItem label="TypeScript">
+    ```ts
+    import { createHttpStore, toPath } from '@jeffs-brain/memory'
+
+    const store = createHttpStore({
+      baseUrl: 'https://memory.example.com',
+      brainId: 'my-brain',
+      token: process.env.MEMORY_TOKEN,
+    })
+    try {
+      await store.write(toPath('raw/documents/hello.txt'), Buffer.from('hello'))
+      const bytes = await store.read(toPath('raw/documents/hello.txt'))
+      console.log(bytes.toString('utf8'))
+    } finally {
+      await store.close()
+    }
+    ```
+  </TabItem>
+  <TabItem label="Go">
+    ```go
+    package main
+
+    import (
+        "context"
+        "fmt"
+        "os"
+
+        "github.com/jeffs-brain/memory/go/brain"
+        httpstore "github.com/jeffs-brain/memory/go/store/http"
+    )
+
+    func main() {
+        ctx := context.Background()
+        store := httpstore.New(httpstore.Config{
+            BaseURL: "https://memory.example.com",
+            BrainID: "my-brain",
+            Token:   os.Getenv("MEMORY_TOKEN"),
+        })
+        defer store.Close()
+
+        path := brain.RawDocument("hello.txt")
+        if err := store.Write(ctx, path, []byte("hello")); err != nil {
+            panic(err)
+        }
+        bytes, err := store.Read(ctx, path)
+        if err != nil {
+            panic(err)
+        }
+        fmt.Println(string(bytes))
+    }
+    ```
+  </TabItem>
+  <TabItem label="Python">
+    ```python
+    import asyncio
+    import os
+
+    from jeffs_brain_memory.path import validate_path
+    from jeffs_brain_memory.store.http import HttpStore
+
+
+    async def main() -> None:
+        store = HttpStore(
+            "https://memory.example.com",
+            "my-brain",
+            token=os.environ.get("MEMORY_TOKEN"),
+        )
+        try:
+            path = validate_path("raw/documents/hello.txt")
+            await store.write(path, b"hello")
+            bytes_read = await store.read(path)
+            print(bytes_read.decode("utf-8"))
+        finally:
+            await store.close()
+
+
+    asyncio.run(main())
+    ```
+  </TabItem>
+</Tabs>
+
+## PostgresStore
+
+Postgres-backed `Store` shipped as the optional `@jeffs-brain/memory-postgres` adapter. Every write is scoped to `(tenantId, brainId)` and runs inside a transaction that sets `app.tenant_id` so row-level security stays on. Take the raw `postgres.Sql` client and pass it in directly.
+
+<Tabs>
+  <TabItem label="TypeScript">
+    ```ts
+    import postgres from 'postgres'
+    import { toPath } from '@jeffs-brain/memory'
+    import { createPostgresStore } from '@jeffs-brain/memory-postgres'
+
+    const sql = postgres(process.env.DATABASE_URL!)
+    const store = await createPostgresStore({
+      sql,
+      tenantId: '00000000-0000-0000-0000-000000000001',
+      brainId: '00000000-0000-0000-0000-00000000000a',
+    })
+    try {
+      await store.write(toPath('raw/documents/hello.txt'), Buffer.from('hello'))
+      const bytes = await store.read(toPath('raw/documents/hello.txt'))
+      console.log(bytes.toString('utf8'))
+    } finally {
+      await store.close()
+    }
+    ```
+  </TabItem>
+</Tabs>
+
+Parity note: `PostgresStore` is TypeScript-only today. The Go and Python SDKs do not ship a Postgres adapter; use `HttpStore` against a TS daemon if you need Postgres-backed storage from those SDKs.
+
+## Choosing a backend
+
+Start with `FsStore` for local-first development and `MemStore` in tests. Reach for `GitStore` when you want a per-batch audit trail or remote replication via a git host. Use `HttpStore` when SDK clients should mount a brain hosted by `memory serve`. Use `PostgresStore` for managed multi-tenant deployments where RLS-scoped storage is the operational primitive.
+
+See the [storage spec](/spec/storage/) for the full contract every backend implements, and the [protocol spec](/spec/protocol/) for the wire format `HttpStore` speaks.

@@ -1,0 +1,249 @@
+---
+title: Retrieval and embedders
+description: Wire embedders, choose retrieval modes, configure rerankers.
+sidebar:
+  order: 3
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components'
+
+This page is the how-to companion to [retrieval concepts](/concepts/retrieval/). Read that first for the algorithm and trace shape; everything below is wiring.
+
+## Modes
+
+Every SDK ships the same five modes. `auto` collapses to `hybrid` when an embedder is configured and to `bm25` otherwise; the trace records the fallback as `fellBackToBM25` when a caller asked for something more expensive than the wiring allows.
+
+| Mode            | TypeScript           | Go                          | Python                  | Embedder required |
+| --------------- | -------------------- | --------------------------- | ----------------------- | ----------------- |
+| `auto`          | `'auto'`             | `retrieval.ModeAuto`        | `Mode.AUTO`             | No                |
+| `bm25`          | `'bm25'`             | `retrieval.ModeBM25`        | `Mode.BM25`             | No                |
+| `semantic`      | `'semantic'`         | `retrieval.ModeSemantic`    | `Mode.SEMANTIC`         | Yes               |
+| `hybrid`        | `'hybrid'`           | `retrieval.ModeHybrid`      | `Mode.HYBRID`           | Yes               |
+| `hybrid-rerank` | `'hybrid-rerank'`    | `retrieval.ModeHybridRerank`| `Mode.HYBRID_RERANK`    | Yes               |
+
+`hybrid-rerank` is the only mode that exercises the reranker pass; every other mode returns the fused ranking untouched even when a reranker is wired. Skipped passes record a `rerankSkipReason` (`mode_off`, `no_reranker`, `unanimity`, `empty_candidates`) on the trace.
+
+## Choosing an embedder
+
+Each SDK ships the backends it can validate end-to-end. Pick the cheapest one that meets your accuracy floor and swap later — the retrieval call surface does not change.
+
+| Embedder | TypeScript | Go | Python |
+| -------- | ---------- | -- | ------ |
+| OpenAI   | yes        | yes | yes   |
+| Ollama   | yes        | yes | yes   |
+| TEI      | yes        | no  | no    |
+| Hash     | yes        | no  | no    |
+| Fake     | no         | yes | yes   |
+
+The Hash embedder (TS) is for offline smoke tests and demos; the Fake embedders (Go, Python) emit deterministic pseudo-vectors for tests. Neither belongs in production.
+
+<Tabs>
+  <TabItem label="TypeScript">
+    ```ts
+    import { createEmbedder } from '@jeffs-brain/memory'
+
+    const openai = createEmbedder({
+      type: 'openai',
+      apiKey: process.env.OPENAI_API_KEY ?? '',
+      model: 'text-embedding-3-small',
+    })
+
+    const ollama = createEmbedder({
+      type: 'ollama',
+      baseURL: 'http://localhost:11434',
+      model: 'bge-m3',
+    })
+
+    const tei = createEmbedder({
+      type: 'tei',
+      baseURL: 'http://localhost:8080',
+      model: 'BAAI/bge-small-en-v1.5',
+    })
+
+    const hash = createEmbedder({ type: 'hash', dim: 1024 })
+    ```
+  </TabItem>
+  <TabItem label="Go">
+    ```go
+    import "github.com/jeffs-brain/memory/go/llm"
+
+    openai := llm.NewOpenAIEmbedder(llm.OpenAIEmbedConfig{
+        APIKey: os.Getenv("OPENAI_API_KEY"),
+        Model:  "text-embedding-3-small",
+    })
+
+    ollama := llm.NewOllamaEmbedder(llm.OllamaEmbedConfig{
+        BaseURL: "http://localhost:11434",
+        Model:   "bge-m3",
+    })
+
+    fake := llm.NewFakeEmbedder(64)
+    ```
+  </TabItem>
+  <TabItem label="Python">
+    ```python
+    from jeffs_brain_memory.llm import (
+        FakeEmbedder,
+        OllamaEmbedder,
+        OpenAIEmbedder,
+    )
+
+    openai = OpenAIEmbedder(
+        api_key=os.environ["OPENAI_API_KEY"],
+        model="text-embedding-3-small",
+    )
+
+    ollama = OllamaEmbedder(
+        base_url="http://localhost:11434",
+        model="bge-m3",
+    )
+
+    fake = FakeEmbedder(dimensions=64)
+    ```
+  </TabItem>
+</Tabs>
+
+## Constructing a retriever
+
+The retriever is the long-lived object. Build one per brain and reuse it for every query.
+
+<Tabs>
+  <TabItem label="TypeScript">
+    ```ts
+    import {
+      createRetrieval,
+      createSearchIndex,
+      createEmbedder,
+      AutoReranker,
+      CrossEncoderReranker,
+    } from '@jeffs-brain/memory'
+
+    const index = await createSearchIndex({ dbPath: './data/brain/search.db' })
+    const embedder = createEmbedder({
+      type: 'openai',
+      apiKey: process.env.OPENAI_API_KEY ?? '',
+      model: 'text-embedding-3-small',
+    })
+
+    const retrieval = createRetrieval({
+      index,
+      embedder,
+      reranker: new AutoReranker({
+        primary: new CrossEncoderReranker({ baseURL: 'http://localhost:8080' }),
+      }),
+    })
+    ```
+  </TabItem>
+  <TabItem label="Go">
+    ```go
+    import (
+        "github.com/jeffs-brain/memory/go/llm"
+        "github.com/jeffs-brain/memory/go/retrieval"
+        "github.com/jeffs-brain/memory/go/search"
+    )
+
+    source, err := retrieval.NewIndexSource(index, retrieval.IndexSourceOptions{
+        Vectors:  vectors,
+        Embedder: embedder,
+        Model:    "text-embedding-3-small",
+    })
+    if err != nil {
+        return err
+    }
+
+    retriever, err := retrieval.New(retrieval.Config{
+        Source:   source,
+        Embedder: embedder,
+        Reranker: nil, // plug in any retrieval.Reranker implementation
+        RRFK:     60,
+    })
+    ```
+  </TabItem>
+  <TabItem label="Python">
+    ```python
+    from jeffs_brain_memory.retrieval import Retriever
+    from jeffs_brain_memory.retrieval.reranker import LLMReranker
+
+    retriever = Retriever(
+        source=source,
+        embedder=embedder,
+        reranker=LLMReranker(provider=provider, model="gpt-4o-mini"),
+        rrf_k=60,
+    )
+    ```
+  </TabItem>
+</Tabs>
+
+The Go and Python retrievers reject a missing `Source` at construction; the TypeScript factory takes a `SearchIndex` directly because it owns the SQLite handle the trigram fallback reads from.
+
+## Running a retrieval
+
+`topK` is the final result count and defaults to 10. Set `mode` explicitly when you want to pin behaviour; leave it unset to follow the embedder-driven `auto` default.
+
+<Tabs>
+  <TabItem label="TypeScript">
+    ```ts
+    const results = await retrieval.search({
+      query: 'where do hedgehogs live?',
+      mode: 'hybrid-rerank',
+      topK: 5,
+      candidateK: 60,
+      rerankTopN: 20,
+    })
+
+    for (const hit of results) {
+      console.log(hit.score, hit.path, hit.title)
+    }
+    ```
+  </TabItem>
+  <TabItem label="Go">
+    ```go
+    resp, err := retriever.Retrieve(ctx, retrieval.Request{
+        Query:      "where do hedgehogs live?",
+        Mode:       retrieval.ModeHybridRerank,
+        TopK:       5,
+        CandidateK: 60,
+        RerankTopN: 20,
+    })
+    if err != nil {
+        return err
+    }
+
+    for _, chunk := range resp.Chunks {
+        fmt.Printf("%.4f %s %s\n", chunk.Score, chunk.Path, chunk.Title)
+    }
+    ```
+  </TabItem>
+  <TabItem label="Python">
+    ```python
+    from jeffs_brain_memory.retrieval import Mode, Request
+
+    response = await retriever.retrieve(
+        Request(
+            query="where do hedgehogs live?",
+            mode=Mode.HYBRID_RERANK,
+            top_k=5,
+            candidate_k=60,
+            rerank_top_n=20,
+        )
+    )
+
+    for chunk in response.chunks:
+        print(chunk.score, chunk.path, chunk.title)
+    ```
+  </TabItem>
+</Tabs>
+
+The TypeScript surface also exposes `searchRaw` when you want the trace alongside the hits; Go and Python always return the trace as part of the response.
+
+## Rerankers
+
+Rerankers are pluggable. The retrieval pipeline only invokes them when `mode` is `hybrid-rerank` and the unanimity shortcut has not already declared the head ordering stable.
+
+| SDK        | Built-in implementations                                                |
+| ---------- | ----------------------------------------------------------------------- |
+| TypeScript | `CrossEncoderReranker`, `LLMReranker`, `AutoReranker`, `TEIReranker`    |
+| Go         | `Reranker` interface only; bring your own implementation                |
+| Python     | `LLMReranker`, `HTTPReranker`, `AutoReranker`                           |
+
+The five-rung retry ladder, RRF fusion, unanimity shortcut, and tail-preserving rerank behaviour are identical across SDKs. See [`spec/ALGORITHMS.md`](/spec/algorithms/) for the normative pseudocode.

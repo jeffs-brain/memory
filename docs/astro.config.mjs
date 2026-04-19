@@ -24,6 +24,7 @@ export default defineConfig({
         { label: 'Getting Started', autogenerate: { directory: 'getting-started' } },
         { label: 'MCP Integration', autogenerate: { directory: 'mcp' } },
         { label: 'Concepts', autogenerate: { directory: 'concepts' } },
+        { label: 'Guides', autogenerate: { directory: 'guides' } },
         { label: 'Spec', autogenerate: { directory: 'spec' } },
         { label: 'Examples', autogenerate: { directory: 'examples' } },
         { label: 'Reference', autogenerate: { directory: 'reference' } },

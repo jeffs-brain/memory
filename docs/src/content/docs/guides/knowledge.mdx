@@ -1,0 +1,246 @@
+---
+title: Knowledge
+description: Ingest documents, compile chunks, run hybrid search.
+sidebar:
+  order: 2
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components'
+
+The knowledge module is the same shape in all three SDKs: **Ingest -> Compile -> Search**. It is built on top of the lower-level `Store`, `SearchIndex` (FTS5), and `Retriever` primitives, so the same documents power BM25, vector, and hybrid retrieval without re-ingesting.
+
+The `auto` search mode defers to a bound retriever when one is wired in, and falls back to BM25 over the bound index otherwise. That parity is exercised by the cross-SDK eval runner.
+
+## Wiring it up
+
+Construct a knowledge handle from a store plus, optionally, a search index, retriever, and (in TypeScript) an LLM provider for `query` synthesis.
+
+<Tabs>
+  <TabItem label="TypeScript">
+    ```ts
+    import {
+      createFsStore,
+      createSearchIndex,
+      createKnowledge,
+      createProvider,
+    } from '@jeffs-brain/memory'
+
+    const store = await createFsStore({ root: './data/my-brain' })
+    const index = await createSearchIndex({ dbPath: './data/my-brain/search.db' })
+    const provider = createProvider({ type: 'anthropic', apiKey: process.env.ANTHROPIC_API_KEY ?? '' })
+
+    const knowledge = createKnowledge({ store, provider })
+    ```
+  </TabItem>
+  <TabItem label="Go">
+    ```go
+    import (
+        "github.com/jeffs-brain/memory/go/brain/fsstore"
+        "github.com/jeffs-brain/memory/go/knowledge"
+        "github.com/jeffs-brain/memory/go/search"
+    )
+
+    store, err := fsstore.Open("./data/my-brain")
+    if err != nil {
+        return err
+    }
+    idx, err := search.Open("./data/my-brain/search.db")
+    if err != nil {
+        return err
+    }
+
+    kb, err := knowledge.New(knowledge.Options{
+        BrainID: "my-brain",
+        Store:   store,
+        Index:   idx,
+    })
+    if err != nil {
+        return err
+    }
+    defer kb.Close()
+    ```
+  </TabItem>
+  <TabItem label="Python">
+    ```python
+    from jeffs_brain_memory import knowledge
+    from jeffs_brain_memory.store import open_fs_store
+    from jeffs_brain_memory.search import open_index
+
+    store = await open_fs_store("./data/my-brain")
+    index = await open_index("./data/my-brain/search.db")
+
+    kb = knowledge.new(
+        knowledge.Options(
+            brain_id="my-brain",
+            store=store,
+            index=index,
+        )
+    )
+    ```
+  </TabItem>
+</Tabs>
+
+The TypeScript `createKnowledge` takes `{ store, provider, embedder?, retriever?, logger? }`. The Go `Options` and Python `Options` carry `BrainID`, `Store`, `Index`, `Retriever`, and a `HTTPFetcher` / `fetcher` shim used by URL ingest.
+
+## Ingesting a document
+
+Pass a markdown string straight in. Each SDK persists the raw bytes under `raw/documents/`, regenerates a canonical frontmatter header, and (Go and Python) immediately segments the body so the index reflects the new document on the next compile.
+
+<Tabs>
+  <TabItem label="TypeScript">
+    ```ts
+    const result = await knowledge.ingest(
+      '# Hedgehogs\n\nHedgehogs nest in dense hedgerows across rural Europe.',
+      { name: 'hedgehogs' },
+    )
+
+    console.log(result.path, result.hash, result.bytes)
+    ```
+  </TabItem>
+  <TabItem label="Go">
+    ```go
+    import (
+        "context"
+        "strings"
+    )
+
+    body := "# Hedgehogs\n\nHedgehogs nest in dense hedgerows across rural Europe."
+
+    resp, err := kb.Ingest(ctx, knowledge.IngestRequest{
+        BrainID:     "my-brain",
+        Path:        "hedgehogs.md",
+        ContentType: "text/markdown",
+        Content:     strings.NewReader(body),
+        Title:       "Hedgehogs",
+    })
+    if err != nil {
+        return err
+    }
+
+    fmt.Println(resp.Path, resp.ChunkCount, resp.Bytes)
+    ```
+  </TabItem>
+  <TabItem label="Python">
+    ```python
+    body = "# Hedgehogs\n\nHedgehogs nest in dense hedgerows across rural Europe."
+
+    resp = await kb.ingest(
+        knowledge.IngestRequest(
+            brain_id="my-brain",
+            path="hedgehogs.md",
+            content_type="text/markdown",
+            content=body.encode("utf-8"),
+            title="Hedgehogs",
+        )
+    )
+
+    print(resp.path, resp.chunk_count, resp.bytes)
+    ```
+  </TabItem>
+</Tabs>
+
+## Compiling
+
+Compile walks the persisted documents (or a caller-supplied subset) and feeds them through the segmenter. In Go and Python this updates the bound `Index`. In TypeScript `compile` runs the wiki compile pass that materialises drafts via the bound `Provider`.
+
+<Tabs>
+  <TabItem label="TypeScript">
+    ```ts
+    const compiled = await knowledge.compile({ maxArticles: 50 })
+
+    console.log(compiled.written.length, 'articles written')
+    ```
+  </TabItem>
+  <TabItem label="Go">
+    ```go
+    res, err := kb.Compile(ctx, knowledge.CompileOptions{
+        MaxBatch: 100,
+    })
+    if err != nil {
+        return err
+    }
+
+    fmt.Println(res.Compiled, "documents,", res.Chunks, "chunks")
+    ```
+  </TabItem>
+  <TabItem label="Python">
+    ```python
+    res = await kb.compile(knowledge.CompileOptions(max_batch=100))
+    print(res.documents, "documents,", res.chunks, "chunks")
+    ```
+  </TabItem>
+</Tabs>
+
+## Searching
+
+`auto` is the recommended default. It delegates to a bound retriever when one is configured, then degrades cleanly to BM25 (or the in-memory scorer in Go and Python) so callers never see a silent dead end.
+
+<Tabs>
+  <TabItem label="TypeScript">
+    ```ts
+    const result = await knowledge.query('where do hedgehogs live?', {
+      maxSources: 5,
+      sort: 'relevance',
+    })
+
+    console.log(result.answer)
+    for (const path of result.sourcePaths) {
+      console.log('source:', path)
+    }
+    ```
+  </TabItem>
+  <TabItem label="Go">
+    ```go
+    resp, err := kb.Search(ctx, knowledge.SearchRequest{
+        Query:      "where do hedgehogs live?",
+        MaxResults: 5,
+        Mode:       knowledge.SearchAuto,
+    })
+    if err != nil {
+        return err
+    }
+
+    for _, hit := range resp.Hits {
+        fmt.Printf("%.3f %s (%s)\n", hit.Score, hit.Path, hit.Source)
+    }
+    ```
+  </TabItem>
+  <TabItem label="Python">
+    ```python
+    resp = await kb.search(
+        knowledge.SearchRequest(
+            query="where do hedgehogs live?",
+            max_results=5,
+            mode=knowledge.SearchMode.AUTO,
+        )
+    )
+
+    for hit in resp.hits:
+        print(f"{hit.score:.3f} {hit.path} ({hit.source})")
+    ```
+  </TabItem>
+</Tabs>
+
+## Ingesting a URL
+
+Go and Python expose a one-shot URL helper that fetches the body through the configured `HTTPFetcher` / `Fetcher`, picks an extractor (markdown, plain text, HTML, PDF) by content type, and routes the result through `Ingest`.
+
+<Tabs>
+  <TabItem label="Go">
+    ```go
+    resp, err := kb.IngestURL(ctx, "https://example.com/notes.md")
+    ```
+  </TabItem>
+  <TabItem label="Python">
+    ```python
+    resp = await kb.ingest_url("https://example.com/notes.md")
+    ```
+  </TabItem>
+</Tabs>
+
+In TypeScript, URL ingest goes through the source loaders. Use `loadSource({ kind: 'url', url })` from `@jeffs-brain/memory` to fetch and convert the content, then pass the resulting markdown body into `knowledge.ingest`.
+
+## Where next
+
+- [Retrieval concepts](/concepts/retrieval/) covers the hybrid retriever, fusion, and the `auto` mode contract in more depth.
+- [Algorithms spec](/spec/algorithms/) is the source of truth for chunk segmentation, BM25, vector, and fusion behaviour every SDK must match.

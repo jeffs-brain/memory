@@ -25,6 +25,11 @@ Local-first, hosted-optional. Apache-2.0.
 
 All three SDKs implement the full spec wire surface. The shared HTTP conformance suite sits at 28/29 green across SDKs. Cross-SDK evaluation parity today is the shared daemon surface in exactly three scenarios: `ask-basic`, `ask-augmented`, and `search-retrieve-only`.
 
+### Parity caveats
+
+- The Postgres + pgvector adapter (`@jeffs-brain/memory-postgres`) is TypeScript-only today. Go and Python use SQLite-backed stores.
+- Python has no native LongMemEval runner. Full LME replay, judge wiring, and agentic loops live in the Go and TypeScript SDKs; Python is exercised through the shared daemon scenarios only.
+
 ## Evaluation parity
 
 The shared runner covers those daemon scenarios only. It forwards retrieval mode unchanged and defaults to `auto`, so each SDK daemon resolves `auto` to `hybrid` when embeddings are available or `bm25` otherwise. Full LongMemEval replay, replay ingest, and agentic loops stay in the native SDK runners; Go provides the reference `memory eval lme run --ingest-mode=replay` path. See [`eval/README.md`](./eval/README.md) for the shared verification flow and artefact layout.
@@ -123,6 +128,8 @@ memory ingest ./docs
 memory search "question"
 ```
 
+Full walkthrough: [docs.jeffsbrain.com/getting-started/typescript/](https://docs.jeffsbrain.com/getting-started/typescript/).
+
 ### Go
 
 ```bash
@@ -131,6 +138,8 @@ memory init
 memory ingest ./docs
 memory search "question"
 ```
+
+Full walkthrough: [docs.jeffsbrain.com/getting-started/go/](https://docs.jeffsbrain.com/getting-started/go/).
 
 ### Python
 
@@ -141,6 +150,8 @@ memory init
 memory ingest ./docs
 memory search "question"
 ```
+
+Full walkthrough: [docs.jeffsbrain.com/getting-started/python/](https://docs.jeffsbrain.com/getting-started/python/).
 
 ## MCP quick start
 
@@ -211,6 +222,19 @@ eval/           Cross-SDK conformance and evaluation runner (--sdk ts|go|py)
 
 The Go MCP wrapper ships from `sdks/go/cmd/memory-mcp/`. The `mcp/go/` folder is reserved for future extraction.
 
+## Documentation
+
+Full docs site: [docs.jeffsbrain.com](https://docs.jeffsbrain.com).
+
+Topic guides:
+
+- [Stores](https://docs.jeffsbrain.com/guides/stores/) - filesystem, git, in-memory, HTTP, and Postgres backends
+- [Knowledge](https://docs.jeffsbrain.com/guides/knowledge/) - markdown, URL, file, and PDF ingest with frontmatter and wikilinks
+- [Retrieval](https://docs.jeffsbrain.com/guides/retrieval/) - hybrid BM25 plus vector, RRF, retry ladder, intent reweight, rerank
+- [Memory lifecycle](https://docs.jeffsbrain.com/guides/memory-lifecycle/) - extract, reflect, consolidate, recall
+- [Authorisation](https://docs.jeffsbrain.com/guides/authorization/) - in-process RBAC and OpenFGA adapter
+- [Configuration reference](https://docs.jeffsbrain.com/reference/configuration/) - `memory.config.json`, env vars, CLI flags
+
 ## Links
 
 - [`spec/`](./spec) - protocol, storage, algorithms, MCP tools, query DSL, conformance harness
@@ -221,7 +245,8 @@ The Go MCP wrapper ships from `sdks/go/cmd/memory-mcp/`. The `mcp/go/` folder is
 - [`CONTRIBUTING.md`](./CONTRIBUTING.md) - dev setup, commit style, DCO, PR process
 - [`SECURITY.md`](./SECURITY.md) - vulnerability reporting
 - [`CODE_OF_CONDUCT.md`](./CODE_OF_CONDUCT.md) - community standards
-- [`LICENSE`](./LICENSE) - Apache-2.0
 - [`NOTICE`](./NOTICE) - bundled third-party components
 
-Docs site: https://docs.jeffsbrain.com
+## Licence
+
+Apache-2.0. See [`LICENSE`](./LICENSE).
