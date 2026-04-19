@@ -9,6 +9,8 @@ integrating against FTS5 lands once ``search`` does.
 
 from __future__ import annotations
 
+from typing import Sequence
+
 import pytest
 
 from jeffs_brain_memory.retrieval import (
@@ -64,6 +66,55 @@ class InMemoryIndex:
 
     async def all_rows(self) -> list[IndexedRow]:
         return list(self.rows)
+
+
+class UnfilteredIndex(InMemoryIndex):
+    """Index double that deliberately ignores filters."""
+
+    def __init__(self, rows: list[IndexedRow]) -> None:
+        super().__init__(rows)
+        self.limits: list[int] = []
+
+    async def search_bm25(
+        self, expr: str, k: int, filters: Filters
+    ) -> list[IndexedRow]:
+        del filters
+        self.limits.append(k)
+        tokens = expr.lower().split()
+        if not tokens:
+            return []
+        scored: list[tuple[IndexedRow, int]] = []
+        for row in self.rows:
+            corpus = " ".join(
+                [row.path, row.title, row.summary, row.content]
+            ).lower()
+            score = sum(corpus.count(token) for token in tokens)
+            if score > 0:
+                scored.append((row, score))
+        scored.sort(key=lambda pair: (-pair[1], pair[0].path))
+        if k > 0 and len(scored) > k:
+            scored = scored[:k]
+        return [row for row, _ in scored]
+
+
+class InMemoryVectorStore:
+    """Vector-store double with fixed ordering."""
+
+    def __init__(self, rows: list[IndexedRow]) -> None:
+        self.rows = list(rows)
+        self.limits: list[int] = []
+
+    async def search(
+        self,
+        embedding: Sequence[float],
+        model: str,
+        k: int,
+        filters: Filters,
+    ) -> list[IndexedRow]:
+        del embedding, model, filters
+        self.limits.append(k)
+        rows = self.rows[:k] if k > 0 else list(self.rows)
+        return list(rows)
 
 
 def _rows() -> list[IndexedRow]:
@@ -146,10 +197,101 @@ async def test_bm25_scope_alias_memory_matches_canonical_rows() -> None:
     assert [h.path for h in hits] == ["memory/global/invoice-note.md"]
 
 
+async def test_bm25_overfetches_when_filters_apply_after_search() -> None:
+    rows = [
+        IndexedRow(
+            path="memory/global/invoice-a.md",
+            title="Invoice A",
+            summary="Global invoice note",
+            content="Invoice note with the strongest invoice term frequency.",
+            scope="global_memory",
+        ),
+        IndexedRow(
+            path="memory/global/invoice-b.md",
+            title="Invoice B",
+            summary="Another global invoice note",
+            content="Invoice note with the second strongest invoice term frequency.",
+            scope="global_memory",
+        ),
+        IndexedRow(
+            path="memory/project/billing/invoice.md",
+            title="Billing invoice",
+            summary="Project-scoped invoice note",
+            content="Invoice note for the billing project.",
+            scope="project_memory",
+            project_slug="billing",
+        ),
+    ]
+    idx = UnfilteredIndex(rows)
+    src = IndexSource(idx)
+
+    hits = await src.search_bm25(
+        "invoice",
+        1,
+        Filters(
+            path_prefix="memory/project/billing/",
+            scope="project",
+            project="billing",
+        ),
+    )
+
+    assert [h.path for h in hits] == ["memory/project/billing/invoice.md"]
+    assert idx.limits == [200]
+
+
 async def test_vectors_nil_returns_empty() -> None:
     src = IndexSource(InMemoryIndex(_rows()))
     hits = await src.search_vector([0.1, 0.2, 0.3], 5, Filters())
     assert hits == []
+
+
+async def test_vectors_overfetch_when_filters_apply_after_search() -> None:
+    rows = [
+        IndexedRow(
+            path="memory/global/invoice-a.md",
+            title="Invoice A",
+            summary="Global invoice note",
+            content="Invoice note with a stronger unfiltered vector score.",
+            scope="global_memory",
+            score=0.99,
+        ),
+        IndexedRow(
+            path="memory/global/invoice-b.md",
+            title="Invoice B",
+            summary="Another global invoice note",
+            content="Invoice note with another stronger unfiltered vector score.",
+            scope="global_memory",
+            score=0.98,
+        ),
+        IndexedRow(
+            path="memory/project/billing/invoice.md",
+            title="Billing invoice",
+            summary="Project-scoped invoice note",
+            content="Invoice note for the billing project.",
+            scope="project_memory",
+            project_slug="billing",
+            score=0.75,
+        ),
+    ]
+    vectors = InMemoryVectorStore(rows)
+    src = IndexSource(
+        InMemoryIndex(rows),
+        vectors=vectors,
+        model="test-model",
+    )
+
+    hits = await src.search_vector(
+        [0.1, 0.2, 0.3],
+        1,
+        Filters(
+            path_prefix="memory/project/billing/",
+            scope="project",
+            project="billing",
+        ),
+    )
+
+    assert [h.path for h in hits] == ["memory/project/billing/invoice.md"]
+    assert vectors.limits == [200]
 
 
 async def test_chunks_returns_all_rows() -> None:

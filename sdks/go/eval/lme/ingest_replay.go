@@ -363,6 +363,7 @@ func postProcessSessionFacts(sess sessionData, extract []memory.ExtractedMemory)
 	// body. Also seed frontmatter tags with auto-extracted entities so
 	// BM25 matches against the tags column rather than body-only.
 	for i := range extract {
+		extract[i].Filename = memory.RewriteHeuristicFilenameForSession(extract[i].Filename, sess.id)
 		extract[i].SessionID = sess.id
 		if sessionDateISO != "" {
 			extract[i].SessionDate = sessionDateISO

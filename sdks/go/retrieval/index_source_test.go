@@ -29,8 +29,21 @@ func setupIndexSource(t *testing.T, articles []indexSourceArticle) (*IndexSource
 	t.Cleanup(func() { _ = store.Close() })
 
 	for _, a := range articles {
-		body := "---\ntitle: " + a.Title + "\nsummary: " + a.Summary + "\n---\n" + a.Body + "\n"
-		if err := store.Write(ctx, brain.Path(a.Path), []byte(body)); err != nil {
+		var body strings.Builder
+		body.WriteString("---\n")
+		body.WriteString("title: ")
+		body.WriteString(a.Title)
+		body.WriteString("\nsummary: ")
+		body.WriteString(a.Summary)
+		body.WriteString("\n")
+		if extra := strings.TrimSpace(a.Frontmatter); extra != "" {
+			body.WriteString(extra)
+			body.WriteString("\n")
+		}
+		body.WriteString("---\n")
+		body.WriteString(a.Body)
+		body.WriteString("\n")
+		if err := store.Write(ctx, brain.Path(a.Path), []byte(body.String())); err != nil {
 			t.Fatalf("write %s: %v", a.Path, err)
 		}
 	}
@@ -85,10 +98,11 @@ func setupIndexSource(t *testing.T, articles []indexSourceArticle) (*IndexSource
 }
 
 type indexSourceArticle struct {
-	Path    string
-	Title   string
-	Summary string
-	Body    string
+	Path        string
+	Title       string
+	Summary     string
+	Frontmatter string
+	Body        string
 }
 
 // indexSourceCorpus produces a small but varied set of wiki articles.
@@ -569,6 +583,46 @@ func TestIndexSource_Lookup_HydratesByID(t *testing.T) {
 		if row.Content == "" {
 			t.Errorf("%s missing content", want)
 		}
+	}
+}
+
+func TestIndexSource_EndToEnd_RetrieveHydratesMetadataAliases(t *testing.T) {
+	t.Parallel()
+	src, _, _, _ := setupIndexSource(t, []indexSourceArticle{{
+		Path:        "memory/project/eval-lme/weekly-note.md",
+		Title:       "Weekly note",
+		Summary:     "Supplier update",
+		Frontmatter: "session_date: 2024-03-08\nmodified: 2024-03-09T12:00:00Z",
+		Body:        "Met the supplier and agreed the timeline.",
+	}})
+
+	r, err := New(Config{Source: src})
+	if err != nil {
+		t.Fatalf("New retriever: %v", err)
+	}
+	resp, err := r.Retrieve(context.Background(), Request{
+		Query: "supplier timeline",
+		Mode:  ModeBM25,
+		TopK:  1,
+	})
+	if err != nil {
+		t.Fatalf("Retrieve: %v", err)
+	}
+	if len(resp.Chunks) != 1 {
+		t.Fatalf("chunks = %d, want 1", len(resp.Chunks))
+	}
+	meta := resp.Chunks[0].Metadata
+	if meta["scope"] != "project_memory" {
+		t.Fatalf("scope metadata = %v, want project_memory", meta["scope"])
+	}
+	if meta["project"] != "eval-lme" {
+		t.Fatalf("project metadata = %v, want eval-lme", meta["project"])
+	}
+	if meta["projectSlug"] != "eval-lme" {
+		t.Fatalf("projectSlug metadata = %v, want eval-lme", meta["projectSlug"])
+	}
+	if meta["sessionDate"] != "2024-03-08" || meta["session_date"] != "2024-03-08" {
+		t.Fatalf("session date metadata = %+v, want both aliases", meta)
 	}
 }
 

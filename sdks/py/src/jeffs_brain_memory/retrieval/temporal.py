@@ -51,6 +51,7 @@ PHRASE_PROBE_BOUNDARY_WORDS: frozenset[str] = frozenset(
         "amount", "total", "all", "list",
         "finally", "decided", "decide", "wondering", "wonder",
         "remembered", "remember", "thinking", "back", "previous", "conversation",
+        "can", "could", "would", "should", "remind", "follow", "specific", "exact",
         "spent", "spend", "bought", "buy", "ordered", "order",
         "purchased", "purchase", "paid", "pay", "submitted", "submit",
         "many", "much", "long",
@@ -101,6 +102,25 @@ LOW_SIGNAL_PHRASE_PROBE_WORDS: frozenset[str] = frozenset(
         "first", "happen", "happened", "month", "months",
         "second", "third", "time", "times", "week", "weeks",
         "year", "years",
+    }
+)
+ENUMERATION_OR_TOTAL_QUERY_RE = re.compile(
+    r"\b(?:how many|count|total|in total|sum|add up|list|what are all)\b",
+    re.IGNORECASE,
+)
+SPECIFIC_RECOMMENDATION_QUERY_RE = re.compile(r"\b(?:specific|exact)\b", re.IGNORECASE)
+MONEY_EVENT_QUERY_RE = re.compile(
+    r"\b(?:spent|spend|cost|costed|paid|pay)\b", re.IGNORECASE
+)
+HEAD_BIGRAM_LAST_TOKENS: frozenset[str] = frozenset(
+    {
+        "development",
+        "item",
+        "items",
+        "language",
+        "languages",
+        "product",
+        "products",
     }
 )
 
@@ -374,6 +394,22 @@ def derive_sub_queries(question: str) -> list[str]:
         hint in question.strip().lower() for hint in INSPIRATION_QUERY_HINTS
     )
 
+    for probe in _derive_specific_recommendation_probes(question):
+        if probe in seen:
+            continue
+        seen.add(probe)
+        out.append(probe)
+        if len(out) >= MAX_DERIVED_SUB_QUERIES:
+            return out
+
+    for probe in _derive_money_focus_probes(question):
+        if probe in seen:
+            continue
+        seen.add(probe)
+        out.append(probe)
+        if len(out) >= MAX_DERIVED_SUB_QUERIES:
+            return out
+
     for probe in _derive_action_date_context_probes(question):
         if probe in seen:
             continue
@@ -430,6 +466,22 @@ def derive_sub_queries(question: str) -> list[str]:
 def _derive_priority_sub_queries(question: str) -> list[str]:
     out: list[str] = []
     seen: set[str] = {question.strip().lower()}
+
+    for probe in _derive_specific_recommendation_probes(question):
+        if probe in seen:
+            continue
+        seen.add(probe)
+        out.append(probe)
+        if len(out) >= MAX_DERIVED_SUB_QUERIES:
+            return out
+
+    for probe in _derive_money_focus_probes(question):
+        if probe in seen:
+            continue
+        seen.add(probe)
+        out.append(probe)
+        if len(out) >= MAX_DERIVED_SUB_QUERIES:
+            return out
 
     for probe in _derive_action_date_context_probes(question):
         if probe in seen:
@@ -522,6 +574,75 @@ def _derive_inspiration_source_probes(question: str) -> list[str]:
     if not focus:
         return []
     return [f"{focus} social media tutorials"]
+
+
+def _derive_specific_recommendation_probes(question: str) -> list[str]:
+    lowered = question.strip().lower()
+    if not lowered or SPECIFIC_RECOMMENDATION_QUERY_RE.search(lowered) is None:
+        return []
+    if (
+        re.search(r"\brecommend(?:ed)?\b", lowered) is None
+        and re.search(r"\bremind me\b", lowered) is None
+    ):
+        return []
+    if "back-end" in lowered and re.search(r"\blanguages?\b", lowered) is not None:
+        return ["back-end programming language", "back-end development"]
+    return []
+
+
+def _derive_money_focus_probes(question: str) -> list[str]:
+    lowered = question.strip().lower()
+    if (
+        not lowered
+        or ENUMERATION_OR_TOTAL_QUERY_RE.search(lowered) is None
+        or MONEY_EVENT_QUERY_RE.search(lowered) is None
+    ):
+        return []
+
+    out: list[str] = []
+    seen: set[str] = set()
+    for phrase in _filtered_phrase_probes(question):
+        candidate = _money_focus_probe_from_phrase(phrase)
+        if not candidate or candidate in seen:
+            continue
+        seen.add(candidate)
+        out.append(candidate)
+        if len(out) >= MAX_DERIVED_SUB_QUERIES:
+            return out
+    return out
+
+
+def _money_focus_probe_from_phrase(phrase: str) -> str:
+    edge = _derive_phrase_edge_focus(phrase)
+    if edge:
+        return edge
+    head = _derive_phrase_head_focus(phrase)
+    if not head:
+        return ""
+    if head != phrase and len(phrase.split()) <= 2:
+        return f"{head} cost"
+    return phrase
+
+
+def _derive_phrase_edge_focus(phrase: str) -> str:
+    tokens = [token for token in phrase.strip().lower().split() if token]
+    if len(tokens) < 3:
+        return ""
+    first = tokens[0]
+    last = tokens[-1]
+    if "-" not in first or last not in HEAD_BIGRAM_LAST_TOKENS:
+        return ""
+    return f"{first} {last}"
+
+
+def _derive_phrase_head_focus(phrase: str) -> str:
+    tokens = [token for token in phrase.strip().lower().split() if token]
+    if not tokens:
+        return ""
+    last = tokens[-1]
+    if len(tokens) >= 2 and last in HEAD_BIGRAM_LAST_TOKENS:
+        return " ".join(tokens[-2:])
+    return last
 
 
 def _derive_action_date_probes(question: str) -> list[str]:

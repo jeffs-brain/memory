@@ -73,8 +73,6 @@ const MAX_BM25_FANOUT_QUERIES = 4
 const MAX_DERIVED_SUB_QUERIES = 2
 const BM25_FANOUT_PRIMARY_WINDOW = 10
 const BM25_FANOUT_MIN_OVERLAP = 2
-const FILTER_FETCH_MULTIPLIER = 4
-const FILTER_FETCH_MAX_MULTIPLIER = 8
 const RERANK_SNIPPET_MAX = 1200
 const PHRASE_PROBE_MIN_TOKENS = 2
 const PHRASE_PROBE_MAX_TOKENS = 4
@@ -86,6 +84,7 @@ const PROPERTY_LOOKUP_QUERY_RE =
   /\b(?:how long is my|what specific|which specific|what exact|which exact)\b/i
 const SPECIFIC_RECOMMENDATION_QUERY_RE = /\b(?:specific|exact)\b/i
 const FIRST_PERSON_FACT_LOOKUP_RE = /\b(?:did i|have i|was i|were i)\b/i
+const FIRST_PERSON_CONCRETE_QUERY_RE = /\b(?:my|me|i)\b/i
 const FACT_LOOKUP_VERB_RE =
   /\b(?:pick(?:ed)? up|bought|ordered|spent|earned|sold|drove|travelled|traveled|watched|visited|completed|finished|submitted|booked)\b/i
 const PREFERENCE_NOTE_RE =
@@ -105,6 +104,10 @@ const BODY_ABSOLUTE_DATE_RE =
   /\b(?:january|february|march|april|may|june|july|august|september|october|november|december)\s+\d{1,2}(?:st|nd|rd|th)?\b/i
 const MEASUREMENT_VALUE_RE =
   /\b\d+(?:\.\d+)?(?:\s*-\s*\d+(?:\.\d+)?)?(?:\s+|-)(?:minutes?|hours?|days?|weeks?|months?|years?)\b/i
+const ROUTINE_SCOPE_QUERY_RE = /\b(?:daily|every|weekday|each way)\b/i
+const ROUTINE_SCOPE_NOTE_RE =
+  /\b(?:daily commute|every day|every weekday|weekday|weekdays|each way)\b/i
+const SEGMENT_QUALIFIER_NOTE_RE = /\b(?:morning commute|often|some days?|sometimes|around)\b/i
 const RECENCY_QUERY_RE = /\b(?:most recent|latest|last time|current(?:ly)?|now|newest)\b/i
 const EARLIEST_QUERY_RE = /\b(?:earliest|first|initial|original|at first)\b/i
 const INLINE_DATE_TAG_RE = /\[(?:observed on|date):?\s*([^\]]+)\]/i
@@ -678,7 +681,7 @@ function reweightSharedMemoryRanking(
     return [...results]
   }
 
-  return [...results]
+  const rescored = [...results]
     .map((result, index) => ({
       result: {
         ...result,
@@ -693,6 +696,7 @@ function reweightSharedMemoryRanking(
       return left.index - right.index
     })
     .map(({ result }) => result)
+  return diversifyCompositeConcreteRanking(query, rescored)
 }
 
 function reweightTemporalRanking(
@@ -829,9 +833,21 @@ function detectRetrievalIntent(query: string): RetrievalIntent {
     concreteFactQuery:
       PROPERTY_LOOKUP_QUERY_RE.test(normalised) ||
       ENUMERATION_OR_TOTAL_QUERY_RE.test(normalised) ||
+      deriveActionDateProbes(query).length > 0 ||
+      hasSpecificRecallCue(normalised) ||
       (FIRST_PERSON_FACT_LOOKUP_RE.test(normalised) &&
         FACT_LOOKUP_VERB_RE.test(normalised)),
   }
+}
+
+function hasSpecificRecallCue(normalisedQuery: string): boolean {
+  if (normalisedQuery === '') return false
+  if (!normalisedQuery.includes('remind me') && !normalisedQuery.includes('remember')) {
+    return false
+  }
+  return (
+    normalisedQuery.includes('the specific') || normalisedQuery.includes('the exact')
+  )
 }
 
 function retrievalIntentMultiplier(
@@ -846,6 +862,8 @@ function retrievalIntentMultiplier(
   }
   if (intent.concreteFactQuery) {
     multiplier *= concreteFactIntentMultiplier(query, result, text)
+    multiplier *= focusAlignedConcreteFactMultiplier(query, text)
+    multiplier *= firstPersonConcreteFactMultiplier(query, result, text)
   }
   return multiplier
 }
@@ -1077,12 +1095,28 @@ function deriveMoneyFocusProbes(query: string): readonly string[] {
 }
 
 function moneyFocusProbeFromPhrase(phrase: string): string {
+  const edge = derivePhraseEdgeFocus(phrase)
+  if (edge !== '') return edge
   const head = derivePhraseHeadFocus(phrase)
   if (head === '') return ''
   if (head !== phrase && phrase.split(/\s+/u).length <= 2) {
     return `${head} cost`
   }
   return phrase
+}
+
+function derivePhraseEdgeFocus(phrase: string): string {
+  const tokens = phrase
+    .trim()
+    .toLowerCase()
+    .split(/\s+/u)
+    .filter((token) => token !== '')
+  if (tokens.length < 3) return ''
+  const first = tokens[0]
+  const last = tokens[tokens.length - 1]
+  if (first == null || last == null) return ''
+  if (!first.includes('-') || !HEAD_BIGRAM_LAST_TOKENS.has(last)) return ''
+  return `${first} ${last}`
 }
 
 function derivePhraseHeadFocus(phrase: string): string {
@@ -1093,6 +1127,7 @@ function derivePhraseHeadFocus(phrase: string): string {
     .filter((token) => token !== '')
   if (tokens.length === 0) return ''
   const last = tokens[tokens.length - 1]
+  if (last == null) return ''
   if (tokens.length >= 2 && HEAD_BIGRAM_LAST_TOKENS.has(last)) {
     return tokens.slice(-2).join(' ')
   }
@@ -1404,16 +1439,11 @@ function searchBM25WithFilters(
     return index.searchBM25(compiledQuery, limit)
   }
 
-  let fetchLimit = Math.max(limit, limit * FILTER_FETCH_MULTIPLIER)
-  const maxFetch = Math.max(fetchLimit, limit * FILTER_FETCH_MAX_MULTIPLIER)
-  while (true) {
-    const hits = index.searchBM25(compiledQuery, fetchLimit)
-    const filtered = hits.filter((hit) => matchesRetrievalFilters(hit.chunk, filters))
-    if (filtered.length >= limit || hits.length < fetchLimit || fetchLimit >= maxFetch) {
-      return filtered.slice(0, limit)
-    }
-    fetchLimit = Math.min(fetchLimit * 2, maxFetch)
-  }
+  const fetchLimit = Math.max(limit * 10, 200)
+  const hits = index.searchBM25(compiledQuery, fetchLimit)
+  return hits
+    .filter((hit) => matchesRetrievalFilters(hit.chunk, filters))
+    .slice(0, limit)
 }
 
 function searchVectorCandidates(
@@ -1427,16 +1457,11 @@ function searchVectorCandidates(
     return index.searchVector(embedding, limit)
   }
 
-  let fetchLimit = Math.max(limit, limit * FILTER_FETCH_MULTIPLIER)
-  const maxFetch = Math.max(fetchLimit, limit * FILTER_FETCH_MAX_MULTIPLIER)
-  while (true) {
-    const hits = index.searchVector(embedding, fetchLimit)
-    const filtered = hits.filter((hit) => matchesRetrievalFilters(hit.chunk, filters))
-    if (filtered.length >= limit || hits.length < fetchLimit || fetchLimit >= maxFetch) {
-      return filtered.slice(0, limit)
-    }
-    fetchLimit = Math.min(fetchLimit * 2, maxFetch)
-  }
+  const fetchLimit = Math.max(limit * 10, 200)
+  const hits = index.searchVector(embedding, fetchLimit)
+  return hits
+    .filter((hit) => matchesRetrievalFilters(hit.chunk, filters))
+    .slice(0, limit)
 }
 
 function hasRetrievalFilters(filters: RetrievalFilters | undefined): boolean {
@@ -1572,8 +1597,8 @@ function concreteFactIntentMultiplier(
 
   let multiplier = 1
   if (isConcreteFact) multiplier *= 2.2
-  if (deriveActionDateProbes(query).length > 0 && BODY_ABSOLUTE_DATE_RE.test(text)) {
-    multiplier *= 1.45
+  if (deriveActionDateProbes(query).length > 0) {
+    multiplier *= BODY_ABSOLUTE_DATE_RE.test(text) ? 1.45 : 0.78
   }
   if (DURATION_QUERY_RE.test(query)) {
     multiplier *= MEASUREMENT_VALUE_RE.test(text) ? 1.35 : 0.72
@@ -1584,6 +1609,144 @@ function concreteFactIntentMultiplier(
     multiplier *= 0.75
   }
   return multiplier
+}
+
+function focusAlignedConcreteFactMultiplier(query: string, text: string): number {
+  let phrases = derivePrioritySubQueries(query)
+  if (phrases.length === 0) {
+    phrases = filteredPhraseProbes(query)
+  }
+  if (phrases.length === 0) return 1
+
+  const loweredText = normaliseFocusAlignmentText(text)
+  let best = 0
+  for (const phrase of phrases) {
+    best = Math.max(best, focusAlignmentScore(loweredText, phrase))
+  }
+
+  if (best >= 0.99) return 1.6
+  if (best >= 0.66) return 1.25
+  return 1
+}
+
+function firstPersonConcreteFactMultiplier(
+  query: string,
+  result: RetrievalResult,
+  text: string,
+): number {
+  const normalisedQuery = query.trim().toLowerCase()
+  if (
+    normalisedQuery === '' ||
+    (!FIRST_PERSON_CONCRETE_QUERY_RE.test(normalisedQuery) &&
+      !FIRST_PERSON_FACT_LOOKUP_RE.test(normalisedQuery))
+  ) {
+    return 1
+  }
+
+  const path = result.path.toLowerCase()
+  let multiplier = path.includes('memory/global/') ? 1.18 : 0.7
+  if (DURATION_QUERY_RE.test(normalisedQuery) && ROUTINE_SCOPE_QUERY_RE.test(normalisedQuery)) {
+    if (ROUTINE_SCOPE_NOTE_RE.test(text)) {
+      multiplier *= 1.2
+    }
+    if (SEGMENT_QUALIFIER_NOTE_RE.test(text) && !ROUTINE_SCOPE_NOTE_RE.test(text)) {
+      multiplier *= 0.2
+    }
+  }
+  return multiplier
+}
+
+type CompositeFocusMatch = {
+  readonly index: number
+  readonly score: number
+}
+
+function diversifyCompositeConcreteRanking(
+  query: string,
+  results: readonly RetrievalResult[],
+): RetrievalResult[] {
+  const focuses = filteredPhraseProbes(query)
+  if (results.length < 3 || focuses.length < 2 || !isCompositeConcreteQuery(query)) {
+    return [...results]
+  }
+
+  const covered = new Set<number>()
+  const primary: RetrievalResult[] = []
+  const secondary: RetrievalResult[] = []
+  const nearMisses: RetrievalResult[] = []
+  const duplicates: RetrievalResult[] = []
+  for (const result of results) {
+    const match = bestCompositeFocusMatch(retrievalResultText(result), focuses)
+    if (match.index >= 0 && match.score >= 0.5) {
+      if (!covered.has(match.index)) {
+        primary.push(result)
+        covered.add(match.index)
+        continue
+      }
+      duplicates.push(result)
+      continue
+    }
+    if (match.index >= 0 && match.score >= 0.25) {
+      nearMisses.push(result)
+      continue
+    }
+    secondary.push(result)
+  }
+  return [...primary, ...secondary, ...nearMisses, ...duplicates]
+}
+
+function isCompositeConcreteQuery(query: string): boolean {
+  const lowered = query.trim().toLowerCase()
+  if (!ENUMERATION_OR_TOTAL_QUERY_RE.test(lowered)) {
+    return false
+  }
+  return lowered.includes(' and ') || lowered.includes(' plus ') || lowered.includes(' or ')
+}
+
+function bestCompositeFocusMatch(
+  text: string,
+  focuses: readonly string[],
+): CompositeFocusMatch {
+  const loweredText = normaliseFocusAlignmentText(text)
+  let best: CompositeFocusMatch = { index: -1, score: 0 }
+  focuses.forEach((focus, index) => {
+    const score = focusAlignmentScore(loweredText, focus)
+    if (score > best.score) {
+      best = { index, score }
+    }
+  })
+  return best
+}
+
+function focusAlignmentScore(loweredText: string, phrase: string): number {
+  const loweredPhrase = normaliseFocusAlignmentText(phrase)
+  if (loweredPhrase === '') return 0
+  if (loweredText.includes(loweredPhrase)) return 1
+
+  const textTokens = tokenSet(loweredText.split(/\s+/u))
+  const phraseTokens = loweredPhrase.split(/\s+/u).filter((token) => token !== '')
+  if (phraseTokens.length === 0) return 0
+
+  let matched = 0
+  for (const token of phraseTokens) {
+    if (textTokens.has(token)) matched += 1
+  }
+  return matched / phraseTokens.length
+}
+
+function normaliseFocusAlignmentText(raw: string): string {
+  if (raw === '') return ''
+  return raw
+    .toLowerCase()
+    .replaceAll(/[-/()\[\],.:;?!]/g, ' ')
+    .trim()
+    .split(/\s+/u)
+    .filter((token) => token !== '')
+    .join(' ')
+}
+
+function tokenSet(tokens: readonly string[]): ReadonlySet<string> {
+  return new Set(tokens.filter((token) => token !== ''))
 }
 
 function retrievalResultText(result: RetrievalResult): string {

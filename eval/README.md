@@ -19,7 +19,7 @@ Cross-SDK evaluation runner for `jeffs-brain/memory`. Drives the TypeScript, Go,
 
 - The runner verifies the same three daemon scenarios across `ts`, `go`, and `py`: `ask-basic`, `ask-augmented`, and `search-retrieve-only`.
 - Parity means the same request shape, transport shape, retrieval-mode semantics, and temporal forwarding rules across all three daemons.
-- `ask-basic` and `ask-augmented` are answer-scoring scenarios. `search-retrieve-only` is a retrieval-scoring scenario built from returned chunks only.
+- `ask-basic` and `ask-augmented` are answer-scoring scenarios. `search-retrieve-only` is a retrieval-scoring scenario built from returned chunks only. It does not score a daemon-generated answer.
 - The runner is for pass/fail comparison and artefact inspection. We are not treating this README as a published benchmark page.
 - Full LongMemEval replay still lives in the native SDK runners. Go's `memory eval lme run --ingest-mode=replay` path remains the reference workflow there.
 
@@ -71,7 +71,7 @@ for sdk in ts go py; do
 done
 ```
 
-Use a separate `--output` root per scenario when comparing SDKs on the same day. The runner writes one `<sdk>.json` under `<output>/<YYYY-MM-DD>/`, so a second scenario pointed at the same output root overwrites the first.
+Use a separate `--output` root per scenario when comparing SDKs on the same day. The runner writes one `<sdk>.json` under `<output>/<YYYY-MM-DD>/`, so in practice you want roots such as `results/ask-basic`, `results/ask-augmented`, and `results/search-retrieve-only`.
 
 ### CLI flags
 
@@ -83,7 +83,7 @@ Use a separate `--output` root per scenario when comparing SDKs on the same day.
 | `--dataset`  | `datasets/lme.jsonl`    | JSONL file.                                                           |
 | `--scorer`   | `judge`                 | `exact` or `judge`.                                                   |
 | `--limit`    | none                    | Cap question count.                                                   |
-| `--output`   | `results/`              | Where to write `<output>/<YYYY-MM-DD>/<sdk>.json`.                    |
+| `--output`   | `results/`              | Scenario-specific output root. The runner writes `<output>/<YYYY-MM-DD>/<sdk>.json`. |
 | `--port`     | `0`                     | `0` means random free port.                                           |
 | `--floor`    | `0.90`                  | Below this, the runner exits non-zero.                                |
 | `--brain`    | `eval`                  | brainId passed into `POST /v1/brains/{brain}/ask` or `/search`; pre-populate it before running. |
@@ -97,12 +97,12 @@ Use a separate `--output` root per scenario when comparing SDKs on the same day.
 | -------- | ------- | --------- | --------------- | ----------------- |
 | `ask-basic` | `POST /ask` with `question`, `topK`, `mode` | SSE | concatenated `answer_delta` stream, or `done.answer` when present | Standard `/ask` retrieval-to-reader path, plus `retrieve`, `citation`, and `done` event shape. |
 | `ask-augmented` | `POST /ask` with `question`, `topK`, `mode`, `readerMode=augmented`, optional `questionDate` | SSE | concatenated `answer_delta` stream, or `done.answer` when present | Augmented reader prompt path, temporal anchor forwarding, and the same SSE contract. |
-| `search-retrieve-only` | `POST /search` with `query`, `topK`, `mode`, optional `questionDate`, `candidateK`, and `rerankTopN` | JSON | concatenated returned chunk `text`, falling back to `summary` | Pure retrieval behaviour: chunk selection, optional rerank knobs, and returned chunk payload parity. |
+| `search-retrieve-only` | `POST /search` with `query`, `topK`, `mode`, optional `questionDate`, `candidateK`, and `rerankTopN` | JSON | concatenated returned chunk `text`, falling back to `summary` | Pure retrieval behaviour only: chunk selection, optional rerank knobs, and returned chunk payload parity. No daemon-generated answer path is used. |
 
 ### How we test it
 
 - `ask-basic` and `ask-augmented` both consume SSE, ignore `retrieve` frames for scoring, collect `citation` frames for the result JSON, and score only the final answer text.
-- `search-retrieve-only` calls `/search` directly, records chunk metadata as citations, and scores the merged retrieval blob the runner builds from the returned chunks.
+- `search-retrieve-only` calls `/search` directly, records chunk metadata as citations, and scores the merged retrieval blob the runner builds from returned chunks only.
 - `question_date` is forwarded in `ask-augmented` and `search-retrieve-only`, where the runner sends it as `questionDate`.
 - `candidateK` and `rerankTopN` are forwarded only for `search-retrieve-only`, and only when the CLI flags are set above zero.
 - `--mode auto` is the shared default because it matches daemon semantics. The harness does not resolve `auto` itself.
@@ -112,7 +112,7 @@ Use a separate `--output` root per scenario when comparing SDKs on the same day.
 1. Pick the scenario you want to verify.
 2. Run the SDK-local regression tests that pin that scenario's behaviour.
 3. Run the shared runner across `ts`, `go`, and `py` for that same scenario.
-4. Compare `results/<scenario>/<YYYY-MM-DD>/ts.json`, `go.json`, and `py.json` for request, citation, and answer or retrieval-blob shape. Treat the output as verification artefacts rather than a public benchmark.
+4. Compare `results/<scenario>/<YYYY-MM-DD>/ts.json`, `go.json`, and `py.json` for request, citation, and answer or retrieval-blob shape. For replay-backed tri-SDK runs, compare `tri-lme-<timestamp>/result-*.json` alongside `manifest.json` and `manifest-*.json`. Treat the output as verification artefacts rather than a public benchmark.
 
 ### SDK-local regression commands
 
@@ -162,18 +162,31 @@ See `datasets/README.md` for details and how to populate `lme.jsonl`.
 
 ```
 results/
-  <YYYY-MM-DD>/        # single-SDK runs written by runner.py
-    ts.json
-    go.json
-    py.json
+  ask-basic/           # shared runner output root for one scenario
+    <YYYY-MM-DD>/
+      ts.json
+      go.json
+      py.json
+  ask-augmented/
+    <YYYY-MM-DD>/
+      ts.json
+      go.json
+      py.json
+  search-retrieve-only/
+    <YYYY-MM-DD>/
+      ts.json
+      go.json
+      py.json
   tri-lme-<timestamp>/ # replay-backed tri-SDK benchmark runs
     README.md
+    build-go.log       # Go CLI build log before extract
+    build-ts.log       # TS CLI build log before daemon spawn
     extract.json
-    manifest.json
+    manifest.json      # shared extract-only replay manifest
     result-ts.json
     result-go.json
     result-py.json
-    manifest-ts.json
+    manifest-ts.json   # per-SDK retrieve-only benchmark manifest
     manifest-go.json
     manifest-py.json
     daemon-ts.log
@@ -237,9 +250,13 @@ Phases:
 2. TS, Go, Py `memory serve` daemons spawn against the shared brain.
 3. Go LME runner fires three times in parallel with `--actor-endpoint` pointed at each daemon. In `retrieve-only` mode the daemon stays retrieval-only and the shared augmented reader + judge run in-process, which keeps the cross-SDK comparison aligned.
    For replay-backed tri-SDK runs we pin actor retrieval to replay memory only via `--actor-scope memory --actor-project <brain-id>`, which keeps global memory plus the eval brain's project memory in scope while excluding raw transcript rows.
-4. Tear daemons down; emit `tri-lme-<timestamp>/README.md` with the run summary plus `extract.json`, shared manifests, per-SDK result JSON, per-SDK manifests, and daemon or runner logs.
+4. Tear daemons down; emit `tri-lme-<timestamp>/README.md` with the run summary plus `extract.json`, `manifest.json`, per-SDK result JSON, per-SDK manifests, and daemon or runner logs.
 
-Every run writes a `RunManifest` with the base LME fields, and the tri-SDK script also stamps each per-SDK manifest with `sdk`, `scenario`, `actor_endpoint_style`, `actor_brain`, `actor_topk`, `actor_candidatek`, `actor_rerank_topn`, `actor_scope`, `actor_project`, and `actor_path_prefix`.
+Every run writes a `RunManifest` with the base LME fields. In the replay-backed tri-SDK flow:
+
+- `build-go.log` and `build-ts.log` capture the pre-daemon build steps. If the harness stops before daemon spawn, those logs are the first place to check.
+- `manifest.json` is the shared extract-only replay manifest.
+- Each `manifest-<sdk>.json` is a per-SDK retrieve-only benchmark manifest. The script stamps `sdk`, `scenario`, `actor_endpoint_style`, `actor_brain`, `actor_topk`, `actor_candidatek`, `actor_rerank_topn`, `actor_scope`, `actor_project`, `actor_path_prefix`, `shared_extract_output`, and `shared_extract_manifest` so the retrieve-only comparison is reproducible from disk alone.
 
 ## Adding a new SDK
 

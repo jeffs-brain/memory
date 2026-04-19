@@ -452,6 +452,71 @@ func TestIngestReplay_OneExtractionPerSession(t *testing.T) {
 	}
 }
 
+func TestIngestReplay_KeepsHeuristicFactPathsDistinctPerSession(t *testing.T) {
+	store := mem.New()
+	ds := &Dataset{Questions: []Question{
+		{
+			ID:            "q1",
+			Category:      "multi-session",
+			Question:      "How long is my commute?",
+			Answer:        "Both durations were mentioned",
+			SessionIDs:    []string{"sess-A", "sess-B"},
+			HaystackDates: []string{"2024/03/25 (Mon) 10:00", "2024/03/25 (Mon) 10:00"},
+			HaystackSessions: [][]SessionMessage{
+				{
+					{Role: "user", Content: "My commute takes 45 minutes each way."},
+					{Role: "assistant", Content: "That is a substantial commute."},
+				},
+				{
+					{Role: "user", Content: "My commute takes 30 minutes each way."},
+					{Role: "assistant", Content: "That sounds more manageable."},
+				},
+			},
+		},
+	}}
+
+	provider := &replayFakeProvider{responses: []string{
+		`{"memories":[]}`,
+		`{"memories":[]}`,
+	}}
+
+	result, err := IngestReplay(context.Background(), store, ds, provider, ReplayOpts{Concurrency: 1})
+	if err != nil {
+		t.Fatalf("IngestReplay: %v", err)
+	}
+	if result.SessionsProcessed != 2 {
+		t.Fatalf("SessionsProcessed = %d, want 2", result.SessionsProcessed)
+	}
+
+	files, err := store.List(context.Background(), brain.MemoryGlobalPrefix(), brain.ListOpts{
+		Recursive:        true,
+		IncludeGenerated: true,
+	})
+	if err != nil {
+		t.Fatalf("list global memories: %v", err)
+	}
+
+	var factPaths []string
+	for _, f := range files {
+		if f.IsDir || strings.HasSuffix(string(f.Path), "MEMORY.md") {
+			continue
+		}
+		path := string(f.Path)
+		if strings.Contains(path, "commute-takes-minutes-each") {
+			factPaths = append(factPaths, path)
+		}
+	}
+
+	if len(factPaths) != 2 {
+		t.Fatalf("heuristic commute facts = %d, want 2 distinct files; paths=%v", len(factPaths), factPaths)
+	}
+
+	joined := strings.Join(factPaths, "\n")
+	if !strings.Contains(joined, "sess-A") || !strings.Contains(joined, "sess-B") {
+		t.Fatalf("heuristic fact paths should include both session ids, got:\n%s", joined)
+	}
+}
+
 func TestIngestReplay_EmptySessionIsHandled(t *testing.T) {
 	store := mem.New()
 	ds := &Dataset{Questions: []Question{{

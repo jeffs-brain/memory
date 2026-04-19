@@ -2,9 +2,9 @@
 """Cross-SDK eval runner entrypoint.
 
 Spawns the chosen SDK's `memory serve` daemon, drives an eval dataset through
-shared HTTP daemon scenarios, scores with either the exact or judge scorer,
-and writes a result JSON blob. Exits non-zero if the pass rate dips below the
-configured floor.
+the shared HTTP daemon scenarios, scores with either the exact or judge
+scorer, and writes one result JSON to `<output>/<YYYY-MM-DD>/<sdk>.json`.
+Exits non-zero if the pass rate dips below the configured floor.
 
 Scenarios:
 
@@ -24,8 +24,8 @@ Scenarios:
 
 Ask scenarios consume SSE and accumulate `answer_delta` payloads into the
 final answer while collecting `citation` events. The retrieve-only scenario
-folds the returned chunk text into a retrieval-only answer blob and records
-chunk metadata as citations.
+folds returned chunk `text`, falling back to `summary`, into a retrieval-only
+answer blob and records chunk metadata as citations.
 """
 from __future__ import annotations
 
@@ -455,7 +455,12 @@ def write_result(output_dir: Path, sdk: str, score: EvalScore) -> Path:
 @click.option("--dataset", type=click.Path(path_type=Path), default=Path("datasets/lme.jsonl"))
 @click.option("--scorer", "scorer_kind", type=click.Choice(["exact", "judge"]), default="judge")
 @click.option("--limit", type=int, default=None, help="Max questions to run (None = all)")
-@click.option("--output", type=click.Path(path_type=Path), default=Path("results/"))
+@click.option(
+    "--output",
+    type=click.Path(path_type=Path),
+    default=Path("results/"),
+    help="Scenario-specific output root. Writes <output>/<YYYY-MM-DD>/<sdk>.json.",
+)
 @click.option("--port", type=int, default=0, help="0 = random")
 @click.option("--floor", type=float, default=0.90, help="Minimum pass rate")
 @click.option(

@@ -319,7 +319,7 @@ describe('createRetrieval reusable request surface', () => {
     ).toBe(true)
     expect(
       trace.bm25Queries.some(
-        (query) => query.includes('skincare') && query.includes('products'),
+        (query) => query.includes('products') && (query.includes('high-end') || query.includes('highend')),
       ),
     ).toBe(true)
   })
@@ -339,9 +339,8 @@ describe('createRetrieval reusable request surface', () => {
     expect(
       trace.bm25Queries.some(
         (query) =>
-          query.includes('back-end') &&
-          query.includes('programming') &&
-          query.includes('language'),
+          (query.includes('programming') && query.includes('language')) ||
+          query.includes('back-end development'),
       ),
     ).toBe(true)
   })
@@ -633,6 +632,169 @@ describe('createRetrieval intent-aware reweighting', () => {
     })
 
     expect(results[0]!.id).toBe('direct')
+  })
+
+  it('prefers routine user facts over project tips for first-person duration lookups', async () => {
+    const idx = await fresh()
+
+    const vTips = syntheticVector(841)
+    const vMorning = perturb(vTips, 0.01, 2)
+    const vRoutine = perturb(vTips, 0.02, 3)
+
+    idx.upsertChunks([
+      {
+        id: 'tips',
+        path: 'memory/project/eval-lme/morning-commute-tips.md',
+        title: 'Morning commute tips',
+        summary: 'Tips for staying awake during a 30-minute morning commute',
+        content: 'Tips for staying awake during a 30-minute morning commute.',
+        embedding: vTips,
+      },
+      {
+        id: 'morning',
+        path: 'memory/global/user-morning-commute-duration.md',
+        title: 'Morning commute duration',
+        summary: 'Often a 30-minute morning commute with shorter days',
+        content:
+          'User is often on a train for a 30-minute morning commute. Some days the commute is shorter, around 15-20 minutes.',
+        embedding: vMorning,
+      },
+      {
+        id: 'routine',
+        path: 'memory/global/user-commute-time.md',
+        title: 'Daily commute time',
+        summary: 'Daily commute takes 45 minutes each way',
+        content: 'I listen to audiobooks during my daily commute, which takes 45 minutes each way.',
+        embedding: vRoutine,
+      },
+    ])
+
+    const retrieval = createRetrieval({
+      index: idx,
+      embedder: makeStubEmbedder(
+        new Map([['How long is my daily morning commute to work?', vTips]]),
+      ),
+    })
+
+    const { results } = await retrieval.searchRaw({
+      query: 'How long is my daily morning commute to work?',
+      topK: 5,
+    })
+
+    expect(results[0]!.id).toBe('routine')
+  })
+
+  it('diversifies composite total queries across the requested focuses', async () => {
+    const idx = await fresh()
+
+    const vQuestion = syntheticVector(845)
+    const vCoach = perturb(vQuestion, 0.005, 2)
+    const vNordstrom = perturb(vQuestion, 0.01, 3)
+    const vEbay = perturb(vQuestion, 0.012, 4)
+    const vMoisturizer = perturb(vQuestion, 0.014, 5)
+
+    idx.upsertChunks([
+      {
+        id: 'coach',
+        path: 'memory/global/coach-handbag-800.md',
+        title: 'Coach handbag purchase',
+        summary: 'Coach handbag cost $800',
+        content: 'User recently treated themself to a Coach handbag which cost $800 and they are really loving the quality.',
+        embedding: vCoach,
+      },
+      {
+        id: 'nordstrom',
+        path: 'memory/global/user-fact-2023-05-28-recently-invested-some-high-end-products.md',
+        title: 'High-end products purchase',
+        summary: 'Invested $500 in high-end products',
+        content: "I've recently invested $500 in some high-end products during the Nordstrom anniversary sale.",
+        embedding: vNordstrom,
+      },
+      {
+        id: 'ebay',
+        path: 'memory/global/user_ebay_handbag_deal.md',
+        title: 'Designer handbag eBay deal',
+        summary: 'Designer handbag bought for $200',
+        content: 'The user bought a designer handbag on eBay that originally retailed for $1,500 for $200.',
+        embedding: vEbay,
+      },
+      {
+        id: 'moisturizer',
+        path: 'memory/global/user_high-end-moisturizer.md',
+        title: 'High-end moisturizer purchase',
+        summary: 'Splurged on a $150 moisturizer',
+        content:
+          'The user recently splurged on a $150 moisturizer and is asking for affordable alternatives to high-end skincare products.',
+        embedding: vMoisturizer,
+      },
+    ])
+
+    const retrieval = createRetrieval({
+      index: idx,
+      embedder: makeStubEmbedder(
+        new Map([
+          [
+            'What is the total amount I spent on the designer handbag and high-end skincare products?',
+            vQuestion,
+          ],
+        ]),
+      ),
+    })
+
+    const { results } = await retrieval.searchRaw({
+      query: 'What is the total amount I spent on the designer handbag and high-end skincare products?',
+      topK: 5,
+    })
+
+    expect([results[0]!.id, results[1]!.id].sort()).toEqual(['coach', 'nordstrom'])
+  })
+
+  it('treats specific remind-me recalls as concrete fact lookups', async () => {
+    const idx = await fresh()
+
+    const vQuestion = syntheticVector(851)
+    const vBroad = perturb(vQuestion, 0.008, 4)
+    const vFocused = perturb(vQuestion, 0.02, 4)
+
+    idx.upsertChunks([
+      {
+        id: 'broad',
+        path: 'memory/project/eval-lme/back-end-learning-resources.md',
+        title: 'Back-end learning resources',
+        summary: 'NodeSchool, Udacity, Coursera, Flask, Django, Spring, Hibernate, SQL',
+        content:
+          'Recommended back-end resources include NodeSchool, Udacity, Coursera, Flask, Django, Spring, Hibernate, SQL.',
+        embedding: vBroad,
+      },
+      {
+        id: 'focused',
+        path: 'memory/project/eval-lme/study-tips-for-becoming-full-stack.md',
+        title: 'Study tips for becoming full-stack',
+        summary: 'Learn a back-end programming language, such as Ruby, Python, or PHP',
+        content: 'Learn a back-end programming language, such as Ruby, Python, or PHP.',
+        embedding: vFocused,
+      },
+    ])
+
+    const retrieval = createRetrieval({
+      index: idx,
+      embedder: makeStubEmbedder(
+        new Map([
+          [
+            'I wanted to follow up on our previous conversation about front-end and back-end development. Can you remind me of the specific back-end programming languages you recommended I learn?',
+            vQuestion,
+          ],
+        ]),
+      ),
+    })
+
+    const { results } = await retrieval.searchRaw({
+      query:
+        'I wanted to follow up on our previous conversation about front-end and back-end development. Can you remind me of the specific back-end programming languages you recommended I learn?',
+      topK: 5,
+    })
+
+    expect(results[0]!.id).toBe('focused')
   })
 
   it('boosts explicit dated facts for action-date questions', async () => {

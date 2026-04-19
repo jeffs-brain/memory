@@ -165,6 +165,14 @@ func TestReaderPrompt_EnumerationClause(t *testing.T) {
 	if !strings.Contains(lower, "one per line") {
 		t.Errorf("readerUserTemplate should instruct 'one per line' for list questions")
 	}
+	for _, snippet := range []string{
+		"choose the single best-matching fact for that singular item",
+		"do not combine multiple different handbags",
+	} {
+		if !strings.Contains(lower, snippet) {
+			t.Errorf("readerUserTemplate should include named-item total guidance %q", snippet)
+		}
+	}
 }
 
 func TestReaderPrompt_AbstentionClause(t *testing.T) {
@@ -177,6 +185,18 @@ func TestReaderPrompt_AbstentionClause(t *testing.T) {
 	} {
 		if !strings.Contains(lower, snippet) {
 			t.Errorf("readerUserTemplate should include abstention guidance %q", snippet)
+		}
+	}
+}
+
+func TestReaderPrompt_ConflictResolutionClause(t *testing.T) {
+	lower := strings.ToLower(readerUserTemplate)
+	for _, snippet := range []string{
+		"a \"30-minute morning commute\" note does not replace a direct statement of a \"45-minute daily commute to work\"",
+		"combine them if the connection is explicit in the retrieved facts",
+	} {
+		if !strings.Contains(lower, strings.ToLower(snippet)) {
+			t.Errorf("readerUserTemplate should include conflict-resolution guidance %q", snippet)
 		}
 	}
 }

@@ -18,6 +18,9 @@ from typing import Protocol, Sequence, runtime_checkable
 from .source import BM25Hit, TrigramChunk, VectorHit
 from .types import Filters
 
+FILTER_FETCH_MULTIPLIER = 4
+FILTER_FETCH_MAX_MULTIPLIER = 8
+
 
 @dataclass(slots=True)
 class IndexedRow:
@@ -93,6 +96,14 @@ def _row_passes_filters(row: IndexedRow, filters: Filters) -> bool:
     return True
 
 
+def _fetch_limit(limit: int) -> int:
+    return limit if limit > 0 else 20
+
+
+def _has_retrieval_filters(filters: Filters) -> bool:
+    return filters.has_any()
+
+
 class IndexSource:
     """Adapts a search index (plus optional vector store) to the
     retrieval :class:`Source` contract.
@@ -129,25 +140,14 @@ class IndexSource:
     ) -> list[BM25Hit]:
         if not expr:
             return []
-        results = await self._index.search_bm25(expr, k, filters)
-        out: list[BM25Hit] = []
-        for r in results:
-            if not _row_passes_filters(r, filters):
-                continue
-            out.append(
-                BM25Hit(
-                    id=r.path,
-                    path=r.path,
-                    title=r.title,
-                    summary=r.summary,
-                    content=r.content or r.snippet,
-                    metadata=dict(r.metadata),
-                    score=r.score,
-                )
-            )
-            if k > 0 and len(out) >= k:
-                break
-        return out
+        limit = _fetch_limit(k)
+        if not _has_retrieval_filters(filters):
+            results = await self._index.search_bm25(expr, limit, filters)
+            return self._bm25_hits(results, limit, filters)
+
+        fetch_limit = max(limit * 10, 200)
+        results = await self._index.search_bm25(expr, fetch_limit, filters)
+        return self._bm25_hits(results, limit, filters)
 
     async def search_vector(
         self, embedding: Sequence[float], k: int, filters: Filters
@@ -156,25 +156,18 @@ class IndexSource:
             return []
         if not embedding:
             return []
-        hits = await self._vectors.search(embedding, self._model, k, filters)
-        out: list[VectorHit] = []
-        for h in hits:
-            if not _row_passes_filters(h, filters):
-                continue
-            out.append(
-                VectorHit(
-                    id=h.path,
-                    path=h.path,
-                    title=h.title,
-                    summary=h.summary,
-                    content=h.content,
-                    metadata=dict(h.metadata),
-                    similarity=float(h.score),
-                )
+        limit = _fetch_limit(k)
+        if not _has_retrieval_filters(filters):
+            hits = await self._vectors.search(
+                embedding, self._model, limit, filters
             )
-            if k > 0 and len(out) >= k:
-                break
-        return out
+            return self._vector_hits(hits, limit, filters)
+
+        fetch_limit = max(limit * 10, 200)
+        hits = await self._vectors.search(
+            embedding, self._model, fetch_limit, filters
+        )
+        return self._vector_hits(hits, limit, filters)
 
     async def chunks(self) -> list[TrigramChunk]:
         rows = await self._index.all_rows()
@@ -188,3 +181,47 @@ class IndexSource:
             )
             for r in rows
         ]
+
+    def _bm25_hits(
+        self, rows: list[IndexedRow], limit: int, filters: Filters
+    ) -> list[BM25Hit]:
+        out: list[BM25Hit] = []
+        for row in rows:
+            if not _row_passes_filters(row, filters):
+                continue
+            out.append(
+                BM25Hit(
+                    id=row.path,
+                    path=row.path,
+                    title=row.title,
+                    summary=row.summary,
+                    content=row.content or row.snippet,
+                    metadata=dict(row.metadata),
+                    score=row.score,
+                )
+            )
+            if len(out) >= limit:
+                break
+        return out
+
+    def _vector_hits(
+        self, rows: list[IndexedRow], limit: int, filters: Filters
+    ) -> list[VectorHit]:
+        out: list[VectorHit] = []
+        for row in rows:
+            if not _row_passes_filters(row, filters):
+                continue
+            out.append(
+                VectorHit(
+                    id=row.path,
+                    path=row.path,
+                    title=row.title,
+                    summary=row.summary,
+                    content=row.content,
+                    metadata=dict(row.metadata),
+                    similarity=float(row.score),
+                )
+            )
+            if len(out) >= limit:
+                break
+        return out
