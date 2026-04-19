@@ -197,8 +197,9 @@ describe('handleAsk reader modes', () => {
     expect(prompt).toContain('Today is 2024-05-26 (Sunday)')
     expect(prompt).toContain('Current Date: 2024-05-26')
 
-    // Evidence chunk uses "### title (path)" formatting
-    expect(prompt).toMatch(/### .*\(raw\/documents\/hedgehog[^\)]*\.md\)/)
+    // Evidence uses the numbered retrieve-only rendering.
+    expect(prompt).toContain('Retrieved facts')
+    expect(prompt).toContain('[hedgehog-md]')
     expect(prompt).toContain('The hedgehog lives in hedgerows')
 
     // Question still echoed
@@ -235,5 +236,34 @@ describe('handleAsk reader modes', () => {
     expect(call.request.maxTokens).toBe(1024)
     expect(call.request.temperature).toBe(0.2)
     expect(call.request.messages.length).toBe(2)
+  })
+
+  it('ask forwards candidateK and rerankTopN to retrieval', async () => {
+    const { daemon, handler } = await makeFixture()
+    await seedBrain(handler, 'lme')
+
+    const brain = await daemon.brains.get('lme')
+    expect(brain.retrieval).toBeDefined()
+    const capture: { request?: Record<string, unknown> } = {}
+    const originalSearchRaw = brain.retrieval!.searchRaw.bind(brain.retrieval)
+    ;(
+      brain.retrieval as {
+        searchRaw: (request: Record<string, unknown>) => ReturnType<typeof originalSearchRaw>
+      }
+    ).searchRaw = async (request) => {
+      capture.request = request
+      return originalSearchRaw(request)
+    }
+
+    await drainAsk(handler, {
+      question: 'where does the hedgehog live',
+      topK: 3,
+      candidateK: 80,
+      rerankTopN: 40,
+      mode: 'hybrid-rerank',
+    })
+
+    expect(capture.request?.candidateK).toBe(80)
+    expect(capture.request?.rerankTopN).toBe(40)
   })
 })

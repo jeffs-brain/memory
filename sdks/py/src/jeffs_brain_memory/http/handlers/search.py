@@ -28,6 +28,19 @@ def _filters_from_body(raw: Any) -> retrieval.Filters:
     )
 
 
+def _search_opts(top_k: int, filters: retrieval.Filters) -> search_pkg.SearchOpts:
+    filter_map: dict[str, Any] = {}
+    if filters.scope:
+        filter_map["scope"] = filters.scope
+    if filters.project:
+        filter_map["project_slug"] = filters.project
+    if filters.path_prefix:
+        filter_map["path_prefix"] = filters.path_prefix
+    if filters.tags:
+        filter_map["tags"] = list(filters.tags)
+    return search_pkg.SearchOpts(max_results=top_k, filters=filter_map)
+
+
 def _trace_to_wire(trace: retrieval.Trace) -> dict[str, Any]:
     payload = asdict(trace)
     for key in ("requested_mode", "effective_mode"):
@@ -74,8 +87,28 @@ async def search(request: Request) -> Response:
         return validation_error("query required")
     top_k_raw = body.get("topK")
     top_k = top_k_raw if isinstance(top_k_raw, int) and top_k_raw > 0 else 10
+    candidate_k_raw = body.get("candidateK")
+    if not isinstance(candidate_k_raw, int) or candidate_k_raw <= 0:
+        candidate_k_raw = body.get("candidate_k")
+    candidate_k = (
+        candidate_k_raw if isinstance(candidate_k_raw, int) and candidate_k_raw > 0 else 0
+    )
+    rerank_top_n_raw = body.get("rerankTopN")
+    if not isinstance(rerank_top_n_raw, int) or rerank_top_n_raw <= 0:
+        rerank_top_n_raw = body.get("rerank_top_n")
+    rerank_top_n = (
+        rerank_top_n_raw
+        if isinstance(rerank_top_n_raw, int) and rerank_top_n_raw > 0
+        else 0
+    )
     mode_raw = body.get("mode") or ""
-    filters = _filters_from_body(body.get("filters"))
+    filters = _filters_from_body(
+        body.get("filters") if isinstance(body.get("filters"), dict) else body
+    )
+    question_date_raw = body.get("question_date") or body.get("questionDate") or ""
+    question_date = (
+        str(question_date_raw) if isinstance(question_date_raw, str) else ""
+    )
 
     started = time.perf_counter()
     try:
@@ -88,7 +121,10 @@ async def search(request: Request) -> Response:
         top_k=top_k,
         mode=mode,
         brain_id=br.id,
+        question_date=question_date,
         filters=filters,
+        candidate_k=candidate_k,
+        rerank_top_n=rerank_top_n,
     )
 
     chunks: list[dict[str, Any]] = []
@@ -109,9 +145,9 @@ async def search(request: Request) -> Response:
     if not chunks:
         try:
             hits = br.search_index.search_bm25(
-                query,
+                retrieval.augment_query_with_temporal(query, question_date),
                 top_k=top_k,
-                opts=search_pkg.SearchOpts(max_results=top_k),
+                opts=_search_opts(top_k, filters),
             )
         except Exception:  # noqa: BLE001
             hits = []
@@ -123,10 +159,10 @@ async def search(request: Request) -> Response:
                     "documentId": h.document_id or h.path,
                     "path": h.path,
                     "score": score,
-                    "text": h.snippet,
+                    "text": h.content or h.snippet,
                     "title": h.title,
-                    "summary": "",
-                    "metadata": {},
+                    "summary": h.summary,
+                    "metadata": h.metadata,
                     "bm25Rank": 0,
                     "vectorSimilarity": 0.0,
                     "rerankScore": 0.0,

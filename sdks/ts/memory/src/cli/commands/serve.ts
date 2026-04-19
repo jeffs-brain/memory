@@ -17,9 +17,12 @@ import {
   CliUsageError,
   buildEmbedder,
   buildProvider,
+  buildReranker,
   embedderFromEnv,
   providerFromEnvOptional,
+  rerankerFromEnv,
 } from '../config.js'
+import { createContextualPrefixBuilder } from '../../memory/index.js'
 
 const DEFAULT_PORT = 8080
 
@@ -49,6 +52,14 @@ export const serveCommand = defineCommand({
       type: 'string',
       description: 'Shared bearer token (overrides JB_AUTH_TOKEN)',
     },
+    contextualise: {
+      type: 'boolean',
+      description: 'Enable live extraction contextualisation.',
+    },
+    'contextualise-cache-dir': {
+      type: 'string',
+      description: 'Optional cache directory for live extraction contextualisation.',
+    },
   },
   run: async ({ args }) => {
     // `--addr host:port` wins; `--port`/`--host` preserve the older
@@ -75,12 +86,37 @@ export const serveCommand = defineCommand({
     const provider = providerSettings !== undefined ? buildProvider(providerSettings) : undefined
     const embedderSettings = embedderFromEnv()
     const embedder = embedderSettings !== undefined ? buildEmbedder(embedderSettings) : undefined
+    const rerankerSettings = rerankerFromEnv()
+    const reranker =
+      rerankerSettings !== undefined
+        ? buildReranker(rerankerSettings, { ...(provider !== undefined ? { provider } : {}) })
+        : undefined
+    const contextualise =
+      typeof args.contextualise === 'boolean'
+        ? args.contextualise
+        : envEnabled(process.env['JB_CONTEXTUALISE'])
+    const contextualiseCacheDir =
+      typeof args['contextualise-cache-dir'] === 'string' && args['contextualise-cache-dir'] !== ''
+        ? args['contextualise-cache-dir']
+        : process.env['JB_CONTEXTUALISE_CACHE_DIR']
+    const contextualPrefixBuilder =
+      contextualise && provider !== undefined
+        ? createContextualPrefixBuilder({
+            provider,
+            ...(process.env['JB_CONTEXTUALISE_MODEL'] !== undefined
+              ? { model: process.env['JB_CONTEXTUALISE_MODEL'] }
+              : {}),
+            ...(contextualiseCacheDir !== undefined ? { cacheDir: contextualiseCacheDir } : {}),
+          })
+        : undefined
 
     const daemon = new Daemon({
       root,
       ...(token !== undefined ? { authToken: token } : {}),
       ...(provider !== undefined ? { provider } : {}),
       ...(embedder !== undefined ? { embedder } : {}),
+      ...(reranker !== undefined ? { reranker } : {}),
+      ...(contextualPrefixBuilder !== undefined ? { contextualPrefixBuilder } : {}),
     })
     await daemon.start()
     const router = createRouter(daemon)
@@ -128,6 +164,12 @@ const parseAddr = (addr: string): { hostname: string; port: number } => {
     throw new CliUsageError(`serve: invalid port in '${addr}'`)
   }
   return { hostname: host !== '' ? host : '0.0.0.0', port }
+}
+
+const envEnabled = (value: string | undefined): boolean => {
+  if (value === undefined) return false
+  const lowered = value.trim().toLowerCase()
+  return lowered === '1' || lowered === 'true' || lowered === 'yes' || lowered === 'on'
 }
 
 /**
@@ -206,4 +248,3 @@ const readBody = async (nreq: IncomingMessage): Promise<Buffer> => {
   }
   return Buffer.concat(chunks)
 }
-

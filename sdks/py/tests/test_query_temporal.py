@@ -17,7 +17,9 @@ from jeffs_brain_memory.query.temporal import (
     annotate,
     annotate_ordering,
     parse_question_date,
+    resolve_last_week,
     resolve_last_weekday,
+    resolve_relative_day,
     resolve_relative_time,
 )
 
@@ -31,6 +33,14 @@ def _d(y: int, m: int, d: int) -> datetime:
 def test_two_weeks_ago() -> None:
     # 2023/04/10 - 2 weeks = 2023/03/27.
     annotation = resolve_relative_time("What did we discuss 2 weeks ago?", ANCHOR)
+    assert annotation is not None
+    assert annotation.recogniser == "relative"
+    assert annotation.range_start == ANCHOR - timedelta(weeks=2)
+    assert annotation.range_end == ANCHOR
+
+
+def test_two_weeks_ago_number_word() -> None:
+    annotation = resolve_relative_time("What did we discuss two weeks ago?", ANCHOR)
     assert annotation is not None
     assert annotation.recogniser == "relative"
     assert annotation.range_start == ANCHOR - timedelta(weeks=2)
@@ -67,6 +77,27 @@ def test_last_monday_on_monday_returns_seven_days_earlier() -> None:
     annotation = resolve_last_weekday("last Monday", ANCHOR)
     assert annotation is not None
     assert annotation.range_start.date() == _d(2023, 4, 3).date()
+
+
+def test_today() -> None:
+    annotation = resolve_relative_day("What did I do today?", ANCHOR)
+    assert annotation is not None
+    assert annotation.range_start.date() == _d(2023, 4, 10).date()
+    assert annotation.range_end - annotation.range_start == timedelta(days=1)
+
+
+def test_yesterday() -> None:
+    annotation = resolve_relative_day("What did I do yesterday?", ANCHOR)
+    assert annotation is not None
+    assert annotation.range_start.date() == _d(2023, 4, 9).date()
+    assert annotation.range_end - annotation.range_start == timedelta(days=1)
+
+
+def test_last_week() -> None:
+    annotation = resolve_last_week("Where did I volunteer last week?", ANCHOR)
+    assert annotation is not None
+    assert annotation.range_start.date() == _d(2023, 4, 3).date()
+    assert annotation.range_end.date() == _d(2023, 4, 10).date()
 
 
 def test_no_temporal_reference_returns_none() -> None:

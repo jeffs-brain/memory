@@ -4,7 +4,6 @@ package retrieval
 
 import (
 	"context"
-	"strings"
 	"testing"
 )
 
@@ -59,9 +58,12 @@ func TestRetryLadder_Rung0_InitialHit(t *testing.T) {
 func TestRetryLadder_Rung1_StrongestTerm(t *testing.T) {
 	t.Parallel()
 	src := newFakeSource(retryCorpus())
-	// Force the initial query to return zero so rung 1 can fire.
+	// Force the whole initial fanout pass to return zero so rung 1 can
+	// fire on a second strongest-term attempt.
+	calls := 0
 	src.bm25Override = func(expr string) ([]BM25Hit, bool) {
-		if strings.Contains(expr, "xyz") {
+		calls++
+		if calls <= 3 {
 			return nil, true
 		}
 		return nil, false

@@ -21,8 +21,12 @@ from .types import TemporalAnnotation
 
 __all__ = [
     "RELATIVE_TIME_RE",
+    "RELATIVE_DAY_RE",
+    "LAST_WEEK_RE",
     "LAST_WEEKDAY_RE",
     "parse_question_date",
+    "resolve_relative_day",
+    "resolve_last_week",
     "resolve_relative_time",
     "resolve_last_weekday",
     "annotate_ordering",
@@ -32,7 +36,17 @@ __all__ = [
 # Regexes ported verbatim from Go. The Go source uses ``(?i)`` as the
 # case-insensitive flag; in Python we pass ``re.IGNORECASE`` explicitly.
 RELATIVE_TIME_RE: re.Pattern[str] = re.compile(
-    r"(\d+)\s+(day|days|week|weeks|month|months)\s+ago",
+    r"\b(\d+|a|an|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\s+(day|days|week|weeks|month|months)\s+ago\b",
+    re.IGNORECASE,
+)
+
+RELATIVE_DAY_RE: re.Pattern[str] = re.compile(
+    r"\b(yesterday|today)\b",
+    re.IGNORECASE,
+)
+
+LAST_WEEK_RE: re.Pattern[str] = re.compile(
+    r"\blast\s+week\b",
     re.IGNORECASE,
 )
 
@@ -49,6 +63,23 @@ _WEEKDAY_MAP = {
     "friday": 4,
     "saturday": 5,
     "sunday": 6,
+}
+
+_RELATIVE_TIME_NUMBER_WORDS = {
+    "a": 1,
+    "an": 1,
+    "one": 1,
+    "two": 2,
+    "three": 3,
+    "four": 4,
+    "five": 5,
+    "six": 6,
+    "seven": 7,
+    "eight": 8,
+    "nine": 9,
+    "ten": 10,
+    "eleven": 11,
+    "twelve": 12,
 }
 
 _DATE_FORMATS = (
@@ -131,9 +162,8 @@ def resolve_relative_time(text: str, anchor: datetime) -> TemporalAnnotation | N
     if match is None:
         return None
 
-    try:
-        n = int(match.group(1))
-    except ValueError:
+    n = _parse_relative_time_count(match.group(1))
+    if n is None:
         return None
     unit = match.group(2).lower()
 
@@ -152,6 +182,14 @@ def resolve_relative_time(text: str, anchor: datetime) -> TemporalAnnotation | N
         range_end=anchor,
         recogniser="relative",
     )
+
+
+def _parse_relative_time_count(raw: str) -> int | None:
+    trimmed = raw.strip().lower()
+    try:
+        return int(trimmed)
+    except ValueError:
+        return _RELATIVE_TIME_NUMBER_WORDS.get(trimmed)
 
 
 def resolve_last_weekday(text: str, anchor: datetime) -> TemporalAnnotation | None:
@@ -179,6 +217,45 @@ def resolve_last_weekday(text: str, anchor: datetime) -> TemporalAnnotation | No
                 recogniser="last_weekday",
             )
     return None
+
+
+def resolve_relative_day(text: str, anchor: datetime) -> TemporalAnnotation | None:
+    """Resolve ``today`` and ``yesterday`` against ``anchor`` (UTC)."""
+
+    match = RELATIVE_DAY_RE.search(text)
+    if match is None:
+        return None
+
+    day = match.group(1).lower()
+    if day == "today":
+        start = anchor.replace(hour=0, minute=0, second=0, microsecond=0)
+    elif day == "yesterday":
+        start = (anchor - timedelta(days=1)).replace(
+            hour=0, minute=0, second=0, microsecond=0
+        )
+    else:
+        return None
+
+    return TemporalAnnotation(
+        range_start=start,
+        range_end=start + timedelta(days=1),
+        recogniser="relative_day",
+    )
+
+
+def resolve_last_week(text: str, anchor: datetime) -> TemporalAnnotation | None:
+    """Resolve bare ``last week`` to the prior seven-day window."""
+
+    if LAST_WEEK_RE.search(text) is None:
+        return None
+
+    end = anchor.replace(hour=0, minute=0, second=0, microsecond=0)
+    start = end - timedelta(days=7)
+    return TemporalAnnotation(
+        range_start=start,
+        range_end=end,
+        recogniser="last_week",
+    )
 
 
 _FIRST_HINTS = ("first", "earlier", "before")
@@ -214,4 +291,10 @@ def annotate(text: str, anchor: datetime | None) -> TemporalAnnotation | None:
     relative = resolve_relative_time(text, anchor)
     if relative is not None:
         return relative
+    relative_day = resolve_relative_day(text, anchor)
+    if relative_day is not None:
+        return relative_day
+    last_week = resolve_last_week(text, anchor)
+    if last_week is not None:
+        return last_week
     return resolve_last_weekday(text, anchor)

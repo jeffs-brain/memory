@@ -8,7 +8,7 @@ import type {
   StreamEvent,
   StructuredRequest,
 } from '../llm/types.js'
-import { LLMReranker } from './llm-rerank.js'
+import { LLMReranker, composeLLMRerankDocument } from './llm-rerank.js'
 
 type StubProvider = Provider & {
   readonly calls: CompletionRequest[]
@@ -110,5 +110,18 @@ describe('LLMReranker', () => {
     const reranker = new LLMReranker({ provider, batchSize: 3, parallelism: 2 })
     await reranker.rerank({ query: 'q', documents: makeDocs(6) })
     expect(provider.calls.length).toBe(2)
+  })
+
+  it('includes body content alongside summary in rerank documents', () => {
+    const rendered = composeLLMRerankDocument({
+      id: 0,
+      path: 'memory/global/alpha.md',
+      title: 'Alpha',
+      summary: 'Summary line',
+      content: 'Body line with 2024-02-01 and $250 raised.',
+    })
+    expect(rendered).toContain('summary: Summary line')
+    expect(rendered).toContain('summary: Summary line\n\n    content:')
+    expect(rendered).toContain('content: Body line with 2024-02-01 and $250 raised.')
   })
 })

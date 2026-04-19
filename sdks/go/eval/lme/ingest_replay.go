@@ -345,11 +345,15 @@ func postProcessSessionFacts(sess sessionData, extract []memory.ExtractedMemory)
 		dateTokens := buildDateTokens(modifiedOverride)
 		sessionDateISO = shortISODate(modifiedOverride)
 		for i := range extract {
-			extract[i].Content = fmt.Sprintf("%s[Observed on %s]\n\n%s",
-				dateTokens, sess.date, extract[i].Content)
+			if !strings.HasPrefix(strings.TrimSpace(extract[i].Content), "[Date:") {
+				extract[i].Content = fmt.Sprintf("%s[Observed on %s]\n\n%s",
+					dateTokens, sess.date, extract[i].Content)
+			}
 			if modifiedOverride != "" {
 				extract[i].ModifiedOverride = modifiedOverride
-				extract[i].ObservedOn = modifiedOverride
+				if strings.TrimSpace(extract[i].ObservedOn) == "" {
+					extract[i].ObservedOn = modifiedOverride
+				}
 			}
 		}
 	}

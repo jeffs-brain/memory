@@ -27,12 +27,12 @@ const LLMRerankerDefaultMaxBatch = 5
 // even with whitespace and fences in the response.
 const llmRerankMaxTokens = 2048
 
-// llmRerankSnippetLimit caps the per-candidate body snippet length
+// llmRerankSnippetLimit caps the per-candidate body excerpt length
 // emitted into the prompt so the assembled request stays inside
-// typical provider input budgets even on a full-batch call. 280 chars
-// is roughly one tweet, enough to disambiguate a title + summary
-// without ballooning the prompt.
-const llmRerankSnippetLimit = 280
+// typical provider input budgets even on a full-batch call. 1200 chars
+// gives the reranker enough room to see dates, amounts, and short
+// comparative clauses that often sit beyond the summary line.
+const llmRerankSnippetLimit = 1200
 
 // llmRerankSystemPrompt is the default instruction block shipped to
 // the provider. Ported verbatim from
@@ -112,6 +112,11 @@ func (r *LLMReranker) Rerank(ctx context.Context, query string, candidates []Ret
 	if len(candidates) == 0 {
 		return candidates, nil
 	}
+	release, err := acquireRerankSlot(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
 
 	batch := r.MaxBatch
 	if batch <= 0 {
@@ -218,6 +223,10 @@ func (r *LLMReranker) Name() string {
 	return "llm:" + r.Model
 }
 
+func (r *LLMReranker) IsAvailable(_ context.Context) bool {
+	return r != nil && r.Provider != nil
+}
+
 // callBatch tries the default system prompt once, then retries with
 // the strict variant on parse failure so hallucinated prose collapses
 // to a raw JSON array on the second turn.
@@ -275,15 +284,14 @@ type llmRerankCandidate struct {
 	Snippet string
 }
 
-// composeLLMRerankSnippet returns a body snippet when title and summary
-// are both empty. Preference order: title -> summary -> body prefix.
+// composeLLMRerankSnippet returns a normalised body excerpt for the
+// rerank prompt so numeric values and dates survive even when title and
+// summary are generic.
 func composeLLMRerankSnippet(r RetrievedChunk) string {
-	title := strings.TrimSpace(r.Title)
-	summary := strings.TrimSpace(r.Summary)
-	if title != "" || summary != "" {
+	body := strings.Join(strings.Fields(r.Text), " ")
+	if body == "" {
 		return ""
 	}
-	body := strings.Join(strings.Fields(r.Text), " ")
 	if len(body) <= llmRerankSnippetLimit {
 		return body
 	}
@@ -306,12 +314,14 @@ func renderLLMRerankUserPrompt(query string, candidates []llmRerankCandidate) st
 		fmt.Fprintf(&b, "    path: %s\n", c.Path)
 		summary := strings.TrimSpace(c.Summary)
 		if summary == "" {
-			summary = c.Snippet
-		}
-		if summary == "" {
 			summary = "(no summary available)"
 		}
 		fmt.Fprintf(&b, "    summary: %s\n\n", summary)
+		snippet := strings.TrimSpace(c.Snippet)
+		if snippet == "" {
+			snippet = "(no body excerpt available)"
+		}
+		fmt.Fprintf(&b, "    content: %s\n\n", snippet)
 	}
 	return b.String()
 }

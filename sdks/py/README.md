@@ -2,7 +2,9 @@
 
 Python SDK for Jeffs Brain, the cross-language memory library for LLM agents.
 
-Part of the polyglot [`jeffs-brain/memory`](https://github.com/jeffs-brain/memory) monorepo. This SDK tracks the same [`spec/`](../../spec/) and conformance fixtures as the TypeScript and Go SDKs; cross-SDK smoke benchmark scores 19/20 on every SDK (Ollama `gemma3:latest`).
+Part of the polyglot [`jeffs-brain/memory`](https://github.com/jeffs-brain/memory) monorepo. This SDK tracks the same [`spec/`](../../spec/) and conformance fixtures as the TypeScript and Go SDKs.
+
+Cross-SDK daemon parity today is `ask-basic`, `ask-augmented`, and `search-retrieve-only` through `memory serve`. Native LongMemEval replay and agentic flows are outside the Python SDK today.
 
 ## Feature support
 
@@ -17,7 +19,7 @@ Full port of the spec surface:
 - LLM providers: Ollama, OpenAI, Anthropic (all gated via the standard `JB_LLM_PROVIDER` / `JB_LLM_MODEL` env pair).
 - HTTP daemon (`memory serve`) matching `spec/PROTOCOL.md`.
 - Authorisation: `jeffs_brain_memory.acl` ships a `Provider` Protocol, in-process RBAC (workspace -> brain -> collection -> document hierarchy with `admin`/`writer`/`reader` roles and `deny:<role>` overrides), `wrap_store(...)` Store wrapper, and an idempotent `close()` lifecycle hook. The sibling `jeffs_brain_memory.acl_openfga` module ships an `httpx`-based OpenFGA HTTP adapter against the shared model in [`spec/openfga/`](../../spec/openfga).
-- Eval: built-in LongMemEval harness hook.
+- Cross-SDK daemon scenarios: `ask-basic`, `ask-augmented`, `search-retrieve-only`.
 - MCP: see the companion [`jeffs-brain-memory-mcp`](https://pypi.org/project/jeffs-brain-memory-mcp/) package for the stdio wrapper.
 
 ## Install
@@ -44,7 +46,7 @@ memory create-brain --brain eval
 memory list-brains
 ```
 
-`memory serve` speaks the wire protocol documented in [`spec/PROTOCOL.md`](../../spec/PROTOCOL.md), so the cross-SDK eval runner and any TS or Go client drive it identically.
+`memory serve` speaks the wire protocol documented in [`spec/PROTOCOL.md`](../../spec/PROTOCOL.md), so the cross-SDK eval runner and any TS or Go client drive it identically across `ask-basic`, `ask-augmented`, and `search-retrieve-only`. In the shared runner, `--mode auto` is the default, and the daemon resolves that to `hybrid` when embeddings are configured or `bm25` otherwise.
 
 ## Environment variables
 
@@ -63,6 +65,46 @@ uv sync
 uv run memory --version
 uv run pytest -q
 ```
+
+## Scenario verification
+
+Shared daemon scenarios verified in this SDK:
+
+| Scenario | Request shape | Main local checks |
+| -------- | ------------- | ----------------- |
+| `ask-basic` | `POST /ask` with `question`, `topK`, `mode` | `tests/test_serve_ask_augmented.py` |
+| `ask-augmented` | `POST /ask` with `question`, `topK`, `mode`, `readerMode=augmented`, optional `questionDate` | `tests/test_serve_ask_augmented.py` |
+| `search-retrieve-only` | `POST /search` with `query`, `topK`, `mode`, optional `questionDate`, `candidateK`, and `rerankTopN` | `tests/test_serve_handlers_real.py` and `tests/test_retrieval_temporal.py` |
+
+Parity expectation is the same scenario request shape, transport shape, retrieval-mode handling, and temporal semantics as the Go and TypeScript daemons. It is not byte-identical model wording.
+
+How we test it:
+
+- `ask-basic` and `ask-augmented` are SSE answer scenarios. We verify `retrieve`, `answer_delta`, `citation`, and `done`.
+- `search-retrieve-only` is a JSON retrieval scenario. We score the returned chunks only.
+- `questionDate` is forwarded only for `ask-augmented` and `search-retrieve-only`.
+- `candidateK` and `rerankTopN` are forwarded only for `search-retrieve-only`.
+- `mode` is forwarded unchanged. The daemon resolves `auto` locally.
+- The replay-backed tri-SDK run in `eval/scripts/run_tri_lme.sh` exercises `search-retrieve-only` only against a shared replay brain.
+
+Run the shared daemon scenario checks with:
+
+```bash
+cd sdks/py
+uv sync
+uv run pytest tests/test_serve_ask_augmented.py tests/test_serve_handlers_real.py tests/test_retrieval_temporal.py
+```
+
+To compare Python against the other SDKs on one shared scenario, use the runner in `eval/`:
+
+```bash
+cd eval
+uv run python runner.py --sdk py --dataset datasets/smoke.jsonl --scorer exact --scenario ask-basic --output results/ask-basic
+OPENAI_API_KEY=sk-... uv run python runner.py --sdk py --dataset datasets/lme.jsonl --scorer judge --scenario ask-augmented --brain eval --output results/ask-augmented
+OPENAI_API_KEY=sk-... uv run python runner.py --sdk py --dataset datasets/lme.jsonl --scorer judge --scenario search-retrieve-only --brain eval --output results/search-retrieve-only
+```
+
+Use one output root per scenario so same-day runs do not overwrite `<output>/<date>/py.json`. For the full three-way comparison flow, see [`../../eval/README.md`](../../eval/README.md).
 
 ## Authorisation
 

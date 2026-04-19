@@ -34,6 +34,7 @@ export type RRFCandidate = {
   readonly title?: string
   readonly summary?: string
   readonly content?: string
+  readonly metadata?: Record<string, unknown>
   readonly bm25Rank?: number
   readonly vectorSimilarity?: number
 }
@@ -59,6 +60,7 @@ export function reciprocalRankFusion(
     title: string
     summary: string
     content: string
+    metadata?: Record<string, unknown>
     bm25Rank?: number
     vectorSimilarity?: number
     score: number
@@ -78,6 +80,7 @@ export function reciprocalRankFusion(
           title: c.title ?? '',
           summary: c.summary ?? '',
           content: c.content ?? '',
+          ...(c.metadata !== undefined ? { metadata: c.metadata } : {}),
           score: 1 / (safeK + rank + 1),
         }
         if (c.bm25Rank !== undefined) next.bm25Rank = c.bm25Rank
@@ -93,6 +96,9 @@ export function reciprocalRankFusion(
       if (existing.title === '' && (c.title ?? '') !== '') existing.title = c.title ?? ''
       if (existing.summary === '' && (c.summary ?? '') !== '') existing.summary = c.summary ?? ''
       if (existing.content === '' && (c.content ?? '') !== '') existing.content = c.content ?? ''
+      if (existing.metadata === undefined && c.metadata !== undefined) {
+        existing.metadata = c.metadata
+      }
       if (existing.bm25Rank === undefined && c.bm25Rank !== undefined) {
         existing.bm25Rank = c.bm25Rank
       }
@@ -111,6 +117,7 @@ export function reciprocalRankFusion(
       title: b.title,
       summary: b.summary,
       content: b.content,
+      ...(b.metadata !== undefined ? { metadata: b.metadata } : {}),
       score: b.score,
       ...(b.bm25Rank !== undefined ? { bm25Rank: b.bm25Rank } : {}),
       ...(b.vectorSimilarity !== undefined ? { vectorSimilarity: b.vectorSimilarity } : {}),

@@ -17,6 +17,7 @@ import type { Embedder, Logger, RerankScore, Reranker } from './types.js'
 import { noopLogger } from './types.js'
 
 const DEFAULT_CACHE_SIZE = 10_000
+const DEFAULT_TEI_PROBE_TTL_MS = 30_000
 
 export type TEIEmbedderConfig = {
   baseURL: string
@@ -139,22 +140,56 @@ export type TEIRerankerConfig = {
   baseURL: string
   logger?: Logger
   http?: HttpClient
+  probeTtlMs?: number
 }
 
 export class TEIReranker implements Reranker {
   private readonly baseURL: string
   private readonly http: HttpClient
   private readonly logger: Logger
+  private readonly probeTtlMs: number
+  private availabilityMemo:
+    | {
+        value: boolean
+        checkedAt: number
+      }
+    | undefined
+  private availabilityProbe: Promise<boolean> | undefined
 
   constructor(cfg: TEIRerankerConfig) {
     if (cfg.baseURL === '') throw new ProviderError('tei: baseURL required', 0)
     this.baseURL = cfg.baseURL.replace(/\/+$/, '')
     this.http = cfg.http ?? defaultHttpClient
     this.logger = cfg.logger ?? noopLogger
+    this.probeTtlMs = cfg.probeTtlMs ?? DEFAULT_TEI_PROBE_TTL_MS
   }
 
   name(): string {
     return 'tei-rerank'
+  }
+
+  async isAvailable(signal?: AbortSignal): Promise<boolean> {
+    const cached = this.availabilityMemo
+    if (
+      cached !== undefined &&
+      Date.now() - cached.checkedAt < this.probeTtlMs
+    ) {
+      return cached.value
+    }
+    if (this.availabilityProbe !== undefined) {
+      return this.availabilityProbe
+    }
+
+    const probe = this.probeAvailability(signal)
+      .then((value) => {
+        this.setAvailability(value)
+        return value
+      })
+      .finally(() => {
+        this.availabilityProbe = undefined
+      })
+    this.availabilityProbe = probe
+    return probe
   }
 
   async rerank(
@@ -163,44 +198,80 @@ export class TEIReranker implements Reranker {
     signal?: AbortSignal,
   ): Promise<readonly RerankScore[]> {
     if (documents.length === 0) return []
-    const { response, text } = await postForText(
-      this.http,
-      `${this.baseURL}/rerank`,
-      { query, texts: documents, raw_scores: true },
-      { ...(signal ? { signal } : {}) },
-    )
-    if (!response.ok) {
-      throw new ProviderError(
-        `tei: /rerank failed with status ${response.status}`,
-        response.status,
-        text,
-      )
-    }
-    let parsed: unknown
     try {
-      parsed = JSON.parse(text)
+      const { response, text } = await postForText(
+        this.http,
+        `${this.baseURL}/rerank`,
+        { query, texts: documents, raw_scores: true },
+        { ...(signal ? { signal } : {}) },
+      )
+      if (!response.ok) {
+        this.setAvailability(response.status < 500)
+        throw new ProviderError(
+          `tei: /rerank failed with status ${response.status}`,
+          response.status,
+          text,
+        )
+      }
+      let parsed: unknown
+      try {
+        parsed = JSON.parse(text)
+      } catch (err) {
+        this.setAvailability(false)
+        throw new ProviderError('tei: /rerank returned invalid JSON', response.status, text, err)
+      }
+      if (!Array.isArray(parsed)) {
+        this.setAvailability(false)
+        throw new ProviderError('tei: /rerank returned unexpected shape', response.status, text)
+      }
+      const scores: RerankScore[] = []
+      for (const raw of parsed) {
+        if (
+          typeof raw === 'object' &&
+          raw !== null &&
+          typeof (raw as { index?: unknown }).index === 'number' &&
+          typeof (raw as { score?: unknown }).score === 'number'
+        ) {
+          scores.push({
+            index: (raw as { index: number }).index,
+            score: (raw as { score: number }).score,
+          })
+        }
+      }
+      this.setAvailability(true)
+      this.logger.debug('tei: rerank succeeded', { n: scores.length })
+      return scores
     } catch (err) {
-      throw new ProviderError('tei: /rerank returned invalid JSON', response.status, text, err)
+      if (err instanceof ProviderError) throw err
+      this.setAvailability(false)
+      throw err
     }
-    if (!Array.isArray(parsed)) {
-      throw new ProviderError('tei: /rerank returned unexpected shape', response.status, text)
+  }
+
+  private setAvailability(value: boolean): void {
+    this.availabilityMemo = {
+      value,
+      checkedAt: Date.now(),
     }
-    const scores: RerankScore[] = []
-    for (const raw of parsed) {
-      if (
-        typeof raw === 'object' &&
-        raw !== null &&
-        typeof (raw as { index?: unknown }).index === 'number' &&
-        typeof (raw as { score?: unknown }).score === 'number'
-      ) {
-        scores.push({
-          index: (raw as { index: number }).index,
-          score: (raw as { score: number }).score,
+  }
+
+  private async probeAvailability(signal?: AbortSignal): Promise<boolean> {
+    for (const path of ['/health', '/info']) {
+      try {
+        const response = await this.http.fetch(`${this.baseURL}${path}`, {
+          method: 'GET',
+          headers: { accept: 'application/json' },
+          ...(signal !== undefined ? { signal } : {}),
         })
+        void response.text().catch(() => undefined)
+        if (response.ok) {
+          return true
+        }
+      } catch {
+        // Try the next probe path.
       }
     }
-    this.logger.debug('tei: rerank succeeded', { n: scores.length })
-    return scores
+    return false
   }
 }
 

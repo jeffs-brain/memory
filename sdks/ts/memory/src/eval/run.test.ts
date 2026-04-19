@@ -15,6 +15,7 @@ import type {
 import {
   filterPassagesByQuestionDate,
   rankReplayPassagesForQuestion,
+  renderRetrievedPassages,
   selectReplayPassagesForReader,
   runStandaloneLMEEval,
 } from './run.js'
@@ -425,5 +426,44 @@ describe('runStandaloneLMEEval', () => {
         sessionId: 'past-session',
       },
     ])
+  })
+
+  it('renders clustered numbered evidence with frontmatter stripped and body fallback metadata', () => {
+    const rendered = renderRetrievedPassages(
+      [
+        {
+          path: 'raw/lme/session-2.md',
+          score: 0.9,
+          body: '---\nsession_id: s2\nmodified: 2024-02-20\n---\n[user]: The bike is blue now.',
+        },
+        {
+          path: 'raw/lme/session-1-a.md',
+          score: 1,
+          body: '---\nsession_id: s1\nobserved_on: 2024-01-10\n---\n[user]: I bought a bike.',
+        },
+        {
+          path: 'raw/lme/session-1-b.md',
+          score: 0.8,
+          body: '---\nsession_id: s1\nsession_date: 2024-01-10\n---\n[user]: It was red at first.',
+        },
+      ],
+      {
+        question: 'What colour is the bike?',
+        questionDate: '2024-04-15',
+      },
+    )
+
+    const first = rendered.indexOf('[session=s2]')
+    const second = rendered.indexOf('[session=s1]')
+    const third = rendered.lastIndexOf('[session=s1]')
+    expect(first).toBeLessThan(second)
+    expect(second).toBeLessThan(third)
+    expect(rendered).toContain('Retrieved facts (3):')
+    expect(rendered).toContain('[2024-01-10] [session=s1] [session-1-a]')
+    expect(rendered).toContain('[2024-02-20] [session=s2] [session-2]')
+    expect(rendered).not.toContain('session_id:')
+    expect(rendered).not.toContain('observed_on:')
+    expect(rendered).not.toContain('modified:')
+    expect(rendered).toContain('[user]: I bought a bike.')
   })
 })

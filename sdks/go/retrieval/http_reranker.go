@@ -11,8 +11,10 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -28,6 +30,10 @@ const HTTPRerankerDefaultTimeout = 5 * time.Second
 // chars leaves enough headroom for the query + separator tokens
 // without risking truncation on the server side.
 const HTTPRerankerDefaultMaxDocChars = 1200
+
+// HTTPRerankerDefaultProbeTTL controls how long the cached health
+// decision is reused before the reranker probes the endpoint again.
+const HTTPRerankerDefaultProbeTTL = 30 * time.Second
 
 // HTTPRerankerConfig configures [NewHTTPReranker].
 type HTTPRerankerConfig struct {
@@ -58,6 +64,9 @@ type HTTPRerankerConfig struct {
 	// Logger receives warnings when the server returns malformed JSON
 	// or a non-200 status. Defaults to slog.Default when nil.
 	Logger *slog.Logger
+	// ProbeTTL caches availability probe results for this long.
+	// When zero or negative, HTTPRerankerDefaultProbeTTL applies.
+	ProbeTTL time.Duration
 }
 
 // HTTPReranker calls an external cross-encoder HTTP service
@@ -71,13 +80,17 @@ type HTTPRerankerConfig struct {
 // logged. The retrieval pipeline is responsible for flagging the
 // failure on the trace via RerankSkipReason.
 type HTTPReranker struct {
-	endpoint    string
-	apiKey      string
-	model       string
-	timeout     time.Duration
-	maxDocChars int
-	client      *http.Client
-	logger      *slog.Logger
+	endpoint     string
+	apiKey       string
+	model        string
+	timeout      time.Duration
+	maxDocChars  int
+	client       *http.Client
+	logger       *slog.Logger
+	probeTTL     time.Duration
+	probeMu      sync.Mutex
+	lastProbe    time.Time
+	lastProbeErr error
 }
 
 // NewHTTPReranker builds an [HTTPReranker] from the supplied config.
@@ -101,6 +114,10 @@ func NewHTTPReranker(cfg HTTPRerankerConfig) (*HTTPReranker, error) {
 	if model == "" {
 		model = "bge-reranker-v2-m3"
 	}
+	probeTTL := cfg.ProbeTTL
+	if probeTTL <= 0 {
+		probeTTL = HTTPRerankerDefaultProbeTTL
+	}
 	client := cfg.Client
 	if client == nil {
 		client = &http.Client{Timeout: timeout}
@@ -113,6 +130,7 @@ func NewHTTPReranker(cfg HTTPRerankerConfig) (*HTTPReranker, error) {
 		maxDocChars: maxDoc,
 		client:      client,
 		logger:      cfg.Logger,
+		probeTTL:    probeTTL,
 	}, nil
 }
 
@@ -163,6 +181,14 @@ func (r *HTTPReranker) Rerank(ctx context.Context, query string, candidates []Re
 	}
 	if len(candidates) == 0 {
 		return candidates, nil
+	}
+	release, err := acquireRerankSlot(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
+	if err := r.probe(ctx); err != nil {
+		return nil, err
 	}
 
 	documents := make([]string, len(candidates))
@@ -253,11 +279,112 @@ func (r *HTTPReranker) Rerank(ctx context.Context, query string, candidates []Re
 	return out, nil
 }
 
+func (r *HTTPReranker) probe(ctx context.Context) error {
+	if r == nil {
+		return nil
+	}
+
+	now := time.Now()
+	r.probeMu.Lock()
+	if !r.lastProbe.IsZero() && now.Sub(r.lastProbe) < r.probeTTL {
+		err := r.lastProbeErr
+		r.probeMu.Unlock()
+		return err
+	}
+	r.probeMu.Unlock()
+
+	probeTimeout := r.timeout
+	if probeTimeout <= 0 || probeTimeout > time.Second {
+		probeTimeout = time.Second
+	}
+	probeCtx, cancel := context.WithTimeout(ctx, probeTimeout)
+	defer cancel()
+
+	var probeErr error
+	for _, probeURL := range rerankProbeURLs(r.endpoint) {
+		req, err := http.NewRequestWithContext(probeCtx, http.MethodGet, probeURL, nil)
+		if err != nil {
+			probeErr = fmt.Errorf("retrieval: HTTPReranker probe build request: %w", err)
+			break
+		}
+		req.Header.Set("Accept", "application/json")
+		if r.apiKey != "" {
+			req.Header.Set("Authorization", "Bearer "+r.apiKey)
+		}
+
+		resp, err := r.client.Do(req)
+		if resp != nil && resp.Body != nil {
+			_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 512))
+			_ = resp.Body.Close()
+		}
+		if err != nil {
+			if isInconclusiveProbeError(err) {
+				probeErr = nil
+				break
+			}
+			probeErr = fmt.Errorf("retrieval: HTTPReranker probe %s: %w", probeURL, err)
+			continue
+		}
+		if resp.StatusCode >= http.StatusOK && resp.StatusCode < http.StatusMultipleChoices {
+			probeErr = nil
+		} else {
+			probeErr = fmt.Errorf("retrieval: HTTPReranker probe %s returned %d", probeURL, resp.StatusCode)
+		}
+		if probeErr == nil {
+			break
+		}
+	}
+
+	r.probeMu.Lock()
+	r.lastProbe = time.Now()
+	r.lastProbeErr = probeErr
+	r.probeMu.Unlock()
+
+	return probeErr
+}
+
+func isInconclusiveProbeError(err error) bool {
+	return errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF)
+}
+
+func rerankProbeURLs(endpoint string) []string {
+	base := rerankProbeBase(endpoint)
+	return []string{base + "/health", base + "/info"}
+}
+
+func rerankProbeBase(endpoint string) string {
+	parsed, err := url.Parse(endpoint)
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+		return strings.TrimRight(stripRerankProbeSuffix(endpoint), "/")
+	}
+	parsed.RawQuery = ""
+	parsed.Fragment = ""
+	parsed.Path = stripRerankProbeSuffix(parsed.Path)
+	parsed.RawPath = ""
+	return strings.TrimRight(parsed.String(), "/")
+}
+
+func stripRerankProbeSuffix(rawPath string) string {
+	trimmed := strings.TrimRight(rawPath, "/")
+	switch {
+	case strings.HasSuffix(trimmed, "/v1/rerank"):
+		return strings.TrimSuffix(trimmed, "/v1/rerank")
+	case strings.HasSuffix(trimmed, "/rerank"):
+		return strings.TrimSuffix(trimmed, "/rerank")
+	default:
+		return trimmed
+	}
+}
+
 func (r *HTTPReranker) Name() string {
 	if r == nil || r.model == "" {
 		return "http-reranker"
 	}
 	return "http:" + r.model
+}
+
+func (r *HTTPReranker) IsAvailable(ctx context.Context) bool {
+	return r.probe(ctx) == nil
 }
 
 // composeHTTPRerankDoc prefers title + summary (matching jeff's

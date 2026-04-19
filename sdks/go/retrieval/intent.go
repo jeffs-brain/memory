@@ -18,15 +18,22 @@ import (
 // TS surface behaviour for every curated pattern.
 
 var (
-	preferenceQueryRe           = regexp.MustCompile(`(?i)\b(?:recommend|suggest|recommendation|suggestion|tips?|advice|ideas?|what should i|which should i)\b`)
-	enumerationOrTotalQueryRe   = regexp.MustCompile(`(?i)\b(?:how many|count|total|in total|sum|add up|list|what are all)\b`)
-	firstPersonFactLookupRe     = regexp.MustCompile(`(?i)\b(?:did i|have i|was i|were i)\b`)
-	factLookupVerbRe            = regexp.MustCompile(`(?i)\b(?:pick(?:ed)? up|bought|ordered|spent|earned|sold|drove|travelled|traveled|watched|visited|completed|finished|submitted|booked)\b`)
-	preferenceNoteRe            = regexp.MustCompile(`(?i)\b(?:prefer(?:s|red)?|like(?:s|d)?|love(?:s|d)?|want(?:s|ed)?|need(?:s|ed)?|avoid(?:s|ed)?|dislike(?:s|d)?|hate(?:s|d)?|enjoy(?:s|ed)?|interested in|looking for)\b`)
-	genericNoteRe               = regexp.MustCompile(`(?i)\b(?:tips?|advice|suggest(?:ion|ed)?s?|recommend(?:ation|ed)?s?|ideas?|options?|guide|tracking|tracker|checklist)\b`)
-	rollupNoteRe                = regexp.MustCompile(`(?i)\b(?:roll-?up|summary|recap|overview|aggregate|combined|overall|in total|totalled?|totalling)\b`)
-	atomicEventNoteRe           = regexp.MustCompile(`(?i)\b(?:i|we)\s+(?:picked up|bought|ordered|spent|earned|sold|drove|travelled|traveled|went|watched|visited|completed|finished|started|booked|got|took|submitted)\b`)
-	dateTagRe                   = regexp.MustCompile(`(?i)\[(?:date|observed on):`)
+	preferenceQueryRe         = regexp.MustCompile(`(?i)\b(?:recommend|suggest|recommendation|suggestion|tips?|advice|ideas?|what should i|which should i)\b`)
+	enumerationOrTotalQueryRe = regexp.MustCompile(`(?i)\b(?:how many|count|total|in total|sum|add up|list|what are all)\b`)
+	propertyLookupQueryRe     = regexp.MustCompile(`(?i)\b(?:how long is my|what specific|which specific|what exact|which exact)\b`)
+	specificRecommendationQueryRe = regexp.MustCompile(`(?i)\b(?:specific|exact)\b`)
+	firstPersonFactLookupRe   = regexp.MustCompile(`(?i)\b(?:did i|have i|was i|were i)\b`)
+	factLookupVerbRe          = regexp.MustCompile(`(?i)\b(?:pick(?:ed)? up|bought|ordered|spent|earned|sold|drove|travelled|traveled|watched|visited|completed|finished|submitted|booked)\b`)
+	moneyEventQueryRe         = regexp.MustCompile(`(?i)\b(?:spent|spend|cost|costed|paid|pay)\b`)
+	preferenceNoteRe          = regexp.MustCompile(`(?i)\b(?:prefer(?:s|red)?|like(?:s|d)?|love(?:s|d)?|want(?:s|ed)?|need(?:s|ed)?|avoid(?:s|ed)?|dislike(?:s|d)?|hate(?:s|d)?|enjoy(?:s|ed)?|interested in|looking for)\b`)
+	genericNoteRe             = regexp.MustCompile(`(?i)\b(?:tips?|advice|suggest(?:ion|ed)?s?|recommend(?:ation|ed)?s?|ideas?|options?|guide|tracking|tracker|checklist)\b`)
+	rollupNoteRe              = regexp.MustCompile(`(?i)\b(?:roll-?up|summary|recap|overview|aggregate|combined|overall|in total|totalled?|totalling)\b`)
+	atomicEventNoteRe         = regexp.MustCompile(`(?i)\b(?:i|we)\s+(?:picked up|bought|ordered|spent|earned|sold|drove|travelled|traveled|went|watched|visited|completed|finished|started|booked|got|took|submitted)\b`)
+	dateTagRe                 = regexp.MustCompile(`(?i)\[(?:date|observed on):`)
+	questionLikeNoteRe        = regexp.MustCompile(`(?i)(?:^|\n)(?:what\s+(?:are|is|should|could)|which\s+(?:should|would)|how\s+(?:can|should|could|long)|can\s+you|could\s+you|should\s+i|would\s+you|when\s+did|where\s+(?:can|should)|why\s+(?:is|does|did))\b`)
+	durationQueryRe           = regexp.MustCompile(`(?i)\bhow long\b`)
+	bodyAbsoluteDateRe        = regexp.MustCompile(`(?i)\b(?:january|february|march|april|may|june|july|august|september|october|november|december)\s+\d{1,2}(?:st|nd|rd|th)?\b`)
+	measurementValueRe        = regexp.MustCompile(`(?i)\b\d+(?:\.\d+)?(?:\s*-\s*\d+(?:\.\d+)?)?(?:\s+|-)(?:minutes?|hours?|days?|weeks?|months?|years?)\b`)
 )
 
 // retrievalIntent captures the outcome of the regex-driven intent
@@ -58,6 +65,7 @@ func detectRetrievalIntent(query string) retrievalIntent {
 	return retrievalIntent{
 		preferenceQuery: preferenceQueryRe.MatchString(normalised),
 		concreteFactQuery: enumerationOrTotalQueryRe.MatchString(normalised) ||
+			propertyLookupQueryRe.MatchString(normalised) ||
 			(firstPersonFactLookupRe.MatchString(normalised) && factLookupVerbRe.MatchString(normalised)),
 	}
 }
@@ -82,7 +90,7 @@ func reweightSharedMemoryRanking(query string, results []RetrievedChunk) []Retri
 	copied := make([]indexed, len(results))
 	for i := range results {
 		r := results[i]
-		r.Score = r.Score * retrievalIntentMultiplier(intent, r)
+		r.Score = r.Score * retrievalIntentMultiplier(intent, query, r)
 		copied[i] = indexed{chunk: r, index: i}
 	}
 
@@ -100,14 +108,14 @@ func reweightSharedMemoryRanking(query string, results []RetrievedChunk) []Retri
 	return out
 }
 
-func retrievalIntentMultiplier(intent retrievalIntent, r RetrievedChunk) float64 {
+func retrievalIntentMultiplier(intent retrievalIntent, query string, r RetrievedChunk) float64 {
 	multiplier := 1.0
 	text := retrievalResultText(r)
 	if intent.preferenceQuery {
 		multiplier *= preferenceIntentMultiplier(r, text)
 	}
 	if intent.concreteFactQuery {
-		multiplier *= concreteFactIntentMultiplier(r, text)
+		multiplier *= concreteFactIntentMultiplier(query, r, text)
 	}
 	return multiplier
 }
@@ -131,9 +139,10 @@ func preferenceIntentMultiplier(r RetrievedChunk, text string) float64 {
 	return 1.0
 }
 
-func concreteFactIntentMultiplier(r RetrievedChunk, text string) float64 {
+func concreteFactIntentMultiplier(query string, r RetrievedChunk, text string) float64 {
 	path := strings.ToLower(r.Path)
 	isRollUp := rollupNoteRe.MatchString(text)
+	isQuestionLikeNote := questionLikeNoteRe.MatchString(text) && genericNoteRe.MatchString(text)
 	isConcreteFact := strings.Contains(path, "user-fact-") ||
 		strings.Contains(path, "milestone-") ||
 		(!isRollUp && (dateTagRe.MatchString(text) || atomicEventNoteRe.MatchString(text)))
@@ -141,6 +150,19 @@ func concreteFactIntentMultiplier(r RetrievedChunk, text string) float64 {
 	multiplier := 1.0
 	if isConcreteFact {
 		multiplier *= 2.2
+	}
+	if len(deriveActionDateProbes(query)) > 0 && bodyAbsoluteDateRe.MatchString(text) {
+		multiplier *= 1.45
+	}
+	if durationQueryRe.MatchString(query) {
+		if measurementValueRe.MatchString(text) {
+			multiplier *= 1.35
+		} else {
+			multiplier *= 0.72
+		}
+	}
+	if isQuestionLikeNote {
+		multiplier *= 0.45
 	}
 	if isRollUp {
 		multiplier *= 0.45

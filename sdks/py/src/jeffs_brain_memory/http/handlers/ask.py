@@ -5,6 +5,8 @@ from __future__ import annotations
 
 import json
 from datetime import datetime
+from functools import lru_cache
+from pathlib import PurePosixPath
 from typing import Any, AsyncIterator
 
 from starlette.requests import Request
@@ -12,6 +14,7 @@ from starlette.responses import Response, StreamingResponse
 
 from ... import retrieval, search as search_pkg
 from ...llm.types import CompleteRequest, Message, Role
+from ...search.frontmatter import parse_memory_frontmatter
 from ..problem import validation_error
 from ._shared import decode_json_body, resolve_brain
 
@@ -51,6 +54,13 @@ _AUGMENTED_READER_TEMPLATE = (
     "changed\", \"no longer\".\n"
     "- Do not vote by frequency. One later correction outweighs any number "
     "of earlier mentions.\n"
+    "- When the question names a specific item, event, place, or "
+    "descriptor, prefer the fact that matches that target most directly. "
+    "Do not substitute a broader category match or a different example "
+    "from the same topic.\n"
+    "- A direct statement of the full usual value outranks a newer note "
+    "about only one segment, leg, or example from that routine unless "
+    "the newer note explicitly says the full value changed.\n"
     "\n"
     "Enumeration and counting:\n"
     "- When the question asks to list, count, enumerate, or total (\"how "
@@ -62,6 +72,22 @@ _AUGMENTED_READER_TEMPLATE = (
     "list.\n"
     "- Add numeric values across sessions when the question asks for a "
     "total (hours, days, money, items). Show the arithmetic.\n"
+    "- For totals over named items, sum only the facts that match those "
+    "named items directly. Do not add alternative purchases, adjacent "
+    "examples, or broader category summaries unless the note clearly "
+    "says they refer to the same item.\n"
+    "\n"
+    "Preference-sensitive questions:\n"
+    "- When the user asks for ideas, advice, inspiration, or recommendations, "
+    "anchor the answer in explicit prior preferences, recent projects, "
+    "recurring habits, and stated dislikes from the retrieved facts.\n"
+    "- Avoid generic suggestions when the history already contains concrete "
+    "tastes or recent examples. Reuse those specifics directly in the "
+    "answer.\n"
+    "- When the question asks for a specific or exact previously "
+    "recommended item, answer with the narrowest directly supported set "
+    "from the retrieved facts. Do not widen the answer with adjacent "
+    "frameworks, resource catalogues, or loosely related examples.\n"
     "\n"
     "Temporal reasoning:\n"
     "- Today is {today_anchor} (this is the current date). Resolve "
@@ -88,7 +114,6 @@ _QUESTION_DATE_FORMATS = (
     "%Y-%m-%d %H:%M",
     "%Y-%m-%d",
 )
-
 
 def _reader_today_anchor(question_date: str) -> str:
     """Render the temporal grounding line as ``YYYY-MM-DD (Weekday)``.
@@ -131,7 +156,13 @@ def _chunk_to_wire(chunk: retrieval.RetrievedChunk) -> dict[str, Any]:
 
 
 async def _retrieve(
-    br: Any, question: str, top_k: int, mode: str
+    br: Any,
+    question: str,
+    top_k: int,
+    mode: str,
+    question_date: str,
+    candidate_k: int,
+    rerank_top_n: int,
 ) -> list[retrieval.RetrievedChunk]:
     try:
         selected_mode = retrieval.Mode(mode) if mode else retrieval.Mode.AUTO
@@ -139,9 +170,12 @@ async def _retrieve(
         selected_mode = retrieval.Mode.AUTO
     req = retrieval.Request(
         query=question,
+        question_date=question_date,
         top_k=top_k,
         mode=selected_mode,
         brain_id=br.id,
+        candidate_k=candidate_k,
+        rerank_top_n=rerank_top_n,
     )
     try:
         resp = await br.retriever.retrieve(req)
@@ -153,7 +187,7 @@ async def _retrieve(
     if not chunks:
         try:
             hits = br.search_index.search_bm25(
-                question,
+                retrieval.augment_query_with_temporal(question, question_date),
                 top_k=top_k,
                 opts=search_pkg.SearchOpts(max_results=top_k),
             )
@@ -167,8 +201,10 @@ async def _retrieve(
                     document_id=h.document_id or h.path,
                     path=h.path,
                     score=score,
-                    text=h.snippet,
+                    text=h.content or h.snippet,
                     title=h.title,
+                    summary=h.summary,
+                    metadata=dict(h.metadata),
                 )
             )
 
@@ -185,6 +221,112 @@ def _format_chunks(chunks: list[retrieval.RetrievedChunk]) -> str:
         body = chunk.text or chunk.summary
         out.append(f"### {title} ({chunk.path})\n{body}\n")
     return "\n".join(out)
+
+
+def _metadata_value(chunk: retrieval.RetrievedChunk, *keys: str) -> str:
+    for key in keys:
+        value = chunk.metadata.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return ""
+
+
+@lru_cache(maxsize=256)
+def _parse_chunk_body(body: str) -> tuple[str, str, str, str, str]:
+    stripped = body.strip()
+    if not stripped.startswith("---"):
+        return "", "", "", "", stripped
+    frontmatter, parsed_body = parse_memory_frontmatter(body)
+    return (
+        frontmatter.session_id.strip(),
+        frontmatter.session_date.strip(),
+        frontmatter.observed_on.strip(),
+        frontmatter.modified.strip(),
+        parsed_body.strip(),
+    )
+
+
+def _chunk_session_id(chunk: retrieval.RetrievedChunk) -> str:
+    metadata_value = _metadata_value(chunk, "session_id", "sessionId")
+    if metadata_value:
+        return metadata_value
+    session_id, _, _, _, _ = _parse_chunk_body(chunk.text or chunk.summary)
+    return session_id
+
+
+def _chunk_date(chunk: retrieval.RetrievedChunk) -> str:
+    metadata_value = _metadata_value(
+        chunk,
+        "session_date",
+        "sessionDate",
+        "observed_on",
+        "observedOn",
+        "modified",
+    )
+    if metadata_value:
+        return metadata_value
+    _, session_date, observed_on, modified, _ = _parse_chunk_body(
+        chunk.text or chunk.summary
+    )
+    return session_date or observed_on or modified
+
+
+def _display_body(chunk: retrieval.RetrievedChunk) -> str:
+    _, _, _, _, body = _parse_chunk_body(chunk.text or chunk.summary)
+    return body
+
+
+def _cluster_chunks_by_session(
+    chunks: list[retrieval.RetrievedChunk],
+) -> list[retrieval.RetrievedChunk]:
+    if len(chunks) <= 1:
+        return list(chunks)
+    order: list[str] = []
+    groups: dict[str, list[retrieval.RetrievedChunk]] = {}
+    for index, chunk in enumerate(chunks):
+        session_id = _chunk_session_id(chunk) or f"__solo_{index}__"
+        if session_id not in groups:
+            order.append(session_id)
+            groups[session_id] = []
+        groups[session_id].append(chunk)
+    ordered: list[retrieval.RetrievedChunk] = []
+    for session_id in order:
+        ordered.extend(groups.get(session_id, []))
+    return ordered
+
+
+def _source_tag(path: str) -> str:
+    name = PurePosixPath(path).name
+    return name[:-3] if name.endswith(".md") else name
+
+
+def _format_augmented_chunks(
+    question: str,
+    chunks: list[retrieval.RetrievedChunk],
+    question_date: str,
+) -> str:
+    ordered = _cluster_chunks_by_session(chunks)
+    if not ordered:
+        return ""
+    parts: list[str] = []
+    temporal_hint = retrieval.resolved_temporal_hint_line(question, question_date)
+    if temporal_hint is not None:
+        parts.append(temporal_hint)
+        parts.append("")
+    parts.append(f"Retrieved facts ({len(ordered)}):")
+    parts.append("")
+    for index, chunk in enumerate(ordered, start=1):
+        labels = [f"[{_chunk_date(chunk) or 'unknown'}]"]
+        session_id = _chunk_session_id(chunk)
+        if session_id:
+            labels.append(f"[session={session_id}]")
+        source = _source_tag(chunk.path)
+        if source:
+            labels.append(f"[{source}]")
+        parts.append(f"{index:2d}. {' '.join(labels)}")
+        parts.append(_display_body(chunk))
+        parts.append("")
+    return "\n".join(parts).strip()
 
 
 def _build_basic_prompt(
@@ -208,7 +350,7 @@ def _build_augmented_prompt(
     temporal guidance. Empty retrieval is rendered as a blank History
     Chats block so the template's structure stays stable for the model.
     """
-    content = _format_chunks(chunks)
+    content = _format_augmented_chunks(question, chunks, question_date)
     today_anchor = _reader_today_anchor(question_date)
     current_date = question_date.strip() or "unknown"
     return _AUGMENTED_READER_TEMPLATE.format(
@@ -231,6 +373,20 @@ async def ask(request: Request) -> Response:
         return validation_error("question required")
     top_k_raw = body.get("topK")
     top_k = top_k_raw if isinstance(top_k_raw, int) and top_k_raw > 0 else 5
+    candidate_k_raw = body.get("candidateK")
+    if not isinstance(candidate_k_raw, int) or candidate_k_raw <= 0:
+        candidate_k_raw = body.get("candidate_k")
+    candidate_k = (
+        candidate_k_raw if isinstance(candidate_k_raw, int) and candidate_k_raw > 0 else 0
+    )
+    rerank_top_n_raw = body.get("rerankTopN")
+    if not isinstance(rerank_top_n_raw, int) or rerank_top_n_raw <= 0:
+        rerank_top_n_raw = body.get("rerank_top_n")
+    rerank_top_n = (
+        rerank_top_n_raw
+        if isinstance(rerank_top_n_raw, int) and rerank_top_n_raw > 0
+        else 0
+    )
     mode = body.get("mode") or ""
     model = body.get("model") or ""
 
@@ -252,7 +408,15 @@ async def ask(request: Request) -> Response:
     # Run retrieval before opening the stream so retrieval-time errors
     # still surface as Problem+JSON. Once the headers flush, every
     # failure rides the stream as an `error` event.
-    chunks = await _retrieve(br, question, top_k, str(mode))
+    chunks = await _retrieve(
+        br,
+        question,
+        top_k,
+        str(mode),
+        question_date,
+        candidate_k,
+        rerank_top_n,
+    )
     daemon = request.app.state.daemon  # type: ignore[attr-defined]
     provider = daemon.llm
 

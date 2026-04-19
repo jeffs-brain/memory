@@ -36,10 +36,12 @@ export type RerankResult = {
  */
 export type Reranker = {
   name(): string
+  isAvailable?(signal?: AbortSignal): Promise<boolean>
   rerank(req: RerankRequest, signal?: AbortSignal): Promise<readonly RerankResult[]>
 }
 
 export { CrossEncoderReranker, type CrossEncoderRerankerConfig } from './crossencoder.js'
+export { AutoReranker, type AutoRerankerConfig } from './auto.js'
 export {
   LLMReranker,
   unanimityShortcut,
@@ -51,3 +53,7 @@ export {
   type UnanimityShortcut,
 } from './llm-rerank.js'
 export { runBatches, type BatchRunnerOptions } from './batch.js'
+export {
+  DEFAULT_SHARED_RERANK_CONCURRENCY,
+  runWithSharedRerankConcurrency,
+} from './concurrency.js'

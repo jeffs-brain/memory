@@ -4,6 +4,10 @@ Local-first, pluggable memory and retrieval library for LLM agents. Ships a `Sto
 
 Part of the polyglot [`jeffs-brain/memory`](https://github.com/jeffs-brain/memory) repo. This SDK tracks the same [`spec/`](https://github.com/jeffs-brain/memory/tree/main/spec) and conformance fixtures as the Go and Python SDKs.
 
+Cross-SDK daemon parity today is `ask-basic`, `ask-augmented`, and `search-retrieve-only` through `memory serve`. Native LongMemEval workflows stay in the SDK-specific `memory eval lme` commands rather than the cross-SDK runner.
+
+In the shared runner, `--mode auto` is the default, and the daemon resolves that to `hybrid` when embeddings are configured or `bm25` otherwise.
+
 ## Install
 
 ```bash
@@ -24,6 +28,7 @@ The published `memory` binary runs on Node 20+ (its shebang is `#!/usr/bin/env n
 - Knowledge: markdown chunker, URL/file/PDF ingest, wikilinks, compile passes.
 - Authorisation: pluggable `AccessControlProvider` contract (`@jeffs-brain/memory/acl`), in-process RBAC (workspace -> brain -> collection -> document hierarchy, `admin`/`writer`/`reader` roles, `deny:<role>` overrides), `withAccessControl(store, provider, subject, ...)` Store wrapper, optional `close()` lifecycle hook. Pair with [`@jeffs-brain/memory-openfga`](https://www.npmjs.com/package/@jeffs-brain/memory-openfga) for production tuple-store backed checks.
 - Conformance: 28/29 cases green against `spec/conformance/http-contract.json`.
+- Cross-SDK daemon scenarios: `ask-basic`, `ask-augmented`, `search-retrieve-only`.
 - CLI: `memory init|ingest|search|ask|serve|remember|recall|reflect|consolidate|create-brain|list-brains|eval`.
 
 ## Embedded usage
@@ -62,7 +67,46 @@ memory search ./brain --query "which database did we pick?"
 memory serve --addr 127.0.0.1:18844
 ```
 
-`memory serve` speaks the wire protocol documented at [`spec/PROTOCOL.md`](https://github.com/jeffs-brain/memory/blob/main/spec/PROTOCOL.md) so any language SDK or the cross-SDK eval runner can drive it.
+`memory serve` speaks the wire protocol documented at [`spec/PROTOCOL.md`](https://github.com/jeffs-brain/memory/blob/main/spec/PROTOCOL.md) so any language SDK or the cross-SDK eval runner can drive `ask-basic`, `ask-augmented`, and `search-retrieve-only` identically.
+
+## Scenario verification
+
+Shared daemon scenarios verified in this SDK:
+
+| Scenario | Request shape | Main local checks |
+| -------- | ------------- | ----------------- |
+| `ask-basic` | `POST /ask` with `question`, `topK`, `mode` | `src/http/handlers.test.ts` and `src/http/daemon.test.ts` |
+| `ask-augmented` | `POST /ask` with `question`, `topK`, `mode`, `readerMode=augmented`, optional `questionDate` | `src/http/handlers.test.ts` and `src/http/daemon.test.ts` |
+| `search-retrieve-only` | `POST /search` with `query`, `topK`, `mode`, optional `questionDate`, `candidateK`, and `rerankTopN` | `src/http/daemon.test.ts` |
+
+Parity expectation is the same scenario request shape, transport shape, retrieval-mode handling, and temporal semantics as the Go and Python daemons. It is not byte-identical model wording.
+
+How we test it:
+
+- `ask-basic` and `ask-augmented` are SSE answer scenarios. We verify `retrieve`, `answer_delta`, `citation`, and `done`.
+- `search-retrieve-only` is a JSON retrieval scenario. We score the returned chunks only.
+- `questionDate` is forwarded only for `ask-augmented` and `search-retrieve-only`.
+- `candidateK` and `rerankTopN` are forwarded only for `search-retrieve-only`.
+- `mode` is forwarded unchanged. The daemon resolves `auto` locally.
+- The replay-backed tri-SDK run in `eval/scripts/run_tri_lme.sh` exercises `search-retrieve-only` only against a shared replay brain.
+
+Run the shared daemon scenario checks with:
+
+```bash
+cd sdks/ts/memory
+bun x vitest run src/http/handlers.test.ts src/http/daemon.test.ts
+```
+
+To compare TypeScript against the other SDKs on one shared scenario, use the runner in `eval/`:
+
+```bash
+cd eval
+uv run python runner.py --sdk ts --dataset datasets/smoke.jsonl --scorer exact --scenario ask-basic --output results/ask-basic
+OPENAI_API_KEY=sk-... uv run python runner.py --sdk ts --dataset datasets/lme.jsonl --scorer judge --scenario ask-augmented --brain eval --output results/ask-augmented
+OPENAI_API_KEY=sk-... uv run python runner.py --sdk ts --dataset datasets/lme.jsonl --scorer judge --scenario search-retrieve-only --brain eval --output results/search-retrieve-only
+```
+
+Use one output root per scenario so same-day runs do not overwrite `<output>/<date>/ts.json`. For the full three-way comparison flow, see [`eval/README.md`](../../../eval/README.md).
 
 ## MCP server
 

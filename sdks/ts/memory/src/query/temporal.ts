@@ -4,7 +4,11 @@ const QUESTION_DATE_RE =
   /^(\d{4})[/-](\d{2})[/-](\d{2})(?:\s+\([A-Za-z]{3}\))?(?:\s+(\d{2}):(\d{2})(?::(\d{2}))?)?$/
 
 const RELATIVE_TIME_RE =
-  /(\d+)\s+(day|days|week|weeks|month|months)\s+ago/gi
+  /\b(\d+|a|an|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\s+(day|days|week|weeks|month|months)\s+ago\b/gi
+
+const RELATIVE_DAY_RE = /\b(yesterday|today)\b/gi
+
+const LAST_WEEK_RE = /\blast\s+week\b/gi
 
 const LAST_WEEKDAY_RE =
   /last\s+(monday|tuesday|wednesday|thursday|friday|saturday|sunday)/gi
@@ -33,6 +37,23 @@ const MONTH_NAMES = [
   'November',
   'December',
 ] as const
+
+const RELATIVE_TIME_NUMBER_WORDS = new Map<string, number>([
+  ['a', 1],
+  ['an', 1],
+  ['one', 1],
+  ['two', 2],
+  ['three', 3],
+  ['four', 4],
+  ['five', 5],
+  ['six', 6],
+  ['seven', 7],
+  ['eight', 8],
+  ['nine', 9],
+  ['ten', 10],
+  ['eleven', 11],
+  ['twelve', 12],
+])
 
 const WEEKDAY_BY_NAME = new Map(
   WEEKDAY_NAMES.map((name, index) => [name.toLowerCase(), index]),
@@ -98,6 +119,8 @@ export const expandTemporal = (
   const hints: string[] = []
   let expanded = question
   expanded = resolveRelativeTime(expanded, anchor, hints)
+  expanded = resolveRelativeDay(expanded, anchor, hints)
+  expanded = resolveLastWeek(expanded, anchor, hints)
   expanded = resolveLastWeekday(expanded, anchor, hints)
   expanded = annotateOrdering(expanded)
 
@@ -119,8 +142,8 @@ export const augmentQueryWithTemporal = (
   for (const hint of expansion.dateHints) {
     const trimmed = hint.trim()
     if (trimmed === '') continue
-    tokens.push(trimmed)
-    tokens.push(trimmed.replaceAll('/', '-'))
+    tokens.push(`"${trimmed}"`)
+    tokens.push(`"${trimmed.replaceAll('/', '-')}"`)
   }
   const unique = dedupeStrings(tokens)
   return unique.length === 0 ? question : `${question} ${unique.join(' ')}`
@@ -167,7 +190,7 @@ const resolveRelativeTime = (
   hints: string[],
 ): string =>
   question.replaceAll(RELATIVE_TIME_RE, (match, countRaw, unitRaw) => {
-    const count = Number.parseInt(String(countRaw), 10)
+    const count = parseRelativeTimeCount(String(countRaw))
     if (!Number.isFinite(count)) return match
     const unit = String(unitRaw).toLowerCase()
     const resolved = new Date(anchor.getTime())
@@ -183,6 +206,49 @@ const resolveRelativeTime = (
     const slash = formatSlashDate(resolved)
     hints.push(slash)
     return `${match} (around ${slash})`
+  })
+
+const parseRelativeTimeCount = (value: string): number => {
+  const trimmed = value.trim().toLowerCase()
+  const numeric = Number.parseInt(trimmed, 10)
+  if (Number.isFinite(numeric)) return numeric
+  return RELATIVE_TIME_NUMBER_WORDS.get(trimmed) ?? Number.NaN
+}
+
+const resolveRelativeDay = (
+  question: string,
+  anchor: Date,
+  hints: string[],
+): string =>
+  question.replaceAll(RELATIVE_DAY_RE, (match, dayRaw) => {
+    const day = String(dayRaw).toLowerCase()
+    const resolved = new Date(anchor.getTime())
+    if (day === 'yesterday') {
+      resolved.setUTCDate(resolved.getUTCDate() - 1)
+    } else if (day !== 'today') {
+      return match
+    }
+    const slash = formatSlashDate(resolved)
+    hints.push(slash)
+    return `${match} (${slash})`
+  })
+
+const resolveLastWeek = (
+  question: string,
+  anchor: Date,
+  hints: string[],
+): string =>
+  question.replaceAll(LAST_WEEK_RE, (match) => {
+    const start = new Date(anchor.getTime())
+    start.setUTCDate(start.getUTCDate() - 7)
+    const end = new Date(anchor.getTime())
+    end.setUTCDate(end.getUTCDate() - 1)
+    const day = new Date(start.getTime())
+    while (day.getTime() <= end.getTime()) {
+      hints.push(formatSlashDate(day))
+      day.setUTCDate(day.getUTCDate() + 1)
+    }
+    return `${match} (${formatSlashDate(start)} to ${formatSlashDate(end)})`
   })
 
 const resolveLastWeekday = (

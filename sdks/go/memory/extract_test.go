@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/jeffs-brain/memory/go/brain"
+	"github.com/jeffs-brain/memory/go/llm"
 )
 
 func TestParseExtractionResult_ValidJSON(t *testing.T) {
@@ -460,4 +461,259 @@ func TestToolCallArguments_DecodeSmoke(t *testing.T) {
 	if !strings.Contains(string(tc.Arguments), "/tmp/x.md") {
 		t.Fatalf("arguments lost: %q", tc.Arguments)
 	}
+}
+
+type extractStubProvider struct {
+	reply string
+}
+
+func (p *extractStubProvider) Complete(_ context.Context, _ llm.CompleteRequest) (llm.CompleteResponse, error) {
+	return llm.CompleteResponse{Text: p.reply}, nil
+}
+
+func (p *extractStubProvider) CompleteStream(_ context.Context, _ llm.CompleteRequest) (<-chan llm.StreamChunk, error) {
+	return nil, nil
+}
+
+func (p *extractStubProvider) Close() error { return nil }
+
+func TestExtractFromMessages_AddsHeuristicUserFactForQuantifiedUpdate(t *testing.T) {
+	mem, _ := newTestMemory(t)
+	provider := &extractStubProvider{reply: `{"memories":[]}`}
+
+	out, err := ExtractFromMessages(context.Background(), provider, "test-model", mem, "/project", []Message{
+		{Role: RoleSystem, Content: "This conversation took place on 2023/07/15 (Sat) 22:42."},
+		{Role: RoleUser, Content: "I've been reading about the Amazon rainforest and its indigenous communities in National Geographic, and I just finished my fifth issue."},
+		{Role: RoleAssistant, Content: "That sounds fascinating."},
+	})
+	if err != nil {
+		t.Fatalf("ExtractFromMessages: %v", err)
+	}
+
+	var found *ExtractedMemory
+	for i := range out {
+		if strings.Contains(out[i].Content, "fifth issue") {
+			found = &out[i]
+			break
+		}
+	}
+	if found == nil {
+		t.Fatalf("expected heuristic fact for quantified update, got %#v", out)
+	}
+	if found.Scope != "global" || found.Type != "user" {
+		t.Fatalf("heuristic fact scope/type = %q/%q, want global/user", found.Scope, found.Type)
+	}
+	if !strings.Contains(found.Filename, "user-fact-2023-07-15") {
+		t.Fatalf("heuristic filename = %q, want dated user-fact prefix", found.Filename)
+	}
+}
+
+func TestExtractFromMessages_AddsHeuristicMilestoneFact(t *testing.T) {
+	mem, _ := newTestMemory(t)
+	provider := &extractStubProvider{reply: `{"memories":[]}`}
+
+	out, err := ExtractFromMessages(context.Background(), provider, "test-model", mem, "/project", []Message{
+		{Role: RoleSystem, Content: "This conversation took place on 2022/11/17 (Thu) 15:34."},
+		{Role: RoleUser, Content: "I'm planning to start learning about deep learning. By the way, I just completed my undergraduate degree in computer science."},
+		{Role: RoleAssistant, Content: "That foundation will help."},
+	})
+	if err != nil {
+		t.Fatalf("ExtractFromMessages: %v", err)
+	}
+
+	for _, memory := range out {
+		if !strings.Contains(memory.Content, "completed my undergraduate degree") {
+			continue
+		}
+		if !strings.Contains(memory.Filename, "milestone") {
+			t.Fatalf("milestone heuristic filename = %q, want milestone prefix", memory.Filename)
+		}
+		return
+	}
+	t.Fatalf("expected milestone heuristic in %#v", out)
+}
+
+func TestExtractFromMessages_AddsMonthNameDateFact(t *testing.T) {
+	mem, _ := newTestMemory(t)
+	provider := &extractStubProvider{reply: `{"memories":[]}`}
+
+	out, err := ExtractFromMessages(context.Background(), provider, "test-model", mem, "/project", []Message{
+		{Role: RoleSystem, Content: "This conversation took place on 2023/07/07 (Fri) 04:44."},
+		{Role: RoleUser, Content: "My close friend Rachel got engaged on May 15th, and we're already planning her bachelorette party."},
+		{Role: RoleAssistant, Content: "That sounds exciting."},
+	})
+	if err != nil {
+		t.Fatalf("ExtractFromMessages: %v", err)
+	}
+
+	for _, memory := range out {
+		if !strings.Contains(memory.Content, "May 15th") {
+			continue
+		}
+		if !strings.HasPrefix(memory.Content, "[Date: 2023-05-15") {
+			t.Fatalf("month-name heuristic content = %q, want prefixed actual date", memory.Content)
+		}
+		if memory.ObservedOn != "2023-05-15T00:00:00Z" {
+			t.Fatalf("month-name heuristic observed_on = %q, want 2023-05-15T00:00:00Z", memory.ObservedOn)
+		}
+		return
+	}
+
+	t.Fatalf("expected month-name heuristic in %#v", out)
+}
+
+func TestExtractFromMessages_AddsGroupJoinMilestoneWithResolvedDate(t *testing.T) {
+	mem, _ := newTestMemory(t)
+	provider := &extractStubProvider{reply: `{"memories":[]}`}
+
+	out, err := ExtractFromMessages(context.Background(), provider, "test-model", mem, "/project", []Message{
+		{Role: RoleSystem, Content: "This conversation took place on 2023/05/25 (Thu) 01:50."},
+		{Role: RoleUser, Content: `I just joined a new book club group called "Page Turners" last week, where we discuss our favourite novels and share recommendations.`},
+		{Role: RoleAssistant, Content: "That sounds like a great group."},
+	})
+	if err != nil {
+		t.Fatalf("ExtractFromMessages: %v", err)
+	}
+
+	for _, memory := range out {
+		if !strings.Contains(memory.Content, "Page Turners") {
+			continue
+		}
+		if !strings.HasPrefix(memory.Content, "[Date: 2023-05-18") {
+			t.Fatalf("group-join heuristic content = %q, want prefixed actual date", memory.Content)
+		}
+		if memory.ObservedOn != "2023-05-18T00:00:00Z" {
+			t.Fatalf("group-join heuristic observed_on = %q, want 2023-05-18T00:00:00Z", memory.ObservedOn)
+		}
+		return
+	}
+
+	t.Fatalf("expected group-join heuristic in %#v", out)
+}
+
+func TestExtractFromMessages_AddsHeuristicUserFactForRelativeTimeNumberWords(t *testing.T) {
+	mem, _ := newTestMemory(t)
+	provider := &extractStubProvider{reply: `{"memories":[]}`}
+
+	out, err := ExtractFromMessages(context.Background(), provider, "test-model", mem, "/project", []Message{
+		{Role: RoleSystem, Content: "This conversation took place on 2023/05/26 (Fri) 18:20."},
+		{Role: RoleUser, Content: "I'm actually planning to buy a new phone charger, since I lost my old one at the gym about two weeks ago."},
+		{Role: RoleAssistant, Content: "Buying a new charger makes sense."},
+	})
+	if err != nil {
+		t.Fatalf("ExtractFromMessages: %v", err)
+	}
+
+	for _, memory := range out {
+		if !strings.Contains(memory.Content, "lost my old one at the gym about two weeks ago") {
+			continue
+		}
+		if memory.ObservedOn != "2023-05-12T00:00:00Z" {
+			t.Fatalf("relative-time heuristic observed_on = %q, want 2023-05-12T00:00:00Z", memory.ObservedOn)
+		}
+		return
+	}
+
+	t.Fatalf("expected relative-time heuristic in %#v", out)
+}
+
+func TestExtractFromMessages_AddsHeuristicUserFactForAirbnbBookingLeadTime(t *testing.T) {
+	mem, _ := newTestMemory(t)
+	provider := &extractStubProvider{reply: `{"memories":[]}`}
+
+	out, err := ExtractFromMessages(context.Background(), provider, "test-model", mem, "/project", []Message{
+		{Role: RoleSystem, Content: "This conversation took place on 2023/05/27 (Sat) 03:04."},
+		{Role: RoleUser, Content: "I've had a great experience with Airbnb in the past, like when I stayed in Haight-Ashbury for my best friend's wedding and had to book three months in advance."},
+		{Role: RoleAssistant, Content: "That sounds like a memorable trip."},
+	})
+	if err != nil {
+		t.Fatalf("ExtractFromMessages: %v", err)
+	}
+
+	for _, memory := range out {
+		if strings.Contains(memory.Content, "Airbnb") &&
+			strings.Contains(memory.Content, "book three months in advance") {
+			return
+		}
+	}
+
+	t.Fatalf("expected Airbnb booking heuristic in %#v", out)
+}
+
+func TestExtractFromMessages_AddsPendingTaskFactWithoutCreatingAppointmentEvent(t *testing.T) {
+	mem, _ := newTestMemory(t)
+	provider := &extractStubProvider{reply: `{"memories":[]}`}
+
+	out, err := ExtractFromMessages(context.Background(), provider, "test-model", mem, "/project", []Message{
+		{Role: RoleSystem, Content: "This conversation took place on 2023/05/27 (Sat) 09:00."},
+		{Role: RoleUser, Content: "I still need to schedule a dentist appointment and pick up my prescription."},
+		{Role: RoleAssistant, Content: "I can help you remember both tasks."},
+	})
+	if err != nil {
+		t.Fatalf("ExtractFromMessages: %v", err)
+	}
+
+	foundTask := false
+	for _, memory := range out {
+		if strings.Contains(memory.Content, "The user has a dentist appointment") {
+			t.Fatalf("pending appointment should not become an event: %#v", out)
+		}
+		if strings.Contains(memory.Content, "The user still needs to schedule a dentist appointment.") {
+			foundTask = true
+		}
+	}
+	if !foundTask {
+		t.Fatalf("expected pending-task heuristic in %#v", out)
+	}
+}
+
+func TestExtractFromMessages_AddsHeuristicPreferenceFact(t *testing.T) {
+	mem, _ := newTestMemory(t)
+	provider := &extractStubProvider{reply: `{"memories":[]}`}
+
+	out, err := ExtractFromMessages(context.Background(), provider, "test-model", mem, "/project", []Message{
+		{Role: RoleSystem, Content: "This conversation took place on 2023/07/14 (Fri) 20:05."},
+		{Role: RoleUser, Content: "Can you recommend a family-friendly, light-hearted film for tonight, ideally under 100 minutes and without gore?"},
+		{Role: RoleAssistant, Content: "I will keep the suggestions gentle and short."},
+	})
+	if err != nil {
+		t.Fatalf("ExtractFromMessages: %v", err)
+	}
+
+	for _, memory := range out {
+		if !strings.Contains(memory.Filename, "user-preference-2023-07-14") {
+			continue
+		}
+		if !strings.Contains(memory.Content, "family-friendly") || !strings.Contains(memory.Content, "without gore") {
+			t.Fatalf("preference heuristic content = %q, want captured constraints", memory.Content)
+		}
+		return
+	}
+	t.Fatalf("expected preference heuristic in %#v", out)
+}
+
+func TestExtractFromMessages_AddsReligiousServiceEventFact(t *testing.T) {
+	mem, _ := newTestMemory(t)
+	provider := &extractStubProvider{reply: `{"memories":[]}`}
+
+	out, err := ExtractFromMessages(context.Background(), provider, "test-model", mem, "/project", []Message{
+		{Role: RoleSystem, Content: "This conversation took place on 2023/04/06 (Thu) 05:36."},
+		{Role: RoleUser, Content: "I'm glad I got to attend the Maundy Thursday service at the Episcopal Church, it was a beautiful and moving experience."},
+		{Role: RoleAssistant, Content: "That sounds meaningful."},
+	})
+	if err != nil {
+		t.Fatalf("ExtractFromMessages: %v", err)
+	}
+
+	for _, memory := range out {
+		if !strings.Contains(memory.Content, "Maundy Thursday service at the Episcopal Church") {
+			continue
+		}
+		if memory.ObservedOn != "2023-04-06T05:36:00Z" {
+			t.Fatalf("service heuristic observed_on = %q, want 2023-04-06T05:36:00Z", memory.ObservedOn)
+		}
+		return
+	}
+
+	t.Fatalf("expected religious-service heuristic in %#v", out)
 }

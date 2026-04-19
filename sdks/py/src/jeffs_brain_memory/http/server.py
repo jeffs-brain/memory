@@ -87,6 +87,8 @@ def create_app(
     auth_token: str | None = None,
     llm: Provider | None = None,
     embedder: Embedder | None = None,
+    contextualise: bool | None = None,
+    contextualise_cache_dir: str | None = None,
 ) -> Starlette:
     """Build the Starlette ASGI app, wiring every protocol endpoint.
 
@@ -108,6 +110,8 @@ def create_app(
         token=resolved_token,
         llm=llm,
         embedder=embedder,
+        contextualise=contextualise,
+        contextualise_cache_dir=contextualise_cache_dir,
     )
 
     app = Starlette(debug=False, routes=_build_routes(), lifespan=lifespan)
@@ -132,6 +136,8 @@ def _build_lifespan(
     token: str | None,
     llm: Provider | None,
     embedder: Embedder | None,
+    contextualise: bool | None,
+    contextualise_cache_dir: str | None,
 ):
     """Return an async lifespan context manager for the app."""
 
@@ -145,6 +151,8 @@ def _build_lifespan(
                 auth_token=token,
                 llm=llm,
                 embedder=embedder,
+                contextualise=contextualise,
+                contextualise_cache_dir=contextualise_cache_dir,
             )
             owned = True
             app.state.daemon = daemon  # type: ignore[attr-defined]

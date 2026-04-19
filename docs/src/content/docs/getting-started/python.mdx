@@ -30,10 +30,12 @@ Requires Python `>=3.11`.
 memory init ./my-brain
 memory ingest ./docs/hedgehogs.md --brain ./my-brain
 memory search "where do hedgehogs live?" --brain ./my-brain
-memory serve --host 127.0.0.1 --port 8080
+memory serve --addr 127.0.0.1:8080
 ```
 
 Same subcommands as the TypeScript and Go CLIs. See the [CLI reference](/reference/cli/).
+
+Cross-SDK eval parity today is the shared daemon surface: `ask-basic`, `ask-augmented`, and `search-retrieve-only`. Native LongMemEval replay and agentic runs are outside the Python SDK today.
 
 ## Environment variables
 
@@ -46,10 +48,10 @@ Same subcommands as the TypeScript and Go CLIs. See the [CLI reference](/referen
 ## Programmatic use
 
 :::note
-Phase 4 scaffold. Module layout, CLI entry point, and HTTP daemon skeleton are in place; real implementations land incrementally. The public Python API is TODO while the core modules (`store`, `query`, `search`, `retrieval`) are ported from the TS reference. Track progress in the [Python SDK README](https://github.com/jeffs-brain/memory/tree/main/sdks/py).
+This page focuses on the CLI path. The Python SDK already ships the core store, search, retrieval, and daemon surface; use the [Python SDK README](https://github.com/jeffs-brain/memory/tree/main/sdks/py) for the fuller API inventory while this page catches up.
 :::
 
-A minimal snippet will appear here once the `store` and `search` modules are wired.
+A minimal embedded example will land here in a later docs pass.
 
 ## Next steps
 

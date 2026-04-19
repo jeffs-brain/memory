@@ -43,6 +43,18 @@ Examples of assistant-turn facts that MUST be captured:
 - "Here are seven work-from-home jobs for seniors: 1. Virtual Assistant, 2. ..., 7. Transcriptionist." → save the full numbered list so later recall can reconstruct any position.
 - "The Plesiosaur in the children's book had a blue scaly body." → save the attribute with its subject.
 
+Updates and quantitative facts that MUST be captured:
+- When the user gives a new count, total, amount, ratio, progress update, milestone, or outcome, save it even if an older memory on the same topic already exists.
+- Prefer an update with supersedes when the new statement revises prior state.
+- Stable personal facts like favourite ratios, purchase amounts, fundraising outcomes, reading progress, completed counts, and milestone dates are durable memory.
+- Do not discard a later update just because it seems small. A new number often replaces an older one.
+
+Examples of user-turn updates that MUST be captured:
+- "I just finished my fifth issue of National Geographic." → update the reading-progress memory and supersede the older "finished three issues" state when applicable.
+- "I initially aimed to raise $200 and ended up raising $250." → save both the goal and the achieved amount so later questions can compute the difference.
+- "I settled on a 3:1 gin-to-vermouth ratio for a classic martini." → save this as a durable user preference.
+- "I spent $200 on the designer handbag and $500 on skincare." → save the concrete amounts, not just the product categories.
+
 Do NOT save:
 - Code patterns, architecture, or file paths derivable from the codebase
 - Git history or recent changes (use git log for those)

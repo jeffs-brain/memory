@@ -144,9 +144,11 @@ const parseIngestMode = (value: unknown) => {
 const parseRetrievalMode = (value: unknown) => {
   const raw =
     resolveOptionalString(value, 'JB_LME_RETRIEVAL_MODE') ?? 'bm25'
-  if (raw === 'bm25' || raw === 'semantic' || raw === 'hybrid') return raw
+  if (raw === 'bm25' || raw === 'semantic' || raw === 'hybrid' || raw === 'hybrid-rerank') {
+    return raw
+  }
   throw new CliUsageError(
-    `invalid retrieval mode '${raw}'; expected bm25|semantic|hybrid`,
+    `invalid retrieval mode '${raw}'; expected bm25|semantic|hybrid|hybrid-rerank`,
   )
 }
 
@@ -253,7 +255,9 @@ const buildProviders = () => {
     embedderSettings !== undefined ? buildEmbedder(embedderSettings) : undefined
   const rerankerSettings = rerankerFromEnv()
   const reranker =
-    rerankerSettings !== undefined ? buildReranker(rerankerSettings) : undefined
+    rerankerSettings !== undefined
+      ? buildReranker(rerankerSettings, { ...(provider !== undefined ? { provider } : {}) })
+      : undefined
   return { provider, embedder, reranker }
 }
 
@@ -383,8 +387,17 @@ const runCommand = defineCommand({
     },
     retrievalMode: {
       type: 'string',
-      description: 'Retrieval mode: bm25|semantic|hybrid',
+      description: 'Retrieval mode: bm25|semantic|hybrid|hybrid-rerank',
       default: 'bm25',
+    },
+    contextualise: {
+      type: 'boolean',
+      description: 'Enable replay contextualisation.',
+      default: false,
+    },
+    contextualiseCacheDir: {
+      type: 'string',
+      description: 'Optional cache directory for replay contextualisation.',
     },
     rerank: {
       type: 'boolean',
@@ -503,6 +516,7 @@ const runCommand = defineCommand({
       bundle,
       split,
       ingestMode,
+      contextualise: parseBoolean(args.contextualise, false),
       retrievalMode: parseRetrievalMode(args.retrievalMode),
       rerank: parseBoolean(args.rerank, false),
       topK: parsePositiveInt(args.topK, 50, 'lme run'),
@@ -542,6 +556,18 @@ const runCommand = defineCommand({
         : {}),
       ...(resolveOptionalString(args.actorId, 'JB_LME_ACTOR_ID') !== undefined
         ? { actorId: resolveRequiredString(args.actorId, 'JB_LME_ACTOR_ID', 'lme run') }
+        : {}),
+      ...(resolveOptionalString(
+        args.contextualiseCacheDir,
+        'JB_CONTEXTUALISE_CACHE_DIR',
+      ) !== undefined
+        ? {
+            contextualiseCacheDir: resolveRequiredString(
+              args.contextualiseCacheDir,
+              'JB_CONTEXTUALISE_CACHE_DIR',
+              'lme run',
+            ),
+          }
         : {}),
       ...(provider !== undefined ? { provider } : {}),
       ...(embedder !== undefined ? { embedder } : {}),

@@ -28,6 +28,7 @@ export type { AliasTable } from '../query/index.js'
 export type {
   HybridMode,
   HybridTrace,
+  RetrievalFilters,
   RetrievalRequest,
   RetrievalResponse,
   RetrievalResult,

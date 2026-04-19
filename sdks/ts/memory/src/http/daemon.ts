@@ -21,6 +21,7 @@ import type { Embedder, Logger, Provider } from '../llm/index.js'
 import { noopLogger } from '../llm/index.js'
 import {
   type ConsolidationReport,
+  type ContextualPrefixBuilder,
   type ExtractedMemory,
   type Memory,
   type RecallHit,
@@ -29,6 +30,9 @@ import {
   createMemory,
   createStoreBackedCursorStore,
 } from '../memory/index.js'
+import { parseFrontmatter } from '../memory/frontmatter.js'
+import { dateSearchTokens } from '../query/index.js'
+import type { Reranker } from '../rerank/index.js'
 import { createRetrieval, type Retrieval } from '../retrieval/index.js'
 import type { SearchIndex as SqliteSearchIndex } from '../search/index.js'
 import { createSearchIndex, type Chunk } from '../search/index.js'
@@ -48,6 +52,8 @@ export type DaemonConfig = {
   readonly authToken?: string
   readonly provider?: Provider
   readonly embedder?: Embedder
+  readonly reranker?: Reranker
+  readonly contextualPrefixBuilder?: ContextualPrefixBuilder
   readonly logger?: Logger
   /**
    * Embedding model identifier pinned alongside every stored vector so
@@ -99,6 +105,8 @@ export class Daemon {
   readonly authToken: string | undefined
   readonly provider: Provider | undefined
   readonly embedder: Embedder | undefined
+  readonly reranker: Reranker | undefined
+  readonly contextualPrefixBuilder: ContextualPrefixBuilder | undefined
   readonly embedModel: string
   readonly logger: Logger
   readonly brains: BrainManager
@@ -108,6 +116,8 @@ export class Daemon {
     this.authToken = config.authToken
     this.provider = config.provider
     this.embedder = config.embedder
+    this.reranker = config.reranker
+    this.contextualPrefixBuilder = config.contextualPrefixBuilder
     this.embedModel =
       config.embedModel ??
       resolveEmbedModel(process.env as Readonly<Record<string, string | undefined>>, this.embedder)
@@ -138,6 +148,48 @@ export class Daemon {
 }
 
 const INDEXABLE_EXT = /\.(md|markdown|txt)$/i
+
+const dedupeStrings = (values: readonly string[]): string[] => {
+  const out: string[] = []
+  const seen = new Set<string>()
+  for (const value of values) {
+    const trimmed = value.trim()
+    if (trimmed === '' || seen.has(trimmed)) continue
+    seen.add(trimmed)
+    out.push(trimmed)
+  }
+  return out
+}
+
+const chunkFromIndexedFile = (path: string, raw: string): Chunk => {
+  const { frontmatter, body } = parseFrontmatter(raw)
+  const tags = dedupeStrings([
+    ...(frontmatter.tags ?? []),
+    ...dateSearchTokens(frontmatter.session_date),
+    ...dateSearchTokens(frontmatter.observed_on),
+    ...dateSearchTokens(frontmatter.modified),
+  ])
+  const metadata: Record<string, unknown> = {
+    ...(frontmatter.scope !== undefined ? { scope: frontmatter.scope } : {}),
+    ...(frontmatter.type !== undefined ? { type: frontmatter.type } : {}),
+    ...(frontmatter.session_id !== undefined ? { sessionId: frontmatter.session_id } : {}),
+    ...(frontmatter.session_date !== undefined
+      ? { sessionDate: frontmatter.session_date }
+      : {}),
+    ...(frontmatter.observed_on !== undefined ? { observedOn: frontmatter.observed_on } : {}),
+    ...(frontmatter.modified !== undefined ? { modified: frontmatter.modified } : {}),
+  }
+  return {
+    id: path,
+    path,
+    ordinal: 0,
+    title: frontmatter.name?.trim() ?? '',
+    summary: frontmatter.description ?? '',
+    ...(tags.length > 0 ? { tags } : {}),
+    content: body === '' ? raw : body,
+    ...(Object.keys(metadata).length > 0 ? { metadata } : {}),
+  }
+}
 
 export class BrainManager {
   private readonly entries = new Map<string, Promise<BrainResources>>()
@@ -245,10 +297,15 @@ export class BrainManager {
     try {
       const { mkdir } = await import('node:fs/promises')
       await mkdir(indexRoot, { recursive: true })
-      index = await createSearchIndex({ dbPath: joinFs(indexRoot, 'search.db') })
+      const vectorDim = this.daemon.embedder?.dimension()
+      index = await createSearchIndex({
+        dbPath: joinFs(indexRoot, 'search.db'),
+        ...(vectorDim !== undefined && vectorDim > 0 ? { vectorDim } : {}),
+      })
       retrieval = createRetrieval({
         index,
         ...(this.daemon.embedder !== undefined ? { embedder: this.daemon.embedder } : {}),
+        ...(this.daemon.reranker !== undefined ? { reranker: this.daemon.reranker } : {}),
       })
     } catch (err) {
       this.daemon.logger.debug('daemon: search index unavailable', {
@@ -267,30 +324,58 @@ export class BrainManager {
       scope: 'global',
       actorId: 'daemon',
       extractMinMessages: 1,
+      ...(this.daemon.contextualPrefixBuilder !== undefined
+        ? { contextualPrefixBuilder: this.daemon.contextualPrefixBuilder }
+        : {}),
     })
 
     // Index rows use the relative path as id so the Go daemon's
     // classifier can consume the same database.
+    let pendingIndexUpdate: Promise<void> = Promise.resolve()
     let unsubscribe: (() => void) | undefined
     if (index !== undefined) {
       unsubscribe = store.subscribe((evt) => {
-        void this.handleStoreEvent(index!, store, evt)
+        pendingIndexUpdate = pendingIndexUpdate
+          .catch(() => undefined)
+          .then(() => this.handleStoreEvent(index!, store, evt))
       })
     }
 
     // Fire the initial scan so prior contents surface on the first
     // search. Subscribe handles every subsequent write incrementally,
-    // so refresh() is a cheap await-the-initial-scan after that — no
+    // so refresh() is a cheap await-the-initial-scan after that - no
     // per-request re-scan, which would serialise every concurrent
     // request under a single write lock.
     let disposed = false
     let initialScan: Promise<void> | undefined
+    let vectorBackfill: Promise<void> | undefined
+    const startVectorBackfill = (): void => {
+      if (disposed) return
+      if (vectorBackfill !== undefined) return
+      if (index === undefined) return
+      if (this.daemon.embedder === undefined || this.daemon.embedModel === '') return
+      vectorBackfill = backfillVectors({
+        brainId,
+        store,
+        index,
+        embedder: this.daemon.embedder,
+        model: this.daemon.embedModel,
+        logger: this.daemon.logger,
+      }).catch((err) => {
+        this.daemon.logger.debug('vectors: backfill crashed', {
+          brain: brainId,
+          err: err instanceof Error ? err.message : String(err),
+        })
+      })
+    }
     const refresh = async (): Promise<void> => {
       if (index === undefined || disposed) return
       if (initialScan === undefined) {
         initialScan = this.scanBrain(index, store, brainId).catch(() => undefined)
       }
       await initialScan
+      startVectorBackfill()
+      await pendingIndexUpdate
     }
     void refresh()
 
@@ -351,13 +436,7 @@ export class BrainManager {
       }
       if (!INDEXABLE_EXT.test(evt.path)) return
       const buf = await store.read(evt.path)
-      const chunk: Chunk = {
-        id: evt.path,
-        path: evt.path,
-        ordinal: 0,
-        title: evt.path,
-        content: buf.toString('utf8').slice(0, 32_000),
-      }
+      const chunk = chunkFromIndexedFile(evt.path, buf.toString('utf8'))
       index.upsertChunk(chunk)
     } catch {
       /* index maintenance is best-effort */
@@ -366,10 +445,10 @@ export class BrainManager {
 
   /**
    * Full-brain scan used on open + on manual refresh so a brain that
-   * already has content surfaces it on the first search. When an
-   * embedder is configured the BM25 pass is chained into an async
-   * vector backfill so `/search` returns hybrid (BM25 + vector) hits
-   * once the embeds complete, mirroring the Go daemon.
+   * already has content surfaces it on the first search. Vector
+   * backfill is launched after this pass completes so the first
+   * request can return BM25 hits promptly while embeddings are
+   * populated in the background, mirroring the Go daemon.
    */
   private async scanBrain(
     index: SqliteSearchIndex,
@@ -384,41 +463,24 @@ export class BrainManager {
       if ((err as NodeJS.ErrnoException | undefined)?.code === 'ENOENT') return
       throw err
     }
+    const currentPaths = new Set<string>()
     for (const entry of entries) {
       if (entry.isDir) continue
       if (!INDEXABLE_EXT.test(entry.path)) continue
+      currentPaths.add(entry.path)
       try {
         const buf = await store.read(entry.path)
-        const chunk: Chunk = {
-          id: entry.path,
-          path: entry.path,
-          ordinal: 0,
-          title: entry.path,
-          content: buf.toString('utf8').slice(0, 32_000),
-        }
+        const chunk = chunkFromIndexedFile(entry.path, buf.toString('utf8'))
         index.upsertChunk(chunk)
       } catch {
         /* ignore unreadable files */
       }
     }
-
-    if (this.daemon.embedder !== undefined && this.daemon.embedModel !== '') {
-      try {
-        await backfillVectors({
-          brainId,
-          store,
-          index,
-          embedder: this.daemon.embedder,
-          model: this.daemon.embedModel,
-          logger: this.daemon.logger,
-        })
-      } catch (err) {
-        this.daemon.logger.debug('vectors: backfill crashed', {
-          brain: brainId,
-          err: err instanceof Error ? err.message : String(err),
-        })
-      }
+    for (const path of index.indexedPaths()) {
+      if (currentPaths.has(path)) continue
+      index.deleteByPath(path)
     }
+
   }
 }
 

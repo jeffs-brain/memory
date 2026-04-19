@@ -27,14 +27,32 @@ class InMemoryIndex:
     def __init__(self, rows: list[IndexedRow]) -> None:
         self.rows = list(rows)
 
+    @staticmethod
+    def _scope_matches(row_scope: str, want: str) -> bool:
+        if not want:
+            return True
+        aliases = {
+            "memory": {"global_memory", "project_memory"},
+            "global": {"global_memory"},
+            "global_memory": {"global_memory"},
+            "project": {"project_memory"},
+            "project_memory": {"project_memory"},
+        }
+        expected = aliases.get(want.strip().lower(), {want.strip().lower()})
+        return row_scope.strip().lower() in expected if row_scope else True
+
     async def search_bm25(
-        self, expr: str, k: int, scope: str, project: str
+        self, expr: str, k: int, filters: Filters
     ) -> list[IndexedRow]:
         tokens = expr.lower().split()
         if not tokens:
             return []
         scored: list[tuple[IndexedRow, int]] = []
         for r in self.rows:
+            if not self._scope_matches(r.scope, filters.scope):
+                continue
+            if filters.project and r.project_slug and r.project_slug != filters.project:
+                continue
             corpus = " ".join([r.path, r.title, r.summary, r.content]).lower()
             score = sum(corpus.count(t) for t in tokens)
             if score > 0:
@@ -55,24 +73,28 @@ def _rows() -> list[IndexedRow]:
             title="Invoice Processing",
             summary="End-to-end automation for supplier invoices",
             content="The invoice processing workflow extracts line items from supplier PDFs.",
+            scope="wiki",
         ),
         IndexedRow(
             path="wiki/order-processing.md",
             title="Order Processing Pipeline",
             summary="Ingest sales orders for retail partners",
             content="Order processing automates document ingestion for invoice export.",
+            scope="wiki",
         ),
         IndexedRow(
             path="wiki/holiday-calendar.md",
             title="Holiday Calendar",
             summary="Public holidays across regions",
             content="The holiday calendar publishes regional public holidays for HR planning.",
+            scope="wiki",
         ),
         IndexedRow(
             path="memory/global/invoice-note.md",
             title="Invoice note",
             summary="Personal observation",
             content="Reminder that invoice batches close on Friday.",
+            scope="global_memory",
         ),
     ]
 
@@ -105,6 +127,7 @@ async def test_bm25_returns_top_hits_with_path_as_id() -> None:
     for h in hits:
         assert h.id == h.path
         assert h.id != ""
+        assert h.content != ""
 
 
 async def test_bm25_respects_path_prefix() -> None:
@@ -115,6 +138,12 @@ async def test_bm25_respects_path_prefix() -> None:
     assert hits
     for h in hits:
         assert h.path.startswith("wiki/invoice")
+
+
+async def test_bm25_scope_alias_memory_matches_canonical_rows() -> None:
+    src = IndexSource(InMemoryIndex(_rows()))
+    hits = await src.search_bm25("invoice", 10, Filters(scope="memory"))
+    assert [h.path for h in hits] == ["memory/global/invoice-note.md"]
 
 
 async def test_vectors_nil_returns_empty() -> None:

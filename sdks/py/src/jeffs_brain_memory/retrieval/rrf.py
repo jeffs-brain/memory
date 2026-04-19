@@ -11,7 +11,8 @@ Mirrors ``sdks/go/retrieval/rrf.go`` bit for bit.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import Any
 
 from .types import RetrievedChunk
 
@@ -28,6 +29,7 @@ class RRFCandidate:
     title: str = ""
     summary: str = ""
     content: str = ""
+    metadata: dict[str, Any] = field(default_factory=dict)
     bm25_rank: int = 0
     have_bm25_rank: bool = False
     vector_similarity: float = 0.0
@@ -41,6 +43,7 @@ class _Bucket:
     title: str
     summary: str
     content: str
+    metadata: dict[str, Any]
     bm25_rank: int
     have_bm25_rank: bool
     vector_similarity: float
@@ -76,6 +79,7 @@ def reciprocal_rank_fusion(
                     title=cand.title,
                     summary=cand.summary,
                     content=cand.content,
+                    metadata=dict(cand.metadata),
                     bm25_rank=cand.bm25_rank if cand.have_bm25_rank else 0,
                     have_bm25_rank=cand.have_bm25_rank,
                     vector_similarity=(
@@ -93,6 +97,10 @@ def reciprocal_rank_fusion(
                 existing.summary = cand.summary
             if not existing.content and cand.content:
                 existing.content = cand.content
+            if cand.metadata:
+                for key, value in cand.metadata.items():
+                    if key not in existing.metadata:
+                        existing.metadata[key] = value
             if not existing.have_bm25_rank and cand.have_bm25_rank:
                 existing.bm25_rank = cand.bm25_rank
                 existing.have_bm25_rank = True
@@ -112,6 +120,7 @@ def reciprocal_rank_fusion(
             text=b.content,
             title=b.title,
             summary=b.summary,
+            metadata=dict(b.metadata),
         )
         if b.have_bm25_rank:
             chunk.bm25_rank = b.bm25_rank

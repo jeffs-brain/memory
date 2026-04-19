@@ -46,6 +46,7 @@ class Request:
     """Drives a single retrieval call."""
 
     query: str = ""
+    question_date: str = ""
     top_k: int = 0
     mode: Mode = Mode.AUTO
     brain_id: str = ""

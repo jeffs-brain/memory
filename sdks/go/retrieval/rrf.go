@@ -35,6 +35,43 @@ type rrfCandidate struct {
 // Ties on score are broken by path ascending so the output is stable
 // across runs with identical inputs.
 func reciprocalRankFusion(lists [][]rrfCandidate, k int) []RetrievedChunk {
+	candidates := reciprocalRankFusionCandidates(lists, k)
+	out := make([]RetrievedChunk, 0, len(candidates))
+	for _, c := range candidates {
+		chunk := RetrievedChunk{
+			ChunkID:    c.id,
+			DocumentID: c.id,
+			Path:       c.path,
+			Score:      c.score,
+			Text:       c.content,
+			Title:      c.title,
+			Summary:    c.summary,
+		}
+		if c.haveBM25Rank {
+			chunk.BM25Rank = c.bm25Rank
+		}
+		if c.haveVectorSim {
+			chunk.VectorSimilarity = c.vectorSimilarity
+		}
+		out = append(out, chunk)
+	}
+	return out
+}
+
+type fusedCandidate struct {
+	id               string
+	path             string
+	title            string
+	summary          string
+	content          string
+	bm25Rank         int
+	haveBM25Rank     bool
+	vectorSimilarity float64
+	haveVectorSim    bool
+	score            float64
+}
+
+func reciprocalRankFusionCandidates(lists [][]rrfCandidate, k int) []fusedCandidate {
 	safeK := k
 	if safeK <= 0 {
 		safeK = RRFDefaultK
@@ -109,32 +146,28 @@ func reciprocalRankFusion(lists [][]rrfCandidate, k int) []RetrievedChunk {
 		}
 	}
 
-	out := make([]RetrievedChunk, 0, len(order))
+	out := make([]fusedCandidate, 0, len(order))
 	for _, id := range order {
 		b := buckets[id]
-		chunk := RetrievedChunk{
-			ChunkID:    b.id,
-			DocumentID: b.id,
-			Path:       b.path,
-			Score:      b.score,
-			Text:       b.content,
-			Title:      b.title,
-			Summary:    b.summary,
-		}
-		if b.haveBM25Rank {
-			chunk.BM25Rank = b.bm25Rank
-		}
-		if b.haveVectorSim {
-			chunk.VectorSimilarity = b.vectorSimilarity
-		}
-		out = append(out, chunk)
+		out = append(out, fusedCandidate{
+			id:               b.id,
+			path:             b.path,
+			title:            b.title,
+			summary:          b.summary,
+			content:          b.content,
+			bm25Rank:         b.bm25Rank,
+			haveBM25Rank:     b.haveBM25Rank,
+			vectorSimilarity: b.vectorSimilarity,
+			haveVectorSim:    b.haveVectorSim,
+			score:            b.score,
+		})
 	}
 
 	sort.SliceStable(out, func(i, j int) bool {
-		if out[i].Score != out[j].Score {
-			return out[i].Score > out[j].Score
+		if out[i].score != out[j].score {
+			return out[i].score > out[j].score
 		}
-		return out[i].Path < out[j].Path
+		return out[i].path < out[j].path
 	})
 	return out
 }

@@ -219,6 +219,24 @@ def test_bm25_finds_by_content(idx: Index) -> None:
     assert hits[0].path == "wiki/networking.md"
 
 
+def test_bm25_finds_frontmatter_dates_via_indexed_date_tags(idx: Index) -> None:
+    idx.upsert_chunks(
+        [
+            _chunk(
+                "memory/global/weekly-note.md",
+                "Met the supplier and agreed the timeline.",
+                title="Weekly note",
+                scope="global_memory",
+                session_date="2024/03/08 (Fri) 10:00",
+            )
+        ]
+    )
+
+    hits = idx.search_bm25('"2024/03/08"', top_k=5)
+    assert hits
+    assert hits[0].path == "memory/global/weekly-note.md"
+
+
 def test_bm25_ranks_title_hits_first(idx: Index) -> None:
     idx.upsert_chunks(
         [
@@ -311,6 +329,37 @@ def test_bm25_scope_filter(idx: Index) -> None:
     assert [hit.path for hit in wiki_hits] == ["wiki/terraform.md"]
 
 
+def test_bm25_memory_scope_alias_matches_global_and_project(idx: Index) -> None:
+    idx.upsert_chunks(
+        [
+            _chunk(
+                "memory/global/user.md",
+                "Alex likes coffee.",
+                title="User note",
+                scope="global_memory",
+            ),
+            _chunk(
+                "memory/project/brain/plan.md",
+                "Project coffee budget.",
+                title="Project note",
+                scope="project_memory",
+                project_slug="brain",
+            ),
+            _chunk(
+                "wiki/coffee.md",
+                "Coffee guide.",
+                title="Coffee wiki",
+                scope="wiki",
+            ),
+        ]
+    )
+    hits = idx.search_bm25("coffee", opts=SearchOpts(filters={"scope": "memory"}))
+    assert {hit.path for hit in hits} == {
+        "memory/global/user.md",
+        "memory/project/brain/plan.md",
+    }
+
+
 def test_bm25_project_slug_filter(idx: Index) -> None:
     idx.upsert_chunks(
         [
@@ -400,6 +449,30 @@ def test_bm25_document_id_is_populated(idx: Index) -> None:
     assert hits
     assert hits[0].document_id == "wiki/x.md"
     assert hits[0].chunk_id == "wiki/x.md#0"
+
+
+def test_bm25_hit_carries_body_and_metadata(idx: Index) -> None:
+    idx.upsert_chunks(
+        [
+            Chunk(
+                id="raw/lme/s1.md#0",
+                document_id="raw/lme/s1.md",
+                path="raw/lme/s1.md",
+                text="---\nsession_id: sess-1\nsession_date: 2024-03-08\n---\n[user]: bought apples",
+                metadata={
+                    "title": "session 1",
+                    "scope": "raw_lme",
+                    "session_id": "sess-1",
+                    "session_date": "2024-03-08",
+                },
+            )
+        ]
+    )
+    hits = idx.search_bm25("apples")
+    assert hits
+    assert "bought apples" in hits[0].content
+    assert hits[0].metadata["session_id"] == "sess-1"
+    assert hits[0].metadata["session_date"] == "2024-03-08"
 
 
 # --------------------------------------------------------------------------- #
@@ -643,6 +716,24 @@ def test_rebuild_clears_existing_state(idx: Index) -> None:
     assert idx.chunk_count() == 1
     hits = idx.search_bm25("fresh")
     assert [h.path for h in hits] == ["wiki/y.md"]
+
+
+def test_rebuild_preserves_raw_lme_session_headers(idx: Index) -> None:
+    files = {
+        "raw/lme/session-1.md": (
+            b"---\n"
+            b"session_id: sess-1\n"
+            b"session_date: 2024-03-08\n"
+            b"---\n"
+            b"[user]: I bought apples.\n"
+        ),
+    }
+    idx.rebuild(_FakeStore(files))
+    hits = idx.search_bm25("apples")
+    assert hits
+    assert "session_id: sess-1" in hits[0].content
+    assert hits[0].metadata["session_id"] == "sess-1"
+    assert hits[0].metadata["session_date"] == "2024-03-08"
 
 
 # --------------------------------------------------------------------------- #

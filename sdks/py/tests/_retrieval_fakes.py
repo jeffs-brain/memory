@@ -87,6 +87,7 @@ class FakeSource:
         self.chunks_data: list[FakeChunk] = list(chunks)
         self.bm25_fail: Exception | None = None
         self.vector_fail: Exception | None = None
+        self.bm25_calls: list[str] = []
         # Signature: (expr) -> (hits, override) — when override is True
         # the returned list replaces the computed BM25 list for that
         # call. Used by retry-ladder tests to force zero hits.
@@ -95,6 +96,7 @@ class FakeSource:
     async def search_bm25(
         self, expr: str, k: int, filters: Filters
     ) -> list[BM25Hit]:
+        self.bm25_calls.append(expr)
         if self.bm25_fail is not None:
             raise self.bm25_fail
         if self.bm25_override is not None:

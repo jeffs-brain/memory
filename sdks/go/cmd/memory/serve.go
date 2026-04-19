@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 
 	"github.com/spf13/cobra"
@@ -19,16 +20,20 @@ import (
 // JB_ namespace from the rollout plan so callers can feed identical
 // env vars to both this binary and the TS SDK.
 const (
-	envHome      = "JB_HOME"
-	envAddr      = "JB_ADDR"
-	envAuthToken = "JB_AUTH_TOKEN"
+	envHome                  = "JB_HOME"
+	envAddr                  = "JB_ADDR"
+	envAuthToken             = "JB_AUTH_TOKEN"
+	envContextualise         = "JB_CONTEXTUALISE"
+	envContextualiseCacheDir = "JB_CONTEXTUALISE_CACHE_DIR"
 )
 
 func serveCmd() *cobra.Command {
 	var (
-		addr  string
-		root  string
-		token string
+		addr               string
+		root               string
+		token              string
+		contextualise      bool
+		contextualiseCache string
 	)
 	cmd := &cobra.Command{
 		Use:   "serve",
@@ -41,6 +46,20 @@ func serveCmd() *cobra.Command {
 			}
 			if token == "" {
 				token = os.Getenv(envAuthToken)
+			}
+			if cmd.Flags().Changed("contextualise") {
+				if contextualise {
+					_ = os.Setenv(envContextualise, "1")
+				} else {
+					_ = os.Unsetenv(envContextualise)
+				}
+			}
+			if cmd.Flags().Changed("contextualise-cache-dir") {
+				if strings.TrimSpace(contextualiseCache) == "" {
+					_ = os.Unsetenv(envContextualiseCacheDir)
+				} else {
+					_ = os.Setenv(envContextualiseCacheDir, contextualiseCache)
+				}
 			}
 			log := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 
@@ -72,6 +91,8 @@ func serveCmd() *cobra.Command {
 	cmd.Flags().StringVar(&addr, "addr", defaultAddr, "address to bind (host:port)")
 	cmd.Flags().StringVar(&root, "root", "", "JB_HOME directory (default $JB_HOME or ~/.jeffs-brain)")
 	cmd.Flags().StringVar(&token, "auth-token", "", "shared bearer token (default $JB_AUTH_TOKEN, optional)")
+	cmd.Flags().BoolVar(&contextualise, "contextualise", false, "Enable live extraction contextualisation so extracted facts carry a situating prefix.")
+	cmd.Flags().StringVar(&contextualiseCache, "contextualise-cache-dir", "", "Optional cache directory for live extraction contextualisation.")
 	return cmd
 }
 

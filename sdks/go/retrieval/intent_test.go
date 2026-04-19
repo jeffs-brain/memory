@@ -2,7 +2,10 @@
 
 package retrieval
 
-import "testing"
+import (
+	"math"
+	"testing"
+)
 
 func TestDetectRetrievalIntent_Preference(t *testing.T) {
 	t.Parallel()
@@ -44,6 +47,8 @@ func TestDetectRetrievalIntent_ConcreteFact(t *testing.T) {
 		{"was I booked for dinner", true},
 		{"were I the one who ordered", true},
 		{"did i travelled to bosch yesterday", true},
+		{"How long is my daily commute to work?", true},
+		{"What specific languages did you recommend for learning back-end programming?", true},
 		{"recommend a flat white", false},
 		{"non english text abc xyz", false},
 	}
@@ -130,9 +135,22 @@ func TestConcreteFactMultiplier_UserFactPath(t *testing.T) {
 		Text: "no date tag",
 	}
 	text := retrievalResultText(r)
-	got := concreteFactIntentMultiplier(r, text)
+	got := concreteFactIntentMultiplier("What specific fact is this?", r, text)
 	if got != 2.2 {
 		t.Fatalf("user-fact multiplier %v, want 2.2", got)
+	}
+}
+
+func TestConcreteFactMultiplier_QuestionLikeUserFactPenalty(t *testing.T) {
+	t.Parallel()
+	r := RetrievedChunk{
+		Path: "memory/global/user-fact-commute-question.md",
+		Text: "What are some tips for staying awake during morning commutes?",
+	}
+	text := retrievalResultText(r)
+	got := concreteFactIntentMultiplier("How long is my daily commute to work?", r, text)
+	if math.Abs(got-0.99) > 1e-9 {
+		t.Fatalf("question-like user-fact multiplier %v, want 0.99", got)
 	}
 }
 
@@ -143,7 +161,7 @@ func TestConcreteFactMultiplier_RollupPenalty(t *testing.T) {
 		Text: "summary recap overview totalling monthly figures",
 	}
 	text := retrievalResultText(r)
-	got := concreteFactIntentMultiplier(r, text)
+	got := concreteFactIntentMultiplier("What is the total amount I spent?", r, text)
 	// Neither user-fact path nor atomic event with no date tag
 	// guarded by !isRollUp -> concrete-fact false; isRollUp true.
 	if got != 0.45 {
@@ -158,9 +176,35 @@ func TestConcreteFactMultiplier_ComposedWithGenericPenalty(t *testing.T) {
 		Text: "general guide and tips",
 	}
 	text := retrievalResultText(r)
-	got := concreteFactIntentMultiplier(r, text)
+	got := concreteFactIntentMultiplier("What is the total amount I spent?", r, text)
 	if got != 0.75 {
 		t.Fatalf("generic non-global multiplier %v, want 0.75", got)
+	}
+}
+
+func TestConcreteFactMultiplier_BoostsExplicitDateForActionDateQuery(t *testing.T) {
+	t.Parallel()
+	r := RetrievedChunk{
+		Path: "memory/global/user-fact-acl-date.md",
+		Text: "I'm reviewing for ACL, and their submission date was February 1st.",
+	}
+	text := retrievalResultText(r)
+	got := concreteFactIntentMultiplier("When did I submit my research paper on sentiment analysis?", r, text)
+	if math.Abs(got-3.19) > 1e-9 {
+		t.Fatalf("explicit-date multiplier %v, want 3.19", got)
+	}
+}
+
+func TestConcreteFactMultiplier_PenalisesMeasurementlessDurationNotes(t *testing.T) {
+	t.Parallel()
+	r := RetrievedChunk{
+		Path: "memory/global/user-commute-summary.md",
+		Text: "The user has been driving their car to work every day since mid-January.",
+	}
+	text := retrievalResultText(r)
+	got := concreteFactIntentMultiplier("How long is my daily commute to work?", r, text)
+	if math.Abs(got-0.72) > 1e-9 {
+		t.Fatalf("measurementless duration multiplier %v, want 0.72", got)
 	}
 }
 

@@ -15,7 +15,19 @@ import type { BM25Result, VectorResult } from '../search/reader.js'
  * is supplied, otherwise falls back to BM25 only. The explicit modes
  * force a specific shape regardless of what is available.
  */
-export type HybridMode = 'auto' | 'bm25' | 'semantic' | 'hybrid'
+export type HybridMode = 'auto' | 'bm25' | 'semantic' | 'hybrid' | 'hybrid-rerank'
+
+/**
+ * Filters narrow retrieval to a subset of the corpus. Empty fields are
+ * treated as no filter. `pathPrefix` is inclusive of the exact prefix;
+ * `tags` require every listed tag to be present on the chunk.
+ */
+export type RetrievalFilters = {
+  readonly pathPrefix?: string
+  readonly tags?: readonly string[]
+  readonly scope?: string
+  readonly project?: string
+}
 
 /**
  * Retrieval request parameters. `topK` is the final result count; every
@@ -24,6 +36,10 @@ export type HybridMode = 'auto' | 'bm25' | 'semantic' | 'hybrid'
 export type RetrievalRequest = {
   /** The raw user query string (unsanitised, normalised downstream). */
   query: string
+  /** Optional question-date anchor used for temporal augmentation. */
+  questionDate?: string
+  /** Optional corpus filters applied to BM25 and vector candidates. */
+  filters?: RetrievalFilters
   /** Final result count (default 10). */
   topK?: number
   /** Per-retriever candidate slate size before fusion (default 60). */
@@ -52,6 +68,7 @@ export type RetrievalResult = {
   readonly title: string
   readonly summary: string
   readonly content: string
+  readonly metadata?: Record<string, unknown>
   readonly score: number
   readonly bm25Rank?: number
   readonly vectorSimilarity?: number
@@ -67,6 +84,7 @@ export type HybridTrace = {
   mode: HybridMode
   originalQuery: string
   compiledQuery: string
+  bm25Queries: readonly string[]
   candidateK: number
   rrfK: number
   bm25Elapsed: number
@@ -80,6 +98,8 @@ export type HybridTrace = {
   fellBackToBM25: boolean
   embedderUsed: boolean
   reranked: boolean
+  temporalAugmented: boolean
+  filtersApplied: boolean
   rerankSkippedReason?: 'unanimity' | 'no_reranker' | 'empty_candidates' | 'mode_off'
   rerankProvider?: string
   attempts: readonly RetryAttempt[]

@@ -23,6 +23,7 @@ import httpx
 import pytest
 import uvicorn
 
+from jeffs_brain_memory import retrieval
 from jeffs_brain_memory.http import Daemon, create_app
 from jeffs_brain_memory.llm import FakeEmbedder, FakeProvider
 
@@ -161,6 +162,110 @@ def test_serve_search_real(tmp_path) -> None:
             assert any(p.startswith("raw/documents/") for p in paths)
 
 
+def test_serve_search_filters_and_memory_scope_alias_on_fallback(tmp_path) -> None:
+    async def build() -> Daemon:
+        return await Daemon.create(
+            root=tmp_path,
+            llm=FakeProvider(["ok"]),
+        )
+
+    daemon = asyncio.run(build())
+    app = create_app(daemon=daemon)
+    with _run_app(app) as base_url:
+        with httpx.Client(base_url=base_url, timeout=5.0) as client:
+            _must_create_brain(client, "searchfilters")
+            for path, body in {
+                "memory/global/coffee.md": (
+                    b"---\nname: Coffee\n"
+                    b"tags:\n- drink\n---\nAlex likes coffee.\n"
+                ),
+                "memory/project/brain/coffee.md": (
+                    b"---\nname: Brain coffee\n"
+                    b"tags:\n- drink\n---\nProject coffee budget.\n"
+                ),
+                "wiki/coffee.md": b"---\ntitle: Coffee\n---\nCoffee wiki.\n",
+            }.items():
+                resp = client.put(
+                    f"/v1/brains/searchfilters/documents?path={path}",
+                    content=body,
+                    headers={"Content-Type": "text/markdown"},
+                )
+                assert resp.status_code == 204, resp.text
+
+            br = asyncio.run(daemon.brains.get("searchfilters"))
+
+            class _EmptyRetriever:
+                async def retrieve(self, _req):
+                    return retrieval.Response(trace=retrieval.Trace())
+
+            br.retriever = _EmptyRetriever()  # type: ignore[assignment]
+
+            search = client.post(
+                "/v1/brains/searchfilters/search",
+                json={
+                    "query": "coffee",
+                    "topK": 10,
+                    "filters": {
+                        "scope": "memory",
+                        "pathPrefix": "memory/project/",
+                        "tags": ["drink"],
+                    },
+                },
+            )
+            assert search.status_code == 200, search.text
+            chunks = search.json().get("chunks", [])
+            assert [chunk["path"] for chunk in chunks] == [
+                "memory/project/brain/coffee.md"
+            ]
+    asyncio.run(daemon.close())
+
+
+def test_serve_search_temporal_fallback_uses_question_date(tmp_path) -> None:
+    async def build() -> Daemon:
+        return await Daemon.create(
+            root=tmp_path,
+            llm=FakeProvider(["ok"]),
+        )
+
+    daemon = asyncio.run(build())
+    app = create_app(daemon=daemon)
+    with _run_app(app) as base_url:
+        with httpx.Client(base_url=base_url, timeout=5.0) as client:
+            _must_create_brain(client, "searchtemporal")
+            resp = client.put(
+                "/v1/brains/searchtemporal/documents?path=raw/lme/session-1.md",
+                content=(
+                    b"---\nsession_id: s1\nsession_date: 2024-03-08\n---\n"
+                    b"The user bought apples on 2024/03/08.\n"
+                ),
+                headers={"Content-Type": "text/markdown"},
+            )
+            assert resp.status_code == 204, resp.text
+
+            br = asyncio.run(daemon.brains.get("searchtemporal"))
+
+            class _EmptyRetriever:
+                async def retrieve(self, _req):
+                    return retrieval.Response(trace=retrieval.Trace())
+
+            br.retriever = _EmptyRetriever()  # type: ignore[assignment]
+
+            search = client.post(
+                "/v1/brains/searchtemporal/search",
+                json={
+                    "query": "What did the user buy last Friday?",
+                    "questionDate": "2024/03/13 (Wed) 10:00",
+                    "topK": 5,
+                },
+            )
+            assert search.status_code == 200, search.text
+            chunks = search.json().get("chunks", [])
+            assert chunks, "expected temporal fallback hit"
+            assert chunks[0]["path"] == "raw/lme/session-1.md"
+            assert "2024/03/08" in chunks[0]["text"]
+    asyncio.run(daemon.close())
+
+
 # -- 3. Ask citations reference the retrieved chunk ------------------------
 
 
@@ -225,6 +330,104 @@ def test_serve_ask_citations(tmp_path) -> None:
     asyncio.run(daemon.close())
 
 
+def test_serve_search_forwards_candidate_knobs(tmp_path) -> None:
+    async def build() -> Daemon:
+        return await Daemon.create(
+            root=tmp_path,
+            llm=FakeProvider(["ok"]),
+        )
+
+    daemon = asyncio.run(build())
+    app = create_app(daemon=daemon)
+    with _run_app(app) as base_url:
+        with httpx.Client(base_url=base_url, timeout=5.0) as client:
+            _must_create_brain(client, "searchknobs")
+            br = asyncio.run(daemon.brains.get("searchknobs"))
+            captured: dict[str, retrieval.Request] = {}
+
+            class _CapturingRetriever:
+                async def retrieve(self, req: retrieval.Request) -> retrieval.Response:
+                    captured["req"] = req
+                    return retrieval.Response(trace=retrieval.Trace())
+
+            br.retriever = _CapturingRetriever()  # type: ignore[assignment]
+
+            resp = client.post(
+                "/v1/brains/searchknobs/search",
+                json={
+                    "query": "apples",
+                    "topK": 3,
+                    "candidateK": 80,
+                    "rerankTopN": 40,
+                    "mode": "hybrid-rerank",
+                },
+            )
+            assert resp.status_code == 200, resp.text
+            assert captured["req"].candidate_k == 80
+            assert captured["req"].rerank_top_n == 40
+    asyncio.run(daemon.close())
+
+
+def test_serve_ask_forwards_candidate_knobs(tmp_path) -> None:
+    async def build() -> Daemon:
+        return await Daemon.create(
+            root=tmp_path,
+            llm=FakeProvider(["ok"]),
+        )
+
+    daemon = asyncio.run(build())
+    app = create_app(daemon=daemon)
+    with _run_app(app) as base_url:
+        with httpx.Client(base_url=base_url, timeout=5.0) as client:
+            _must_create_brain(client, "askknobs")
+            br = asyncio.run(daemon.brains.get("askknobs"))
+            captured: dict[str, retrieval.Request] = {}
+
+            class _CapturingRetriever:
+                async def retrieve(self, req: retrieval.Request) -> retrieval.Response:
+                    captured["req"] = req
+                    return retrieval.Response(
+                        chunks=[
+                            retrieval.RetrievedChunk(
+                                chunk_id="chunk-1",
+                                document_id="doc-1",
+                                path="raw/documents/note.md",
+                                score=1.0,
+                                text="A note about apples.",
+                                title="note",
+                                summary="",
+                            )
+                        ],
+                        trace=retrieval.Trace(),
+                    )
+
+            br.retriever = _CapturingRetriever()  # type: ignore[assignment]
+
+            with httpx.stream(
+                "POST",
+                f"{base_url}/v1/brains/askknobs/ask",
+                json={
+                    "question": "what about apples",
+                    "topK": 3,
+                    "candidateK": 80,
+                    "rerankTopN": 40,
+                    "mode": "hybrid-rerank",
+                },
+                headers={"Accept": "text/event-stream"},
+                timeout=httpx.Timeout(5.0),
+            ) as stream:
+                assert stream.status_code == 200
+                for line in stream.iter_lines():
+                    if line == "" or line == "data: {\"ok\": true}":
+                        continue
+                    if line.startswith("event: done"):
+                        break
+
+            assert captured["req"].candidate_k == 80
+            assert captured["req"].rerank_top_n == 40
+    asyncio.run(daemon.close())
+
+
 # -- 4. Extract returns structured memories --------------------------------
 
 
@@ -271,6 +474,64 @@ def test_serve_extract_returns_memories(tmp_path) -> None:
             memories = resp.json().get("memories", [])
             assert memories and memories[0]["filename"] == "user_snacks.md"
             assert memories[0]["scope"] == "global"
+    asyncio.run(daemon.close())
+
+
+def test_serve_extract_applies_contextual_prefix_and_session_fields(tmp_path) -> None:
+    async def build() -> Daemon:
+        return await Daemon.create(
+            root=tmp_path,
+            llm=FakeProvider(
+                [
+                    json.dumps(
+                        {
+                            "memories": [
+                                {
+                                    "action": "create",
+                                    "filename": "bike_status.md",
+                                    "name": "Bike status",
+                                    "description": "Latest bike colour",
+                                    "type": "project",
+                                    "scope": "project",
+                                    "content": "The bike is blue now.",
+                                    "index_entry": "Bike status",
+                                }
+                            ]
+                        }
+                    ),
+                    "The session was a bike-status update in February, and this fact records the latest confirmed colour.",
+                ]
+            ),
+            contextualise=True,
+            contextualise_cache_dir=str(tmp_path / "ctx-cache"),
+        )
+
+    daemon = asyncio.run(build())
+    app = create_app(daemon=daemon)
+    with _run_app(app) as base_url:
+        with httpx.Client(base_url=base_url, timeout=5.0) as client:
+            _must_create_brain(client, "extractctx")
+            resp = client.post(
+                "/v1/brains/extractctx/extract",
+                json={
+                    "project": "",
+                    "sessionId": "session-42",
+                    "sessionDate": "2024/02/20 (Tue) 09:15",
+                    "messages": [
+                        {
+                            "role": "system",
+                            "content": "Session on 2024-02-20 about the bike status.",
+                        },
+                        {"role": "user", "content": "The bike is blue now."},
+                    ],
+                },
+            )
+            assert resp.status_code == 200, resp.text
+            memories = resp.json().get("memories", [])
+            assert memories
+            assert memories[0]["sessionId"] == "session-42"
+            assert memories[0]["sessionDate"] == "2024/02/20 (Tue) 09:15"
+            assert "bike-status update" in memories[0]["contextPrefix"]
     asyncio.run(daemon.close())
 
 

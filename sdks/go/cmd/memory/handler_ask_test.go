@@ -3,6 +3,7 @@
 package main
 
 import (
+	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -88,7 +89,8 @@ func TestBuildAskCompleteRequest_AugmentedInjectsLMEGuidance(t *testing.T) {
 		"Answer (step by step):",
 		"Ran 5km on Tuesday.",
 		"Ran 8km on Friday.",
-		"### Morning run (memory/global/run.md)",
+		"Retrieved facts (2):",
+		"[run]",
 	}
 	for _, want := range wantPhrases {
 		if !strings.Contains(body, want) {
@@ -105,10 +107,8 @@ func TestBuildAskCompleteRequest_AugmentedInjectsLMEGuidance(t *testing.T) {
 	}
 }
 
-// TestBuildAskCompleteRequest_AugmentedSessionAware verifies that when
-// chunks carry session_id frontmatter the augmented builder pipes them
-// through the lme session-block preprocessor instead of the markdown
-// title/path framing.
+// TestBuildAskCompleteRequest_AugmentedSessionAware verifies that the
+// augmented builder uses the shared numbered/date-tagged renderer.
 func TestBuildAskCompleteRequest_AugmentedSessionAware(t *testing.T) {
 	chunkA := "---\nsession_id: s1\nsession_date: 2024-01-10\n---\n[user]: I bought a red bike.\n"
 	chunkB := "---\nsession_id: s2\nsession_date: 2024-02-20\n---\n[user]: Actually the bike is blue now.\n"
@@ -124,19 +124,19 @@ func TestBuildAskCompleteRequest_AugmentedSessionAware(t *testing.T) {
 	got := buildAskCompleteRequest(req, chunks)
 	body := got.Messages[0].Content
 
-	// Sessions must be sorted chronologically in the rendered prompt.
-	posJan := strings.Index(body, "2024-01-10")
-	posFeb := strings.Index(body, "2024-02-20")
-	if posJan < 0 || posFeb < 0 {
-		t.Fatalf("augmented prompt missing session date headers:\n%s", body)
+	if !strings.Contains(body, "Retrieved facts (2):") {
+		t.Fatalf("augmented prompt missing numbered retrieval header:\n%s", body)
 	}
-	if posJan > posFeb {
-		t.Errorf("session-aware augmented prompt should sort chronologically; jan@%d feb@%d", posJan, posFeb)
+	first := strings.Index(body, "[session=s2]")
+	second := strings.Index(body, "[session=s1]")
+	if first < 0 || second < 0 {
+		t.Fatalf("augmented prompt missing session labels:\n%s", body)
 	}
-	// The markdown framing should NOT be used when session blocks are
-	// detected; that is the whole point of the session-aware path.
-	if strings.Contains(body, "### ") && strings.Contains(body, "(raw/lme/") {
-		t.Errorf("session-aware augmented prompt should not use ### title (path) framing:\n%s", body)
+	if first > second {
+		t.Errorf("session-aware augmented prompt should place the newer raw session first; s2@%d s1@%d", first, second)
+	}
+	if strings.Contains(body, "### ") {
+		t.Errorf("session-aware augmented prompt should not use markdown title/path framing:\n%s", body)
 	}
 }
 
@@ -177,5 +177,63 @@ func TestBuildAskCompleteRequest_AugmentedNoChunksOmitsSessionPath(t *testing.T)
 	body := got.Messages[0].Content
 	if !strings.Contains(body, "Question: Anything to say?") {
 		t.Errorf("augmented prompt missing question even when no chunks supplied:\n%s", body)
+	}
+}
+
+func TestRetrieveForAsk_PassesCandidateKnobsToRetriever(t *testing.T) {
+	t.Parallel()
+
+	retr := &captureRetriever{}
+	br := &BrainResources{
+		ID:        "eval-lme",
+		Retriever: retr,
+	}
+	req := askRequest{
+		Question:     "Where is the bike?",
+		QuestionDate: "2024/03/13 (Wed) 10:00",
+		TopK:         5,
+		CandidateK:   80,
+		RerankTopN:   40,
+		Mode:         string(retrieval.ModeHybridRerank),
+	}
+
+	chunks := (&Daemon{}).retrieveForAsk(httptest.NewRequest("POST", "/ask", nil), br, req)
+
+	if len(chunks) != 1 {
+		t.Fatalf("chunks = %d, want 1", len(chunks))
+	}
+	if retr.req.CandidateK != req.CandidateK {
+		t.Fatalf("CandidateK = %d, want %d", retr.req.CandidateK, req.CandidateK)
+	}
+	if retr.req.RerankTopN != req.RerankTopN {
+		t.Fatalf("RerankTopN = %d, want %d", retr.req.RerankTopN, req.RerankTopN)
+	}
+}
+
+func TestRetrieveForAsk_FallbackHydratesFullBodyAndMetadata(t *testing.T) {
+	t.Parallel()
+
+	br := setupFallbackSearchBrain(t, "raw/lme/session.md", "---\nsession_id: s1\nsession_date: 2024/03/08\n---\n[user]: I bought a red bike.\n")
+
+	chunks := (&Daemon{}).retrieveForAsk(
+		httptest.NewRequest("POST", "/ask", nil),
+		br,
+		askRequest{Question: "bike", TopK: 5},
+	)
+
+	if len(chunks) == 0 {
+		t.Fatal("expected fallback ask hit")
+	}
+	if strings.Contains(chunks[0].Text, "session_id:") {
+		t.Fatalf("fallback ask chunk leaked frontmatter:\n%s", chunks[0].Text)
+	}
+	if chunks[0].Text != "[user]: I bought a red bike." {
+		t.Fatalf("chunk text = %q, want stripped full body", chunks[0].Text)
+	}
+	if got := chunks[0].Metadata["session_id"]; got != "s1" {
+		t.Fatalf("session_id = %#v, want s1", got)
+	}
+	if got := chunks[0].Metadata["session_date"]; got != "2024/03/08" {
+		t.Fatalf("session_date = %#v, want 2024/03/08", got)
 	}
 }

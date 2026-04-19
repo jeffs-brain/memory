@@ -24,6 +24,10 @@ ENUMERATION_OR_TOTAL_QUERY_RE = re.compile(
     r"\b(?:how many|count|total|in total|sum|add up|list|what are all)\b",
     re.IGNORECASE,
 )
+PROPERTY_LOOKUP_QUERY_RE = re.compile(
+    r"\b(?:how long is my|what specific|which specific|what exact|which exact)\b",
+    re.IGNORECASE,
+)
 FIRST_PERSON_FACT_LOOKUP_RE = re.compile(
     r"\b(?:did i|have i|was i|were i)\b",
     re.IGNORECASE,
@@ -49,6 +53,10 @@ ATOMIC_EVENT_NOTE_RE = re.compile(
     re.IGNORECASE,
 )
 DATE_TAG_RE = re.compile(r"\[(?:date|observed on):", re.IGNORECASE)
+QUESTION_LIKE_NOTE_RE = re.compile(
+    r"(?:^|\n)(?:what\s+(?:are|is|should|could)|which\s+(?:should|would)|how\s+(?:can|should|could|long)|can\s+you|could\s+you|should\s+i|would\s+you|when\s+did|where\s+(?:can|should)|why\s+(?:is|does|did))\b",
+    re.IGNORECASE,
+)
 
 
 @dataclass(slots=True)
@@ -77,6 +85,8 @@ def detect_retrieval_intent(query: str) -> RetrievalIntent:
     return RetrievalIntent(
         preference_query=bool(PREFERENCE_QUERY_RE.search(normalised)),
         concrete_fact_query=(
+            bool(PROPERTY_LOOKUP_QUERY_RE.search(normalised))
+            or
             bool(ENUMERATION_OR_TOTAL_QUERY_RE.search(normalised))
             or (
                 bool(FIRST_PERSON_FACT_LOOKUP_RE.search(normalised))
@@ -110,6 +120,9 @@ def preference_intent_multiplier(r: RetrievedChunk, text: str) -> float:
 def concrete_fact_intent_multiplier(r: RetrievedChunk, text: str) -> float:
     path = r.path.lower()
     is_rollup = bool(ROLLUP_NOTE_RE.search(text))
+    is_question_like_note = bool(QUESTION_LIKE_NOTE_RE.search(text)) and bool(
+        GENERIC_NOTE_RE.search(text)
+    )
     is_concrete_fact = (
         "user-fact-" in path
         or "milestone-" in path
@@ -122,6 +135,8 @@ def concrete_fact_intent_multiplier(r: RetrievedChunk, text: str) -> float:
     multiplier = 1.0
     if is_concrete_fact:
         multiplier *= 2.2
+    if is_question_like_note:
+        multiplier *= 0.45
     if is_rollup:
         multiplier *= 0.45
     if (

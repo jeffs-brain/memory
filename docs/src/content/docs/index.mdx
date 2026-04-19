@@ -18,6 +18,8 @@ import { Tabs, TabItem, Card, CardGrid } from '@astrojs/starlight/components'
 
 `jeffs-brain/memory` is a cross-language memory library for LLM agents, driven by a shared HTTP and storage specification so every SDK behaves the same. Local-first, hosted-optional, Apache-2.0.
 
+Cross-SDK eval parity today is the shared daemon surface in three scenarios: `ask-basic`, `ask-augmented`, and `search-retrieve-only`. The shared runner defaults retrieval mode to `auto`, so each daemon resolves it locally. Full LongMemEval replay and agentic runs stay in the native SDK runners.
+
 ## Quick install
 
 <Tabs>
@@ -80,5 +82,5 @@ That registers a stdio MCP server with Claude Code. The same package works with 
 | TypeScript | `@jeffs-brain/memory-mcp`      | v0.0.1 (pre-publish)   |
 | TypeScript | `@jeffs-brain/memory-postgres` | v0.0.1 (pre-publish)   |
 | TypeScript | `@jeffs-brain/memory-openfga`  | v0.0.1 (pre-publish)   |
-| Go         | `github.com/jeffs-brain/memory/sdks/go` | Scaffold (Phase 3) |
-| Python     | `jeffs-brain-memory`           | Scaffold (Phase 4)     |
+| Go         | `github.com/jeffs-brain/memory/sdks/go` | CLI, daemon, MCP wrapper, native LME runner |
+| Python     | `jeffs-brain-memory`           | CLI, daemon, shared eval scenarios |

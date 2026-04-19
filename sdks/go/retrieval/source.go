@@ -54,6 +54,14 @@ type Source interface {
 	Chunks(ctx context.Context) ([]trigramChunk, error)
 }
 
+// BodyLookupSource is an optional extension implemented by sources
+// that can hydrate full indexed rows by logical identifier. Retrieval
+// uses it after fusion so BM25 and vector hits can both surface the
+// full indexed body rather than an FTS snippet.
+type BodyLookupSource interface {
+	Lookup(ctx context.Context, ids []string) ([]search.IndexedRow, error)
+}
+
 // compileToFTS is a lightweight wrapper around [search.BuildFTS5Expr]
 // applied to the output of [search.ParseQuery]. The retrieval layer
 // calls this before each BM25 leg so the expression is identical to

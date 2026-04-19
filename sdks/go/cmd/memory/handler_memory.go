@@ -3,6 +3,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"strings"
@@ -29,9 +30,11 @@ type recallRequest struct {
 }
 
 type extractRequest struct {
-	Project  string           `json:"project,omitempty"`
-	Model    string           `json:"model,omitempty"`
-	Messages []extractMsgWire `json:"messages"`
+	Project     string           `json:"project,omitempty"`
+	Model       string           `json:"model,omitempty"`
+	SessionID   string           `json:"sessionId,omitempty"`
+	SessionDate string           `json:"sessionDate,omitempty"`
+	Messages    []extractMsgWire `json:"messages"`
 }
 
 type extractMsgWire struct {
@@ -152,6 +155,14 @@ func (d *Daemon) handleExtract(w http.ResponseWriter, r *http.Request) {
 		httpd.InternalError(w, err.Error())
 		return
 	}
+	results = decorateExtractedMemories(
+		r.Context(),
+		d.Contextualiser,
+		memMsgs,
+		req.SessionID,
+		req.SessionDate,
+		results,
+	)
 	writeJSON(w, http.StatusOK, map[string]any{"memories": results})
 }
 
@@ -216,6 +227,59 @@ func wireMessagesToMemory(msgs []extractMsgWire) []memory.Message {
 		})
 	}
 	return out
+}
+
+func decorateExtractedMemories(
+	ctx context.Context,
+	contextualiser *memory.Contextualiser,
+	messages []memory.Message,
+	sessionID, sessionDate string,
+	extracted []memory.ExtractedMemory,
+) []memory.ExtractedMemory {
+	if len(extracted) == 0 {
+		return extracted
+	}
+	summary := extractSessionSummary(messages)
+	for i := range extracted {
+		if strings.TrimSpace(sessionID) != "" && extracted[i].SessionID == "" {
+			extracted[i].SessionID = sessionID
+		}
+		if strings.TrimSpace(sessionDate) != "" && extracted[i].SessionDate == "" {
+			extracted[i].SessionDate = sessionDate
+		}
+		if contextualiser == nil || extracted[i].ContextPrefix != "" {
+			continue
+		}
+		prefix := contextualiser.BuildPrefix(ctx, sessionID, summary, extracted[i].Content)
+		if prefix != "" {
+			extracted[i].ContextPrefix = prefix
+		}
+	}
+	return extracted
+}
+
+func extractSessionSummary(messages []memory.Message) string {
+	for _, m := range messages {
+		if m.Role == llm.RoleSystem && strings.TrimSpace(m.Content) != "" {
+			return truncateOneLine(m.Content, 240)
+		}
+	}
+	for _, m := range messages {
+		if m.Role == llm.RoleUser && strings.TrimSpace(m.Content) != "" {
+			return truncateOneLine(m.Content, 240)
+		}
+	}
+	return ""
+}
+
+func truncateOneLine(s string, n int) string {
+	s = strings.ReplaceAll(s, "\r\n", " ")
+	s = strings.ReplaceAll(s, "\n", " ")
+	s = strings.Join(strings.Fields(s), " ")
+	if n > 0 && len(s) > n {
+		s = s[:n] + "..."
+	}
+	return s
 }
 
 // buildRememberBody renders remember-note markdown with frontmatter

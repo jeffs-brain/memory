@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/jeffs-brain/memory/go/eval/lme"
 )
 
 // TestEvalLmeRunFlags_HelpAdvertisesNewFlags verifies the new flags show
@@ -25,7 +27,17 @@ func TestEvalLmeRunFlags_HelpAdvertisesNewFlags(t *testing.T) {
 		t.Fatalf("help: %v", err)
 	}
 	out := buf.String()
-	for _, flag := range []string{"--extract-only", "--brain-cache", "--actor-endpoint", "--actor-brain", "--replay-concurrency", "--concurrency"} {
+	for _, flag := range []string{
+		"--extract-only",
+		"--brain-cache",
+		"--actor-endpoint",
+		"--actor-brain",
+		"--actor-scope",
+		"--actor-project",
+		"--actor-path-prefix",
+		"--replay-concurrency",
+		"--concurrency",
+	} {
 		if !strings.Contains(out, flag) {
 			t.Errorf("help output missing flag %q", flag)
 		}
@@ -190,6 +202,68 @@ func TestEvalLmeRunFlags_ActorEndpointFlag(t *testing.T) {
 	}
 	if !hasError {
 		t.Fatal("expected at least one question to carry an error from the unreachable actor endpoint")
+	}
+}
+
+func TestEvalLmeRunFlags_ActorSettingsPersistedInManifest(t *testing.T) {
+	dir := t.TempDir()
+	dsPath := writeTinyDataset(t, filepath.Join(dir, "ds.json"))
+	outPath := filepath.Join(dir, "out.json")
+	manifestPath := filepath.Join(dir, "manifest.json")
+
+	cmd := rootCmd()
+	cmd.SetArgs([]string{
+		"eval", "lme", "run",
+		"--dataset", dsPath,
+		"--ingest-mode", "none",
+		"--actor-endpoint", "http://127.0.0.1:1",
+		"--actor-endpoint-style", "retrieve-only",
+		"--actor-brain", "eval-lme",
+		"--actor-topk", "40",
+		"--actor-candidatek", "120",
+		"--actor-rerank-topn", "80",
+		"--actor-scope", "project",
+		"--actor-project", "eval-lme",
+		"--actor-path-prefix", "memory/project/eval-lme/",
+		"--judge", "",
+		"--no-reader",
+		"--output", outPath,
+		"--manifest", manifestPath,
+	})
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+
+	manifest, err := lme.LoadManifest(manifestPath)
+	if err != nil {
+		t.Fatalf("load manifest: %v", err)
+	}
+	if manifest.ActorEndpointStyle != "retrieve-only" {
+		t.Fatalf("ActorEndpointStyle = %q, want retrieve-only", manifest.ActorEndpointStyle)
+	}
+	if manifest.ActorBrain != "eval-lme" {
+		t.Fatalf("ActorBrain = %q, want eval-lme", manifest.ActorBrain)
+	}
+	if manifest.ActorTopK == nil || *manifest.ActorTopK != 40 {
+		t.Fatalf("ActorTopK = %v, want 40", manifest.ActorTopK)
+	}
+	if manifest.ActorCandidateK == nil || *manifest.ActorCandidateK != 120 {
+		t.Fatalf("ActorCandidateK = %v, want 120", manifest.ActorCandidateK)
+	}
+	if manifest.ActorRerankTopN == nil || *manifest.ActorRerankTopN != 80 {
+		t.Fatalf("ActorRerankTopN = %v, want 80", manifest.ActorRerankTopN)
+	}
+	if manifest.ActorScope != "project" {
+		t.Fatalf("ActorScope = %q, want project", manifest.ActorScope)
+	}
+	if manifest.ActorProject != "eval-lme" {
+		t.Fatalf("ActorProject = %q, want eval-lme", manifest.ActorProject)
+	}
+	if manifest.ActorPathPrefix != "memory/project/eval-lme/" {
+		t.Fatalf("ActorPathPrefix = %q, want memory/project/eval-lme/", manifest.ActorPathPrefix)
 	}
 }
 

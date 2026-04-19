@@ -25,12 +25,8 @@ type TemporalExpansion struct {
 // The questionDate format is the LME form "2023/04/10 (Mon) 23:07" by
 // default; [parseQuestionDate] also accepts a handful of sibling formats.
 //
-// The expander is deliberately English-only and recognises exactly the
-// three patterns documented in spec/QUERY-DSL.md under "Temporal
-// expansion": relative time phrases ("N days/weeks/months ago"), last
-// weekday ("last Monday" etc), and ordering hints ("first", "most recent",
-// etc). Additional recognisers are a spec concern; do not add more here
-// without updating the spec first.
+// The expander is deliberately English-only and recognises the patterns
+// documented in spec/QUERY-DSL.md under "Temporal expansion".
 func ExpandTemporal(question, questionDate string) TemporalExpansion {
 	result := TemporalExpansion{
 		OriginalQuery: question,
@@ -48,6 +44,14 @@ func ExpandTemporal(question, questionDate string) TemporalExpansion {
 	question, resolved := resolveRelativeTime(question, anchor)
 	hints = append(hints, resolved...)
 
+	// Resolve "today" / "yesterday" patterns.
+	question, resolved = resolveRelativeDayWord(question, anchor)
+	hints = append(hints, resolved...)
+
+	// Resolve bare "last week" patterns.
+	question, resolved = resolveLastWeek(question, anchor)
+	hints = append(hints, resolved...)
+
 	// Resolve "last <weekday>" patterns.
 	question, resolved = resolveLastWeekday(question, anchor)
 	hints = append(hints, resolved...)
@@ -57,7 +61,7 @@ func ExpandTemporal(question, questionDate string) TemporalExpansion {
 
 	if len(hints) > 0 {
 		result.ExpandedQuery = question
-		result.DateHints = hints
+		result.DateHints = dedupeStrings(hints)
 		result.Resolved = true
 	}
 
@@ -90,7 +94,30 @@ func parseQuestionDate(s string) (time.Time, error) {
 // relativeTimePattern mirrors the RELATIVE_TIME_RE recogniser from the TS
 // reference. Matching is case-insensitive.
 var relativeTimePattern = regexp.MustCompile(
-	`(?i)(\d+)\s+(day|days|week|weeks|month|months)\s+ago`)
+	`(?i)\b(\d+|a|an|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\s+(day|days|week|weeks|month|months)\s+ago\b`)
+
+var relativeDayWordPattern = regexp.MustCompile(`(?i)\b(yesterday|today)\b`)
+
+var lastWeekPattern = regexp.MustCompile(`(?i)\blast\s+week\b`)
+
+var relativeTimeNumberWords = map[string]int{
+	"a": 1, "an": 1, "one": 1, "two": 2, "three": 3,
+	"four": 4, "five": 5, "six": 6, "seven": 7,
+	"eight": 8, "nine": 9, "ten": 10, "eleven": 11,
+	"twelve": 12,
+}
+
+func parseRelativeTimeCount(raw string) (int, bool) {
+	trimmed := strings.ToLower(strings.TrimSpace(raw))
+	if trimmed == "" {
+		return 0, false
+	}
+	if parsed, err := strconv.Atoi(trimmed); err == nil {
+		return parsed, true
+	}
+	value, ok := relativeTimeNumberWords[trimmed]
+	return value, ok
+}
 
 func resolveRelativeTime(question string, anchor time.Time) (string, []string) {
 	var hints []string
@@ -100,8 +127,8 @@ func resolveRelativeTime(question string, anchor time.Time) (string, []string) {
 		if len(parts) < 3 {
 			return match
 		}
-		n, err := strconv.Atoi(parts[1])
-		if err != nil {
+		n, ok := parseRelativeTimeCount(parts[1])
+		if !ok {
 			return match
 		}
 		unit := strings.ToLower(parts[2])
@@ -121,6 +148,43 @@ func resolveRelativeTime(question string, anchor time.Time) (string, []string) {
 		dateStr := resolved.Format("2006/01/02")
 		hints = append(hints, dateStr)
 		return fmt.Sprintf("%s (around %s)", match, dateStr)
+	})
+
+	return expanded, hints
+}
+
+func resolveRelativeDayWord(question string, anchor time.Time) (string, []string) {
+	var hints []string
+
+	expanded := relativeDayWordPattern.ReplaceAllStringFunc(question, func(match string) string {
+		lower := strings.ToLower(strings.TrimSpace(match))
+		resolved := anchor
+		switch lower {
+		case "yesterday":
+			resolved = anchor.AddDate(0, 0, -1)
+		case "today":
+			resolved = anchor
+		default:
+			return match
+		}
+		dateStr := resolved.Format("2006/01/02")
+		hints = append(hints, dateStr)
+		return fmt.Sprintf("%s (%s)", match, dateStr)
+	})
+
+	return expanded, hints
+}
+
+func resolveLastWeek(question string, anchor time.Time) (string, []string) {
+	var hints []string
+
+	expanded := lastWeekPattern.ReplaceAllStringFunc(question, func(match string) string {
+		start := anchor.AddDate(0, 0, -7)
+		end := anchor.AddDate(0, 0, -1)
+		for d := start; !d.After(end); d = d.AddDate(0, 0, 1) {
+			hints = append(hints, d.Format("2006/01/02"))
+		}
+		return fmt.Sprintf("%s (%s to %s)", match, start.Format("2006/01/02"), end.Format("2006/01/02"))
 	})
 
 	return expanded, hints
@@ -182,4 +246,18 @@ func annotateOrdering(question string) string {
 		return question + " [Note: look for the most recently dated event]"
 	}
 	return question
+}
+
+func dedupeStrings(values []string) []string {
+	seen := make(map[string]bool, len(values))
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		trimmed := strings.TrimSpace(value)
+		if trimmed == "" || seen[trimmed] {
+			continue
+		}
+		seen[trimmed] = true
+		out = append(out, trimmed)
+	}
+	return out
 }

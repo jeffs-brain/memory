@@ -7,8 +7,39 @@
  * pointing at the same shared brain).
  */
 
-import { describe, expect, it } from 'vitest'
-import { buildProvider } from './config.js'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import type {
+  CompletionResponse,
+  Provider,
+  StreamEvent,
+} from '../llm/index.js'
+import {
+  buildProvider,
+  buildReranker,
+  embedderFromEnv,
+  providerFromEnvOptional,
+  rerankerFromEnv,
+} from './config.js'
+
+afterEach(() => {
+  vi.unstubAllEnvs()
+})
+
+const makeStubProvider = (payload = '[{"id":0,"score":9},{"id":1,"score":1}]'): Provider => ({
+  name: () => 'stub',
+  modelName: () => 'stub-model',
+  async *stream(): AsyncIterable<StreamEvent> {
+    yield { type: 'done', stopReason: 'end_turn' }
+  },
+  complete: async (): Promise<CompletionResponse> => ({
+    content: payload,
+    toolCalls: [],
+    usage: { inputTokens: 0, outputTokens: 0 },
+    stopReason: 'end_turn',
+  }),
+  supportsStructuredDecoding: () => false,
+  structured: async () => payload,
+})
 
 describe('buildProvider', () => {
   it('forwards baseURL to the anthropic provider', () => {
@@ -94,5 +125,247 @@ describe('buildProvider / anthropic baseURL wiring', () => {
     } finally {
       globalThis.fetch = originalFetch
     }
+  })
+})
+
+describe('provider env inference', () => {
+  it('infers anthropic settings from fallback env vars', () => {
+    vi.stubEnv('ANTHROPIC_API_KEY', 'sk-ant')
+    vi.stubEnv('ANTHROPIC_BASE_URL', 'https://proxy.example.com/v1')
+    vi.stubEnv('JB_LLM_MODEL', 'claude-opus-4-5')
+
+    expect(providerFromEnvOptional()).toEqual({
+      kind: 'anthropic',
+      apiKey: 'sk-ant',
+      model: 'claude-opus-4-5',
+      baseURL: 'https://proxy.example.com/v1',
+    })
+  })
+
+  it('infers openai settings from fallback env vars', () => {
+    vi.stubEnv('OPENAI_API_KEY', 'sk-open')
+    vi.stubEnv('OPENAI_BASE_URL', 'https://proxy.example.com/v1')
+    vi.stubEnv('JB_LLM_MODEL', 'gpt-4o')
+
+    expect(providerFromEnvOptional()).toEqual({
+      kind: 'openai',
+      apiKey: 'sk-open',
+      model: 'gpt-4o',
+      baseURL: 'https://proxy.example.com/v1',
+    })
+  })
+})
+
+describe('embedder env inference', () => {
+  it('infers an openai embedder from fallback env vars', () => {
+    vi.stubEnv('OPENAI_API_KEY', 'sk-open')
+    vi.stubEnv('OPENAI_BASE_URL', 'https://proxy.example.com')
+    vi.stubEnv('JB_EMBED_MODEL', 'text-embedding-3-small')
+
+    expect(embedderFromEnv()).toEqual({
+      kind: 'openai',
+      apiKey: 'sk-open',
+      baseURL: 'https://proxy.example.com',
+      model: 'text-embedding-3-small',
+    })
+  })
+})
+
+describe('reranker config', () => {
+  it('parses llm reranker settings from the environment', () => {
+    vi.stubEnv('JB_RERANK_PROVIDER', 'llm')
+
+    expect(rerankerFromEnv()).toEqual({
+      kind: 'llm',
+      baseURL: 'http://localhost:8080',
+      label: 'llm-rerank',
+      batchSize: 5,
+      parallelism: 4,
+      concurrencyCap: 4,
+      preferHttp: false,
+    })
+  })
+
+  it('parses auto reranker settings from the environment', () => {
+    vi.stubEnv('JB_RERANK_PROVIDER', 'auto')
+    vi.stubEnv('JB_RERANK_BATCH_SIZE', '7')
+    vi.stubEnv('JB_RERANK_PARALLELISM', '2')
+    vi.stubEnv('JB_RERANK_CONCURRENCY', '3')
+
+    expect(rerankerFromEnv()).toEqual({
+      kind: 'auto',
+      baseURL: 'http://localhost:8080',
+      label: 'auto-rerank',
+      batchSize: 7,
+      parallelism: 2,
+      concurrencyCap: 3,
+      preferHttp: false,
+    })
+  })
+
+  it('treats http as an alias for the TEI reranker surface', () => {
+    vi.stubEnv('JB_RERANK_PROVIDER', 'http')
+
+    expect(rerankerFromEnv()).toEqual({
+      kind: 'http',
+      baseURL: 'http://localhost:8080',
+      label: 'cross-encoder',
+      batchSize: 5,
+      parallelism: 4,
+      concurrencyCap: 4,
+      preferHttp: true,
+    })
+  })
+
+  it('prefers TEI in auto mode when the health probe succeeds', async () => {
+    const provider = makeStubProvider()
+    const fetch = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
+      if (url.endsWith('/health')) {
+        return new Response('ok', { status: 200 })
+      }
+      if (url.endsWith('/rerank') && init?.method === 'POST') {
+        return new Response('[{"index":1,"score":9},{"index":0,"score":1}]', { status: 200 })
+      }
+      return new Response('missing', { status: 404 })
+    })
+
+    const reranker = buildReranker(
+      {
+        kind: 'auto',
+        baseURL: 'http://tei.example.com',
+        label: 'auto-rerank',
+        batchSize: 5,
+        parallelism: 1,
+        concurrencyCap: 1,
+        preferHttp: true,
+      },
+      {
+        provider,
+        http: { fetch },
+      },
+    )
+    const out = await reranker.rerank({
+      query: 'q',
+      documents: [
+        { id: 'a', text: 'alpha' },
+        { id: 'b', text: 'bravo' },
+      ],
+    })
+
+    expect(out.map((entry) => entry.id)).toEqual(['b', 'a'])
+    expect(fetch).toHaveBeenCalled()
+  })
+
+  it('falls back to the llm reranker in auto mode when TEI is unavailable', async () => {
+    const complete = vi.fn(async (): Promise<CompletionResponse> => ({
+      content: '[{"id":0,"score":9},{"id":1,"score":1}]',
+      toolCalls: [],
+      usage: { inputTokens: 0, outputTokens: 0 },
+      stopReason: 'end_turn',
+    }))
+    const provider: Provider = {
+      ...makeStubProvider(),
+      complete,
+    }
+    const fetch = vi.fn(async () => new Response('down', { status: 503 }))
+
+    const reranker = buildReranker(
+      {
+        kind: 'auto',
+        baseURL: 'http://tei.example.com',
+        label: 'auto-rerank',
+        batchSize: 5,
+        parallelism: 1,
+        concurrencyCap: 1,
+        preferHttp: true,
+      },
+      {
+        provider,
+        http: { fetch },
+      },
+    )
+    const out = await reranker.rerank({
+      query: 'q',
+      documents: [
+        { id: 'a', text: 'alpha' },
+        { id: 'b', text: 'bravo' },
+      ],
+    })
+
+    expect(out.map((entry) => entry.id)).toEqual(['a', 'b'])
+    expect(complete).toHaveBeenCalledTimes(1)
+  })
+
+  it('builds an llm reranker when explicitly requested', async () => {
+    const complete = vi.fn(async (): Promise<CompletionResponse> => ({
+      content: '[{"id":1,"score":9},{"id":0,"score":1}]',
+      toolCalls: [],
+      usage: { inputTokens: 0, outputTokens: 0 },
+      stopReason: 'end_turn',
+    }))
+    const provider: Provider = {
+      ...makeStubProvider(),
+      complete,
+    }
+
+    const reranker = buildReranker(
+      {
+        kind: 'llm',
+        baseURL: 'http://ignored.example.com',
+        label: 'llm-rerank',
+        batchSize: 5,
+        parallelism: 1,
+        concurrencyCap: 1,
+        preferHttp: false,
+      },
+      { provider },
+    )
+    const out = await reranker.rerank({
+      query: 'q',
+      documents: [
+        { id: 'a', text: 'alpha' },
+        { id: 'b', text: 'bravo' },
+      ],
+    })
+
+    expect(out.map((entry) => entry.id)).toEqual(['b', 'a'])
+    expect(complete).toHaveBeenCalledTimes(1)
+  })
+
+  it('uses the llm reranker directly in auto mode when no explicit rerank URL is configured', async () => {
+    const complete = vi.fn(async (): Promise<CompletionResponse> => ({
+      content: '[{"id":1,"score":9},{"id":0,"score":1}]',
+      toolCalls: [],
+      usage: { inputTokens: 0, outputTokens: 0 },
+      stopReason: 'end_turn',
+    }))
+    const provider: Provider = {
+      ...makeStubProvider(),
+      complete,
+    }
+
+    const reranker = buildReranker(
+      {
+        kind: 'auto',
+        baseURL: 'http://localhost:8080',
+        label: 'auto-rerank',
+        batchSize: 5,
+        parallelism: 1,
+        concurrencyCap: 1,
+        preferHttp: false,
+      },
+      { provider },
+    )
+    const out = await reranker.rerank({
+      query: 'q',
+      documents: [
+        { id: 'a', text: 'alpha' },
+        { id: 'b', text: 'bravo' },
+      ],
+    })
+
+    expect(out.map((entry) => entry.id)).toEqual(['b', 'a'])
+    expect(complete).toHaveBeenCalledTimes(1)
   })
 })

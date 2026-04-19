@@ -29,6 +29,7 @@ from jeffs_brain_memory.http.handlers.ask import (
     _BASIC_TEMPERATURE,
     _build_augmented_prompt,
     _build_basic_prompt,
+    _retrieve,
     _reader_today_anchor,
 )
 from jeffs_brain_memory.llm.types import (
@@ -193,9 +194,10 @@ def test_augmented_prompt_contains_lme_guidance() -> None:
     # Temporal anchor and CoT directive.
     assert "today is 2024-04-15 (monday)" in lower
     assert "answer step by step" in lower or "step by step" in lower
-    # Chunk format preserved: '### title (path)' header.
-    assert "### notes (raw/documents/notes.md)" in prompt
-    assert "### update (raw/documents/update.md)" in prompt
+    # Evidence blocks stay bounded and numbered.
+    assert "Retrieved facts (2):" in prompt
+    assert " 1. [unknown] [notes]" in prompt
+    assert " 2. [unknown] [update]" in prompt
     # Question and current date trailer.
     assert "Current Date: 2024-04-15" in prompt
     assert "Question: What does the user drink?" in prompt
@@ -209,6 +211,142 @@ def test_augmented_prompt_unknown_anchor_when_no_date() -> None:
     )
     assert "Today is unknown" in prompt
     assert "Current Date: unknown" in prompt
+
+
+def test_retrieve_fallback_uses_temporal_augmentation() -> None:
+    class _EmptyRetriever:
+        async def retrieve(self, _req):
+            return None
+
+    class _SearchHit:
+        def __init__(self) -> None:
+            self.path = "raw/lme/session-1.md"
+            self.document_id = self.path
+            self.chunk_id = self.path
+            self.score = 1.0
+            self.snippet = "Bought apples."
+            self.content = "Bought apples on 2024/03/08."
+            self.title = "session-1"
+            self.summary = "Temporal hit"
+            self.metadata = {"session_date": "2024-03-08"}
+
+    class _RecordingIndex:
+        def __init__(self) -> None:
+            self.calls: list[str] = []
+
+        def search_bm25(self, query: str, *, top_k: int, opts) -> list[_SearchHit]:
+            del top_k, opts
+            self.calls.append(query)
+            return [_SearchHit()]
+
+    class _Brain:
+        id = "brain"
+
+        def __init__(self) -> None:
+            self.retriever = _EmptyRetriever()
+            self.search_index = _RecordingIndex()
+
+    brain = _Brain()
+    chunks = asyncio.run(
+        _retrieve(
+            brain,
+            "What did the user buy last Friday?",
+            3,
+            "bm25",
+            "2024/03/13 (Wed) 10:00",
+            0,
+            0,
+        )
+    )
+    assert chunks
+    assert chunks[0].text == "Bought apples on 2024/03/08."
+    assert any("2024/03/08" in call for call in brain.search_index.calls)
+    assert any("2024-03-08" in call for call in brain.search_index.calls)
+
+
+def test_augmented_prompt_clusters_session_hits_and_strips_frontmatter() -> None:
+    chunks = [
+        RetrievedChunk(
+            chunk_id="c2",
+            document_id="d2",
+            path="raw/lme/session-2.md",
+            score=0.9,
+            text="---\nsession_id: s2\nsession_date: 2024-02-20\n---\n[user]: The bike is blue now.",
+            metadata={"session_id": "s2", "session_date": "2024-02-20"},
+        ),
+        RetrievedChunk(
+            chunk_id="c1",
+            document_id="d1",
+            path="raw/lme/session-1-a.md",
+            score=1.0,
+            text="---\nsession_id: s1\nsession_date: 2024-01-10\n---\n[user]: I bought a bike.",
+            metadata={"session_id": "s1", "session_date": "2024-01-10"},
+        ),
+        RetrievedChunk(
+            chunk_id="c3",
+            document_id="d3",
+            path="raw/lme/session-1-b.md",
+            score=0.8,
+            text="---\nsession_id: s1\nsession_date: 2024-01-10\n---\n[user]: It was red at first.",
+            metadata={"session_id": "s1", "session_date": "2024-01-10"},
+        ),
+    ]
+    prompt = _build_augmented_prompt(
+        question="What colour is the bike?",
+        chunks=chunks,
+        question_date="2024-04-15",
+    )
+    first = prompt.index("[session=s2]")
+    second = prompt.index("[session=s1]")
+    third = prompt.rindex("[session=s1]")
+    assert first < second < third
+    assert "session_id:" not in prompt
+    assert "session_date:" not in prompt
+    assert "[user]: I bought a bike." in prompt
+
+
+def test_augmented_prompt_uses_frontmatter_fallback_for_session_and_date() -> None:
+    chunks = [
+        RetrievedChunk(
+            chunk_id="c2",
+            document_id="d2",
+            path="raw/lme/session-2.md",
+            score=0.9,
+            text="---\nsession_id: s2\nmodified: 2024-02-20\n---\n[user]: The bike is blue now.",
+            metadata={},
+        ),
+        RetrievedChunk(
+            chunk_id="c1",
+            document_id="d1",
+            path="raw/lme/session-1-a.md",
+            score=1.0,
+            text="---\nsession_id: s1\nobserved_on: 2024-01-10\n---\n[user]: I bought a bike.",
+            metadata={},
+        ),
+        RetrievedChunk(
+            chunk_id="c3",
+            document_id="d3",
+            path="raw/lme/session-1-b.md",
+            score=0.8,
+            text="---\nsession_id: s1\nsession_date: 2024-01-10\n---\n[user]: It was red at first.",
+            metadata={},
+        ),
+    ]
+    prompt = _build_augmented_prompt(
+        question="What colour is the bike?",
+        chunks=chunks,
+        question_date="2024-04-15",
+    )
+    first = prompt.index("[session=s2]")
+    second = prompt.index("[session=s1]")
+    third = prompt.rindex("[session=s1]")
+    assert first < second < third
+    assert "[2024-01-10] [session=s1] [session-1-a]" in prompt
+    assert "[2024-02-20] [session=s2] [session-2]" in prompt
+    assert "session_id:" not in prompt
+    assert "observed_on:" not in prompt
+    assert "modified:" not in prompt
+    assert "[user]: The bike is blue now." in prompt
 
 
 def test_basic_prompt_unchanged() -> None:
@@ -291,6 +429,8 @@ def test_ask_augmented_dispatches_lme_prompt(tmp_path) -> None:  # type: ignore[
         "step by step",
     ):
         assert phrase in lower, f"missing augmented phrase {phrase!r}"
+    assert "Retrieved facts (" in body
+    assert "### " not in body
     assert "Current Date: 2024-04-15" in body
     assert "Question: What does the user drink?" in body
 

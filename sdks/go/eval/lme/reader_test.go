@@ -167,6 +167,20 @@ func TestReaderPrompt_EnumerationClause(t *testing.T) {
 	}
 }
 
+func TestReaderPrompt_AbstentionClause(t *testing.T) {
+	lower := strings.ToLower(readerUserTemplate)
+	for _, snippet := range []string{
+		"if the retrieved facts do not directly answer the question, state that clearly in the first sentence",
+		"do not narrate your search process",
+		"do not pad the answer with near-miss facts about a different city, person, product, or date",
+		"the information provided is not enough to answer the question",
+	} {
+		if !strings.Contains(lower, snippet) {
+			t.Errorf("readerUserTemplate should include abstention guidance %q", snippet)
+		}
+	}
+}
+
 func TestReaderTodayAnchor_AcceptsLMEFormat(t *testing.T) {
 	tests := []struct {
 		in   string

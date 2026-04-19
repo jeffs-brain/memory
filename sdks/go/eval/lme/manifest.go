@@ -6,11 +6,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 )
 
 // RunManifest records the exact configuration of an LME run so
-// reproducibility can be verified. Runs are only comparable when all four
-// key fields match.
+// reproducibility can be verified. Actor-backed runs also persist the
+// daemon retrieval settings that materially change cross-SDK outcomes.
 type RunManifest struct {
 	DatasetSHA         string `json:"dataset_sha"`
 	JudgeModel         string `json:"judge_model,omitempty"`
@@ -20,6 +21,58 @@ type RunManifest struct {
 	RunSeed            int64  `json:"run_seed"`
 	SampleSize         int    `json:"sample_size"`
 	IngestMode         string `json:"ingest_mode"`
+	ActorEndpointStyle string `json:"actor_endpoint_style,omitempty"`
+	ActorBrain         string `json:"actor_brain,omitempty"`
+	ActorTopK          *int   `json:"actor_topk,omitempty"`
+	ActorCandidateK    *int   `json:"actor_candidatek,omitempty"`
+	ActorRerankTopN    *int   `json:"actor_rerank_topn,omitempty"`
+	ActorScope         string `json:"actor_scope,omitempty"`
+	ActorProject       string `json:"actor_project,omitempty"`
+	ActorPathPrefix    string `json:"actor_path_prefix,omitempty"`
+}
+
+// BuildRunManifest derives the persisted manifest from the completed run and
+// the runner configuration.
+func BuildRunManifest(result *LMEResult, cfg RunConfig, judgeModel string) RunManifest {
+	manifest := RunManifest{
+		JudgeModel:         judgeModel,
+		JudgePromptVersion: JudgePromptVersion,
+		RunSeed:            cfg.Seed,
+		SampleSize:         cfg.SampleSize,
+	}
+	if result != nil {
+		manifest.DatasetSHA = result.DatasetSHA
+		manifest.IngestMode = result.IngestMode
+	}
+
+	if strings.TrimSpace(cfg.ActorEndpoint) == "" {
+		return manifest
+	}
+
+	style := strings.ToLower(strings.TrimSpace(cfg.ActorEndpointStyle))
+	if style == "" {
+		style = "full"
+	}
+	brainID := strings.TrimSpace(cfg.ActorBrainID)
+	if brainID == "" {
+		brainID = "eval-lme"
+	}
+	topK := cfg.ActorTopK
+	if topK <= 0 {
+		topK = 20
+	}
+	candidateK := cfg.ActorCandidateK
+	rerankTopN := cfg.ActorRerankTopN
+
+	manifest.ActorEndpointStyle = style
+	manifest.ActorBrain = brainID
+	manifest.ActorTopK = intPtr(topK)
+	manifest.ActorCandidateK = intPtr(candidateK)
+	manifest.ActorRerankTopN = intPtr(rerankTopN)
+	manifest.ActorScope = strings.TrimSpace(cfg.ActorFilters.Scope)
+	manifest.ActorProject = strings.TrimSpace(cfg.ActorFilters.Project)
+	manifest.ActorPathPrefix = strings.TrimSpace(cfg.ActorFilters.PathPrefix)
+	return manifest
 }
 
 // SaveManifest writes the manifest to a JSON file.
@@ -53,5 +106,26 @@ func (m RunManifest) IsComparable(other RunManifest) bool {
 	return m.DatasetSHA == other.DatasetSHA &&
 		m.JudgeModel == other.JudgeModel &&
 		m.JudgeModelSHA == other.JudgeModelSHA &&
-		m.JudgePromptVersion == other.JudgePromptVersion
+		m.JudgePromptVersion == other.JudgePromptVersion &&
+		m.ActorEndpointStyle == other.ActorEndpointStyle &&
+		m.ActorBrain == other.ActorBrain &&
+		intPtrEqual(m.ActorTopK, other.ActorTopK) &&
+		intPtrEqual(m.ActorCandidateK, other.ActorCandidateK) &&
+		intPtrEqual(m.ActorRerankTopN, other.ActorRerankTopN) &&
+		m.ActorScope == other.ActorScope &&
+		m.ActorProject == other.ActorProject &&
+		m.ActorPathPrefix == other.ActorPathPrefix
+}
+
+func intPtr(v int) *int {
+	return &v
+}
+
+func intPtrEqual(left, right *int) bool {
+	switch {
+	case left == nil || right == nil:
+		return left == right
+	default:
+		return *left == *right
+	}
 }

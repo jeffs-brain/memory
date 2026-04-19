@@ -9,6 +9,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -26,10 +28,26 @@ func decodeRerankRequest(t *testing.T, r *http.Request) httpRerankRequest {
 	return parsed
 }
 
+func serveHealthyProbe(w http.ResponseWriter, r *http.Request) bool {
+	if r.Method != http.MethodGet {
+		return false
+	}
+	switch r.URL.Path {
+	case "/health", "/info":
+		w.WriteHeader(http.StatusNoContent)
+		return true
+	default:
+		return false
+	}
+}
+
 func TestHTTPReranker_ReordersByRelevance(t *testing.T) {
 	t.Parallel()
 	var lastPath string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if serveHealthyProbe(w, r) {
+			return
+		}
 		lastPath = r.URL.Path
 		req := decodeRerankRequest(t, r)
 		if req.Query != "widgets" {
@@ -81,6 +99,9 @@ func TestHTTPReranker_ForwardsBearerToken(t *testing.T) {
 	var gotAuth string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotAuth = r.Header.Get("Authorization")
+		if serveHealthyProbe(w, r) {
+			return
+		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(httpRerankResponse{
 			Results: []httpRerankHit{{Index: 0, RelevanceScore: 1}},
@@ -107,6 +128,9 @@ func TestHTTPReranker_ForwardsBearerToken(t *testing.T) {
 func TestHTTPReranker_ServerErrorSurfaces(t *testing.T) {
 	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if serveHealthyProbe(w, r) {
+			return
+		}
 		http.Error(w, "upstream exploded", http.StatusInternalServerError)
 	}))
 	defer server.Close()
@@ -147,6 +171,9 @@ func TestHTTPReranker_EmptyCandidates(t *testing.T) {
 func TestHTTPReranker_NoResultsSurfacesError(t *testing.T) {
 	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if serveHealthyProbe(w, r) {
+			return
+		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(httpRerankResponse{Results: nil})
 	}))
@@ -168,6 +195,9 @@ func TestHTTPReranker_NoResultsSurfacesError(t *testing.T) {
 func TestHTTPReranker_DropsOutOfRangeIndexes(t *testing.T) {
 	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if serveHealthyProbe(w, r) {
+			return
+		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(httpRerankResponse{
 			Results: []httpRerankHit{
@@ -212,6 +242,9 @@ func TestHTTPReranker_ModelDefaulted(t *testing.T) {
 	t.Parallel()
 	var captured string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if serveHealthyProbe(w, r) {
+			return
+		}
 		req := decodeRerankRequest(t, r)
 		captured = req.Model
 		_ = json.NewEncoder(w).Encode(httpRerankResponse{
@@ -243,6 +276,9 @@ func TestHTTPReranker_MaxDocCharsTrimsPayload(t *testing.T) {
 	t.Parallel()
 	var received []string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if serveHealthyProbe(w, r) {
+			return
+		}
 		req := decodeRerankRequest(t, r)
 		received = append(received, req.Documents...)
 		_ = json.NewEncoder(w).Encode(httpRerankResponse{
@@ -284,6 +320,9 @@ func TestHTTPReranker_TimeoutIsRespected(t *testing.T) {
 	t.Parallel()
 	stop := make(chan struct{})
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if serveHealthyProbe(w, r) {
+			return
+		}
 		// Block until the client gives up or the test signals stop.
 		select {
 		case <-stop:
@@ -310,5 +349,200 @@ func TestHTTPReranker_TimeoutIsRespected(t *testing.T) {
 	}
 	if time.Since(start) > 2*time.Second {
 		t.Errorf("timeout not respected, took %v", time.Since(start))
+	}
+}
+
+func TestHTTPReranker_CachesHealthyProbe(t *testing.T) {
+	t.Parallel()
+
+	var healthCount atomic.Int32
+	var infoCount atomic.Int32
+	var postCount atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/health":
+			healthCount.Add(1)
+			w.WriteHeader(http.StatusNoContent)
+		case r.Method == http.MethodGet && r.URL.Path == "/info":
+			infoCount.Add(1)
+			t.Fatal("probe should not fall back to /info when /health is healthy")
+		case r.Method == http.MethodPost && r.URL.Path == "/v1/rerank":
+			postCount.Add(1)
+			_ = json.NewEncoder(w).Encode(httpRerankResponse{
+				Results: []httpRerankHit{{Index: 0, RelevanceScore: 1}},
+			})
+		default:
+			t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	rr, err := NewHTTPReranker(HTTPRerankerConfig{
+		Endpoint: server.URL + "/v1/rerank",
+		ProbeTTL: time.Minute,
+	})
+	if err != nil {
+		t.Fatalf("NewHTTPReranker: %v", err)
+	}
+
+	for i := 0; i < 2; i++ {
+		if _, err := rr.Rerank(context.Background(), "q", makeRerankChunks(1)); err != nil {
+			t.Fatalf("Rerank %d: %v", i, err)
+		}
+	}
+
+	if healthCount.Load() != 1 {
+		t.Fatalf("GET /health probe count = %d, want 1", healthCount.Load())
+	}
+	if infoCount.Load() != 0 {
+		t.Fatalf("GET /info probe count = %d, want 0", infoCount.Load())
+	}
+	if postCount.Load() != 2 {
+		t.Fatalf("POST count = %d, want 2", postCount.Load())
+	}
+}
+
+func TestHTTPReranker_ProbeFallsBackToInfo(t *testing.T) {
+	t.Parallel()
+
+	var calls []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls = append(calls, r.Method+" "+r.URL.Path)
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/health":
+			http.NotFound(w, r)
+		case r.Method == http.MethodGet && r.URL.Path == "/info":
+			w.WriteHeader(http.StatusNoContent)
+		case r.Method == http.MethodPost && r.URL.Path == "/v1/rerank":
+			_ = json.NewEncoder(w).Encode(httpRerankResponse{
+				Results: []httpRerankHit{{Index: 0, RelevanceScore: 1}},
+			})
+		default:
+			t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	rr, err := NewHTTPReranker(HTTPRerankerConfig{
+		Endpoint: server.URL + "/v1/rerank",
+		ProbeTTL: time.Minute,
+	})
+	if err != nil {
+		t.Fatalf("NewHTTPReranker: %v", err)
+	}
+
+	if _, err := rr.Rerank(context.Background(), "q", makeRerankChunks(1)); err != nil {
+		t.Fatalf("Rerank: %v", err)
+	}
+
+	want := []string{"GET /health", "GET /info", "POST /v1/rerank"}
+	if len(calls) != len(want) {
+		t.Fatalf("call count = %d, want %d (%v)", len(calls), len(want), calls)
+	}
+	for i := range want {
+		if calls[i] != want[i] {
+			t.Fatalf("call %d = %q, want %q (all: %v)", i, calls[i], want[i], calls)
+		}
+	}
+}
+
+func TestHTTPReranker_CachesFailedProbe(t *testing.T) {
+	t.Parallel()
+
+	var healthCount atomic.Int32
+	var infoCount atomic.Int32
+	var postCount atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/health":
+			healthCount.Add(1)
+			http.NotFound(w, r)
+		case r.Method == http.MethodGet && r.URL.Path == "/info":
+			infoCount.Add(1)
+			http.Error(w, "unhealthy", http.StatusServiceUnavailable)
+		case r.Method == http.MethodPost && r.URL.Path == "/v1/rerank":
+			postCount.Add(1)
+			t.Fatal("POST should not run when the cached health probe is failing")
+		default:
+			t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	rr, err := NewHTTPReranker(HTTPRerankerConfig{
+		Endpoint: server.URL + "/v1/rerank",
+		ProbeTTL: time.Minute,
+	})
+	if err != nil {
+		t.Fatalf("NewHTTPReranker: %v", err)
+	}
+
+	for i := 0; i < 2; i++ {
+		if _, err := rr.Rerank(context.Background(), "q", makeRerankChunks(1)); err == nil {
+			t.Fatalf("Rerank %d: expected probe error", i)
+		} else if !strings.Contains(err.Error(), "503") {
+			t.Fatalf("Rerank %d error = %v, want mention of 503", i, err)
+		}
+	}
+
+	if healthCount.Load() != 1 {
+		t.Fatalf("GET /health probe count = %d, want 1", healthCount.Load())
+	}
+	if infoCount.Load() != 1 {
+		t.Fatalf("GET /info probe count = %d, want 1", infoCount.Load())
+	}
+	if postCount.Load() != 0 {
+		t.Fatalf("POST count = %d, want 0", postCount.Load())
+	}
+}
+
+func TestHTTPReranker_ConcurrencyCap(t *testing.T) {
+	var active atomic.Int32
+	var maxActive atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && (r.URL.Path == "/health" || r.URL.Path == "/info"):
+			w.WriteHeader(http.StatusNoContent)
+		case r.Method == http.MethodPost && r.URL.Path == "/v1/rerank":
+			cur := active.Add(1)
+			for {
+				prev := maxActive.Load()
+				if cur <= prev || maxActive.CompareAndSwap(prev, cur) {
+					break
+				}
+			}
+			time.Sleep(40 * time.Millisecond)
+			active.Add(-1)
+			_ = json.NewEncoder(w).Encode(httpRerankResponse{
+				Results: []httpRerankHit{{Index: 0, RelevanceScore: 1}},
+			})
+		default:
+			t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	rr, err := NewHTTPReranker(HTTPRerankerConfig{
+		Endpoint: server.URL + "/v1/rerank",
+		ProbeTTL: time.Minute,
+	})
+	if err != nil {
+		t.Fatalf("NewHTTPReranker: %v", err)
+	}
+
+	var wg sync.WaitGroup
+	for i := 0; i < rerankMaxConcurrent*2; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if _, err := rr.Rerank(context.Background(), "q", makeRerankChunks(1)); err != nil {
+				t.Errorf("Rerank: %v", err)
+			}
+		}()
+	}
+	wg.Wait()
+
+	if got := maxActive.Load(); got == 0 || got > rerankMaxConcurrent {
+		t.Fatalf("max concurrent POSTs = %d, want 1..%d", got, rerankMaxConcurrent)
 	}
 }
