@@ -27,11 +27,11 @@ const DefaultReplayExtractModel = "claude-haiku-4-5"
 // defaultReplayConcurrency bounds the in-flight extraction LLM calls
 // when the caller leaves [ReplayOpts.Concurrency] at zero. Tuned for
 // cheap extract models whose rate limits sit comfortably above 16 RPS.
-const defaultReplayConcurrency = 16
+const defaultReplayConcurrency = 32
 
 // maxReplayConcurrency guards against pathological settings that would
 // trip upstream rate limits regardless of how fast the workers are.
-const maxReplayConcurrency = 128
+const maxReplayConcurrency = 512
 
 // ReplayOpts configures the replay ingest pipeline.
 type ReplayOpts struct {
@@ -166,8 +166,8 @@ func IngestReplay(
 				callStart := time.Now()
 				extracted, err := memory.ExtractFromMessages(ctx, provider, extractModel, mem, projectPath, messages)
 				n := done.Add(1)
-				// Log every 50 or at terminal count so higher
-				// concurrency settings do not flood stderr.
+				// Throttle logs at higher concurrency settings so stderr
+				// does not flood.
 				if n%50 == 0 || n == int64(total) {
 					elapsed := time.Since(startTime).Seconds()
 					rate := float64(n) / elapsed
@@ -213,15 +213,13 @@ func IngestReplay(
 		}()
 	}
 
-	// Close results once every worker has finished so the collector
-	// loop terminates cleanly.
 	go func() {
 		wg.Wait()
 		close(results)
 	}()
 
-	// Feed sessions to the workers; respect ctx so a cancelled run
-	// stops promptly rather than draining the whole queue.
+	// Respect ctx so a cancelled run stops promptly rather than draining
+	// the whole queue.
 	go func() {
 		defer close(jobs)
 		for _, sess := range sessions {
@@ -273,7 +271,6 @@ func IngestReplay(
 			time.Since(startTime).Truncate(time.Second))
 	}
 
-	// One-line ingest summary so wall-clock wins are obvious in logs.
 	ingestWall := time.Since(startTime)
 	ctxFresh := contextualisedFacts.Load()
 	cacheHits := int64(0)
@@ -330,9 +327,9 @@ func deduplicateSessions(questions []Question) []sessionData {
 	return out
 }
 
-// postProcessSessionFacts applies the temporal metadata, session id,
-// session date ISO, and auto-tag merging that every replayed fact
-// needs before it reaches the store.
+// postProcessSessionFacts applies temporal metadata, session ids, and
+// auto-tag merging that every replayed fact needs before it reaches the
+// store.
 func postProcessSessionFacts(sess sessionData, extract []memory.ExtractedMemory) (modifiedOverride, sessionDateISO string) {
 	if len(extract) == 0 {
 		return "", ""
@@ -424,7 +421,6 @@ func sessionToMessages(sess sessionData) []memory.Message {
 			if idx := strings.Index(line, "]: "); idx > 0 {
 				role := memory.Role(line[1:idx])
 				if role == memory.RoleUser || role == memory.RoleAssistant {
-					// Flush previous message.
 					if currentContent.Len() > 0 && currentRole != "" {
 						messages = append(messages, memory.Message{
 							Role:    currentRole,
@@ -440,14 +436,12 @@ func sessionToMessages(sess sessionData) []memory.Message {
 			}
 		}
 
-		// Continuation of the current message.
 		if currentContent.Len() > 0 {
 			currentContent.WriteByte('\n')
 		}
 		currentContent.WriteString(line)
 	}
 
-	// Flush final message.
 	if currentContent.Len() > 0 && currentRole != "" {
 		messages = append(messages, memory.Message{
 			Role:    currentRole,
@@ -578,8 +572,6 @@ func buildDateTokens(rfc3339 string) string {
 	return fmt.Sprintf("[Date: %s %s %s %s]\n\n", iso, weekday, month, year)
 }
 
-// shortISODate returns the YYYY-MM-DD form of an RFC3339 timestamp, or
-// the empty string when the input does not parse.
 func shortISODate(rfc3339 string) string {
 	if rfc3339 == "" {
 		return ""
@@ -591,8 +583,6 @@ func shortISODate(rfc3339 string) string {
 	return t.Format("2006-01-02")
 }
 
-// sessionContextSummary builds a one-line description of a session for
-// the contextualiser's prompt.
 func sessionContextSummary(sess sessionData) string {
 	var parts []string
 	if sess.date != "" {
@@ -634,8 +624,6 @@ func parseSessionDateRFC3339(s string) string {
 	return ""
 }
 
-// fmtDurationSecs renders a duration as a seconds value with one
-// decimal place so ingest summaries stay compact.
 func fmtDurationSecs(d time.Duration) string {
 	return fmt.Sprintf("%.1f", d.Seconds())
 }

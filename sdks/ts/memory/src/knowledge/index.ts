@@ -43,7 +43,7 @@ export * from './types.js'
 export { parseFrontmatter, serialiseFrontmatter } from './frontmatter.js'
 export { appendLog, appendLogInBatch, formatEntry, LOG_PATH, parseLog, readLog } from './log.js'
 export { DEFAULT_PATTERNS, applyPatterns } from './scrub.js'
-export { createIngest, hashContent, ingestedPath, INGESTED_PREFIX } from './ingest.js'
+export { createIngest, hashContent, rawDocumentPath, RAW_DOCUMENTS_PREFIX } from './ingest.js'
 export { DRAFTS_PREFIX } from './compile.js'
 export { WIKI_PREFIX } from './promote.js'
 export { createLintFix } from './lint-fix.js'
@@ -57,13 +57,13 @@ export { createQuery } from './query.js'
 export {
   archivedSourcePath,
   createSourceArchive,
-  INGESTED_ARCHIVE_PREFIX,
+  RAW_DOCUMENTS_ARCHIVE_PREFIX,
   type PruneArchivedSourcesOptions,
   type PruneArchivedSourcesResult,
   type SourceArchiveStats,
 } from './archive.js'
 export {
-  INGESTED_PROCESSED_PREFIX,
+  RAW_DOCUMENTS_PROCESSED_PREFIX,
   processedMarkerPath,
   readProcessedMarker,
   parseProcessedMarker,

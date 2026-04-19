@@ -33,8 +33,6 @@ const (
 	HumanSkip             ArbitrationVerdict = "skip"
 )
 
-// validHumanVerdicts enumerates the verdict strings accepted back from
-// the editor scratchpad.
 var validHumanVerdicts = map[ArbitrationVerdict]bool{
 	HumanCorrect:          true,
 	HumanPartial:          true,
@@ -44,8 +42,6 @@ var validHumanVerdicts = map[ArbitrationVerdict]bool{
 	HumanSkip:             true,
 }
 
-// maxEditorReopens caps the retry loop when the user saves an invalid
-// scratchpad.
 const maxEditorReopens = 3
 
 // ReviewFilter configures the subset of outcomes surfaced to the human
@@ -64,8 +60,6 @@ type ReviewFilter struct {
 // indirection keeps the pure-logic tests independent of $EDITOR.
 type EditorFunc func(path string) error
 
-// ReviewSession holds the loaded report plus the filtered and sampled
-// outcomes.
 type ReviewSession struct {
 	Report     *LMEResult
 	ReportPath string
@@ -74,7 +68,6 @@ type ReviewSession struct {
 	Outcomes   []QuestionOutcome
 }
 
-// ArbitrationEntry is the persisted record of a single human verdict.
 type ArbitrationEntry struct {
 	QuestionID   string             `json:"question_id"`
 	Category     string             `json:"category"`
@@ -95,7 +88,6 @@ type ArbitrationResult struct {
 	JudgeAgreement           float64
 }
 
-// scratchpad is the YAML structure the reviewer edits on disk.
 type scratchpad struct {
 	QuestionID     string `yaml:"question_id"`
 	Category       string `yaml:"category"`
@@ -230,8 +222,6 @@ func applyReviewFilter(outcomes []QuestionOutcome, f ReviewFilter) []QuestionOut
 	return out
 }
 
-// isIncorrectVerdict normalises the judge verdict space so the filter
-// captures the full "looks wrong" set.
 func isIncorrectVerdict(v string) bool {
 	switch v {
 	case "incorrect", "abstain_incorrect", "error":
@@ -241,8 +231,6 @@ func isIncorrectVerdict(v string) bool {
 	}
 }
 
-// judgeDisagreesWithExact compares the judge verdict against what
-// exact-match would have produced.
 func judgeDisagreesWithExact(o QuestionOutcome) bool {
 	exact := exactMatch(o.AgentAnswer, o.GroundTruth)
 	switch o.JudgeVerdict {
@@ -310,7 +298,6 @@ func stratifiedSample(outcomes []QuestionOutcome, sampleSize int, seed int64) []
 	return out
 }
 
-// uniformSample returns a simple random sample of n outcomes.
 func uniformSample(outcomes []QuestionOutcome, n int, seed int64) []QuestionOutcome {
 	if n >= len(outcomes) {
 		return outcomes
@@ -372,9 +359,6 @@ func (r *ReviewSession) Run(ctx context.Context) (ArbitrationResult, error) {
 	return aggregate(entries, r.Outcomes), nil
 }
 
-// reviewOne drives a single scratchpad edit-loop with up to
-// maxEditorReopens retries when the reviewer supplies an invalid
-// verdict or malformed YAML.
 func (r *ReviewSession) reviewOne(_ context.Context, outcome QuestionOutcome, idx, total int) (ArbitrationEntry, error) {
 	scratch := scratchpad{
 		QuestionID:     outcome.ID,
@@ -473,7 +457,6 @@ func writeScratchpad(s scratchpad, attempt, idx, total int, lastErr error) (stri
 	return path, cleanup, nil
 }
 
-// readScratchpad re-parses the scratchpad after the editor exits.
 func readScratchpad(path string) (scratchpad, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -562,7 +545,6 @@ func aggregate(entries []ArbitrationEntry, reviewed []QuestionOutcome) Arbitrati
 	}
 }
 
-// scoreWeight maps a verdict to its numeric contribution.
 func scoreWeight(v ArbitrationVerdict) float64 {
 	switch v {
 	case HumanCorrect, HumanAbstainCorrect:
@@ -574,8 +556,6 @@ func scoreWeight(v ArbitrationVerdict) float64 {
 	}
 }
 
-// verdictsAgree decides whether a judge verdict and a human verdict
-// end up on the same side of the correct / not-correct line.
 func verdictsAgree(judge string, human ArbitrationVerdict) bool {
 	if human == HumanPartial {
 		return judge == "partial"
@@ -585,7 +565,7 @@ func verdictsAgree(judge string, human ArbitrationVerdict) bool {
 	return judgeCorrect == humanCorrect
 }
 
-// WriteArbitration persists the result back into the run directory
+// WriteArbitration persists the arbitration result into reportDir
 // alongside report.json.
 func WriteArbitration(reportDir string, result ArbitrationResult) error {
 	if reportDir == "" {
@@ -631,8 +611,6 @@ func WriteArbitration(reportDir string, result ArbitrationResult) error {
 	return atomicWrite(reportPath, out)
 }
 
-// patchBareLMEResult handles the rarer case where report.json is
-// itself a bare LMEResult.
 func patchBareLMEResult(path string, data []byte, result ArbitrationResult) error {
 	var lmeResult LMEResult
 	if err := json.Unmarshal(data, &lmeResult); err != nil {
@@ -670,8 +648,6 @@ func applyArbitrationToLME(lmeResult *LMEResult, result ArbitrationResult) {
 	}
 }
 
-// atomicWrite stages data in a sibling temp file, fsyncs it, and
-// renames it into place.
 func atomicWrite(path string, data []byte) error {
 	dir := filepath.Dir(path)
 	tmp, err := os.CreateTemp(dir, ".report-*.json")
@@ -699,8 +675,6 @@ func atomicWrite(path string, data []byte) error {
 	}
 	return nil
 }
-
-// ---- before/after diff ----
 
 // DiffReports compares two LME reports and emits a markdown summary
 // highlighting regressions (questions that previously passed, now
@@ -785,7 +759,6 @@ func DiffReports(before, after *LMEResult) (string, error) {
 	return b.String(), nil
 }
 
-// DiffEntry pairs the same question's before and after outcomes.
 type DiffEntry struct {
 	Before QuestionOutcome
 	After  QuestionOutcome
@@ -830,8 +803,6 @@ func writeCategoryTable(b *strings.Builder, before, after map[string]Category) {
 	}
 }
 
-// writeDiffSection renders one of the regression / improvement /
-// verdict-churn lists.
 func writeDiffSection(b *strings.Builder, title, description string, entries []DiffEntry) {
 	fmt.Fprintln(b)
 	fmt.Fprintf(b, "## %s (%d)\n", title, len(entries))
@@ -867,8 +838,6 @@ func writeDiffSection(b *strings.Builder, title, description string, entries []D
 	}
 }
 
-// writeOnlySection renders outcomes that appear on only one side of
-// the diff.
 func writeOnlySection(b *strings.Builder, title string, outcomes []QuestionOutcome) {
 	fmt.Fprintln(b)
 	fmt.Fprintf(b, "## %s (%d)\n", title, len(outcomes))
@@ -882,7 +851,6 @@ func writeOnlySection(b *strings.Builder, title string, outcomes []QuestionOutco
 	}
 }
 
-// firstNonEmpty returns the first non-empty string.
 func firstNonEmpty(a, b string) string {
 	if strings.TrimSpace(a) != "" {
 		return a
@@ -890,7 +858,6 @@ func firstNonEmpty(a, b string) string {
 	return b
 }
 
-// singleLine collapses whitespace so diff entries stay on one bullet.
 func singleLine(s string, max int) string {
 	s = strings.ReplaceAll(s, "\r\n", " ")
 	s = strings.ReplaceAll(s, "\n", " ")
@@ -902,7 +869,6 @@ func singleLine(s string, max int) string {
 }
 
 // LoadReport reads a report file and extracts the inner LMEResult.
-// Convenience wrapper for [DiffReports] callers.
 func LoadReport(path string) (*LMEResult, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {

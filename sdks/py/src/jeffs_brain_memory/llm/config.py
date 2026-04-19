@@ -64,6 +64,20 @@ def provider_from_env(env: Mapping[str, str] | None = None) -> Provider:
         return FakeProvider(["ok"])
     if raw:
         raise LLMError(f"llm: unknown {ENV_PROVIDER}={raw!r}")
+    # Auto-detect. When a cloud key is present prefer the cloud provider
+    # over a locally reachable Ollama: a user who set OPENAI_API_KEY
+    # almost always wants that provider, not whatever happens to be
+    # listening on 127.0.0.1:11434.
+    openai_key = (env.get(ENV_OPENAI_API_KEY) or "").strip()
+    if openai_key:
+        return OpenAIProvider(
+            api_key=openai_key,
+            base_url=env.get(ENV_OPENAI_BASE_URL) or None,
+            model=model or None,
+        )
+    anthropic_key = (env.get(ENV_ANTHROPIC_API_KEY) or "").strip()
+    if anthropic_key:
+        return AnthropicProvider(api_key=anthropic_key, model=model or None)
     host = ollama_host_from_env(env)
     if ollama_reachable(host):
         return OllamaProvider(base_url=host)

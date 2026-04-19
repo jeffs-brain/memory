@@ -26,7 +26,7 @@ Expected output: the top 3 matches for "where do hedgehogs live?" against `docs/
 
 1. Creates a filesystem-backed `Store` under `./data/hello-world/`.
 2. Opens a SQLite search index at `./data/hello-world/search.db`.
-3. Reads `docs/hedgehogs.md`, writes the raw content under `ingested/` via a batched `store.batch` call, then chunks the markdown with `chunkMarkdown` and upserts the chunks into the index.
+3. Reads `docs/hedgehogs.md`, writes the raw content under `raw/documents/` via a batched `store.batch` call, then chunks the markdown with `chunkMarkdown` and upserts the chunks into the index.
 4. Runs a BM25 query (`index.searchBM25`) and prints the top 3 hits.
 
 No embedder is wired, so retrieval is BM25-only. For hybrid search, supply an `Embedder` and call `createRetrieval` instead.
@@ -58,7 +58,7 @@ async function main(): Promise<void> {
   try {
     const docPath = resolve('./docs/hedgehogs.md')
     const raw = await readFile(docPath)
-    const storedPath = `ingested/${basename(docPath)}`
+    const storedPath = `raw/documents/${basename(docPath)}`
     await store.batch({ reason: 'ingest' }, async (batch) => {
       await batch.write(toPath(storedPath), raw)
     })

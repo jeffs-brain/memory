@@ -201,6 +201,11 @@ func RawDocumentsPrefix() Path { return Path(rawDocumentsRoot) }
 // SourcesPrefix returns the logical prefix for compiled source files.
 func SourcesPrefix() Path { return Path(sourcesRoot) }
 
+// RawLMEPrefix returns the logical prefix where LME replay ingest writes
+// session markdown for benchmark runs. Distinct from user-ingested
+// documents so benchmark seed content is easy to scrub.
+func RawLMEPrefix() Path { return Path(path.Join(rawRoot, "lme")) }
+
 // IsSourceRaw reports whether p lies under the .sources prefix.
 func IsSourceRaw(p Path) bool {
 	return strings.HasPrefix(string(p), sourcesRoot+"/") || string(p) == sourcesRoot

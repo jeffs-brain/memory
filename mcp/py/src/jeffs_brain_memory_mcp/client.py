@@ -596,7 +596,7 @@ class LocalMemoryClient:
             await progress(0.0, "read")
         mime = _mime_for(str(abs_path), args.as_)
         digest = hashlib.sha256(data).hexdigest()
-        stored_path = f"ingested/{digest}{abs_path.suffix.lower() or '.bin'}"
+        stored_path = f"raw/documents/{digest}{abs_path.suffix.lower() or '.bin'}"
         target = brain.root / stored_path
         _ensure_dir(target.parent)
         target.write_bytes(data)
@@ -644,7 +644,7 @@ class LocalMemoryClient:
         if progress is not None:
             await progress(0.0, "fetched")
         digest = hashlib.sha256(body).hexdigest()
-        stored_path = f"ingested/{digest}.txt"
+        stored_path = f"raw/documents/{digest}.txt"
         target = brain.root / stored_path
         _ensure_dir(target.parent)
         target.write_bytes(body)

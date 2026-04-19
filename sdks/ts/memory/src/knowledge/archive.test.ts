@@ -9,7 +9,7 @@ import { createMemStore } from '../store/memstore.js'
 import {
   archivedSourcePath,
   createSourceArchive,
-  INGESTED_ARCHIVE_PREFIX,
+  RAW_DOCUMENTS_ARCHIVE_PREFIX,
 } from './archive.js'
 
 const createdDirs: string[] = []
@@ -108,6 +108,6 @@ describe('source archive', () => {
       pruned: 0,
       paths: [],
     })
-    expect(await store.exists(INGESTED_ARCHIVE_PREFIX)).toBe(false)
+    expect(await store.exists(RAW_DOCUMENTS_ARCHIVE_PREFIX)).toBe(false)
   })
 })

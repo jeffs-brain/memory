@@ -34,7 +34,7 @@ from ._shared import decode_json_body, ok_json, resolve_brain
 def _extract_memory_to_wire(em: ExtractedMemory) -> dict[str, Any]:
     """Serialise an :class:`ExtractedMemory` as a camelCase wire payload."""
     payload = asdict(em)
-    # Remap to camelCase where Go uses it; keep snake_case for others.
+    # camelCase where Go uses it; snake_case for the rest.
     rename = {
         "index_entry": "indexEntry",
         "session_id": "sessionId",
@@ -65,8 +65,6 @@ def _wire_messages_to_memory(raw: list[Any]) -> list[MemMessage]:
 
 
 def _project_from_body(body: dict[str, Any]) -> str:
-    # Memory helpers use the literal project path; the wire passes an
-    # opaque identifier which the memory layer normalises into a slug.
     value = body.get("project")
     return str(value) if isinstance(value, str) else ""
 

@@ -2,12 +2,20 @@
 
 Stdio Model Context Protocol server for [`@jeffs-brain/memory`](https://www.npmjs.com/package/@jeffs-brain/memory). Gives agents (Claude Code, Claude Desktop, Cursor, Windsurf, Zed) first-class access to a local or hosted Jeffs Brain.
 
+One of three wire-compatible MCP wrappers; its counterparts are the Go `cmd/memory-mcp` binary and the Python `jeffs-brain-memory-mcp` package. All three expose the same 11 `memory_*` tools defined in [`spec/MCP-TOOLS.md`](https://github.com/jeffs-brain/memory/blob/main/spec/MCP-TOOLS.md).
+
 ## Install
 
 ```bash
 npm i -g @jeffs-brain/memory-mcp
 # or run on demand
 npx -y @jeffs-brain/memory-mcp
+```
+
+For a one-shot install across every supported agent, use the orchestrator:
+
+```bash
+npx @jeffs-brain/install
 ```
 
 ## Claude Code
@@ -36,11 +44,26 @@ Add to the app's MCP config:
 }
 ```
 
+## Zed (`context_servers`)
+
+```json
+{
+  "context_servers": {
+    "jeffs-brain": {
+      "source": "custom",
+      "command": "npx",
+      "args": ["-y", "@jeffs-brain/memory-mcp"],
+      "env": { "JB_TOKEN": "optional-hosted-token" }
+    }
+  }
+}
+```
+
 ## Modes
 
 Selected automatically:
 
-- **Local** (no `JB_TOKEN`): FsStore rooted at `$JB_HOME` (default `~/.jeffs-brain/`), sqlite-backed search, Ollama embeddings at `http://localhost:11434` when available with BM25-only fallback. No API key required.
+- **Local** (no `JB_TOKEN`): FsStore rooted at `$JB_HOME` (default `~/.jeffs-brain/`), SQLite-backed search, Ollama embeddings at `http://localhost:11434` when available with BM25-only fallback. No API key required.
 - **Hosted** (`JB_TOKEN` set): HttpStore against `$JB_ENDPOINT` (default `https://api.jeffsbrain.com`) using the token as a bearer credential.
 
 ## Environment variables
@@ -55,7 +78,7 @@ Selected automatically:
 
 ## Tools
 
-Eleven `memory_*` tools shared with the Go and Python SDKs:
+Eleven `memory_*` tools shared with the Go and Python MCP wrappers:
 
 - `memory_remember`
 - `memory_recall`
@@ -75,6 +98,7 @@ Input and output shapes are specified in [`spec/MCP-TOOLS.md`](https://github.co
 
 - Repo README: https://github.com/jeffs-brain/memory#readme
 - Protocol and MCP spec: [`spec/`](https://github.com/jeffs-brain/memory/tree/main/spec)
+- Docs site: https://docs.jeffsbrain.com
 
 ## License
 

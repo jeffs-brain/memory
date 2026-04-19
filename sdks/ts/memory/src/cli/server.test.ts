@@ -80,7 +80,7 @@ const makeBrain = async () => {
   await initStore.close()
   const ingestStore = await openBrain(brainDir)
   await ingestStore.write(
-    toPath('ingested/note.md'),
+    toPath('raw/documents/note.md'),
     Buffer.from('Hedgehogs love mealworms and quiet gardens.', 'utf8'),
   )
   return { brainDir, store: ingestStore }

@@ -90,7 +90,7 @@ describe('memory init + ingest + search', () => {
         await (await import('node:fs/promises')).readFile(filePath),
         { name: 'hedgehog.md' },
       )
-      expect(result.path).toContain('ingested/')
+      expect(result.path).toContain('raw/documents/')
     } finally {
       await ingestStore.close()
     }

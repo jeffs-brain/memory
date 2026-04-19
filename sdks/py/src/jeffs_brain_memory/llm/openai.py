@@ -164,10 +164,22 @@ def _build_request(
         "messages": [{"role": m.role.value, "content": m.content} for m in req.messages],
         "stream": stream,
     }
-    if req.temperature:
-        out["temperature"] = req.temperature
+    # Reasoning and gpt-5 models reject non-default temperature and use
+    # `max_completion_tokens` instead of `max_tokens`.
+    model_lower = (model or "").lower()
+    uses_max_completion = (
+        model_lower.startswith("gpt-5")
+        or model_lower.startswith("o1")
+        or model_lower.startswith("o3")
+        or model_lower.startswith("o4")
+    )
     if req.max_tokens:
-        out["max_tokens"] = req.max_tokens
+        if uses_max_completion:
+            out["max_completion_tokens"] = req.max_tokens
+        else:
+            out["max_tokens"] = req.max_tokens
+    if req.temperature and not uses_max_completion:
+        out["temperature"] = req.temperature
     if req.stop:
         out["stop"] = list(req.stop)
     if req.tools:

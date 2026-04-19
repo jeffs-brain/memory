@@ -13,7 +13,7 @@ bun add @jeffs-brain/memory @jeffs-brain/memory-openfga
 ## Usage
 
 ```ts
-import { createMemory } from '@jeffs-brain/memory'
+import { withAccessControl } from '@jeffs-brain/memory/acl'
 import { createOpenFgaProvider } from '@jeffs-brain/memory-openfga'
 
 const acl = createOpenFgaProvider({
@@ -23,15 +23,36 @@ const acl = createOpenFgaProvider({
   token: process.env.OPENFGA_TOKEN,
 })
 
-const mem = createMemory({ store, provider, embedder, cursorStore, acl, scope: 'project', actorId: 'user:alex' })
+const guarded = withAccessControl(
+  store,
+  acl,
+  { kind: 'user', id: 'alice' },
+  { resource: { type: 'brain', id: 'notes' } },
+)
+
+// `guarded` is a `Store`. Use it anywhere the unguarded store would go;
+// every read/write/delete now runs through OpenFGA first.
 ```
 
-See `@jeffs-brain/memory/acl` for the provider contract and the in-box RBAC alternative.
+See [`@jeffs-brain/memory/acl`](https://www.npmjs.com/package/@jeffs-brain/memory) for the provider contract and the in-box RBAC alternative. The shared FGA model lives at [`spec/openfga/schema.fga`](https://github.com/jeffs-brain/memory/blob/main/spec/openfga/schema.fga).
+
+## Lifecycle
+
+`acl.close?.()` is a no-op for this adapter (the `fetch` transport owns no
+connection pool). Calling it is still recommended for forward compatibility
+when you swap providers or move to a transport that holds real state.
+
+## Feature support
+
+- `AccessControlProvider` wire-compatible with `withAccessControl` and any caller using the contract directly.
+- Pure `fetch`; no FGA SDK dependency.
+- Works against any OpenFGA-compatible backend (self-hosted or managed).
 
 ## Docs
 
 - Repo README: https://github.com/jeffs-brain/memory#readme
 - Protocol and storage spec: [`spec/`](https://github.com/jeffs-brain/memory/tree/main/spec)
+- Docs site: https://docs.jeffsbrain.com
 
 ## License
 

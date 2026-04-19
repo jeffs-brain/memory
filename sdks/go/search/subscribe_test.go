@@ -27,6 +27,8 @@ func TestClassifyPath(t *testing.T) {
 		{"raw/documents/hedgehogs.md", "raw_document", "", true},
 		{"raw/documents/deep/nested.md", "raw_document", "", true},
 		{"raw/.sources/web/foo.md", "sources", "", true},
+		{"raw/lme/sess-001.md", "raw_lme", "", true},
+		{"raw/lme/nested/sess.md", "raw_lme", "", true},
 		{"raw/web/foo.md", "", "", false},
 		{"memory/global/not-md.txt", "", "", false},
 		{"memory/project/", "", "", false},

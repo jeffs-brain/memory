@@ -124,7 +124,7 @@ describe('memory git operator commands', () => {
     try {
       await store.write(toPath('memory/one.md'), Buffer.from('one', 'utf8'))
       await store.write(toPath('wiki/topic.md'), Buffer.from('two', 'utf8'))
-      await store.write(toPath('ingested/source.md'), Buffer.from('three', 'utf8'))
+      await store.write(toPath('raw/documents/source.md'), Buffer.from('three', 'utf8'))
     } finally {
       await store.close()
     }
@@ -138,7 +138,7 @@ describe('memory git operator commands', () => {
       expect.arrayContaining([
         expect.objectContaining({ name: 'memory', count: 1 }),
         expect.objectContaining({ name: 'wiki', count: 1 }),
-        expect.objectContaining({ name: 'ingested', count: 1 }),
+        expect.objectContaining({ name: 'raw/documents', count: 1 }),
       ]),
     )
   })
@@ -147,25 +147,25 @@ describe('memory git operator commands', () => {
     const brainDir = await makeTempDir()
     const store = await createGitStore({ dir: brainDir, init: true })
     try {
-      await store.write(toPath('ingested/dist/app.map'), Buffer.from('map', 'utf8'))
-      await store.write(toPath('ingested/vendor/bundle.min.js'), Buffer.from('js', 'utf8'))
+      await store.write(toPath('raw/documents/dist/app.map'), Buffer.from('map', 'utf8'))
+      await store.write(toPath('raw/documents/vendor/bundle.min.js'), Buffer.from('js', 'utf8'))
     } finally {
       await store.close()
     }
 
-    const dryRun = await runGitCommand('clean', { brain: brainDir, scope: 'ingested' })
+    const dryRun = await runGitCommand('clean', { brain: brainDir, scope: 'raw' })
     expect(dryRun['totalFound']).toBe(2)
     expect(dryRun['committed']).toBe(false)
 
     const applied = await runGitCommand('clean', {
       brain: brainDir,
-      scope: 'ingested',
+      scope: 'raw',
       apply: true,
     })
     expect(applied['totalFound']).toBe(2)
     expect(applied['committed']).toBe(true)
-    await expect(stat(join(brainDir, 'ingested', 'dist', 'app.map'))).rejects.toThrow()
-    await expect(stat(join(brainDir, 'ingested', 'vendor', 'bundle.min.js'))).rejects.toThrow()
+    await expect(stat(join(brainDir, 'raw', 'documents', 'dist', 'app.map'))).rejects.toThrow()
+    await expect(stat(join(brainDir, 'raw', 'documents', 'vendor', 'bundle.min.js'))).rejects.toThrow()
   })
 
   it('resets a scoped section and leaves unrelated files alone', async () => {

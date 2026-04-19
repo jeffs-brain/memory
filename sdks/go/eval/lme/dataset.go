@@ -7,27 +7,26 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	"sort"
 	"strings"
 )
 
-// Dataset holds a parsed LongMemEval dataset with precomputed metadata.
 type Dataset struct {
 	Questions  []Question
 	SHA256     string
 	Categories []string
 }
 
-// SessionMessage is a single message within an LME haystack session.
 type SessionMessage struct {
 	Role      string `json:"role"`
 	Content   string `json:"content"`
 	HasAnswer bool   `json:"has_answer,omitempty"`
 }
 
-// Question represents a single LME question with its haystack sessions
-// and ground-truth answer.
+// Question is a single LME question with its haystack sessions and
+// ground-truth answer.
 type Question struct {
 	ID               string             `json:"question_id"`
 	Category         string             `json:"question_type"`
@@ -40,8 +39,8 @@ type Question struct {
 	HaystackSessions [][]SessionMessage `json:"haystack_sessions,omitempty"`
 }
 
-// UnmarshalJSON handles the LME dataset's mixed-type answer field,
-// which can be a string or a number.
+// UnmarshalJSON handles the LME dataset's mixed-type answer field
+// (string or number).
 func (q *Question) UnmarshalJSON(data []byte) error {
 	type Alias Question
 	aux := &struct {
@@ -64,7 +63,7 @@ func (q *Question) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// HaystackText returns the concatenated text of all haystack sessions
+// HaystackText returns the concatenated text of every haystack session
 // for this question, suitable for bulk ingest.
 func (q Question) HaystackText() string {
 	var b strings.Builder
@@ -93,7 +92,6 @@ func (q Question) SessionText(i int) string {
 	return b.String()
 }
 
-// LoadDataset reads and validates a LongMemEval JSON file.
 func LoadDataset(path string) (*Dataset, error) {
 	raw, err := os.ReadFile(path)
 	if err != nil {
@@ -134,6 +132,14 @@ func LoadDataset(path string) (*Dataset, error) {
 	}
 	sort.Strings(cats)
 
+	if sha != ExpectedLMESmallSHA256 {
+		slog.Warn("lme: dataset SHA256 does not match the pinned longmemeval_s.json value; this is expected for subsets or the oracle/m variants, but signals drift for the full small split",
+			"path", path,
+			"got", sha,
+			"expected", ExpectedLMESmallSHA256,
+			"questions", len(questions))
+	}
+
 	return &Dataset{
 		Questions:  questions,
 		SHA256:     sha,
@@ -141,7 +147,6 @@ func LoadDataset(path string) (*Dataset, error) {
 	}, nil
 }
 
-// ByCategory returns questions grouped by their category label.
 func (d *Dataset) ByCategory() map[string][]Question {
 	out := make(map[string][]Question)
 	for _, q := range d.Questions {
@@ -150,8 +155,8 @@ func (d *Dataset) ByCategory() map[string][]Question {
 	return out
 }
 
-// Sample returns a deterministic subset of n questions from the dataset.
-// The selection is stratified by category to preserve distribution.
+// Sample returns a deterministic, category-stratified subset of n
+// questions.
 func (d *Dataset) Sample(n int, seed int64) []Question {
 	if n >= len(d.Questions) {
 		return d.Questions
@@ -189,7 +194,6 @@ func (d *Dataset) Sample(n int, seed int64) []Question {
 	return result
 }
 
-// deterministicSelect picks n items from qs using a seed-based permutation.
 func deterministicSelect(qs []Question, n int, seed int64) []Question {
 	if n >= len(qs) {
 		out := make([]Question, len(qs))
@@ -215,8 +219,6 @@ func deterministicSelect(qs []Question, n int, seed int64) []Question {
 	return out
 }
 
-// VerifySHA checks that the dataset's computed SHA256 matches the
-// expected value.
 func (d *Dataset) VerifySHA(expected string) error {
 	if d.SHA256 != expected {
 		return fmt.Errorf("lme: dataset SHA mismatch: got %s, want %s", d.SHA256, expected)

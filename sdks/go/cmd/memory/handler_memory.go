@@ -14,7 +14,6 @@ import (
 	"github.com/jeffs-brain/memory/go/memory"
 )
 
-// rememberRequest captures the wire shape for POST .../remember.
 type rememberRequest struct {
 	Note   string   `json:"note"`
 	Tags   []string `json:"tags,omitempty"`
@@ -23,21 +22,16 @@ type rememberRequest struct {
 	Scope  string   `json:"scope,omitempty"` // "global" (default) or "project:<slug>"
 }
 
-// recallRequest captures the wire shape for POST .../recall.
 type recallRequest struct {
 	Query   string `json:"query"`
 	TopK    int    `json:"topK,omitempty"`
 	Project string `json:"project,omitempty"`
 }
 
-// extractRequest captures the wire shape for POST .../extract.
-//
-// Messages may be supplied directly; if missing the handler returns
-// validation_error.
 type extractRequest struct {
-	Project  string             `json:"project,omitempty"`
-	Model    string             `json:"model,omitempty"`
-	Messages []extractMsgWire   `json:"messages"`
+	Project  string           `json:"project,omitempty"`
+	Model    string           `json:"model,omitempty"`
+	Messages []extractMsgWire `json:"messages"`
 }
 
 type extractMsgWire struct {
@@ -45,14 +39,12 @@ type extractMsgWire struct {
 	Content string `json:"content"`
 }
 
-// reflectRequest mirrors extractRequest.
 type reflectRequest struct {
-	Project  string             `json:"project,omitempty"`
-	Model    string             `json:"model,omitempty"`
-	Messages []extractMsgWire   `json:"messages"`
+	Project  string           `json:"project,omitempty"`
+	Model    string           `json:"model,omitempty"`
+	Messages []extractMsgWire `json:"messages"`
 }
 
-// consolidateRequest is the body for POST .../consolidate.
 type consolidateRequest struct {
 	Mode  string `json:"mode,omitempty"` // "full" (default) or "quick"
 	Model string `json:"model,omitempty"`
@@ -108,9 +100,6 @@ func (d *Daemon) handleRemember(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// handleRecall delegates to memory.Memory.Recall via the daemon's
-// shared LLM provider. Returns a flat list of {path, content,
-// linkedFrom?} entries for the client.
 func (d *Daemon) handleRecall(w http.ResponseWriter, r *http.Request) {
 	br := d.resolveBrain(w, r)
 	if br == nil {
@@ -141,9 +130,8 @@ func (d *Daemon) handleRecall(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"memories": out})
 }
 
-// handleExtract runs a synchronous extraction pass over the supplied
-// messages and returns the structured result without applying it to
-// the store. The client decides whether to persist.
+// handleExtract returns the extraction result without applying it to
+// the store so the client decides whether to persist.
 func (d *Daemon) handleExtract(w http.ResponseWriter, r *http.Request) {
 	br := d.resolveBrain(w, r)
 	if br == nil {
@@ -167,9 +155,6 @@ func (d *Daemon) handleExtract(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"memories": results})
 }
 
-// handleReflect runs the reflection pipeline against the supplied
-// messages, returning the structured result. Heuristics are applied
-// in-place via the reflector to keep parity with the TS surface.
 func (d *Daemon) handleReflect(w http.ResponseWriter, r *http.Request) {
 	br := d.resolveBrain(w, r)
 	if br == nil {
@@ -194,7 +179,6 @@ func (d *Daemon) handleReflect(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"result": result})
 }
 
-// handleConsolidate runs the consolidation pipeline.
 func (d *Daemon) handleConsolidate(w http.ResponseWriter, r *http.Request) {
 	br := d.resolveBrain(w, r)
 	if br == nil {
@@ -223,7 +207,6 @@ func (d *Daemon) handleConsolidate(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, report)
 }
 
-// wireMessagesToMemory converts the wire shape into memory.Message.
 func wireMessagesToMemory(msgs []extractMsgWire) []memory.Message {
 	out := make([]memory.Message, 0, len(msgs))
 	for _, m := range msgs {
@@ -235,9 +218,8 @@ func wireMessagesToMemory(msgs []extractMsgWire) []memory.Message {
 	return out
 }
 
-// buildRememberBody renders the persisted markdown for a remember
-// note, including frontmatter that distinguishes it from extraction
-// output.
+// buildRememberBody renders remember-note markdown with frontmatter
+// that distinguishes it from extraction output.
 func buildRememberBody(req rememberRequest) string {
 	var b strings.Builder
 	b.WriteString("---\n")
@@ -266,7 +248,6 @@ func buildRememberBody(req rememberRequest) string {
 	return b.String()
 }
 
-// quoteYAML wraps value in double quotes and escapes embedded quotes.
 func quoteYAML(value string) string {
 	value = strings.ReplaceAll(value, `\`, `\\`)
 	value = strings.ReplaceAll(value, `"`, `\"`)

@@ -18,8 +18,6 @@ import (
 	"github.com/jeffs-brain/memory/go/llm"
 )
 
-// evalCmd is the "memory eval" parent command. Subcommands exercise the
-// benchmarking harnesses bundled with the SDK.
 func evalCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "eval",
@@ -29,7 +27,6 @@ func evalCmd() *cobra.Command {
 	return cmd
 }
 
-// evalLmeCmd is the "memory eval lme" subcommand group.
 func evalLmeCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "lme",
@@ -64,6 +61,12 @@ func evalLmeRunCmd() *cobra.Command {
 		slackWebhook      string
 		disableReader     bool
 		judgeTimeout      time.Duration
+		extractOnly       bool
+		brainCache        string
+		actorEndpoint     string
+		actorBrain        string
+		actorEndpointStyle string
+		actorTopK         int
 	)
 
 	cmd := &cobra.Command{
@@ -102,6 +105,10 @@ func evalLmeRunCmd() *cobra.Command {
 				normalIngest = "bulk"
 			}
 
+			if extractOnly && brainCache == "" {
+				return errors.New("--extract-only requires --brain-cache <path>")
+			}
+
 			cfg := lme.RunConfig{
 				DatasetPath:        datasetPath,
 				SampleSize:         sampleSize,
@@ -115,12 +122,19 @@ func evalLmeRunCmd() *cobra.Command {
 				AgenticMode:        agenticMode,
 				MaxIterations:      maxIterations,
 				QuestionTimeout:    questionTimeout,
+				ExtractOnly:        extractOnly,
+				BrainCache:         brainCache,
+				ActorEndpoint:      actorEndpoint,
+				ActorBrainID:       actorBrain,
+				ActorEndpointStyle: actorEndpointStyle,
+				ActorTopK:          actorTopK,
 			}
 
 			// Wire the judge unless the caller explicitly passed
-			// `--judge ""`.
+			// `--judge ""` or the run is extract-only (no questions
+			// to score in that mode).
 			var judgeProvider llm.Provider
-			if judgeModel != "" {
+			if judgeModel != "" && !extractOnly {
 				p, err := llm.ProviderFromEnv(providerEnvFor(judgeModel))
 				if err != nil {
 					return fmt.Errorf("judge provider for %q: %w", judgeModel, err)
@@ -134,9 +148,15 @@ func evalLmeRunCmd() *cobra.Command {
 				}
 			}
 
-			// Wire the reader / actor unless disabled.
+			// Wire the reader / actor when we'll run it in-process:
+			// default (no actor-endpoint), or actor-endpoint with
+			// style=retrieve-only (daemon retrieves only; we read +
+			// judge locally). Full-style actor-endpoint mode lets the
+			// daemon do its own reading.
+			needsReader := !disableReader && actorModel != "" && !extractOnly &&
+				(actorEndpoint == "" || strings.EqualFold(actorEndpointStyle, "retrieve-only"))
 			var readerProvider llm.Provider
-			if !disableReader && actorModel != "" {
+			if needsReader {
 				p, err := llm.ProviderFromEnv(providerEnvFor(actorModel))
 				if err != nil {
 					return fmt.Errorf("actor provider for %q: %w", actorModel, err)
@@ -224,14 +244,14 @@ func evalLmeRunCmd() *cobra.Command {
 	cmd.Flags().StringVar(&datasetPath, "dataset", "", "Path to the LME dataset JSON (e.g. longmemeval_s.json)")
 	cmd.Flags().IntVar(&sampleSize, "sample-size", 0, "Stratified subsample size (0 = full dataset)")
 	cmd.Flags().Int64Var(&seed, "seed", 0, "Deterministic seed for sampling and bootstrap CI")
-	cmd.Flags().IntVar(&concurrency, "concurrency", 8, "Parallel question workers (clamped to [1,64])")
-	cmd.Flags().StringVar(&ingestMode, "ingest-mode", "replay", "Ingest mode (bulk|replay|none|agentic). 'agentic' implies replay + agent loop.")
+	cmd.Flags().IntVar(&concurrency, "concurrency", 16, "Parallel question workers (clamped to [1,64]). 16 is the local default for the tri-SDK orchestrator.")
+	cmd.Flags().StringVar(&ingestMode, "ingest-mode", "replay", "Ingest mode (bulk|replay|none|agentic). 'agentic' implies replay + agent loop. 'none' assumes the brain is already populated out-of-band.")
 	cmd.Flags().StringVar(&expectedSHA, "expected-sha", "", "Optional SHA256 of the dataset file")
 	cmd.Flags().Float64Var(&maxCostUSD, "max-cost-usd", 20.0, "Soft cap on total run cost")
 	cmd.Flags().StringVar(&judgeModel, "judge", "claude-haiku-4-5", "LLM judge model (override via JB_LME_JUDGE_MODEL)")
-	cmd.Flags().StringVar(&actorModel, "actor", "gpt-4o", "LLM actor/reader model (override via JB_LME_ACTOR_MODEL)")
+	cmd.Flags().StringVar(&actorModel, "actor", "gpt-4o", "LLM actor/reader model (override via JB_LME_ACTOR_MODEL). Ignored when --actor-endpoint is set.")
 	cmd.Flags().StringVar(&extractModel, "extract-model", lme.DefaultReplayExtractModel, "LLM model used for replay extraction")
-	cmd.Flags().IntVar(&replayConcurrency, "replay-concurrency", 16, "Parallel extraction workers during replay ingest")
+	cmd.Flags().IntVar(&replayConcurrency, "replay-concurrency", 16, "Parallel extraction workers during replay ingest. Tuned for cheap extract models with rate limits above 16 RPS.")
 	cmd.Flags().IntVar(&maxIterations, "max-iterations", 0, "Per-question tool-call budget in agentic mode (0 = package default)")
 	cmd.Flags().DurationVar(&questionTimeout, "question-timeout", 0, "Per-question wall-clock cap in agentic mode (0 = package default)")
 	cmd.Flags().StringVar(&outputPath, "output", "", "Write the full LMEResult to this path as JSON (default: stdout)")
@@ -239,11 +259,16 @@ func evalLmeRunCmd() *cobra.Command {
 	cmd.Flags().StringVar(&slackWebhook, "slack-webhook", "", "Slack Incoming Webhook URL to post the summary to")
 	cmd.Flags().BoolVar(&disableReader, "no-reader", false, "Skip the LLM reader/actor step and feed raw retrieval to the judge")
 	cmd.Flags().DurationVar(&judgeTimeout, "judge-timeout", 0, "Per-question judge timeout (0 = no cap)")
+	cmd.Flags().BoolVar(&extractOnly, "extract-only", false, "Run the extraction phase only (seed bulk + replay), write the manifest, then exit. Requires --brain-cache.")
+	cmd.Flags().StringVar(&brainCache, "brain-cache", "", "Persistent brain cache directory. Required when --extract-only is set. Shared by downstream daemons.")
+	cmd.Flags().StringVar(&actorEndpoint, "actor-endpoint", "", "HTTP endpoint of a spec-compliant memory daemon. When set, the runner skips in-process retrieval and routes through the daemon. See --actor-endpoint-style for read vs retrieve-only mode.")
+	cmd.Flags().StringVar(&actorBrain, "actor-brain", "", "Brain id the actor endpoint should query (defaults to 'eval-lme').")
+	cmd.Flags().StringVar(&actorEndpointStyle, "actor-endpoint-style", "retrieve-only", "How to use --actor-endpoint: 'full' posts each question to /ask (daemon retrieves + reads), 'retrieve-only' posts to /search and runs the augmented CoT reader + judge in-process (recommended for apples-to-apples cross-SDK benchmarking).")
+	cmd.Flags().IntVar(&actorTopK, "actor-topk", 20, "Chunks to request from the actor daemon's /search endpoint per question (retrieve-only mode only). LongMemEval multi-session questions reference 2-6 sessions so top-5 BM25 frequently misses supporting evidence.")
 
 	return cmd
 }
 
-// resolveJudgeModel honours the JB_LME_JUDGE_MODEL env override.
 func resolveJudgeModel(flagValue string) string {
 	if v := strings.TrimSpace(os.Getenv("JB_LME_JUDGE_MODEL")); v != "" {
 		return v
@@ -251,7 +276,6 @@ func resolveJudgeModel(flagValue string) string {
 	return flagValue
 }
 
-// resolveActorModel honours the JB_LME_ACTOR_MODEL env override.
 func resolveActorModel(flagValue string) string {
 	if v := strings.TrimSpace(os.Getenv("JB_LME_ACTOR_MODEL")); v != "" {
 		return v
@@ -274,9 +298,8 @@ func providerEnvFor(model string) llm.Getenv {
 	}
 }
 
-// writeResult serialises the run result to outputPath (or stdout when
-// empty) as indented JSON. Stdout output is gated on outputPath being
-// empty so CLI test capture picks up the serialised body.
+// writeResult serialises the run result as indented JSON to outputPath
+// or stdout when outputPath is empty.
 func writeResult(stdout io.Writer, outputPath string, result *lme.LMEResult) error {
 	data, err := json.MarshalIndent(result, "", "  ")
 	if err != nil {
@@ -296,8 +319,6 @@ func writeResult(stdout io.Writer, outputPath string, result *lme.LMEResult) err
 	return nil
 }
 
-// printSummary emits a short human-readable summary to stdout after the
-// full JSON body.
 func printSummary(w io.Writer, result *lme.LMEResult) {
 	fmt.Fprintf(w, "\nLME summary:\n")
 	fmt.Fprintf(w, "  Questions run:   %d\n", result.QuestionsRun)

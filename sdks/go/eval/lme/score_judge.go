@@ -93,9 +93,6 @@ type maxContextProvider interface {
 	MaxContextTokens() int
 }
 
-// judgeContentBudgetFor returns the char budget for the given provider's
-// judge model, inferred from its context window when the provider
-// exposes one.
 func judgeContentBudgetFor(p llm.Provider) int {
 	if p == nil {
 		return defaultJudgeContentBudget
@@ -118,8 +115,6 @@ func judgeContentBudgetFor(p llm.Provider) int {
 	return est
 }
 
-// resolveJudgeContentBudget picks an explicit cfg.ContentBudget when set
-// or defers to [judgeContentBudgetFor].
 func resolveJudgeContentBudget(cfg JudgeConfig) int {
 	if cfg.ContentBudget > 0 {
 		return cfg.ContentBudget
@@ -127,13 +122,11 @@ func resolveJudgeContentBudget(cfg JudgeConfig) int {
 	return judgeContentBudgetFor(cfg.Provider)
 }
 
-// JudgeVerdict is the parsed result from the LLM judge.
 type JudgeVerdict struct {
 	Verdict   string `json:"verdict"`
 	Rationale string `json:"rationale"`
 }
 
-// JudgeTrace records the full judge call for audit.
 type JudgeTrace struct {
 	QuestionID    string       `json:"question_id"`
 	Verdict       JudgeVerdict `json:"verdict"`
@@ -202,7 +195,6 @@ func ScoreWithJudge(ctx context.Context, cfg JudgeConfig, outcomes []QuestionOut
 		done, len(outcomes), time.Since(judgeStart).Truncate(time.Millisecond),
 		avgMillis(time.Since(judgeStart), done), retriesTotal)
 
-	// Aggregate scores.
 	byCategory := make(map[string]*Category)
 	correct := 0
 
@@ -355,8 +347,8 @@ func judgeQuestion(ctx context.Context, cfg JudgeConfig, o QuestionOutcome) (Jud
 	return verdict, trace, usage
 }
 
-// parseStructuredVerdict unmarshals a completeJSON payload and maps the
-// verdict enum onto the canonical correct / incorrect / abstain_correct
+// parseStructuredVerdict unmarshals the completeJSON payload and maps
+// the verdict enum onto canonical correct / incorrect / abstain_correct
 // / abstain_incorrect labels.
 func parseStructuredVerdict(raw json.RawMessage, isAbstention bool) (JudgeVerdict, error) {
 	var payload struct {
@@ -411,8 +403,6 @@ func parseYesNo(content string, isAbstention bool) (JudgeVerdict, error) {
 	}
 }
 
-// truncateSmartly splits content by session boundaries and allocates the
-// character budget proportionally across sections.
 func truncateSmartly(content string, budget int) string {
 	if len(content) <= budget {
 		return content
@@ -450,7 +440,6 @@ func truncateSmartly(content string, budget int) string {
 	return strings.Join(parts, "\n\n---\n\n")
 }
 
-// splitSessions splits content by session boundaries.
 func splitSessions(content string) []string {
 	parts := strings.Split(content, "\n\n---\nsession_id:")
 	if len(parts) <= 1 {
@@ -464,8 +453,6 @@ func splitSessions(content string) []string {
 	return result
 }
 
-// maybeLogJudgeProgress emits one [judge] line every
-// judgeProgressInterval completions.
 func maybeLogJudgeProgress(done, total int, start time.Time, retriesBaseline int64, qID, status string, latencyMs int64) {
 	if done == 0 {
 		return
@@ -492,7 +479,6 @@ func maybeLogJudgeProgress(done, total int, start time.Time, retriesBaseline int
 		done, total, short, status, latencyMs, rate, eta, retries)
 }
 
-// avgMillis returns the average millisecond cost per call.
 func avgMillis(elapsed time.Duration, done int) int64 {
 	if done == 0 {
 		return 0
@@ -500,8 +486,6 @@ func avgMillis(elapsed time.Duration, done int) int64 {
 	return elapsed.Milliseconds() / int64(done)
 }
 
-// trace0Status maps a judge trace to a short status token for the
-// progress line.
 func trace0Status(t JudgeTrace) string {
 	if t.Error != "" {
 		return "err"
@@ -556,8 +540,6 @@ func completeJudgeWithTransientRetry(
 	return nil, lastErr
 }
 
-// headTailTruncate keeps the first 70% and last 30% of the budget,
-// joining them with a truncation marker.
 func headTailTruncate(s string, budget int) string {
 	if len(s) <= budget {
 		return s

@@ -8,8 +8,7 @@ import (
 	"github.com/jeffs-brain/memory/go/llm"
 )
 
-// Pricing carries per-million-token input and output prices in USD for a
-// single model.
+// Pricing holds per-million-token input and output prices in USD.
 type Pricing struct {
 	InputPerMTok  float64 `json:"input_per_mtok"`
 	OutputPerMTok float64 `json:"output_per_mtok"`
@@ -45,10 +44,10 @@ type Usage struct {
 	CacheCreate  int
 }
 
-// usageFromResponse lifts a [llm.CompleteResponse] into the local Usage
-// shape. The SDK provider interface only reports TokensIn / TokensOut so
-// cache buckets stay zero; providers that break them out can populate
-// the fields at the call site.
+// usageFromResponse lifts an [llm.CompleteResponse] into the local
+// Usage shape. The SDK provider interface only reports TokensIn /
+// TokensOut so cache buckets stay zero; providers that break them out
+// can populate the fields at the call site.
 func usageFromResponse(resp llm.CompleteResponse) Usage {
 	return Usage{InputTokens: resp.TokensIn, OutputTokens: resp.TokensOut}
 }
@@ -76,21 +75,18 @@ type CostAccumulator struct {
 	mu          sync.Mutex
 }
 
-// AddIngest credits the ingest bucket with the cost of one call.
 func (c *CostAccumulator) AddIngest(usd float64) {
 	c.mu.Lock()
 	c.ingestMicro += usdToMicro(usd)
 	c.mu.Unlock()
 }
 
-// AddAgent credits the agent (reader) bucket with the cost of one call.
 func (c *CostAccumulator) AddAgent(usd float64) {
 	c.mu.Lock()
 	c.agentMicro += usdToMicro(usd)
 	c.mu.Unlock()
 }
 
-// AddJudge credits the judge bucket with the cost of one call.
 func (c *CostAccumulator) AddJudge(usd float64) {
 	c.mu.Lock()
 	c.judgeMicro += usdToMicro(usd)
@@ -112,7 +108,8 @@ func (c *CostAccumulator) Snapshot() CostAccounting {
 	}
 }
 
-// microScale keeps eight decimal places of precision.
+// microScale keeps eight decimal places of precision so sub-cent adds
+// do not round to zero.
 const microScale = 1e8
 
 func usdToMicro(usd float64) int64 {

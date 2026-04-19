@@ -9,7 +9,7 @@
  *   - `rbac.ts`   - a simple role-based adapter for small installs.
  *   - `openfga.ts` - an OpenFGA HTTP adapter for production use.
  *
- * See `./schema.fga` for the authorisation model the OpenFGA adapter speaks.
+ * See `spec/openfga/schema.fga` for the authorisation model the OpenFGA adapter speaks.
  */
 
 export type ResourceType = 'workspace' | 'brain' | 'collection' | 'document'
@@ -62,14 +62,22 @@ export type ReadTuplesQuery = {
 /**
  * Pluggable authorisation provider.
  *
- * Any adapter MUST implement `check`. `write` and `read` are optional because
- * some providers (e.g. a stateless policy evaluator) do not persist tuples.
+ * Any adapter MUST implement `check`. `write`, `read` and `close` are
+ * optional: `write`/`read` because some providers (e.g. a stateless policy
+ * evaluator) do not persist tuples, and `close` because providers that
+ * own no transport state have nothing to release.
  */
 export type AccessControlProvider = {
   readonly name: string
   check(subject: Subject, action: Action, resource: Resource): Promise<CheckResult>
   write?(req: WriteTuplesRequest): Promise<void>
   read?(query: ReadTuplesQuery): Promise<readonly Tuple[]>
+  /**
+   * Release any resources held by the provider (network clients, file
+   * handles, etc.). Implementations that own no resources may omit this
+   * method.
+   */
+  close?(): Promise<void>
 }
 
 export class AccessControlError extends Error {

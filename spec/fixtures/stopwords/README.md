@@ -9,7 +9,16 @@ These JSON files are the **canonical** English and Dutch stopword sets used by t
 
 ## Keeping implementations in sync
 
-The reference TypeScript implementation currently lives in `packages/memory/src/query/stopwords.ts`. Any change to either list must land in both places in the same pull request. A sync check will be added to CI that fails when the JSON in `spec/fixtures/stopwords/` and the `EN_STOP_WORDS` / `NL_STOP_WORDS` constants in `stopwords.ts` diverge.
+The canonical stopword data lives in these JSON files. Every SDK loads
+them identically:
+
+- TypeScript: `sdks/ts/memory/src/query/stopwords.ts`.
+- Go: `sdks/go/search/stopwords` helpers.
+- Python: `sdks/py/src/jeffs_brain_memory/search/stopwords.py`.
+
+Any change to either list must land in both the JSON and every SDK's
+copy in the same pull request. A sync check will be added to CI that
+fails when the JSON and any SDK's constants diverge.
 
 ## Runtime behaviour
 

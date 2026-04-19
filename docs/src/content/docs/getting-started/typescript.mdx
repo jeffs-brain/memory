@@ -69,7 +69,7 @@ async function main(): Promise<void> {
   try {
     const docPath = resolve('./docs/hedgehogs.md')
     const raw = await readFile(docPath)
-    const storedPath = `ingested/${basename(docPath)}`
+    const storedPath = `raw/documents/${basename(docPath)}`
     await store.batch({ reason: 'ingest' }, async (batch) => {
       await batch.write(toPath(storedPath), raw)
     })

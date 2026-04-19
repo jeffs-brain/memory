@@ -197,9 +197,8 @@ async def doc_batch(request: Request) -> Response:
     br = await resolve_brain(request)
     if isinstance(br, Response):
         return br
-    # Batch bodies can carry up to 8 MiB of decoded content. We read up
-    # to 2x that to accommodate base64 expansion plus JSON framing
-    # before rejecting.
+    # Accept 2x BATCH_BODY_LIMIT to absorb base64 expansion + JSON
+    # framing; we reject after the decoded payload exceeds the real cap.
     raw = await read_body_limited(request, BATCH_BODY_LIMIT * 2)
     if isinstance(raw, Response):
         return raw
@@ -253,7 +252,8 @@ async def doc_batch(request: Request) -> Response:
 
 
 async def doc_list_or_head(request: Request) -> Response:
-    """Dispatches GET vs HEAD — Starlette registers both methods."""
+    """Dispatch GET vs HEAD since Starlette registers both methods on
+    the same route."""
     if request.method == "HEAD":
         return await doc_head(request)
     return await doc_list(request)

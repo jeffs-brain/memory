@@ -12,7 +12,7 @@ import type { Store } from '../store/index.js'
 import { toPath } from '../store/index.js'
 import { appendLogInBatch } from '../knowledge/log.js'
 import type { Chunk as IndexChunk, SearchIndex as SqliteSearchIndex } from '../search/index.js'
-import { INGESTED_PREFIX } from '../knowledge/ingest.js'
+import { RAW_DOCUMENTS_PREFIX } from '../knowledge/ingest.js'
 import { chunkAuto, chunkMarkdown, chunkPlainText, type Chunk } from './chunker.js'
 
 export type IngestProgressStage = 'store' | 'chunk' | 'embed' | 'index'
@@ -104,7 +104,7 @@ export const ingestDocument = async (
   const mime = doc.mime ?? sniffMime(buffer, mimeFallback)
   const hash = hashContent(buffer)
   const ext = extensionForMime(mime)
-  const storedPath = doc.path ?? `${INGESTED_PREFIX}/${hash}${ext}`
+  const storedPath = doc.path ?? `${RAW_DOCUMENTS_PREFIX}/${hash}${ext}`
   const documentId = `${doc.brainId}:${hash.slice(0, 16)}`
 
   // Step 1: write raw content inside a single batch. If the exact file

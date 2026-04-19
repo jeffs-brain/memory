@@ -39,12 +39,6 @@ from ..retrieval.index_source import IndexedRow
 _log = logging.getLogger(__name__)
 
 
-# ---------------------------------------------------------------------------
-# Store errors and value types (self-contained — we don't rely on the SDK's
-# stub store implementations).
-# ---------------------------------------------------------------------------
-
-
 class StoreError(Exception):
     """Base class for passthrough store errors."""
 
@@ -74,11 +68,6 @@ class ChangeEvent:
     reason: str | None = None
 
 
-# ---------------------------------------------------------------------------
-# Passthrough store — filesystem mirror of the wire protocol.
-# ---------------------------------------------------------------------------
-
-
 class PassthroughStore:
     """Filesystem-backed store that maps wire paths directly to disk.
 
@@ -104,8 +93,6 @@ class PassthroughStore:
     def _resolve(self, path: str) -> Path:
         validate_path(path)
         return self._root / path
-
-    # --- read side -----------------------------------------------------------
 
     async def read(self, path: str) -> bytes:
         if self._closed:
@@ -194,8 +181,6 @@ class PassthroughStore:
         out.sort(key=lambda fi: fi.path)
         return out
 
-    # --- write side ----------------------------------------------------------
-
     async def write(self, path: str, content: bytes) -> None:
         if self._closed:
             raise StoreReadOnly("store closed")
@@ -251,8 +236,6 @@ class PassthroughStore:
             )
         )
 
-    # --- batch --------------------------------------------------------------
-
     async def batch(
         self,
         ops: list[dict[str, Any]],
@@ -289,8 +272,6 @@ class PassthroughStore:
             applied += 1
         return applied
 
-    # --- subscriber surface -------------------------------------------------
-
     async def subscribe(
         self,
         sink: Callable[[ChangeEvent], Awaitable[None] | None],
@@ -301,7 +282,6 @@ class PassthroughStore:
             self._sinks[sink_id] = sink
 
         def unsubscribe() -> None:
-            # Synchronous unsubscribe: best-effort, dict.pop is atomic.
             self._sinks.pop(sink_id, None)
 
         return unsubscribe
@@ -314,18 +294,13 @@ class PassthroughStore:
                 result = sink(event)
                 if asyncio.iscoroutine(result):
                     await result
-            except Exception:  # noqa: BLE001 — subscriber isolation
+            except Exception:  # noqa: BLE001 - subscriber isolation
                 continue
 
     async def close(self) -> None:
         self._closed = True
         async with self._sink_lock:
             self._sinks.clear()
-
-
-# ---------------------------------------------------------------------------
-# Brain manager + daemon.
-# ---------------------------------------------------------------------------
 
 
 @dataclass(slots=True)
@@ -467,15 +442,16 @@ class BrainManager:
             )
         )
 
-        # Reindex anything already on disk (e.g. warm restart) before
-        # we accept traffic so first-hit searches surface prior content.
+        # Reindex anything already on disk (warm restart, or a brain
+        # populated out-of-band by the Go eval runner) before accepting
+        # traffic. ``index.rebuild`` calls ``asyncio.run`` internally
+        # which is incompatible with a live loop, so walk the store via
+        # ``_rebuild_sync`` instead.
         try:
-            index.rebuild(store)
+            await _rebuild_sync(index, store)
         except Exception as exc:  # noqa: BLE001
             _log.debug("search: initial rebuild failed for %s: %s", brain_id, exc)
 
-        # Subscribe to the passthrough so every subsequent write drives
-        # a re-ingest into the FTS index.
         unsubscribe = await _subscribe_reindex(store, index)
 
         return BrainResources(
@@ -519,7 +495,7 @@ class Daemon:
         if llm is None:
             try:
                 llm = provider_from_env()
-            except Exception:  # noqa: BLE001 — fall through to fake
+            except Exception:  # noqa: BLE001 - fall through to fake
                 llm = FakeProvider(["ok"])
         if embedder is None:
             try:
@@ -546,12 +522,6 @@ class Daemon:
 
 def _utcnow() -> datetime:
     return datetime.now(tz=timezone.utc)
-
-
-# ---------------------------------------------------------------------------
-# Adapters bridging the async wire store to the sync memory layer and the
-# sync sqlite search index to the retrieval / knowledge async protocols.
-# ---------------------------------------------------------------------------
 
 
 class _FsMemoryStore:
@@ -659,8 +629,8 @@ class _FsMemoryStore:
         """Replay mutations synchronously.
 
         The memory package's batch callback performs a short sequence of
-        reads and writes which all resolve eagerly here — we buffer ops
-        in a handle that delegates back to the store on commit.
+        reads and writes which all resolve eagerly here. The handle
+        buffers ops and delegates back to the store on commit.
         """
 
         class _Batch:
@@ -769,8 +739,8 @@ class _IndexForRetrieval:
             return []
         rows: list[IndexedRow] = []
         for h in hits:
-            # FTS5 bm25 returns negative rank (lower is better); invert
-            # to a positive similarity for display consumers.
+            # FTS5 bm25 rank is negative (lower is better); invert for
+            # display consumers.
             score = 1.0 / (1.0 + abs(h.score)) if h.score else 0.0
             rows.append(
                 IndexedRow(

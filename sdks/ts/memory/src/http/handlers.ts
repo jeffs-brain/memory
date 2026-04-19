@@ -2,9 +2,8 @@
 
 /**
  * HTTP handlers for the memory daemon. Each handler matches the
- * behaviour of its Go counterpart in
- * `sdks/go/cmd/memory/handler_*.go` so the wire contract stays
- * byte-equivalent.
+ * behaviour of its Go counterpart in `sdks/go/cmd/memory/handler_*.go`
+ * so the wire contract stays byte-equivalent.
  */
 
 import { ingestDocument } from '../ingest/index.js'
@@ -15,6 +14,7 @@ import type {
   Scope,
 } from '../memory/index.js'
 import { scopeTopic } from '../memory/index.js'
+import { readerTodayAnchor, resolvedTemporalHintLine } from '../query/index.js'
 import {
   ErrConflict,
   ErrInvalidPath,
@@ -68,10 +68,6 @@ const toRawFileInfo = (fi: FileInfo): RawFileInfo => ({
 
 const parseBool = (raw: string | null): boolean => raw === 'true' || raw === '1'
 
-// ---------------------------------------------------------------------------
-// Body readers
-// ---------------------------------------------------------------------------
-
 const readLimitedBody = async (req: Request, limit: number): Promise<Uint8Array | Response> => {
   const raw = await req.arrayBuffer()
   if (raw.byteLength > limit) {
@@ -94,10 +90,6 @@ const readJsonBody = async <T>(req: Request, limit: number): Promise<T | Respons
   }
 }
 
-// ---------------------------------------------------------------------------
-// Brain resolution
-// ---------------------------------------------------------------------------
-
 const resolveBrain = async (daemon: Daemon, brainId: string): Promise<BrainResources | Response> => {
   if (brainId === '') return validationError('missing brainId')
   try {
@@ -115,10 +107,6 @@ const respondError = (err: unknown): Response => {
   if (mapped !== undefined) return mapped
   return internalError(err instanceof Error ? err.message : String(err))
 }
-
-// ---------------------------------------------------------------------------
-// Brain management
-// ---------------------------------------------------------------------------
 
 type BrainSummary = {
   brainId: string
@@ -174,10 +162,6 @@ export const handleDeleteBrain = async (
   }
   return new Response(null, { status: 204 })
 }
-
-// ---------------------------------------------------------------------------
-// Documents
-// ---------------------------------------------------------------------------
 
 const extractPath = (url: URL): Path | Response => {
   const raw = url.searchParams.get('path') ?? ''
@@ -463,10 +447,6 @@ export const handleBatchOps = async (
   return jsonResponse(200, { committed })
 }
 
-// ---------------------------------------------------------------------------
-// Search
-// ---------------------------------------------------------------------------
-
 type SearchRequest = {
   readonly query?: unknown
   readonly topK?: unknown
@@ -487,7 +467,9 @@ export const handleSearch = async (
   const topK = typeof body.topK === 'number' && body.topK > 0 ? Math.trunc(body.topK) : 10
   const mode = typeof body.mode === 'string' ? body.mode : 'auto'
 
-  // Ensure the index reflects the latest writes.
+  // Cheap after the first call — awaits the one-shot brain-open scan,
+  // subsequent requests resolve instantly. Subscribe handles later
+  // writes incrementally so no per-request re-scan is needed.
   await br.refresh()
 
   const started = Date.now()
@@ -575,15 +557,15 @@ const naiveStoreSearch = async (
   return hits
 }
 
-// ---------------------------------------------------------------------------
-// Ask (SSE)
-// ---------------------------------------------------------------------------
+export type ReaderMode = 'basic' | 'augmented'
 
 type AskRequest = {
   readonly question?: unknown
   readonly topK?: unknown
   readonly mode?: unknown
   readonly model?: unknown
+  readonly readerMode?: unknown
+  readonly questionDate?: unknown
 }
 
 export const handleAsk = async (
@@ -600,6 +582,11 @@ export const handleAsk = async (
   const topK = typeof body.topK === 'number' && body.topK > 0 ? Math.trunc(body.topK) : 5
   const mode = typeof body.mode === 'string' ? body.mode : 'auto'
   const model = typeof body.model === 'string' ? body.model : undefined
+  const readerMode: ReaderMode = body.readerMode === 'augmented' ? 'augmented' : 'basic'
+  const questionDate =
+    typeof body.questionDate === 'string' && body.questionDate !== ''
+      ? body.questionDate
+      : undefined
 
   await br.refresh()
   const chunks = await runSearch(br, question, topK, mode)
@@ -620,17 +607,21 @@ export const handleAsk = async (
         return
       }
 
-      const prompt = buildAskPrompt(question, chunks)
-      const messages: Message[] = [
-        { role: 'system', content: ASK_SYSTEM_PROMPT },
-        { role: 'user', content: prompt },
-      ]
+      const messages: Message[] =
+        readerMode === 'augmented'
+          ? [{ role: 'user', content: buildAugmentedAskPrompt(question, chunks, questionDate) }]
+          : [
+              { role: 'system', content: ASK_SYSTEM_PROMPT },
+              { role: 'user', content: buildAskPrompt(question, chunks) },
+            ]
+      const maxTokens = readerMode === 'augmented' ? READER_AUGMENTED_MAX_TOKENS : 1024
+      const temperature = readerMode === 'augmented' ? READER_AUGMENTED_TEMPERATURE : 0.2
       try {
         for await (const evt of provider.stream(
           {
             messages,
-            maxTokens: 1024,
-            temperature: 0.2,
+            maxTokens,
+            temperature,
             ...(model !== undefined ? { model } : {}),
           },
           req.signal,
@@ -674,6 +665,11 @@ export const handleAsk = async (
 const ASK_SYSTEM_PROMPT =
   'You are Jeffs Brain, a helpful assistant. When evidence is supplied, ground your answer in it and cite the path of any source you rely on. When no evidence is supplied, answer concisely from general knowledge.'
 
+/** Mirrors readerMaxTokens / readerTemperature in sdks/go/eval/lme/reader.go.
+ *  Held as constants so the test can assert byte-identical wiring. */
+const READER_AUGMENTED_MAX_TOKENS = 800
+const READER_AUGMENTED_TEMPERATURE = 0.0
+
 const buildAskPrompt = (question: string, chunks: readonly RetrievedChunk[]): string => {
   const parts: string[] = []
   if (chunks.length > 0) {
@@ -688,9 +684,57 @@ const buildAskPrompt = (question: string, chunks: readonly RetrievedChunk[]): st
   return parts.join('\n')
 }
 
-// ---------------------------------------------------------------------------
-// Ingest
-// ---------------------------------------------------------------------------
+/**
+ * buildAugmentedAskPrompt mirrors readerUserTemplate in
+ * sdks/go/eval/lme/reader.go so the TS /ask endpoint can opt in to the
+ * paper-faithful LongMemEval CoT reader. Wording is byte-identical with
+ * the Go template; only the rendered chunk format differs (we keep the
+ * /ask "### title (path)\n{text|summary}" layout so callers do not have
+ * to pre-format LME-style fact blocks).
+ */
+const buildAugmentedAskPrompt = (
+  question: string,
+  chunks: readonly RetrievedChunk[],
+  questionDate: string | undefined,
+): string => {
+  const today = readerTodayAnchor(questionDate)
+  const date = questionDate !== undefined && questionDate !== '' ? questionDate : 'unknown'
+
+  const evidence: string[] = []
+  for (const c of chunks) {
+    evidence.push(`### ${c.title !== '' ? c.title : c.path} (${c.path})`)
+    evidence.push(c.text !== '' ? c.text : c.summary)
+    evidence.push('')
+  }
+  const evidenceBlock = evidence.join('\n').trimEnd()
+
+  const temporalHint = resolvedTemporalHintLine(question, questionDate)
+  const questionLine = temporalHint !== undefined ? `${question} ${temporalHint}` : question
+
+  return `I will give you several history chats between you and a user. Please answer the question based on the relevant chat history. Answer the question step by step: first extract all the relevant information, and then reason over the information to get the answer.
+
+Resolving conflicting information:
+- Each fact is tagged with a date. When the same topic appears with different values on different dates, prefer the value from the most recent session date.
+- Treat explicit supersession phrases as hard overrides regardless of how often the old value appears: "now", "currently", "most recently", "actually", "correction", "I updated", "I changed", "no longer".
+- Do not vote by frequency. One later correction outweighs any number of earlier mentions.
+
+Enumeration and counting:
+- When the question asks to list, count, enumerate, or total ("how many", "list", "which", "what are all", "total", "in total"), return every matching item you find across the retrieved facts, one per line, each tagged with its session date. Then state the count or total explicitly at the end.
+- Do not summarise into a single sentence when the question demands a list.
+- Add numeric values across sessions when the question asks for a total (hours, days, money, items). Show the arithmetic.
+
+Temporal reasoning:
+- Today is ${today} (this is the current date). Resolve relative references ("recently", "last week", "a few days ago", "this month") against this anchor.
+- For date-arithmetic questions ("how many days between X and Y"), first extract each event's ISO date from the fact tags, then compute the difference in days.
+
+History Chats:
+
+${evidenceBlock}
+
+Current Date: ${date}
+Question: ${questionLine}
+Answer (step by step):`
+}
 
 type IngestFileRequest = {
   readonly path?: unknown
@@ -789,7 +833,7 @@ const runIngest = async (
   const { createHash } = await import('node:crypto')
   const hash = createHash('sha256').update(bytes).digest('hex')
   const slug = meta.name !== '' ? slugify(meta.name) : hash.slice(0, 12)
-  const storedPath = joinPath('ingested', `${slug}.md`)
+  const storedPath = joinPath('raw/documents', `${slug}.md`)
 
   // Prefer the real ingest pipeline so chunking + embedding + index
   // upsert happens in a single call. Requires both a sqlite index and
@@ -860,10 +904,6 @@ const slugify = (s: string): string => {
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '')
 }
-
-// ---------------------------------------------------------------------------
-// Memory stages
-// ---------------------------------------------------------------------------
 
 type RememberRequest = {
   readonly note?: unknown
@@ -1091,10 +1131,6 @@ const asScope = (raw: unknown): Scope => {
   if (raw === 'global' || raw === 'project' || raw === 'agent') return raw
   return 'global'
 }
-
-// ---------------------------------------------------------------------------
-// Events (SSE)
-// ---------------------------------------------------------------------------
 
 export const handleEvents = async (
   daemon: Daemon,

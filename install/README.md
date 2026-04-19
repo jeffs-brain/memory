@@ -10,13 +10,26 @@ npx @jeffs-brain/install
 
 Follow the prompts: pick which agents to wire up, choose `local` (default, zero-config) or `hosted`, and accept the default storage path (`~/.jeffs-brain`).
 
+## Supported agents
+
+| Agent          | Config path                                                                   |
+| -------------- | ----------------------------------------------------------------------------- |
+| Claude Code    | `~/.claude/claude.json` or `~/.config/claude/claude.json`                     |
+| Claude Desktop | `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS), `%APPDATA%/Claude/claude_desktop_config.json` (Windows), `~/.config/Claude/claude_desktop_config.json` (Linux) |
+| Cursor         | `~/.cursor/mcp.json` or `~/.config/cursor/mcp.json`                           |
+| Windsurf       | `~/.codeium/windsurf/mcp_config.json`                                         |
+| Zed            | `~/.config/zed/settings.json`                                                 |
+
+If a config file is missing the installer creates it, bootstrapping parent directories as needed.
+
 ## Non-interactive
 
 ```bash
 npx @jeffs-brain/install \
   --agents claude-code,cursor \
   --mode local \
-  --storage ~/.jeffs-brain
+  --storage ~/.jeffs-brain \
+  --non-interactive
 ```
 
 Hosted mode (CI or scripted install) picks the token up from `JB_TOKEN` or `--token`:
@@ -30,6 +43,18 @@ JB_TOKEN=jbp_xxx npx @jeffs-brain/install \
 ```
 
 `--dry-run` prints the plan without writing anything.
+
+### Flags
+
+| Flag                | Notes                                                         |
+| ------------------- | ------------------------------------------------------------- |
+| `--agents`          | Comma list from `claude-code,claude-desktop,cursor,windsurf,zed`. |
+| `--mode`            | `local` or `hosted`.                                          |
+| `--storage`         | Override `JB_HOME` on the written env block.                  |
+| `--endpoint`        | Hosted API URL; defaults to `https://api.jeffsbrain.com`.     |
+| `--token`           | Hosted bearer token; `JB_TOKEN` in env is equivalent.         |
+| `--non-interactive` | Skip prompts. All required values must be on the flag set.    |
+| `--dry-run`         | Print the merged plan without writing.                        |
 
 ## What it writes
 
@@ -64,18 +89,6 @@ Each agent config is merged (never overwritten wholesale). If a `jeffs-brain` en
 }
 ```
 
-## Config paths
-
-| Agent          | Path                                                                          |
-| -------------- | ----------------------------------------------------------------------------- |
-| Claude Code    | `~/.claude/claude.json` or `~/.config/claude/claude.json`                     |
-| Claude Desktop | `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS), `%APPDATA%/Claude/claude_desktop_config.json` (Windows), `~/.config/Claude/claude_desktop_config.json` (Linux) |
-| Cursor         | `~/.cursor/mcp.json` or `~/.config/cursor/mcp.json`                           |
-| Windsurf       | `~/.codeium/windsurf/mcp_config.json`                                         |
-| Zed            | `~/.config/zed/settings.json`                                                 |
-
-If a config file is missing the installer creates it, bootstrapping parent directories as needed.
-
 ## Post-install smoke tests
 
 ```bash
@@ -97,7 +110,7 @@ claude mcp add jeffs-brain --env JB_HOME=~/.jeffs-brain -- npx -y @jeffs-brain/m
 
 ## Roadmap
 
-- Real device-flow OAuth for hosted mode (today it prompts for a pasted token).
+- Real device-flow OAuth for hosted mode (today it stubs device flow and prompts for a pasted token).
 - OS keychain binding (macOS Keychain, libsecret, Windows Credential Manager).
 
 ## Licence

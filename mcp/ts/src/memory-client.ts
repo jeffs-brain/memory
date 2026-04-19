@@ -537,7 +537,7 @@ const createLocalClient = (cfg: LocalConfig): MemoryClient => {
       if (embedder === undefined) {
         // Fallback path: store the file and index a single BM25 chunk.
         const hash = createHash('sha256').update(content).digest('hex')
-        const storedPath = `ingested/${hash}${extname(absPath).toLowerCase() || '.bin'}`
+        const storedPath = `raw/documents/${hash}${extname(absPath).toLowerCase() || '.bin'}`
         await brain.store.batch({ reason: 'ingest' }, async (batch) => {
           await batch.write(storedPath as never, content)
         })
@@ -606,7 +606,7 @@ const createLocalClient = (cfg: LocalConfig): MemoryClient => {
       const embedder = deps.embedder
       if (embedder === undefined) {
         const hash = createHash('sha256').update(buffer).digest('hex')
-        const storedPath = `ingested/${hash}.txt`
+        const storedPath = `raw/documents/${hash}.txt`
         await brain.store.batch({ reason: 'ingest-url' }, async (batch) => {
           await batch.write(storedPath as never, buffer)
         })

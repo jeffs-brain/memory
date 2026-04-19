@@ -10,9 +10,8 @@ import (
 	"github.com/jeffs-brain/memory/go/internal/httpd"
 )
 
-// handleEvents subscribes to a brain's change events and streams
-// them as SSE frames. Emits a `ready` event on attach, periodic
-// `ping` keep-alives, and `change` events for every store mutation.
+// handleEvents streams a brain's change events as SSE frames: `ready`
+// on attach, `ping` every 25s keep-alive, and `change` per mutation.
 func (d *Daemon) handleEvents(w http.ResponseWriter, r *http.Request) {
 	br := d.resolveBrain(w, r)
 	if br == nil {

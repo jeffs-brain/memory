@@ -51,8 +51,8 @@ export const serveCommand = defineCommand({
     },
   },
   run: async ({ args }) => {
-    // `--addr host:port` wins; `--port`/`--host` are a convenience so
-    // the existing memory serve surface keeps working.
+    // `--addr host:port` wins; `--port`/`--host` preserve the older
+    // flag surface.
     const portFlag =
       typeof args.port === 'string' && args.port !== '' ? args.port : undefined
     const hostFlag =
@@ -112,7 +112,6 @@ export const serveCommand = defineCommand({
       void shutdown()
     })
 
-    // Keep the event loop alive until a signal arrives.
     await new Promise(() => undefined)
   },
 })
@@ -134,8 +133,11 @@ const parseAddr = (addr: string): { hostname: string; port: number } => {
 /**
  * Translate a Node request into a fetch-style Request, pass it to the
  * router, then stream the Response back onto the Node response.
+ *
+ * Exported so integration tests can bind a real socket without
+ * duplicating the bridge logic here.
  */
-const handleNodeRequest = async (
+export const handleNodeRequest = async (
   router: (req: Request) => Promise<Response> | Response,
   hostname: string,
   port: number,
@@ -148,7 +150,7 @@ const handleNodeRequest = async (
 
   const controller = new AbortController()
   // Note: `nreq.on('close', ...)` fires when the request body is fully
-  // consumed, not only on client disconnect — wiring it to the abort
+  // consumed, not only on client disconnect. Wiring it to the abort
   // controller would abort the handler before it ever runs. Rely on
   // `nres.on('close', ...)` below to cancel the stream on real client
   // disconnect, and on the socket itself if needed.

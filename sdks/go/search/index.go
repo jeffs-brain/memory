@@ -1111,6 +1111,12 @@ func classifyPath(p brain.Path) (scope, projectSlug string, ok bool) {
 		return "raw_document", "", true
 	case strings.HasPrefix(s, "raw/.sources/"):
 		return "sources", "", true
+	case strings.HasPrefix(s, "raw/lme/"):
+		// LongMemEval bulk-ingested session transcripts. Indexed so the
+		// tri-SDK eval pipeline can fall back to raw session retrieval
+		// when the extraction pass produced no facts (e.g. small
+		// extraction models that repeatedly return `{"memories": []}`).
+		return "raw_lme", "", true
 	}
 	return "", "", false
 }
@@ -1166,6 +1172,11 @@ func (idx *Index) discoverFiles(ctx context.Context) []discoveredFile {
 	// prefix). Indexing here keeps BM25 search honest with what the
 	// ingest pipeline persists.
 	files = append(files, idx.walkPrefix(ctx, brain.RawDocumentsPrefix(), "raw_document", "")...)
+
+	// LME replay ingest (memory eval lme run --ingest-mode=replay
+	// persists session markdown under this prefix). Indexing here lets
+	// the daemon surface replay content to the actor at question time.
+	files = append(files, idx.walkPrefix(ctx, brain.RawLMEPrefix(), "raw_lme", "")...)
 
 	// Compiled sources (originals preserved after compilation).
 	files = append(files, idx.walkPrefix(ctx, brain.SourcesPrefix(), "sources", "")...)
@@ -1323,6 +1334,34 @@ func (idx *Index) allIndexedPaths() ([]string, error) {
 		paths = append(paths, p)
 	}
 	return paths, rows.Err()
+}
+
+// IndexedPaths exports [allIndexedPaths] for callers outside the package
+// (e.g. the daemon's vector backfill) that need to walk every FTS-known
+// path without re-scanning the store.
+func (idx *Index) IndexedPaths() ([]string, error) {
+	return idx.allIndexedPaths()
+}
+
+// IndexedChecksums returns path -> checksum for every entry in the
+// index state table. Callers compare checksums against the vector
+// store to detect drift without reading file bodies.
+func (idx *Index) IndexedChecksums() (map[string]string, error) {
+	rows, err := idx.db.Query("SELECT path, checksum FROM knowledge_index_state")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := map[string]string{}
+	for rows.Next() {
+		var p, c string
+		if err := rows.Scan(&p, &c); err != nil {
+			return nil, err
+		}
+		out[p] = c
+	}
+	return out, rows.Err()
 }
 
 // sanitiseQuery converts a natural-language user query into a valid

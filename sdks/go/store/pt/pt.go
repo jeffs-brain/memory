@@ -1,6 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
 
-package main
+// Package pt implements a [brain.Store] that maps every logical path
+// directly onto the on-disk root. Unlike [go/store/fs], no
+// memory/global/ → memory/ remapping happens: the on-disk tree is a
+// byte-for-byte mirror of the logical tree.
+//
+// This is the layout the HTTP daemon uses and the layout every SDK
+// (Go, TS, Py) reads when opening a brain root. Extraction pipelines
+// that want to populate a brain for cross-SDK consumption should write
+// through this store so the files surface at the paths each SDK
+// expects.
+package pt
 
 import (
 	"context"
@@ -18,20 +28,11 @@ import (
 	"github.com/jeffs-brain/memory/go/brain"
 )
 
-// passthroughStore is a [brain.Store] that maps every logical path
-// directly onto the on-disk root without imposing the
-// memory/global/, memory/project/<slug>/ layout rules baked into
-// store/fs. The HTTP daemon needs this because spec/PROTOCOL.md
-// treats `path` as an opaque POSIX-style identifier; the wire
-// surface should not reject `memory/a.md`, `wiki/doc.md`, or any
-// other shape that survives [brain.ValidatePath].
-//
-// The implementation stays minimal on purpose: atomic writes via
-// rename, simple mutex guarding the subscriber map, no batching
-// optimisations beyond what brain.Batch implementations already
-// provide. Production deployments that need git-backed
-// transactionality can plug a different store directly.
-type passthroughStore struct {
+// Store is a filesystem-backed passthrough [brain.Store]. Every
+// logical path resolves to root/path with no remapping. Atomic writes
+// use rename, a mutex guards open/closed state, and a separate sink
+// map tracks subscribers.
+type Store struct {
 	root string
 
 	mu     sync.RWMutex
@@ -42,30 +43,33 @@ type passthroughStore struct {
 	nextID uint64
 }
 
-// newPassthroughStore builds a store rooted at root.
-func newPassthroughStore(root string) (*passthroughStore, error) {
+// New creates a passthrough Store rooted at root. The directory is
+// created if missing. Relative paths are resolved against the process
+// working directory.
+func New(root string) (*Store, error) {
 	abs, err := filepath.Abs(root)
 	if err != nil {
-		return nil, fmt.Errorf("passthrough: resolve root: %w", err)
+		return nil, fmt.Errorf("pt: resolve root: %w", err)
 	}
 	if err := os.MkdirAll(abs, 0o755); err != nil {
-		return nil, fmt.Errorf("passthrough: create root %s: %w", abs, err)
+		return nil, fmt.Errorf("pt: create root %s: %w", abs, err)
 	}
-	return &passthroughStore{
+	return &Store{
 		root:  abs,
 		sinks: make(map[uint64]brain.EventSink),
 	}, nil
 }
 
-// resolve returns the on-disk absolute path for p, validating shape.
-func (s *passthroughStore) resolve(p brain.Path) (string, error) {
+func (s *Store) Root() string { return s.root }
+
+func (s *Store) resolve(p brain.Path) (string, error) {
 	if err := brain.ValidatePath(p); err != nil {
 		return "", err
 	}
 	return filepath.Join(s.root, filepath.FromSlash(string(p))), nil
 }
 
-func (s *passthroughStore) acquireRead() (func(), error) {
+func (s *Store) acquireRead() (func(), error) {
 	s.mu.RLock()
 	if s.closed {
 		s.mu.RUnlock()
@@ -76,12 +80,12 @@ func (s *passthroughStore) acquireRead() (func(), error) {
 
 func wrapNotFound(p brain.Path, op string, err error) error {
 	if errors.Is(err, iofs.ErrNotExist) {
-		return fmt.Errorf("passthrough: %s %s: %w", op, p, brain.ErrNotFound)
+		return fmt.Errorf("pt: %s %s: %w", op, p, brain.ErrNotFound)
 	}
 	return err
 }
 
-func (s *passthroughStore) Read(ctx context.Context, p brain.Path) ([]byte, error) {
+func (s *Store) Read(ctx context.Context, p brain.Path) ([]byte, error) {
 	release, err := s.acquireRead()
 	if err != nil {
 		return nil, err
@@ -98,7 +102,7 @@ func (s *passthroughStore) Read(ctx context.Context, p brain.Path) ([]byte, erro
 	return data, nil
 }
 
-func (s *passthroughStore) Exists(ctx context.Context, p brain.Path) (bool, error) {
+func (s *Store) Exists(ctx context.Context, p brain.Path) (bool, error) {
 	release, err := s.acquireRead()
 	if err != nil {
 		return false, err
@@ -118,7 +122,7 @@ func (s *passthroughStore) Exists(ctx context.Context, p brain.Path) (bool, erro
 	return true, nil
 }
 
-func (s *passthroughStore) Stat(ctx context.Context, p brain.Path) (brain.FileInfo, error) {
+func (s *Store) Stat(ctx context.Context, p brain.Path) (brain.FileInfo, error) {
 	release, err := s.acquireRead()
 	if err != nil {
 		return brain.FileInfo{}, err
@@ -135,10 +139,10 @@ func (s *passthroughStore) Stat(ctx context.Context, p brain.Path) (brain.FileIn
 	return brain.FileInfo{Path: p, Size: info.Size(), ModTime: info.ModTime(), IsDir: info.IsDir()}, nil
 }
 
-// List walks dir under the root. Recursive walks the entire subtree;
-// otherwise we honour shallow listing semantics. Generated files
-// (basename starting with `_`) are dropped by default.
-func (s *passthroughStore) List(ctx context.Context, dir brain.Path, opts brain.ListOpts) ([]brain.FileInfo, error) {
+// List walks the subtree when opts.Recursive is set, otherwise lists
+// the immediate children. Generated files (basename starting `_`) are
+// dropped unless opts.IncludeGenerated is true.
+func (s *Store) List(ctx context.Context, dir brain.Path, opts brain.ListOpts) ([]brain.FileInfo, error) {
 	release, err := s.acquireRead()
 	if err != nil {
 		return nil, err
@@ -235,7 +239,7 @@ func (s *passthroughStore) List(ctx context.Context, dir brain.Path, opts brain.
 	return out, nil
 }
 
-func (s *passthroughStore) Write(ctx context.Context, p brain.Path, content []byte) error {
+func (s *Store) Write(ctx context.Context, p brain.Path, content []byte) error {
 	release, err := s.acquireRead()
 	if err != nil {
 		return err
@@ -266,7 +270,7 @@ func (s *passthroughStore) Write(ctx context.Context, p brain.Path, content []by
 	return nil
 }
 
-func (s *passthroughStore) Append(ctx context.Context, p brain.Path, content []byte) error {
+func (s *Store) Append(ctx context.Context, p brain.Path, content []byte) error {
 	release, err := s.acquireRead()
 	if err != nil {
 		return err
@@ -300,7 +304,7 @@ func (s *passthroughStore) Append(ctx context.Context, p brain.Path, content []b
 	return nil
 }
 
-func (s *passthroughStore) Delete(ctx context.Context, p brain.Path) error {
+func (s *Store) Delete(ctx context.Context, p brain.Path) error {
 	release, err := s.acquireRead()
 	if err != nil {
 		return err
@@ -317,7 +321,7 @@ func (s *passthroughStore) Delete(ctx context.Context, p brain.Path) error {
 	return nil
 }
 
-func (s *passthroughStore) Rename(ctx context.Context, src, dst brain.Path) error {
+func (s *Store) Rename(ctx context.Context, src, dst brain.Path) error {
 	release, err := s.acquireRead()
 	if err != nil {
 		return err
@@ -344,8 +348,7 @@ func (s *passthroughStore) Rename(ctx context.Context, src, dst brain.Path) erro
 	return nil
 }
 
-// Subscribe / LocalPath / Close mirror the fs store contract.
-func (s *passthroughStore) Subscribe(sink brain.EventSink) func() {
+func (s *Store) Subscribe(sink brain.EventSink) func() {
 	s.sinkMu.Lock()
 	id := s.nextID
 	s.nextID++
@@ -358,7 +361,7 @@ func (s *passthroughStore) Subscribe(sink brain.EventSink) func() {
 	}
 }
 
-func (s *passthroughStore) LocalPath(p brain.Path) (string, bool) {
+func (s *Store) LocalPath(p brain.Path) (string, bool) {
 	abs, err := s.resolve(p)
 	if err != nil {
 		return "", false
@@ -366,7 +369,7 @@ func (s *passthroughStore) LocalPath(p brain.Path) (string, bool) {
 	return abs, true
 }
 
-func (s *passthroughStore) Close() error {
+func (s *Store) Close() error {
 	s.mu.Lock()
 	s.closed = true
 	s.mu.Unlock()
@@ -376,8 +379,7 @@ func (s *passthroughStore) Close() error {
 	return nil
 }
 
-// emit fans an event out to every subscriber.
-func (s *passthroughStore) emit(evt brain.ChangeEvent) {
+func (s *Store) emit(evt brain.ChangeEvent) {
 	s.sinkMu.Lock()
 	sinks := make([]brain.EventSink, 0, len(s.sinks))
 	for _, sink := range s.sinks {
@@ -389,67 +391,66 @@ func (s *passthroughStore) emit(evt brain.ChangeEvent) {
 	}
 }
 
-// Batch implements [brain.Store]. Mutations are buffered as a simple
-// journal then replayed against the store on commit. The semantics
-// match store/fs: write+delete cancels, write+write keeps the
-// latter, append accumulates.
-func (s *passthroughStore) Batch(ctx context.Context, _ brain.BatchOptions, fn func(brain.Batch) error) error {
+// Batch buffers mutations as a journal and replays them on commit. The
+// semantics match store/fs: write+delete cancels, write+write keeps
+// the latter, append accumulates.
+func (s *Store) Batch(ctx context.Context, _ brain.BatchOptions, fn func(brain.Batch) error) error {
 	release, err := s.acquireRead()
 	if err != nil {
 		return err
 	}
 	defer release()
-	b := &passthroughBatch{store: s}
+	b := &batch{store: s}
 	if err := fn(b); err != nil {
 		return err
 	}
 	return b.commit(ctx)
 }
 
-type passthroughBatchOpKind int
+type batchOpKind int
 
 const (
-	pthroughOpWrite passthroughBatchOpKind = iota + 1
-	pthroughOpAppend
-	pthroughOpDelete
-	pthroughOpRename
+	opWrite batchOpKind = iota + 1
+	opAppend
+	opDelete
+	opRename
 )
 
-type passthroughBatchOp struct {
-	kind    passthroughBatchOpKind
+type batchOp struct {
+	kind    batchOpKind
 	path    brain.Path
 	src     brain.Path
 	content []byte
 }
 
-type passthroughBatch struct {
-	store *passthroughStore
-	ops   []passthroughBatchOp
+type batch struct {
+	store *Store
+	ops   []batchOp
 }
 
-func (b *passthroughBatch) Read(ctx context.Context, p brain.Path) ([]byte, error) {
+func (b *batch) Read(ctx context.Context, p brain.Path) ([]byte, error) {
 	content, present, _, err := b.effective(ctx, p, len(b.ops))
 	if err != nil {
 		return nil, err
 	}
 	if !present {
-		return nil, fmt.Errorf("passthrough: read %s: %w", p, brain.ErrNotFound)
+		return nil, fmt.Errorf("pt: read %s: %w", p, brain.ErrNotFound)
 	}
 	return append([]byte(nil), content...), nil
 }
 
-func (b *passthroughBatch) Exists(ctx context.Context, p brain.Path) (bool, error) {
+func (b *batch) Exists(ctx context.Context, p brain.Path) (bool, error) {
 	_, present, _, err := b.effective(ctx, p, len(b.ops))
 	return present, err
 }
 
-func (b *passthroughBatch) Stat(ctx context.Context, p brain.Path) (brain.FileInfo, error) {
+func (b *batch) Stat(ctx context.Context, p brain.Path) (brain.FileInfo, error) {
 	content, present, fromStore, err := b.effective(ctx, p, len(b.ops))
 	if err != nil {
 		return brain.FileInfo{}, err
 	}
 	if !present {
-		return brain.FileInfo{}, fmt.Errorf("passthrough: stat %s: %w", p, brain.ErrNotFound)
+		return brain.FileInfo{}, fmt.Errorf("pt: stat %s: %w", p, brain.ErrNotFound)
 	}
 	if fromStore {
 		return b.store.Stat(ctx, p)
@@ -457,27 +458,27 @@ func (b *passthroughBatch) Stat(ctx context.Context, p brain.Path) (brain.FileIn
 	return brain.FileInfo{Path: p, Size: int64(len(content)), ModTime: time.Now()}, nil
 }
 
-func (b *passthroughBatch) List(ctx context.Context, dir brain.Path, opts brain.ListOpts) ([]brain.FileInfo, error) {
+func (b *batch) List(ctx context.Context, dir brain.Path, opts brain.ListOpts) ([]brain.FileInfo, error) {
 	return b.store.List(ctx, dir, opts)
 }
 
-func (b *passthroughBatch) Write(ctx context.Context, p brain.Path, content []byte) error {
+func (b *batch) Write(ctx context.Context, p brain.Path, content []byte) error {
 	if err := brain.ValidatePath(p); err != nil {
 		return err
 	}
-	b.ops = append(b.ops, passthroughBatchOp{kind: pthroughOpWrite, path: p, content: append([]byte(nil), content...)})
+	b.ops = append(b.ops, batchOp{kind: opWrite, path: p, content: append([]byte(nil), content...)})
 	return nil
 }
 
-func (b *passthroughBatch) Append(ctx context.Context, p brain.Path, content []byte) error {
+func (b *batch) Append(ctx context.Context, p brain.Path, content []byte) error {
 	if err := brain.ValidatePath(p); err != nil {
 		return err
 	}
-	b.ops = append(b.ops, passthroughBatchOp{kind: pthroughOpAppend, path: p, content: append([]byte(nil), content...)})
+	b.ops = append(b.ops, batchOp{kind: opAppend, path: p, content: append([]byte(nil), content...)})
 	return nil
 }
 
-func (b *passthroughBatch) Delete(ctx context.Context, p brain.Path) error {
+func (b *batch) Delete(ctx context.Context, p brain.Path) error {
 	if err := brain.ValidatePath(p); err != nil {
 		return err
 	}
@@ -486,13 +487,13 @@ func (b *passthroughBatch) Delete(ctx context.Context, p brain.Path) error {
 		return err
 	}
 	if !present {
-		return fmt.Errorf("passthrough: delete %s: %w", p, brain.ErrNotFound)
+		return fmt.Errorf("pt: delete %s: %w", p, brain.ErrNotFound)
 	}
-	b.ops = append(b.ops, passthroughBatchOp{kind: pthroughOpDelete, path: p})
+	b.ops = append(b.ops, batchOp{kind: opDelete, path: p})
 	return nil
 }
 
-func (b *passthroughBatch) Rename(ctx context.Context, src, dst brain.Path) error {
+func (b *batch) Rename(ctx context.Context, src, dst brain.Path) error {
 	if err := brain.ValidatePath(src); err != nil {
 		return err
 	}
@@ -504,16 +505,13 @@ func (b *passthroughBatch) Rename(ctx context.Context, src, dst brain.Path) erro
 		return err
 	}
 	if !present {
-		return fmt.Errorf("passthrough: rename %s: %w", src, brain.ErrNotFound)
+		return fmt.Errorf("pt: rename %s: %w", src, brain.ErrNotFound)
 	}
-	b.ops = append(b.ops, passthroughBatchOp{kind: pthroughOpRename, path: dst, src: src})
+	b.ops = append(b.ops, batchOp{kind: opRename, path: dst, src: src})
 	return nil
 }
 
-// effective walks the journal up to upto and returns the merged
-// state for p plus a fromStore flag indicating whether the value
-// came from the underlying store.
-func (b *passthroughBatch) effective(ctx context.Context, p brain.Path, upto int) (content []byte, present, fromStore bool, err error) {
+func (b *batch) effective(ctx context.Context, p brain.Path, upto int) (content []byte, present, fromStore bool, err error) {
 	if upto > len(b.ops) {
 		upto = len(b.ops)
 	}
@@ -522,12 +520,12 @@ func (b *passthroughBatch) effective(ctx context.Context, p brain.Path, upto int
 	for i := 0; i < upto; i++ {
 		op := b.ops[i]
 		switch op.kind {
-		case pthroughOpWrite:
+		case opWrite:
 			if op.path == p {
 				have = true
 				buf = append(buf[:0], op.content...)
 			}
-		case pthroughOpAppend:
+		case opAppend:
 			if op.path == p {
 				if !have {
 					existing, rerr := b.store.Read(ctx, p)
@@ -539,11 +537,11 @@ func (b *passthroughBatch) effective(ctx context.Context, p brain.Path, upto int
 				}
 				buf = append(buf, op.content...)
 			}
-		case pthroughOpDelete:
+		case opDelete:
 			if op.path == p {
 				return nil, false, false, nil
 			}
-		case pthroughOpRename:
+		case opRename:
 			if op.src == p {
 				return nil, false, false, nil
 			}
@@ -574,10 +572,7 @@ func (b *passthroughBatch) effective(ctx context.Context, p brain.Path, upto int
 	return data, true, true, nil
 }
 
-// commit replays the batch journal against the underlying store. We
-// resolve the net effect per path so write+delete cancels and
-// repeated writes flatten.
-func (b *passthroughBatch) commit(ctx context.Context) error {
+func (b *batch) commit(ctx context.Context) error {
 	if len(b.ops) == 0 {
 		return nil
 	}
@@ -585,7 +580,7 @@ func (b *passthroughBatch) commit(ctx context.Context) error {
 	var order []brain.Path
 	for _, op := range b.ops {
 		paths := []brain.Path{op.path}
-		if op.kind == pthroughOpRename {
+		if op.kind == opRename {
 			paths = append(paths, op.src)
 		}
 		for _, p := range paths {
@@ -626,5 +621,4 @@ func (b *passthroughBatch) commit(ctx context.Context) error {
 	return nil
 }
 
-// compile-time interface check.
-var _ brain.Store = (*passthroughStore)(nil)
+var _ brain.Store = (*Store)(nil)

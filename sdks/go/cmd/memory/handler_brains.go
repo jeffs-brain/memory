@@ -12,21 +12,17 @@ import (
 	"github.com/jeffs-brain/memory/go/internal/httpd"
 )
 
-// brainSummary is the shape returned by GET /v1/brains and
-// GET /v1/brains/{id}.
 type brainSummary struct {
 	BrainID     string    `json:"brainId"`
 	Description string    `json:"description,omitempty"`
 	Created     time.Time `json:"created"`
 }
 
-// createBrainRequest is the body shape for POST /v1/brains.
 type createBrainRequest struct {
 	BrainID     string `json:"brainId"`
 	Description string `json:"description,omitempty"`
 }
 
-// handleListBrains returns every brain id known to the daemon.
 func (d *Daemon) handleListBrains(w http.ResponseWriter, r *http.Request) {
 	ids, err := d.Brains.List()
 	if err != nil {
@@ -41,7 +37,6 @@ func (d *Daemon) handleListBrains(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"items": out})
 }
 
-// handleGetBrain returns metadata for a single brain.
 func (d *Daemon) handleGetBrain(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("brainId")
 	if id == "" {
@@ -55,7 +50,6 @@ func (d *Daemon) handleGetBrain(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, brainSummary{BrainID: id})
 }
 
-// handleCreateBrain provisions a new brain.
 func (d *Daemon) handleCreateBrain(w http.ResponseWriter, r *http.Request) {
 	var req createBrainRequest
 	if err := decodeJSONBody(r, &req, 64*1024); err != nil {
@@ -106,7 +100,6 @@ func (d *Daemon) handleDeleteBrain(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// writeJSON encodes payload as application/json with the given status.
 func writeJSON(w http.ResponseWriter, status int, payload any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)

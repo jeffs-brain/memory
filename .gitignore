@@ -8,3 +8,6 @@ coverage/
 *.log
 tsconfig.tsbuildinfo
 .DS_Store
+
+# LongMemEval datasets (downloaded via scripts/fetch-lme.sh, not committed)
+eval/datasets/longmemeval_*.json

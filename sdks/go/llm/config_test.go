@@ -4,6 +4,9 @@ package llm_test
 
 import (
 	"context"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"github.com/jeffs-brain/memory/go/llm"
@@ -40,6 +43,54 @@ func TestProviderFromEnvOpenAIMissingKey(t *testing.T) {
 	}))
 	if err == nil {
 		t.Fatal("expected error")
+	}
+}
+
+// TestProviderFromEnvAnthropicBaseURL ensures the proxy override lifts
+// out of the env and reaches the Anthropic client configuration. We
+// exercise the round-trip by pointing the proxy at an httptest server
+// and checking it was hit.
+func TestProviderFromEnvAnthropicBaseURL(t *testing.T) {
+	t.Parallel()
+	hit := make(chan string, 1)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case hit <- r.URL.Path:
+		default:
+		}
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"id":"msg_1","type":"message","role":"assistant","content":[{"type":"text","text":"ok"}],"stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":1}}`)
+	}))
+	defer srv.Close()
+
+	p, err := llm.ProviderFromEnv(envMap(map[string]string{
+		llm.EnvProvider:      "anthropic",
+		llm.EnvAnthropicKey:  "k",
+		llm.EnvAnthropicBase: srv.URL,
+		llm.EnvModel:         "claude-test",
+	}))
+	if err != nil {
+		t.Fatalf("provider: %v", err)
+	}
+	defer func() { _ = p.Close() }()
+	resp, err := p.Complete(context.Background(), llm.CompleteRequest{
+		Model:     "claude-test",
+		Messages:  []llm.Message{{Role: llm.RoleUser, Content: "hi"}},
+		MaxTokens: 4,
+	})
+	if err != nil {
+		t.Fatalf("complete: %v", err)
+	}
+	if resp.Text != "ok" {
+		t.Fatalf("text %q", resp.Text)
+	}
+	select {
+	case path := <-hit:
+		if path != "/v1/messages" {
+			t.Fatalf("path %q", path)
+		}
+	default:
+		t.Fatal("proxy was not hit; ANTHROPIC_BASE_URL override not applied")
 	}
 }
 

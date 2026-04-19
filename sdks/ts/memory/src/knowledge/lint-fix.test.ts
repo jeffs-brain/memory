@@ -32,7 +32,7 @@ describe('lint-fix', () => {
     expect(result.dryRun).toBe(true)
     expect(result.applied).toEqual([])
     expect(result.clearedMarkers).toEqual([])
-    expect(await store.exists(joinPath('ingested', '_processed', 'stubby-source.json'))).toBe(true)
+    expect(await store.exists(joinPath('raw/documents', '_processed', 'stubby-source.json'))).toBe(true)
 
     const archived = await store.read(joinPath('wiki', 'shared-title-b.md'))
     const archivedText = archived.toString('utf8')
@@ -49,11 +49,11 @@ describe('lint-fix', () => {
     const result = await lintFix.applyPlan(plan)
 
     expect(result.dryRun).toBe(false)
-    expect(result.reopenedSources).toEqual(['ingested/stubby-source.md'])
-    expect(result.clearedMarkers).toEqual(['ingested/_processed/stubby-source.json'])
+    expect(result.reopenedSources).toEqual(['raw/documents/stubby-source.md'])
+    expect(result.clearedMarkers).toEqual(['raw/documents/_processed/stubby-source.json'])
     expect(result.compileTriggered).toBe(true)
     expect(compile).toHaveBeenCalledTimes(1)
-    expect(await store.exists(joinPath('ingested', '_processed', 'stubby-source.json'))).toBe(false)
+    expect(await store.exists(joinPath('raw/documents', '_processed', 'stubby-source.json'))).toBe(false)
 
     const log = parseLog(await readLog(store))
     expect(log.some((entry) => entry.kind === 'lint.fix')).toBe(true)
@@ -116,15 +116,15 @@ const seedStubArticle = async (
   opts: { withProcessedMarker?: boolean } = {},
 ): Promise<void> => {
   await store.write(
-    joinPath('ingested', 'stubby-source.md'),
+    joinPath('raw/documents', 'stubby-source.md'),
     Buffer.from('Source material for the stub article.', 'utf8'),
   )
   if (opts.withProcessedMarker !== false) {
     await store.write(
-      joinPath('ingested', '_processed', 'stubby-source.json'),
+      joinPath('raw/documents', '_processed', 'stubby-source.json'),
       Buffer.from(
         serialiseProcessedMarker({
-          sourcePath: 'ingested/stubby-source.md',
+          sourcePath: 'raw/documents/stubby-source.md',
           contentHash: 'hash-stub',
           processedAt: '2026-04-18T10:00:00.000Z',
           writtenPaths: ['wiki/stubby.md'],
@@ -138,7 +138,7 @@ const seedStubArticle = async (
       title: 'Stubby',
       summary: 'Thin article',
       tags: [],
-      sources: ['ingested/stubby-source.md'],
+      sources: ['raw/documents/stubby-source.md'],
     },
     'Short note with [[reference]].',
   )

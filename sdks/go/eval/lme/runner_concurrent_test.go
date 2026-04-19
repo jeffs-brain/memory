@@ -180,8 +180,9 @@ func TestClampConcurrency(t *testing.T) {
 		{1, 1},
 		{8, 8},
 		{64, 64},
-		{65, 64},
-		{1_000_000, 64},
+		{256, 256},
+		{257, 256},
+		{1_000_000, 256},
 	}
 	for _, c := range cases {
 		if got := clampConcurrency(c.in); got != c.want {

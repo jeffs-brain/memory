@@ -5,12 +5,11 @@
  * apps/jeff/internal/knowledge/{knowledge,ingest,compile,promote,lint,
  * dedup,scrub,frontmatter}.go.
  *
- * The Go implementation uses ~/.config/jeff/raw/... + ~/.config/jeff/wiki/...
- * We keep the same logical layout but use the jeffs-brain Store vocabulary:
- *   - ingested/<hash>.md  -- raw inputs (Go: raw/)
- *   - drafts/<slug>.md    -- compiled intermediates (Go: raw/ post-compile)
- *   - wiki/<slug>.md      -- promoted final articles
- *   - _log.md             -- operations log (Go: wiki/_log.md)
+ * Storage layout used across the brain:
+ *   - raw/documents/<hash>.md  -- raw ingested inputs
+ *   - drafts/<slug>.md         -- compiled intermediates
+ *   - wiki/<slug>.md           -- promoted final articles
+ *   - _log.md                  -- operations log
  */
 
 import type { Path } from '../store/index.js'
