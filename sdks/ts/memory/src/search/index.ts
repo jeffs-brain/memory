@@ -19,6 +19,7 @@ import type { DriverKind, SqlDb } from './driver.js'
 import { getChunk, searchBM25, searchVector } from './reader.js'
 import type { BM25Result, VectorResult } from './reader.js'
 import { applyDDL } from './schema.js'
+import { chunkIdsWithVectorForModel } from './vector.js'
 import { deleteByPath, deleteChunk, upsertChunk, upsertChunksBatch } from './writer.js'
 import type { Chunk } from './writer.js'
 
@@ -73,6 +74,20 @@ export type SearchIndex = {
   searchBM25(query: string, limit: number): BM25Result[]
   searchVector(embedding: Float32Array | number[], limit: number): VectorResult[]
   getChunk(id: string): Chunk | undefined
+
+  /**
+   * Return every distinct path currently indexed in knowledge_chunks.
+   * Parity with the Go `Index.IndexedPaths()` used by the daemon's
+   * vector backfill to enumerate candidates without re-scanning the
+   * store.
+   */
+  indexedPaths(): string[]
+  /**
+   * Return the chunk ids that already have a vector for the given
+   * embedding model. Used by backfill to skip work on restart; mirrors
+   * Go's `VectorIndex.LoadAll(model)` probe.
+   */
+  chunkIdsWithVectorForModel(model: string): string[]
 
   /**
    * Close the connection iff this instance opened it. No-op when the
@@ -138,6 +153,13 @@ export async function createSearchIndex(opts: CreateSearchIndexOptions = {}): Pr
     searchBM25: (query, limit) => searchBM25(db, query, limit),
     searchVector: (embedding, limit) => searchVector(db, embedding, limit),
     getChunk: (id) => getChunk(db, id),
+    indexedPaths: () => {
+      const rows = db
+        .prepare('SELECT DISTINCT path FROM knowledge_chunks ORDER BY path')
+        .all() as Array<{ path: string }>
+      return rows.map((r) => r.path)
+    },
+    chunkIdsWithVectorForModel: (model) => chunkIdsWithVectorForModel(db, model),
     close: async () => {
       if (closed) return
       closed = true

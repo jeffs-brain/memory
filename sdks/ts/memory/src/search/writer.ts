@@ -21,6 +21,13 @@ export type Chunk = {
   readonly content: string
   readonly metadata?: Readonly<Record<string, unknown>>
   readonly embedding?: Float32Array | number[]
+  /**
+   * Optional embedding model identifier pinned alongside the vector in
+   * knowledge_vec_map. Lets downstream probes (e.g. daemon vector
+   * backfill) skip paths already embedded under the active model and
+   * re-embed cleanly when the model changes.
+   */
+  readonly embeddingModel?: string
 }
 
 function normaliseTags(tags: readonly string[] | string | undefined): string {
@@ -85,7 +92,7 @@ function upsertChunkInner(db: SqlDb, chunk: Chunk): void {
   ).run(chunk.path, title, summary, tags, chunk.content, chunk.id)
 
   if (chunk.embedding !== undefined) {
-    upsertVector(db, chunk.id, chunk.embedding)
+    upsertVector(db, chunk.id, chunk.embedding, chunk.embeddingModel)
   }
 }
 

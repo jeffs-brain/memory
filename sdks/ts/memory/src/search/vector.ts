@@ -42,15 +42,22 @@ export function encodeVector(vec: Float32Array | number[]): Buffer {
  * integer rowids but our chunks use text ids for portability.
  *
  * Re-uses an existing mapping when one is present so vector upserts keep
- * the same rowid and overwrite the previous embedding cleanly.
+ * the same rowid and overwrite the previous embedding cleanly. When
+ * `model` is supplied, the mapping row's model column is updated to
+ * pin the embedding model alongside the rowid; mirrors the `model`
+ * column on the Go VectorIndex so switching embedders is detectable.
  */
-export function ensureVectorRowid(db: SqlDb, chunkId: string): number {
+export function ensureVectorRowid(db: SqlDb, chunkId: string, model?: string): number {
   const existing = db
     .prepare('SELECT vec_rowid FROM knowledge_vec_map WHERE chunk_id = ?')
     .get(chunkId) as { vec_rowid: number } | undefined | null
   if (existing != null) {
     const value = existing.vec_rowid
-    return typeof value === 'bigint' ? Number(value) : value
+    const rowid = typeof value === 'bigint' ? Number(value) : value
+    if (model !== undefined) {
+      db.prepare('UPDATE knowledge_vec_map SET model = ? WHERE chunk_id = ?').run(model, chunkId)
+    }
+    return rowid
   }
 
   const nextRow = db
@@ -59,17 +66,29 @@ export function ensureVectorRowid(db: SqlDb, chunkId: string): number {
   // better-sqlite3 may return a bigint for integer aggregates; coerce so
   // sqlite-vec's rowid typecheck passes cleanly on both drivers.
   const next = typeof nextRow.next === 'bigint' ? Number(nextRow.next) : nextRow.next
-  db.prepare('INSERT INTO knowledge_vec_map(chunk_id, vec_rowid) VALUES (?, ?)').run(chunkId, next)
+  db.prepare('INSERT INTO knowledge_vec_map(chunk_id, vec_rowid, model) VALUES (?, ?, ?)').run(
+    chunkId,
+    next,
+    model ?? null,
+  )
   return next
 }
 
 /**
  * Upsert a single embedding into the vector table. The caller is
  * responsible for matching `embedding.length` to the table's configured
- * dimension — sqlite-vec will otherwise raise a dimension mismatch error.
+ * dimension; sqlite-vec otherwise raises a dimension mismatch error.
+ *
+ * When `model` is supplied, the embedding model name is pinned on the
+ * mapping row so backfill callers can probe existing coverage per model.
  */
-export function upsertVector(db: SqlDb, chunkId: string, embedding: Float32Array | number[]): void {
-  const rowid = ensureVectorRowid(db, chunkId)
+export function upsertVector(
+  db: SqlDb,
+  chunkId: string,
+  embedding: Float32Array | number[],
+  model?: string,
+): void {
+  const rowid = ensureVectorRowid(db, chunkId, model)
   const blob = encodeVector(embedding)
   // sqlite-vec's vec0 virtual table rejects a JS `number` as the primary
   // key on better-sqlite3 ("Only integers are allowed..." — the native
@@ -79,6 +98,20 @@ export function upsertVector(db: SqlDb, chunkId: string, embedding: Float32Array
   const rowidBig = BigInt(rowid)
   db.prepare('DELETE FROM knowledge_vectors WHERE rowid = ?').run(rowidBig)
   db.prepare('INSERT INTO knowledge_vectors(rowid, embedding) VALUES (?, ?)').run(rowidBig, blob)
+}
+
+/**
+ * Return the chunk ids that already carry a vector for the given
+ * embedding model. Used by the daemon's vector backfill to skip work
+ * on a restart. Missing (NULL) models are excluded because they come
+ * from a pre-migration era and cannot be proven to match the current
+ * embedder; we let the backfill overwrite them.
+ */
+export function chunkIdsWithVectorForModel(db: SqlDb, model: string): string[] {
+  const rows = db
+    .prepare('SELECT chunk_id FROM knowledge_vec_map WHERE model = ?')
+    .all(model) as Array<{ chunk_id: string }>
+  return rows.map((r) => r.chunk_id)
 }
 
 /**

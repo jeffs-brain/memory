@@ -592,4 +592,55 @@ describe('memory daemon integration', () => {
     expect(body.chunks.length).toBeGreaterThan(0)
     expect(body.chunks.some((c) => c.path.endsWith('hedgehog.md'))).toBe(true)
   })
+
+  it('15. vector backfill populates knowledge_vectors for pre-seeded paths', async () => {
+    // Parity with the Go daemon: after the initial FTS scan completes,
+    // every indexed path should have a vector pinned under the active
+    // embed model so /search runs hybrid (BM25 + vector) rather than
+    // BM25-only.
+    const tempDir = await mkdtemp(join(tmpdir(), 'memory-backfill-'))
+    const brainId = 'backfill'
+    const { mkdir, writeFile } = await import('node:fs/promises')
+    await mkdir(join(tempDir, 'brains', brainId, 'memory', 'global'), { recursive: true })
+    await writeFile(
+      join(tempDir, 'brains', brainId, 'memory', 'global', 'alpha.md'),
+      'The hedgehog lives in hedgerows.',
+      'utf8',
+    )
+    await writeFile(
+      join(tempDir, 'brains', brainId, 'memory', 'global', 'beta.md'),
+      'Slugs and beetles are hedgehog food.',
+      'utf8',
+    )
+
+    const daemon = new Daemon({
+      root: tempDir,
+      provider: makeFakeProvider('ok'),
+      embedder: createHashEmbedder(),
+      embedModel: 'hash-1024',
+    })
+    await daemon.start()
+    const handler = async (req: Request): Promise<Response> =>
+      (await createRouter(daemon))(req)
+    fixtures.push({ daemon, handler, tempDir })
+
+    // Trigger the lazy brain open + scanBrain + backfill chain.
+    const search = await handler(
+      makeRequest('POST', `/v1/brains/${brainId}/search`, {
+        body: JSON.stringify({ query: 'hedgehog', topK: 3 }),
+        headers: { 'content-type': 'application/json' },
+      }),
+    )
+    expect(search.status).toBe(200)
+
+    const br = await daemon.brains.get(brainId)
+    expect(br.index).toBeDefined()
+    // Both markdown paths should end up with a vector tagged for the
+    // active model once the backfill has drained.
+    const withVectors = br.index!.chunkIdsWithVectorForModel('hash-1024')
+    expect(withVectors.sort()).toEqual([
+      'memory/global/alpha.md',
+      'memory/global/beta.md',
+    ])
+  })
 })

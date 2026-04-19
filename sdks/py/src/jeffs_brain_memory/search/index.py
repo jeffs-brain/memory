@@ -45,6 +45,8 @@ __all__ = [
     "TrigramHit",
     "SearchOpts",
     "Index",
+    "EMBED_TEXT_MAX",
+    "EMBED_BATCH_SIZE",
 ]
 
 _log = logging.getLogger(__name__)
@@ -88,10 +90,22 @@ CREATE TABLE IF NOT EXISTS knowledge_embeddings (
     chunk_id TEXT PRIMARY KEY,
     dim      INTEGER NOT NULL,
     vector   BLOB NOT NULL,
+    model    TEXT NOT NULL DEFAULT '',
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY(chunk_id) REFERENCES knowledge_chunks(chunk_id) ON DELETE CASCADE
 );
+CREATE INDEX IF NOT EXISTS idx_embeddings_model ON knowledge_embeddings(model);
 """
+
+# Text cap applied to each document before it reaches the embedder.
+# 8k chars is roughly 2k tokens, comfortably within most embedding
+# context windows while keeping a single bad document from starving a
+# whole batch. Matches the Go SDK's cap in backfill_vectors.
+EMBED_TEXT_MAX = 8192
+
+# Backfill batch size. Matches the Go SDK's constant so cross-language
+# behaviour stays lockstep when comparing LongMemEval runs.
+EMBED_BATCH_SIZE = 100
 
 _RANK_EXPR = "bm25(3.0, 10.0, 5.0, 4.0, 1.0)"
 
@@ -271,6 +285,24 @@ class Index:
                 "INSERT INTO knowledge_fts(knowledge_fts, rank) VALUES('rank', ?)",
                 (_RANK_EXPR,),
             )
+            self._evolve_embeddings_columns()
+
+    def _evolve_embeddings_columns(self) -> None:
+        """Add missing columns to ``knowledge_embeddings`` on upgrade.
+
+        Existing deployments written before the ``model`` column landed
+        keep their BLOB payload and inherit an empty model string.
+        Re-running against an already-evolved schema is a no-op.
+        """
+        cursor = self._conn.execute("PRAGMA table_info(knowledge_embeddings)")
+        existing = {row["name"] for row in cursor.fetchall()}
+        if "model" not in existing:
+            self._conn.execute(
+                "ALTER TABLE knowledge_embeddings ADD COLUMN model TEXT NOT NULL DEFAULT ''"
+            )
+            self._conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_embeddings_model ON knowledge_embeddings(model)"
+            )
 
     @property
     def vec_loaded(self) -> bool:
@@ -293,12 +325,15 @@ class Index:
     def __exit__(self, *_exc: object) -> None:
         self.close()
 
-    def upsert_chunks(self, chunks: Iterable[Chunk]) -> int:
+    def upsert_chunks(self, chunks: Iterable[Chunk], *, model: str = "") -> int:
         """Insert or replace ``chunks``.
 
         Vectors (if present on the chunk) are persisted in the same
         transaction so the FTS and embedding rows are always consistent.
-        Returns the number of chunks written.
+        ``model`` is stored alongside each vector so the retrieval path
+        can filter by the active embedding model and a deployment can
+        A/B between models without mixed-dim ranking. Returns the
+        number of chunks written.
         """
         batch = list(chunks)
         if not batch:
@@ -307,11 +342,11 @@ class Index:
         count = 0
         with self._conn:
             for chunk in batch:
-                self._write_chunk(chunk)
+                self._write_chunk(chunk, model=model)
                 count += 1
         return count
 
-    def _write_chunk(self, chunk: Chunk) -> None:
+    def _write_chunk(self, chunk: Chunk, *, model: str = "") -> None:
         scope = str(chunk.metadata.get("scope") or "")
         project_slug = str(chunk.metadata.get("project_slug") or "")
         if not scope:
@@ -329,14 +364,12 @@ class Index:
         generated = 1 if chunk.metadata.get("generated") else 0
         metadata_blob = _serialise_metadata(chunk.metadata)
 
-        # FTS is DELETE+INSERT under the hood, so clear first to keep
-        # a re-upsert in sync with the chunk + embedding rows.
+        # FTS5 is a virtual table and lacks ON CONFLICT semantics, so
+        # clear the path first. The chunks row uses an UPSERT so any
+        # foreign-keyed embedding is preserved across an FTS rebuild
+        # that has no new vector to offer; a cascade delete would drop
+        # backfilled embeddings and force a re-embed on every mutation.
         self._conn.execute("DELETE FROM knowledge_fts WHERE path = ?", (chunk.path,))
-        self._conn.execute("DELETE FROM knowledge_chunks WHERE chunk_id = ?", (chunk.id,))
-        self._conn.execute(
-            "DELETE FROM knowledge_embeddings WHERE chunk_id = ?",
-            (chunk.id,),
-        )
 
         self._conn.execute(
             """
@@ -353,6 +386,19 @@ class Index:
                 chunk_id, document_id, path, title, summary, tags, content,
                 scope, project_slug, session_date, metadata, checksum, generated
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(chunk_id) DO UPDATE SET
+                document_id = excluded.document_id,
+                path = excluded.path,
+                title = excluded.title,
+                summary = excluded.summary,
+                tags = excluded.tags,
+                content = excluded.content,
+                scope = excluded.scope,
+                project_slug = excluded.project_slug,
+                session_date = excluded.session_date,
+                metadata = excluded.metadata,
+                checksum = excluded.checksum,
+                generated = excluded.generated
             """,
             (
                 chunk.id,
@@ -374,10 +420,15 @@ class Index:
         if chunk.vector:
             self._conn.execute(
                 """
-                INSERT INTO knowledge_embeddings (chunk_id, dim, vector)
-                VALUES (?, ?, ?)
+                INSERT INTO knowledge_embeddings (chunk_id, dim, vector, model)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(chunk_id) DO UPDATE SET
+                    dim = excluded.dim,
+                    vector = excluded.vector,
+                    model = excluded.model,
+                    updated_at = CURRENT_TIMESTAMP
                 """,
-                (chunk.id, len(chunk.vector), _pack_float32(chunk.vector)),
+                (chunk.id, len(chunk.vector), _pack_float32(chunk.vector), model),
             )
 
     def delete_chunk(self, chunk_id: str) -> None:
@@ -481,6 +532,8 @@ class Index:
         query_vec: Sequence[float],
         top_k: int = 20,
         opts: SearchOpts | None = None,
+        *,
+        model: str = "",
     ) -> list[VectorHit]:
         """Cosine-rank every stored vector against ``query_vec``.
 
@@ -488,14 +541,17 @@ class Index:
         falls back to a pure-Python scan otherwise. Both paths share
         the same persistent storage so swapping between them is a
         no-op for callers.
+
+        When ``model`` is non-empty, the scan is restricted to rows
+        written under that embedding model so a dimension mismatch
+        between stored vectors and the query cannot poison the ranking.
         """
         opts = opts or SearchOpts(max_results=top_k)
         if not query_vec:
             return []
         limit = opts.max_results or top_k or 20
 
-        rows = self._conn.execute(
-            """
+        sql = """
             SELECT e.chunk_id AS chunk_id, e.vector AS vector,
                    c.path AS path, c.title AS title,
                    c.document_id AS document_id, c.generated AS generated,
@@ -503,8 +559,12 @@ class Index:
                    c.tags AS tags
             FROM knowledge_embeddings AS e
             JOIN knowledge_chunks AS c ON c.chunk_id = e.chunk_id
-            """
-        ).fetchall()
+        """
+        params: tuple[Any, ...] = ()
+        if model:
+            sql += " WHERE e.model = ?"
+            params = (model,)
+        rows = self._conn.execute(sql, params).fetchall()
         if not rows:
             return []
 
@@ -528,6 +588,90 @@ class Index:
             )
         scored.sort(key=lambda h: (-h.score, h.path))
         return scored[:limit]
+
+    def list_indexed_paths(self) -> list[str]:
+        """Return every path currently carried by the FTS / chunk tables.
+
+        Mirrors the Go ``Index.IndexedPaths`` surface so the vector
+        backfill walker can decide which documents still need embedding.
+        Paths are returned in ascending lexicographic order.
+        """
+        rows = self._conn.execute(
+            "SELECT DISTINCT path FROM knowledge_chunks ORDER BY path"
+        ).fetchall()
+        return [row["path"] for row in rows if row["path"]]
+
+    def paths_with_vectors(self, model: str) -> set[str]:
+        """Return the set of paths already embedded under ``model``.
+
+        Used by the vector backfill to skip documents it has already
+        processed: a restart is a no-op when every indexed path has a
+        row here, and a partial run only embeds the remainder.
+        """
+        if not model:
+            rows = self._conn.execute(
+                """
+                SELECT DISTINCT c.path AS path
+                FROM knowledge_embeddings AS e
+                JOIN knowledge_chunks AS c ON c.chunk_id = e.chunk_id
+                """
+            ).fetchall()
+        else:
+            rows = self._conn.execute(
+                """
+                SELECT DISTINCT c.path AS path
+                FROM knowledge_embeddings AS e
+                JOIN knowledge_chunks AS c ON c.chunk_id = e.chunk_id
+                WHERE e.model = ?
+                """,
+                (model,),
+            ).fetchall()
+        return {row["path"] for row in rows if row["path"]}
+
+    def upsert_embeddings(
+        self,
+        items: Sequence[tuple[str, Sequence[float]]],
+        *,
+        model: str,
+    ) -> int:
+        """Persist ``(path, vector)`` pairs under ``model`` atomically.
+
+        Writes one row per distinct chunk backing ``path``. When multiple
+        chunks share a path the vector is replicated across them so hit
+        ranking stays consistent. Empty vectors are skipped to match
+        the Go SDK's ``StoreBatch`` guard. Returns the number of
+        ``knowledge_embeddings`` rows written.
+        """
+        if not items:
+            return 0
+        count = 0
+        with self._conn:
+            for path, vector in items:
+                if not path or not vector:
+                    continue
+                rows = self._conn.execute(
+                    "SELECT chunk_id FROM knowledge_chunks WHERE path = ?",
+                    (path,),
+                ).fetchall()
+                if not rows:
+                    continue
+                blob = _pack_float32(vector)
+                dim = len(vector)
+                for row in rows:
+                    self._conn.execute(
+                        """
+                        INSERT INTO knowledge_embeddings (chunk_id, dim, vector, model)
+                        VALUES (?, ?, ?, ?)
+                        ON CONFLICT(chunk_id) DO UPDATE SET
+                            dim = excluded.dim,
+                            vector = excluded.vector,
+                            model = excluded.model,
+                            updated_at = CURRENT_TIMESTAMP
+                        """,
+                        (row["chunk_id"], dim, blob, model),
+                    )
+                    count += 1
+        return count
 
     def search_trigram(
         self,

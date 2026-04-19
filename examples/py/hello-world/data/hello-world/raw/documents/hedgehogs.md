@@ -2,8 +2,8 @@
 title: "Hedgehogs"
 source: "/home/jaythegeek/code/jeffs-brain/memory/examples/py/hello-world/docs/hedgehogs.md"
 source_type: "markdown"
-ingested: "2026-04-18T23:52:13Z"
-modified: "2026-04-18T23:52:13Z"
+ingested: "2026-04-19T00:08:40Z"
+modified: "2026-04-19T00:08:40Z"
 ---
 
 # Hedgehogs

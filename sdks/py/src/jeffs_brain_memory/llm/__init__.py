@@ -8,7 +8,7 @@ shapes and concrete backends (OpenAI, Anthropic, Ollama, Fake).
 from __future__ import annotations
 
 from .anthropic import AnthropicProvider
-from .config import embedder_from_env, provider_from_env
+from .config import embedder_from_env, provider_from_env, resolve_embed_model
 from .fake import FakeEmbedder, FakeProvider
 from .ollama import OllamaEmbedder, OllamaProvider
 from .openai import OpenAIEmbedder, OpenAIProvider
@@ -50,4 +50,5 @@ __all__ = [
     "ToolDef",
     "embedder_from_env",
     "provider_from_env",
+    "resolve_embed_model",
 ]

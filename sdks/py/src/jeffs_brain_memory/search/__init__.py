@@ -12,7 +12,16 @@ from dataclasses import dataclass
 
 from ..path import ChunkID
 from .aliases import AliasTable
-from .index import BM25Hit, Chunk, Index, SearchOpts, TrigramHit, VectorHit
+from .index import (
+    BM25Hit,
+    Chunk,
+    EMBED_BATCH_SIZE,
+    EMBED_TEXT_MAX,
+    Index,
+    SearchOpts,
+    TrigramHit,
+    VectorHit,
+)
 from .query_parser import (
     FTSExpr,
     QueryAST,
@@ -32,6 +41,8 @@ __all__ = [
     "AliasTable",
     "BM25Hit",
     "Chunk",
+    "EMBED_BATCH_SIZE",
+    "EMBED_TEXT_MAX",
     "FTSExpr",
     "Index",
     "QueryAST",
