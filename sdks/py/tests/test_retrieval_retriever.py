@@ -227,6 +227,71 @@ async def test_filters_narrow_corpus() -> None:
         assert c.path == "memory/project/billing/invoice.md"
 
 
+async def test_trigram_retry_respects_exact_paths() -> None:
+    corpus = [
+        FakeChunk(
+            id="allowed",
+            path="wiki/invoice-processing.md",
+            title="Invoice Processing",
+            content="Invoice processing workflow",
+        ),
+        FakeChunk(
+            id="blocked",
+            path="wiki/invoice-review.md",
+            title="Invoice Review",
+            content="Invoice review workflow",
+        ),
+    ]
+    src = FakeSource(corpus)
+    r = Retriever(source=src)
+    resp = await r.retrieve(
+        Request(
+            query="invioce procesing",
+            mode=Mode.BM25,
+            top_k=5,
+            filters=Filters(paths=["wiki/invoice-processing.md"]),
+        )
+    )
+    assert resp.chunks
+    assert {chunk.path for chunk in resp.chunks} == {"wiki/invoice-processing.md"}
+
+
+async def test_trigram_retry_widens_fetch_before_filtering() -> None:
+    corpus = [
+        FakeChunk(
+            id="blocked-a",
+            path="wiki/a-invoice-processing.md",
+            title="Invoice Processing",
+            content="Invoice processing workflow",
+        ),
+        FakeChunk(
+            id="blocked-b",
+            path="wiki/b-invoice-processing.md",
+            title="Invoice Processing",
+            content="Invoice processing workflow",
+        ),
+        FakeChunk(
+            id="allowed",
+            path="wiki/z-invoice-processing.md",
+            title="Invoice Processing",
+            content="Invoice processing workflow",
+        ),
+    ]
+    src = FakeSource(corpus)
+    r = Retriever(source=src)
+    resp = await r.retrieve(
+        Request(
+            query="invioce procesing",
+            mode=Mode.BM25,
+            top_k=5,
+            candidate_k=1,
+            filters=Filters(paths=["wiki/z-invoice-processing.md"]),
+        )
+    )
+    assert resp.chunks
+    assert [chunk.path for chunk in resp.chunks] == ["wiki/z-invoice-processing.md"]
+
+
 async def test_trace_reports_candidate_and_rerank_top_n_defaults() -> None:
     src = FakeSource(_test_corpus())
     r = Retriever(source=src)

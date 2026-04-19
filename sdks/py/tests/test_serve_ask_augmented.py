@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import contextlib
+import json
 import socket
 import threading
 import time
@@ -21,6 +22,7 @@ import httpx
 import pytest
 import uvicorn
 
+from jeffs_brain_memory.http.handlers import ask as ask_handler
 from jeffs_brain_memory.http import Daemon, create_app
 from jeffs_brain_memory.http.handlers.ask import (
     _AUGMENTED_MAX_TOKENS,
@@ -38,7 +40,7 @@ from jeffs_brain_memory.llm.types import (
     StopReason,
     StreamChunk,
 )
-from jeffs_brain_memory.retrieval import RetrievedChunk
+from jeffs_brain_memory.retrieval import Filters, RetrievedChunk
 
 
 class _RecordingProvider:
@@ -188,9 +190,17 @@ def test_augmented_prompt_contains_lme_guidance() -> None:
     lower = prompt.lower()
     # Recency guidance.
     assert "most recent session date" in lower
+    assert "never use a fact dated after the current date" in lower
     # Enumeration / counting guidance.
     for kw in ("list", "count", "enumerat", "total", "one per line"):
         assert kw in lower, f"missing enumeration keyword {kw!r}"
+    assert "avoid double counting the roll-up" in lower
+    assert (
+        "include all confirmed historical amounts for the same subject across sessions"
+        in lower
+    )
+    assert "infer durable preferences from concrete desired features" in lower
+    assert "ignore unrelated hostel, budget, or solo-travel examples" in lower
     # Temporal anchor and CoT directive.
     assert "today is 2024-04-15 (monday)" in lower
     assert "answer step by step" in lower or "step by step" in lower
@@ -440,6 +450,157 @@ def test_ask_augmented_dispatches_lme_prompt(tmp_path) -> None:  # type: ignore[
     assert "### " not in body
     assert "Current Date: 2024-04-15" in body
     assert "Question: What does the user drink?" in body
+
+    asyncio.run(daemon.close())
+
+
+def test_ask_augmented_uses_deterministic_resolver_before_llm(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    provider = _RecordingProvider("Wrong answer.")
+
+    async def build() -> Daemon:
+        return await Daemon.create(root=tmp_path, llm=provider)
+
+    async def fake_retrieve(*_args, **_kwargs) -> list[RetrievedChunk]:
+        return [
+            RetrievedChunk(
+                chunk_id="paper",
+                document_id="paper",
+                path="raw/lme/paper.md",
+                score=1.0,
+                text="I submitted my research paper on sentiment analysis to ACL.",
+                metadata={"session_date": "2023-05-22", "session_id": "s1"},
+            ),
+            RetrievedChunk(
+                chunk_id="acl-date",
+                document_id="acl-date",
+                path="raw/lme/acl-date.md",
+                score=0.9,
+                text="I'm reviewing for ACL, and their submission date was February 1st.",
+                metadata={"session_date": "2023-02-01", "session_id": "s2"},
+            ),
+        ]
+
+    monkeypatch.setattr(ask_handler, "_retrieve", fake_retrieve)
+
+    daemon = asyncio.run(build())
+    app = create_app(daemon=daemon)
+    with _run_app(app) as base_url:
+        with httpx.Client(base_url=base_url, timeout=5.0) as client:
+            _must_create_brain(client, "resolver")
+
+            with httpx.stream(
+                "POST",
+                f"{base_url}/v1/brains/resolver/ask",
+                json={
+                    "question": "When did I submit my research paper on sentiment analysis?",
+                    "topK": 2,
+                    "reader_mode": "augmented",
+                    "question_date": "2024-04-15",
+                },
+                headers={"Accept": "text/event-stream"},
+                timeout=httpx.Timeout(5.0),
+            ) as stream:
+                events = _drain_sse(stream)
+
+    assert "retrieve" in events
+    assert "answer_delta" in events
+    assert "citation" in events
+    assert "done" in events
+    answer = "".join(json.loads(delta)["text"] for delta in events["answer_delta"])
+    assert "February 1st" in answer
+    assert provider.requests == []
+
+    asyncio.run(daemon.close())
+
+
+def test_ask_augmented_accepts_live_eval_camel_case_request_shape(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    provider = _RecordingProvider("Wrong answer.")
+    captured: dict[str, object] = {}
+
+    async def build() -> Daemon:
+        return await Daemon.create(root=tmp_path, llm=provider)
+
+    async def fake_retrieve(
+        _brain,
+        question: str,
+        top_k: int,
+        mode: str,
+        question_date: str,
+        candidate_k: int,
+        rerank_top_n: int,
+        filters=None,
+    ) -> list[RetrievedChunk]:
+        captured.update(
+            question=question,
+            top_k=top_k,
+            mode=mode,
+            question_date=question_date,
+            candidate_k=candidate_k,
+            rerank_top_n=rerank_top_n,
+            filters=filters,
+        )
+        return [
+            RetrievedChunk(
+                chunk_id="paper",
+                document_id="paper",
+                path="raw/lme/paper.md",
+                score=1.0,
+                text="I submitted my research paper on sentiment analysis to ACL.",
+                metadata={"session_date": "2023-05-22", "session_id": "s1"},
+            ),
+            RetrievedChunk(
+                chunk_id="acl-date",
+                document_id="acl-date",
+                path="raw/lme/acl-date.md",
+                score=0.9,
+                text="I'm reviewing for ACL, and their submission date was February 1st.",
+                metadata={"session_date": "2023-02-01", "session_id": "s2"},
+            ),
+        ]
+
+    monkeypatch.setattr(ask_handler, "_retrieve", fake_retrieve)
+
+    daemon = asyncio.run(build())
+    app = create_app(daemon=daemon)
+    with _run_app(app) as base_url:
+        with httpx.Client(base_url=base_url, timeout=5.0) as client:
+            _must_create_brain(client, "evalshape")
+
+            with httpx.stream(
+                "POST",
+                f"{base_url}/v1/brains/evalshape/ask",
+                json={
+                    "question": "When did I submit my research paper on sentiment analysis?",
+                    "topK": 2,
+                    "mode": "auto",
+                    "readerMode": "augmented",
+                    "questionDate": "2024/04/15 (Mon) 09:30",
+                },
+                headers={"Accept": "text/event-stream"},
+                timeout=httpx.Timeout(5.0),
+            ) as stream:
+                events = _drain_sse(stream)
+
+    assert captured == {
+        "question": "When did I submit my research paper on sentiment analysis?",
+        "top_k": 2,
+        "mode": "auto",
+        "question_date": "2024/04/15 (Mon) 09:30",
+        "candidate_k": 0,
+        "rerank_top_n": 0,
+        "filters": Filters(),
+    }
+    assert "retrieve" in events
+    assert "answer_delta" in events
+    assert "citation" in events
+    assert "done" in events
+    answer = "".join(json.loads(delta)["text"] for delta in events["answer_delta"])
+    assert "February 1st" in answer
+    assert provider.requests == []
 
     asyncio.run(daemon.close())
 

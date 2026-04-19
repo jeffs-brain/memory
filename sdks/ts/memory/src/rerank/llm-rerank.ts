@@ -36,7 +36,7 @@ Each score is a number between 0 (irrelevant) and 10 (perfect match).
 Use British English.`
 
 const RERANK_MAX_TOKENS = 2048
-const RERANK_TEMPERATURE = 0.1
+const RERANK_TEMPERATURE = 0.0
 const RERANK_SNIPPET_LIMIT = 1200
 
 export type LLMRerankerConfig = {

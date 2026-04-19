@@ -621,16 +621,14 @@ func TestBuildBM25FanoutQueries_UsesPhraseProbesForCompoundQuestions(t *testing.
 		"",
 	)
 
-	want := []string{
+	for _, want := range []string{
 		"handbag cost",
 		"high-end products",
-	}
-	if len(got) != len(want) {
-		t.Fatalf("fanout queries = %v, want %v", got, want)
-	}
-	for i := range want {
-		if got[i] != want[i] {
-			t.Fatalf("fanout queries = %v, want %v", got, want)
+		"designer handbag",
+		"high-end skincare products",
+	} {
+		if !containsString(got, want) {
+			t.Fatalf("fanout queries = %v, want query %q present", got, want)
 		}
 	}
 }
@@ -659,14 +657,18 @@ func TestBuildBM25FanoutQueries_AddsActionDateProbeForWhenDidISubmit(t *testing.
 		"",
 	)
 
-	if len(got) != 2 {
-		t.Fatalf("fanout queries = %v, want submission-date probe", got)
+	if len(got) < 2 {
+		t.Fatalf("fanout queries = %v, want submission-date probes", got)
 	}
-	if got[0] != "sentiment analysis submission date" {
-		t.Fatalf("fanout queries = %v, want focused submission probe in slot 1", got)
-	}
-	if got[1] != "research paper submission date" {
-		t.Fatalf("fanout queries = %v, want research-paper submission probe in slot 2", got)
+	for _, want := range []string{
+		"sentiment analysis submission date",
+		"research paper submission date",
+		"research paper",
+		"sentiment analysis",
+	} {
+		if !containsString(got, want) {
+			t.Fatalf("fanout queries = %v, want query %q present", got, want)
+		}
 	}
 }
 
@@ -743,9 +745,80 @@ func TestRetrieve_BM25Fanout_UsesPhraseProbesForCompoundTotals(t *testing.T) {
 	}
 }
 
+func TestRetrieve_TrigramFallback_RespectsExactPathFilters(t *testing.T) {
+	t.Parallel()
+
+	src := newFakeSource(nil)
+	src.bm25Override = func(expr string) ([]BM25Hit, bool) {
+		return nil, true
+	}
+
+	r, err := New(Config{
+		Source: src,
+		TrigramChunks: []trigramChunk{
+			{
+				ID:      "blocked",
+				Path:    "notes/photosynthasis.md",
+				Title:   "Blocked note",
+				Summary: "blocked summary",
+				Content: "blocked content",
+			},
+			{
+				ID:      "allowed",
+				Path:    "notes/photosynthasis-log.md",
+				Title:   "Allowed note",
+				Summary: "allowed summary",
+				Content: "allowed content",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	resp, err := r.Retrieve(context.Background(), Request{
+		Query: "photosynthasis",
+		TopK:  5,
+		Mode:  ModeBM25,
+		Filters: Filters{
+			Paths: []string{"notes/photosynthasis-log.md"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Retrieve: %v", err)
+	}
+	if len(resp.Chunks) == 0 {
+		t.Fatal("expected filtered trigram fallback hit")
+	}
+	for _, chunk := range resp.Chunks {
+		if chunk.Path != "notes/photosynthasis-log.md" {
+			t.Fatalf("path leak: %s", chunk.Path)
+		}
+	}
+	found := false
+	for _, attempt := range resp.Attempts {
+		if attempt.Reason == "trigram_fuzzy" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected trigram_fuzzy attempt, got %+v", resp.Attempts)
+	}
+}
+
 func containsPath(paths []string, want string) bool {
 	for _, path := range paths {
 		if path == want {
+			return true
+		}
+	}
+	return false
+}
+
+func containsString(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
 			return true
 		}
 	}

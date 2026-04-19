@@ -20,11 +20,11 @@ import (
 var (
 	preferenceQueryRe             = regexp.MustCompile(`(?i)\b(?:recommend|suggest|recommendation|suggestion|tips?|advice|ideas?|what should i|which should i)\b`)
 	enumerationOrTotalQueryRe     = regexp.MustCompile(`(?i)\b(?:how many|count|total|in total|sum|add up|list|what are all)\b`)
-	propertyLookupQueryRe         = regexp.MustCompile(`(?i)\b(?:how long is my|what specific|which specific|what exact|which exact)\b`)
+	propertyLookupQueryRe         = regexp.MustCompile(`(?i)\b(?:how long is my|how often do i|what time do i|what time is my|where do i|where did i|where have i|where am i|where is my|what speed is my|how fast is my|what percentage(?: of)?|(?:what was the )?page count|what specific|which specific|what exact|which exact|which mode of transport did i|what mode of transport did i|which transport did i|what transport did i)\b`)
 	specificRecommendationQueryRe = regexp.MustCompile(`(?i)\b(?:specific|exact)\b`)
 	firstPersonFactLookupRe       = regexp.MustCompile(`(?i)\b(?:did i|have i|was i|were i)\b`)
 	firstPersonConcreteQueryRe    = regexp.MustCompile(`(?i)\b(?:my|me|i)\b`)
-	factLookupVerbRe              = regexp.MustCompile(`(?i)\b(?:pick(?:ed)? up|bought|ordered|spent|earned|sold|drove|travelled|traveled|watched|visited|completed|finished|submitted|booked)\b`)
+	factLookupVerbRe              = regexp.MustCompile(`(?i)\b(?:pick(?:ed)? up|bought|ordered|spent|earned|sold|drove|travelled|traveled|watched|visited|completed|finished|submitted|booked|take|took|keep|kept|see|saw)\b`)
 	moneyEventQueryRe             = regexp.MustCompile(`(?i)\b(?:spent|spend|cost|costed|paid|pay)\b`)
 	preferenceNoteRe              = regexp.MustCompile(`(?i)\b(?:prefer(?:s|red)?|like(?:s|d)?|love(?:s|d)?|want(?:s|ed)?|need(?:s|ed)?|avoid(?:s|ed)?|dislike(?:s|d)?|hate(?:s|d)?|enjoy(?:s|ed)?|interested in|looking for)\b`)
 	genericNoteRe                 = regexp.MustCompile(`(?i)\b(?:tips?|advice|suggest(?:ion|ed)?s?|recommend(?:ation|ed)?s?|ideas?|options?|guide|tracking|tracker|checklist)\b`)
@@ -38,6 +38,7 @@ var (
 	routineScopeQueryRe           = regexp.MustCompile(`(?i)\b(?:daily|every|weekday|each way)\b`)
 	routineScopeNoteRe            = regexp.MustCompile(`(?i)\b(?:daily commute|every day|every weekday|weekday|weekdays|each way)\b`)
 	segmentQualifierNoteRe        = regexp.MustCompile(`(?i)\b(?:morning commute|often|some days?|sometimes|around)\b`)
+	supersededFrontmatterRe       = regexp.MustCompile(`(?im)(?:^\s*superseded_by:\s*\S+|\bsuperseded by\b|\breplaced by\b|\bstatus\s*:\s*superseded\b|\bno longer current\b)`)
 )
 
 // retrievalIntent captures the outcome of the regex-driven intent
@@ -133,6 +134,7 @@ func retrievalIntentMultiplier(intent retrievalIntent, query string, r Retrieved
 	if intent.concreteFactQuery {
 		multiplier *= concreteFactIntentMultiplier(query, r, text)
 		multiplier *= focusAlignedConcreteFactMultiplier(query, text)
+		multiplier *= staleSupersededConcreteFactMultiplier(r, text)
 		multiplier *= firstPersonConcreteFactMultiplier(query, r, text)
 	}
 	return multiplier
@@ -161,9 +163,7 @@ func concreteFactIntentMultiplier(query string, r RetrievedChunk, text string) f
 	path := strings.ToLower(r.Path)
 	isRollUp := rollupNoteRe.MatchString(text)
 	isQuestionLikeNote := questionLikeNoteRe.MatchString(text) && genericNoteRe.MatchString(text)
-	isConcreteFact := strings.Contains(path, "user-fact-") ||
-		strings.Contains(path, "milestone-") ||
-		(!isRollUp && (dateTagRe.MatchString(text) || atomicEventNoteRe.MatchString(text)))
+	isConcreteFact := isConcreteFactLike(path, text)
 
 	multiplier := 1.0
 	if isConcreteFact {
@@ -232,21 +232,65 @@ func firstPersonConcreteFactMultiplier(query string, r RetrievedChunk, text stri
 	}
 
 	path := strings.ToLower(r.Path)
+	isGlobal := strings.Contains(path, "memory/global/")
+	isDirectFact := isConcreteFactLike(path, text)
 	multiplier := 1.0
-	if strings.Contains(path, "memory/global/") {
-		multiplier *= 1.18
-	} else {
-		multiplier *= 0.7
+	switch {
+	case isGlobal && isDirectFact:
+		multiplier *= 1.35
+	case isGlobal:
+		multiplier *= 1.22
+	case isDirectFact:
+		multiplier *= 0.88
+	default:
+		multiplier *= 0.58
+	}
+	if !isGlobal && genericNoteRe.MatchString(text) {
+		multiplier *= 0.82
 	}
 	if durationQueryRe.MatchString(normalisedQuery) && routineScopeQueryRe.MatchString(normalisedQuery) {
 		if routineScopeNoteRe.MatchString(text) {
-			multiplier *= 1.2
+			multiplier *= 1.25
 		}
 		if segmentQualifierNoteRe.MatchString(text) && !routineScopeNoteRe.MatchString(text) {
-			multiplier *= 0.2
+			multiplier *= 0.15
 		}
 	}
 	return multiplier
+}
+
+func staleSupersededConcreteFactMultiplier(r RetrievedChunk, text string) float64 {
+	if metadataHasNonEmptyString(r.Metadata, "superseded_by", "supersededBy") || supersededFrontmatterRe.MatchString(text) {
+		return 0.18
+	}
+	return 1.0
+}
+
+func metadataHasNonEmptyString(metadata map[string]any, keys ...string) bool {
+	if metadata == nil {
+		return false
+	}
+	for _, key := range keys {
+		value, ok := metadata[key]
+		if !ok {
+			continue
+		}
+		text, ok := value.(string)
+		if ok && strings.TrimSpace(text) != "" {
+			return true
+		}
+	}
+	return false
+}
+
+func isConcreteFactLike(path, text string) bool {
+	if strings.Contains(path, "user-fact-") || strings.Contains(path, "milestone-") {
+		return true
+	}
+	if rollupNoteRe.MatchString(text) {
+		return false
+	}
+	return dateTagRe.MatchString(text) || atomicEventNoteRe.MatchString(text)
 }
 
 type compositeFocusMatch struct {
@@ -290,10 +334,13 @@ func diversifyCompositeConcreteRanking(query string, results []RetrievedChunk) [
 
 func isCompositeConcreteQuery(query string) bool {
 	lowered := strings.ToLower(strings.TrimSpace(query))
-	if !enumerationOrTotalQueryRe.MatchString(lowered) {
+	hasCompositeSeparator := strings.Contains(lowered, " and ") || strings.Contains(lowered, " plus ") || strings.Contains(lowered, " or ")
+	if !hasCompositeSeparator {
 		return false
 	}
-	return strings.Contains(lowered, " and ") || strings.Contains(lowered, " plus ") || strings.Contains(lowered, " or ")
+	return enumerationOrTotalQueryRe.MatchString(lowered) ||
+		propertyLookupQueryRe.MatchString(lowered) ||
+		firstPersonFactLookupRe.MatchString(lowered)
 }
 
 func bestCompositeFocusMatch(text string, focuses []string) compositeFocusMatch {

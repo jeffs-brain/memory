@@ -2,10 +2,8 @@
 """English-only; non-English queries receive base RRF scores without
 modification.
 
-The regexes below are kept bit-for-bit identical to the TypeScript
-reference in ``retrieval/hybrid.ts`` and the Go port in
-``sdks/go/retrieval/intent.go``. Any drift breaks cross-SDK parity and
-will be flagged by the conformance suite.
+When Python lands a retrieval parity patch first, update the sibling
+SDK ports to match.
 """
 
 from __future__ import annotations
@@ -26,7 +24,11 @@ ENUMERATION_OR_TOTAL_QUERY_RE = re.compile(
     re.IGNORECASE,
 )
 PROPERTY_LOOKUP_QUERY_RE = re.compile(
-    r"\b(?:how long is my|what specific|which specific|what exact|which exact)\b",
+    r"\b(?:how long is my|what percentage(?: of)?|(?:what was the )?page count|what specific|which specific|what exact|which exact)\b",
+    re.IGNORECASE,
+)
+FIRST_PERSON_PROPERTY_QUERY_RE = re.compile(
+    r"\b(?:how often do i|what time do i|what time is my|where do i|where did i|where have i|where am i|where is my|what speed is my|how fast is my|which mode of transport did i|what mode of transport did i|which transport did i|what transport did i)\b",
     re.IGNORECASE,
 )
 SPECIFIC_RECOMMENDATION_QUERY_RE = re.compile(
@@ -41,7 +43,7 @@ FIRST_PERSON_CONCRETE_QUERY_RE = re.compile(
     re.IGNORECASE,
 )
 FACT_LOOKUP_VERB_RE = re.compile(
-    r"\b(?:pick(?:ed)? up|bought|ordered|spent|earned|sold|drove|travelled|traveled|watched|visited|completed|finished|submitted|booked)\b",
+    r"\b(?:pick(?:ed)? up|bought|ordered|spent|earned|sold|drove|travelled|traveled|watched|visited|completed|finished|submitted|booked|take|took|keep|kept|see|saw)\b",
     re.IGNORECASE,
 )
 PREFERENCE_NOTE_RE = re.compile(
@@ -85,8 +87,36 @@ SEGMENT_QUALIFIER_NOTE_RE = re.compile(
     r"\b(?:morning commute|often|some days?|sometimes|around)\b",
     re.IGNORECASE,
 )
+DIRECT_USER_FACT_NOTE_RE = re.compile(
+    r"\b(?:i|i'm|i’ve|i've|my|we|we're|we’ve|we've|our|the user)\b",
+    re.IGNORECASE,
+)
+CADENCE_NOTE_RE = re.compile(
+    r"\b(?:every (?:day|week|month|year|weekday|weekend|monday|tuesday|wednesday|thursday|friday|saturday|sunday)|each (?:day|week|month|year|way|morning|evening|night)|daily|weekly|monthly|fortnightly|annually|usually|normally|once a (?:day|week|month|year)|twice a (?:day|week|month|year)|per (?:day|week|month|year))\b",
+    re.IGNORECASE,
+)
+TIME_VALUE_NOTE_RE = re.compile(
+    r"\b(?:at|around)\s+\d{1,2}(?::\d{2})?\s?(?:am|pm)\b|\b\d{1,2}:\d{2}\b",
+    re.IGNORECASE,
+)
+LOCATION_STORAGE_NOTE_RE = re.compile(
+    r"\b(?:keep(?:ing)?|kept|store(?:d|ing)?|stash(?:ed|ing)?|leave|left|put|putting)\b[^.!?\n]{0,120}\b(?:under|beneath|inside|in|on|behind|beside|next to|near|at\s+(?:home|work|the office|the house))\b",
+    re.IGNORECASE,
+)
+SPEED_VALUE_NOTE_RE = re.compile(
+    r"\b\d+(?:\.\d+)?\s*(?:mbps|gbps|mph|km/?h|kph)\b",
+    re.IGNORECASE,
+)
+TRANSPORT_MODE_NOTE_RE = re.compile(
+    r"\b(?:train|bus|car|bike|bicycle|cycling|walking|on foot|tram|metro|tube|subway|ferry|taxi|uber|rideshare)\b",
+    re.IGNORECASE,
+)
 QUESTION_LIKE_NOTE_RE = re.compile(
     r"(?:^|\n)(?:what\s+(?:are|is|should|could)|which\s+(?:should|would)|how\s+(?:can|should|could|long)|can\s+you|could\s+you|should\s+i|would\s+you|when\s+did|where\s+(?:can|should)|why\s+(?:is|does|did))\b",
+    re.IGNORECASE,
+)
+SUPERSEDED_MARKER_RE = re.compile(
+    r"\b(?:superseded[_ ]by|replaced by|archived)\b",
     re.IGNORECASE,
 )
 
@@ -118,6 +148,7 @@ def detect_retrieval_intent(query: str) -> RetrievalIntent:
         preference_query=bool(PREFERENCE_QUERY_RE.search(normalised)),
         concrete_fact_query=(
             bool(PROPERTY_LOOKUP_QUERY_RE.search(normalised))
+            or bool(FIRST_PERSON_PROPERTY_QUERY_RE.search(normalised))
             or
             bool(ENUMERATION_OR_TOTAL_QUERY_RE.search(normalised))
             or bool(_derive_action_date_probes(query))
@@ -244,6 +275,7 @@ def retrieval_intent_multiplier(
         multiplier *= concrete_fact_intent_multiplier(query, r, text)
         multiplier *= _focus_aligned_concrete_fact_multiplier(query, text)
         multiplier *= _first_person_concrete_fact_multiplier(query, r, text)
+        multiplier *= _stale_superseded_multiplier(r, text)
     return multiplier
 
 
@@ -279,19 +311,82 @@ def _first_person_concrete_fact_multiplier(
         return 1.0
 
     path = r.path.lower()
-    multiplier = 1.18 if "memory/global/" in path else 0.7
+    is_global_memory = "memory/global/" in path
+    is_direct_fact = _is_concrete_fact_like(path, text)
+
+    if is_global_memory and is_direct_fact:
+        multiplier = 1.35
+    elif is_global_memory:
+        multiplier = 1.22
+    elif is_direct_fact:
+        multiplier = 0.88
+    else:
+        multiplier = 0.58
+
+    if not is_global_memory and GENERIC_NOTE_RE.search(text) is not None:
+        multiplier *= 0.82
+
     if (
         DURATION_QUERY_RE.search(normalised_query) is not None
         and ROUTINE_SCOPE_QUERY_RE.search(normalised_query) is not None
     ):
         if ROUTINE_SCOPE_NOTE_RE.search(text) is not None:
-            multiplier *= 1.2
+            multiplier *= 1.25
         if (
             SEGMENT_QUALIFIER_NOTE_RE.search(text) is not None
             and ROUTINE_SCOPE_NOTE_RE.search(text) is None
         ):
-            multiplier *= 0.2
+            multiplier *= 0.15
     return multiplier
+
+
+def _stale_superseded_multiplier(r: RetrievedChunk, text: str) -> float:
+    for key in ("superseded_by", "supersededBy"):
+        value = r.metadata.get(key)
+        if isinstance(value, str) and value.strip():
+            return 0.18
+    if SUPERSEDED_MARKER_RE.search(text) is not None:
+        return 0.18
+    return 1.0
+
+
+def _is_concrete_fact_like(path: str, text: str) -> bool:
+    if "user-fact-" in path or "milestone-" in path:
+        return True
+    if ROLLUP_NOTE_RE.search(text) is not None:
+        return False
+    return DATE_TAG_RE.search(text) is not None or ATOMIC_EVENT_NOTE_RE.search(text) is not None
+
+
+def _query_targets_cadence(normalised_query: str) -> bool:
+    return "how often do i" in normalised_query
+
+
+def _query_targets_time(normalised_query: str) -> bool:
+    return "what time do i" in normalised_query or "what time is my" in normalised_query
+
+
+def _query_targets_location(normalised_query: str) -> bool:
+    return (
+        "where do i" in normalised_query
+        or "where did i" in normalised_query
+        or "where have i" in normalised_query
+        or "where am i" in normalised_query
+        or "where is my" in normalised_query
+    )
+
+
+def _query_targets_speed(normalised_query: str) -> bool:
+    return "what speed is my" in normalised_query or "how fast is my" in normalised_query
+
+
+def _query_targets_transport_mode(normalised_query: str) -> bool:
+    return (
+        "which mode of transport did i" in normalised_query
+        or "what mode of transport did i" in normalised_query
+        or "which transport did i" in normalised_query
+        or "what transport did i" in normalised_query
+    )
 
 
 def _focus_alignment_score(lowered_text: str, phrase: str) -> float:

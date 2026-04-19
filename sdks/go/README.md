@@ -130,11 +130,15 @@ The Go SDK does not currently ship a Postgres store adapter. A Postgres-backed s
 ## CLI quickstart
 
 ```bash
-memory init
-memory ingest ./docs
-memory search "question"
+memory version
 memory serve --addr 127.0.0.1:18841
+memory eval lme run --dataset eval/datasets/longmemeval_s.json --sample-size 50
 ```
+
+Today the production-ready Go CLI surface is `version`, `serve`, and
+`eval lme`. The broader local brain workflow is available through the shared
+HTTP daemon, the MCP wrapper, and the Go packages themselves while the CLI
+surface catches up.
 
 ## Authorisation
 

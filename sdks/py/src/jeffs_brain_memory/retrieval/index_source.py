@@ -68,6 +68,13 @@ def _scope_matches_filter(row_scope: str, want: str) -> bool:
         "global_memory": {"global_memory"},
         "project": {"project_memory"},
         "project_memory": {"project_memory"},
+        "agent": {"agent_memory"},
+        "agent_memory": {"agent_memory"},
+        "raw": {"raw_document", "raw_lme"},
+        "raw_document": {"raw_document"},
+        "raw_lme": {"raw_lme"},
+        "wiki": {"wiki"},
+        "sources": {"sources"},
     }
     expected = aliases.get(want.strip().lower(), {want.strip().lower()})
     return row_scope.strip().lower() in expected if row_scope else True
@@ -75,23 +82,19 @@ def _scope_matches_filter(row_scope: str, want: str) -> bool:
 
 def _row_passes_filters(row: IndexedRow, filters: Filters) -> bool:
     """Report whether ``row`` satisfies the filter fields."""
-    if not filters.path_prefix:
-        path_ok = True
-    elif len(row.path) < len(filters.path_prefix):
-        path_ok = False
-    else:
-        path_ok = row.path[: len(filters.path_prefix)] == filters.path_prefix
-    if not path_ok:
+    if not filters.matches_path(row.path):
         return False
 
     if not _scope_matches_filter(row.scope, filters.scope):
         return False
-    if filters.project and row.project_slug and row.project_slug != filters.project:
+    project = filters.project.strip().lower()
+    row_project = row.project_slug.strip().lower()
+    if project and row_project and row_project != project:
         return False
     if filters.tags:
-        row_tags = set(row.tags.split())
+        row_tags = {tag.strip().lower() for tag in row.tags.split() if tag.strip()}
         for tag in filters.tags:
-            if tag not in row_tags:
+            if tag.strip().lower() not in row_tags:
                 return False
     return True
 

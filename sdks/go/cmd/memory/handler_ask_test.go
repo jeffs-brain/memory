@@ -3,7 +3,9 @@
 package main
 
 import (
+	"encoding/json"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -180,11 +182,36 @@ func TestBuildAskCompleteRequest_AugmentedNoChunksOmitsSessionPath(t *testing.T)
 	}
 }
 
+func TestResolveAugmentedAskAnswer_DeterministicDate(t *testing.T) {
+	chunks := []retrieval.RetrievedChunk{
+		{
+			Path: "memory/global/paper.md",
+			Text: "I worked on a research paper on sentiment analysis, which I submitted to ACL.",
+		},
+		{
+			Path: "memory/global/submission.md",
+			Text: "[Date: 2023-02-01 Wednesday February 2023]\n\nI'm reviewing for ACL, and their submission date was February 1st.",
+		},
+	}
+
+	got, ok := resolveAugmentedAskAnswer(
+		"When did I submit my research paper on sentiment analysis?",
+		"2023/05/30 (Tue) 16:23",
+		chunks,
+	)
+	if !ok {
+		t.Fatal("expected deterministic augmented /ask answer")
+	}
+	if got != "February 1st" {
+		t.Fatalf("got %q, want February 1st", got)
+	}
+}
+
 func TestNormaliseAskReaderMode(t *testing.T) {
 	tests := []struct {
-		raw     string
-		want    string
-		wantOK  bool
+		raw    string
+		want   string
+		wantOK bool
 	}{
 		{raw: "", want: askReaderModeBasic, wantOK: true},
 		{raw: "basic", want: askReaderModeBasic, wantOK: true},
@@ -197,6 +224,41 @@ func TestNormaliseAskReaderMode(t *testing.T) {
 		if got != tc.want || ok != tc.wantOK {
 			t.Fatalf("normaliseAskReaderMode(%q) = (%q, %v), want (%q, %v)", tc.raw, got, ok, tc.want, tc.wantOK)
 		}
+	}
+}
+
+func TestAskRequest_UnmarshalJSON_FilterAliases(t *testing.T) {
+	t.Parallel()
+
+	var req askRequest
+	err := json.Unmarshal([]byte(`{
+		"question": "Where are the apples?",
+		"reader_mode": "augmented",
+		"question_date": "2024/03/13 (Wed) 10:00",
+		"candidate_k": 80,
+		"rerank_top_n": 40,
+		"filters": {
+			"documentPaths": ["raw/documents/allowed.md", " raw/documents/allowed.md ", " raw/documents/other.md "]
+		}
+	}`), &req)
+	if err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	if req.ReaderMode != "augmented" {
+		t.Fatalf("ReaderMode = %q, want augmented", req.ReaderMode)
+	}
+	if req.QuestionDate != "2024/03/13 (Wed) 10:00" {
+		t.Fatalf("QuestionDate = %q, want 2024/03/13 (Wed) 10:00", req.QuestionDate)
+	}
+	if req.CandidateK != 80 {
+		t.Fatalf("CandidateK = %d, want 80", req.CandidateK)
+	}
+	if req.RerankTopN != 40 {
+		t.Fatalf("RerankTopN = %d, want 40", req.RerankTopN)
+	}
+	want := []string{"raw/documents/allowed.md", "raw/documents/other.md"}
+	if !reflect.DeepEqual(req.Filters.Paths, want) {
+		t.Fatalf("Filters.Paths = %v, want %v", req.Filters.Paths, want)
 	}
 }
 
@@ -215,6 +277,9 @@ func TestRetrieveForAsk_PassesCandidateKnobsToRetriever(t *testing.T) {
 		CandidateK:   80,
 		RerankTopN:   40,
 		Mode:         string(retrieval.ModeHybridRerank),
+		Filters: retrieval.Filters{
+			Paths: []string{"raw/lme/s1.md"},
+		},
 	}
 
 	chunks := (&Daemon{}).retrieveForAsk(httptest.NewRequest("POST", "/ask", nil), br, req)
@@ -227,6 +292,9 @@ func TestRetrieveForAsk_PassesCandidateKnobsToRetriever(t *testing.T) {
 	}
 	if retr.req.RerankTopN != req.RerankTopN {
 		t.Fatalf("RerankTopN = %d, want %d", retr.req.RerankTopN, req.RerankTopN)
+	}
+	if !reflect.DeepEqual(retr.req.Filters.Paths, req.Filters.Paths) {
+		t.Fatalf("Filters.Paths = %v, want %v", retr.req.Filters.Paths, req.Filters.Paths)
 	}
 }
 
@@ -282,5 +350,33 @@ func TestRetrieveForAsk_FallbackHydratesFullBodyAndMetadata(t *testing.T) {
 	}
 	if got := chunks[0].Metadata["session_date"]; got != "2024/03/08" {
 		t.Fatalf("session_date = %#v, want 2024/03/08", got)
+	}
+}
+
+func TestRetrieveForAsk_FallbackRespectsExactPathFilters(t *testing.T) {
+	t.Parallel()
+
+	br := setupFallbackSearchBrainDocs(t, map[string]string{
+		"raw/documents/allowed.md": "---\n---\nA note about apples.\n",
+		"raw/documents/blocked.md": "---\n---\nAnother note about apples.\n",
+	})
+
+	chunks := (&Daemon{}).retrieveForAsk(
+		httptest.NewRequest("POST", "/ask", nil),
+		br,
+		askRequest{
+			Question: "apples",
+			TopK:     10,
+			Filters: retrieval.Filters{
+				Paths: []string{"raw/documents/allowed.md"},
+			},
+		},
+	)
+
+	if len(chunks) != 1 {
+		t.Fatalf("chunks = %d, want 1", len(chunks))
+	}
+	if chunks[0].Path != "raw/documents/allowed.md" {
+		t.Fatalf("Path = %q, want raw/documents/allowed.md", chunks[0].Path)
 	}
 }

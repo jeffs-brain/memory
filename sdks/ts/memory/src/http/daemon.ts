@@ -45,6 +45,7 @@ import {
   createFsStore,
   joinPath,
 } from '../store/index.js'
+import { toPath } from '../store/path.js'
 import { backfillVectors, resolveEmbedModel } from './daemon-vectors.js'
 
 export type DaemonConfig = {
@@ -147,7 +148,7 @@ export class Daemon {
   }
 }
 
-const INDEXABLE_EXT = /\.(md|markdown|txt)$/i
+const INDEXABLE_EXT = /\.md$/i
 
 const dedupeStrings = (values: readonly string[]): string[] => {
   const out: string[] = []
@@ -189,6 +190,46 @@ const chunkFromIndexedFile = (path: string, raw: string): Chunk => {
     content: body === '' ? raw : body,
     ...(Object.keys(metadata).length > 0 ? { metadata } : {}),
   }
+}
+
+const hydrateRetrievalChunks = async (
+  store: Awaited<ReturnType<typeof createFsStore>>,
+  paths: readonly string[],
+): Promise<
+  ReadonlyArray<{
+    path: string
+    title: string
+    summary: string
+    content: string
+    metadata?: Record<string, unknown>
+  }>
+> => {
+  const rows: Array<{
+    path: string
+    title: string
+    summary: string
+    content: string
+    metadata?: Record<string, unknown>
+  }> = []
+  const seen = new Set<string>()
+  for (const path of paths) {
+    if (path.trim() === '' || seen.has(path)) continue
+    seen.add(path)
+    try {
+      const raw = (await store.read(toPath(path))).toString('utf8')
+      const chunk = chunkFromIndexedFile(path, raw)
+      rows.push({
+        path,
+        title: chunk.title ?? '',
+        summary: chunk.summary ?? '',
+        content: chunk.content,
+        ...(chunk.metadata !== undefined ? { metadata: chunk.metadata } : {}),
+      })
+    } catch {
+      // Best-effort hydration only.
+    }
+  }
+  return rows
 }
 
 export class BrainManager {
@@ -306,6 +347,7 @@ export class BrainManager {
         index,
         ...(this.daemon.embedder !== undefined ? { embedder: this.daemon.embedder } : {}),
         ...(this.daemon.reranker !== undefined ? { reranker: this.daemon.reranker } : {}),
+        bodyLookup: async (paths) => hydrateRetrievalChunks(store, paths),
       })
     } catch (err) {
       this.daemon.logger.debug('daemon: search index unavailable', {

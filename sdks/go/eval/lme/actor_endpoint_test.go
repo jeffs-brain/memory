@@ -184,6 +184,7 @@ func TestCallActorRetrieve_RendersStructuredEvidenceAndThreadsQuestionDate(t *te
 		"What happened last Friday?",
 		"2024/03/13 (Wed) 10:00",
 		3,
+		retrieval.ModeHybridRerank,
 		80,
 		40,
 		retrieval.Filters{
@@ -265,6 +266,7 @@ func TestCallActorRetrieve_AcceptsLegacyCapitalisedChunkKeys(t *testing.T) {
 		"What happened?",
 		"",
 		3,
+		retrieval.ModeHybridRerank,
 		0,
 		0,
 		retrieval.Filters{},

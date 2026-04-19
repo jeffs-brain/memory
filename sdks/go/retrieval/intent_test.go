@@ -49,6 +49,13 @@ func TestDetectRetrievalIntent_ConcreteFact(t *testing.T) {
 		{"were I the one who ordered", true},
 		{"did i travelled to bosch yesterday", true},
 		{"How long is my daily commute to work?", true},
+		{"How often do I see my therapist, Dr. Smith?", true},
+		{"What time do I wake up on Saturday mornings?", true},
+		{"Where do I initially keep my old sneakers?", true},
+		{"What speed is my new internet plan?", true},
+		{"What percentage of the countryside property's price is the cost of the renovations I plan to do on my current house?", true},
+		{"What was the page count of the two novels I finished in January and March?", true},
+		{"Which mode of transport did I take most recently, bus or train?", true},
 		{"When did I submit my research paper on sentiment analysis?", true},
 		{"What specific languages did you recommend for learning back-end programming?", true},
 		{"Can you remind me of the specific back-end programming languages you recommended I learn?", true},
@@ -301,6 +308,51 @@ func TestReweight_FirstPersonDurationPrefersRoutineUserFactOverProjectTips(t *te
 	)
 	if out[0].Path != "memory/global/user-commute-time.md" {
 		t.Fatalf("top path = %q, want routine commute fact", out[0].Path)
+	}
+}
+
+func TestReweight_FirstPersonPropertyPrefersDirectGlobalFactOverProjectGuide(t *testing.T) {
+	t.Parallel()
+	out := reweightSharedMemoryRanking(
+		"What speed is my new internet plan?",
+		[]RetrievedChunk{
+			{
+				Path:  "memory/project/eval-lme/internet-plan-guide.md",
+				Score: 1.0,
+				Text:  "Guide to choosing a fast home internet plan, with tips about 500 Mbps and 1 Gbps options.",
+			},
+			{
+				Path:  "memory/global/user-fact-internet-plan.md",
+				Score: 0.55,
+				Text:  "I upgraded my internet plan to 500 Mbps.",
+			},
+		},
+	)
+	if out[0].Path != "memory/global/user-fact-internet-plan.md" {
+		t.Fatalf("top path = %q, want direct global fact", out[0].Path)
+	}
+}
+
+func TestReweight_PenalisesSupersededConcreteFactNotes(t *testing.T) {
+	t.Parallel()
+	out := reweightSharedMemoryRanking(
+		"What speed is my new internet plan?",
+		[]RetrievedChunk{
+			{
+				Path:     "memory/global/user-fact-old-internet-plan.md",
+				Score:    1.0,
+				Text:     "I upgraded my internet plan to 300 Mbps.",
+				Metadata: map[string]any{"superseded_by": "user-fact-new-internet-plan.md"},
+			},
+			{
+				Path:  "memory/global/user-fact-new-internet-plan.md",
+				Score: 0.72,
+				Text:  "I upgraded my internet plan to 500 Mbps.",
+			},
+		},
+	)
+	if out[0].Path != "memory/global/user-fact-new-internet-plan.md" {
+		t.Fatalf("top path = %q, want current fact", out[0].Path)
 	}
 }
 

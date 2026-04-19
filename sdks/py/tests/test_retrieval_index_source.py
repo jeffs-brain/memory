@@ -39,6 +39,13 @@ class InMemoryIndex:
             "global_memory": {"global_memory"},
             "project": {"project_memory"},
             "project_memory": {"project_memory"},
+            "agent": {"agent_memory"},
+            "agent_memory": {"agent_memory"},
+            "raw": {"raw_document", "raw_lme"},
+            "raw_document": {"raw_document"},
+            "raw_lme": {"raw_lme"},
+            "wiki": {"wiki"},
+            "sources": {"sources"},
         }
         expected = aliases.get(want.strip().lower(), {want.strip().lower()})
         return row_scope.strip().lower() in expected if row_scope else True
@@ -191,10 +198,42 @@ async def test_bm25_respects_path_prefix() -> None:
         assert h.path.startswith("wiki/invoice")
 
 
+async def test_bm25_respects_exact_paths() -> None:
+    src = IndexSource(InMemoryIndex(_rows()))
+    hits = await src.search_bm25(
+        "invoice",
+        10,
+        Filters(paths=["memory/global/invoice-note.md"]),
+    )
+    assert [h.path for h in hits] == ["memory/global/invoice-note.md"]
+
+
 async def test_bm25_scope_alias_memory_matches_canonical_rows() -> None:
     src = IndexSource(InMemoryIndex(_rows()))
     hits = await src.search_bm25("invoice", 10, Filters(scope="memory"))
     assert [h.path for h in hits] == ["memory/global/invoice-note.md"]
+
+
+async def test_bm25_scope_alias_raw_matches_raw_lme_rows() -> None:
+    rows = [
+        IndexedRow(
+            path="raw/lme/session-1.md",
+            title="",
+            summary="",
+            content="[user]: I bought apples.",
+            scope="raw_lme",
+        ),
+        IndexedRow(
+            path="memory/global/apples.md",
+            title="Apples",
+            summary="",
+            content="A memory note about apples.",
+            scope="global_memory",
+        ),
+    ]
+    src = IndexSource(InMemoryIndex(rows))
+    hits = await src.search_bm25("apples", 10, Filters(scope="raw"))
+    assert [h.path for h in hits] == ["raw/lme/session-1.md"]
 
 
 async def test_bm25_overfetches_when_filters_apply_after_search() -> None:
@@ -243,6 +282,21 @@ async def test_vectors_nil_returns_empty() -> None:
     src = IndexSource(InMemoryIndex(_rows()))
     hits = await src.search_vector([0.1, 0.2, 0.3], 5, Filters())
     assert hits == []
+
+
+async def test_vectors_respect_exact_paths() -> None:
+    rows = _rows()
+    src = IndexSource(
+        InMemoryIndex(rows),
+        vectors=InMemoryVectorStore(rows),
+        model="test-model",
+    )
+    hits = await src.search_vector(
+        [0.1, 0.2, 0.3],
+        10,
+        Filters(paths=["memory/global/invoice-note.md"]),
+    )
+    assert [h.path for h in hits] == ["memory/global/invoice-note.md"]
 
 
 async def test_vectors_overfetch_when_filters_apply_after_search() -> None:

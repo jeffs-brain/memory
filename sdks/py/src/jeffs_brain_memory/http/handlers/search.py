@@ -15,20 +15,39 @@ from ..problem import internal_error, validation_error
 from ._shared import decode_json_body, ok_json, resolve_brain
 
 
-def _filters_from_body(raw: Any) -> retrieval.Filters:
+def _path_list_from_raw(raw: Any) -> list[str]:
+    if not isinstance(raw, list):
+        return []
+    out: list[str] = []
+    seen: set[str] = set()
+    for value in raw:
+        if not isinstance(value, str):
+            continue
+        trimmed = value.strip()
+        if not trimmed or trimmed in seen:
+            continue
+        seen.add(trimmed)
+        out.append(trimmed)
+    return out
+
+
+def filters_from_body(raw: Any) -> retrieval.Filters:
     if not isinstance(raw, dict):
         return retrieval.Filters()
     tags_raw = raw.get("tags") or []
     tags = [str(t) for t in tags_raw] if isinstance(tags_raw, list) else []
     return retrieval.Filters(
         path_prefix=str(raw.get("pathPrefix") or raw.get("path_prefix") or ""),
+        paths=_path_list_from_raw(
+            raw.get("paths") or raw.get("pathList") or raw.get("path_list")
+        ),
         tags=tags,
         scope=str(raw.get("scope") or ""),
         project=str(raw.get("project") or ""),
     )
 
 
-def _search_opts(top_k: int, filters: retrieval.Filters) -> search_pkg.SearchOpts:
+def search_opts(top_k: int, filters: retrieval.Filters) -> search_pkg.SearchOpts:
     filter_map: dict[str, Any] = {}
     if filters.scope:
         filter_map["scope"] = filters.scope
@@ -36,9 +55,15 @@ def _search_opts(top_k: int, filters: retrieval.Filters) -> search_pkg.SearchOpt
         filter_map["project_slug"] = filters.project
     if filters.path_prefix:
         filter_map["path_prefix"] = filters.path_prefix
+    if filters.paths:
+        filter_map["paths"] = list(filters.paths)
     if filters.tags:
         filter_map["tags"] = list(filters.tags)
     return search_pkg.SearchOpts(max_results=top_k, filters=filter_map)
+
+
+def path_matches_filters(path: str, filters: retrieval.Filters) -> bool:
+    return filters.matches_path(path)
 
 
 def _trace_to_wire(trace: retrieval.Trace) -> dict[str, Any]:
@@ -102,7 +127,7 @@ async def search(request: Request) -> Response:
         else 0
     )
     mode_raw = body.get("mode") or ""
-    filters = _filters_from_body(
+    filters = filters_from_body(
         body.get("filters") if isinstance(body.get("filters"), dict) else body
     )
     question_date_raw = body.get("question_date") or body.get("questionDate") or ""
@@ -134,12 +159,16 @@ async def search(request: Request) -> Response:
     try:
         resp = await br.retriever.retrieve(req)
         if resp.chunks:
-            chunks = [_chunk_to_wire(c) for c in resp.chunks]
+            chunks = [
+                _chunk_to_wire(c)
+                for c in resp.chunks
+                if path_matches_filters(c.path, filters)
+            ]
         trace = _trace_to_wire(resp.trace)
         attempts = [_attempt_to_wire(a) for a in resp.attempts]
         took_ms = resp.took_ms or int((time.perf_counter() - started) * 1000)
-    except Exception as exc:  # noqa: BLE001
-        return internal_error(str(exc))
+    except Exception:  # noqa: BLE001
+        resp = None
 
     # Fall back to raw BM25 when the retriever produced nothing.
     if not chunks:
@@ -147,11 +176,13 @@ async def search(request: Request) -> Response:
             hits = br.search_index.search_bm25(
                 retrieval.augment_query_with_temporal(query, question_date),
                 top_k=top_k,
-                opts=_search_opts(top_k, filters),
+                opts=search_opts(top_k, filters),
             )
         except Exception:  # noqa: BLE001
             hits = []
         for h in hits:
+            if not path_matches_filters(h.path, filters):
+                continue
             score = 1.0 / (1.0 + abs(h.score)) if h.score else 0.0
             chunks.append(
                 {

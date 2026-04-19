@@ -104,12 +104,11 @@ func TestResolveReaderContentBudget_ExplicitOverridesInferred(t *testing.T) {
 		t.Errorf("explicit ContentBudget override not honoured: got %d, want 54321", got)
 	}
 
-	// The Go SDK port's reader budget falls back to the static default
-	// rather than the per-provider inference used by jeff, because the
-	// baseline [llm.Provider] interface does not expose MaxContextTokens.
+	// Reader budgets now follow the same provider-aware inference as the
+	// judge so full-context runs can use the available window.
 	gotInferred := resolveReaderContentBudget(ReaderConfig{Provider: p})
-	if gotInferred != defaultJudgeContentBudget {
-		t.Errorf("inferred budget mismatch: got %d, want %d", gotInferred, defaultJudgeContentBudget)
+	if gotInferred != judgeContentBudgetFor(p) {
+		t.Errorf("inferred budget mismatch: got %d, want %d", gotInferred, judgeContentBudgetFor(p))
 	}
 }
 

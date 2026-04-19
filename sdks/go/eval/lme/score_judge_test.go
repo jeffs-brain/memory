@@ -153,6 +153,86 @@ func TestJudgeVerdict_AbstainIncorrect(t *testing.T) {
 	}
 }
 
+func TestJudgeVerdict_DeterministicAbstentionMismatchSkipsJudge(t *testing.T) {
+	fp := &scriptedProvider{
+		responses: []llm.CompleteResponse{
+			{Text: `{"verdict": "yes", "rationale": "judge noise"}`},
+		},
+	}
+
+	outcomes := []QuestionOutcome{
+		{
+			ID:          "q1",
+			Category:    "single-session",
+			Question:    "How much cashback did I earn?",
+			GroundTruth: "$0.75",
+			AgentAnswer: "The information provided is not enough to answer the question.",
+		},
+	}
+
+	result, traces, _, err := ScoreWithJudge(context.Background(), JudgeConfig{
+		Provider:   fp,
+		Model:      "fake-judge",
+		MaxRetries: 1,
+	}, outcomes)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if result.Questions[0].JudgeVerdict != "incorrect" {
+		t.Fatalf("JudgeVerdict = %q, want incorrect", result.Questions[0].JudgeVerdict)
+	}
+	if traces[0].Verdict.Verdict != "incorrect" {
+		t.Fatalf("trace verdict = %q, want incorrect", traces[0].Verdict.Verdict)
+	}
+	if traces[0].Verdict.Rationale != "deterministic abstention mismatch" {
+		t.Fatalf("trace rationale = %q", traces[0].Verdict.Rationale)
+	}
+	if fp.callIdx != 0 {
+		t.Fatalf("provider called %d times, want 0", fp.callIdx)
+	}
+}
+
+func TestJudgeVerdict_DeterministicAbstentionCorrectSkipsJudge(t *testing.T) {
+	fp := &scriptedProvider{
+		responses: []llm.CompleteResponse{
+			{Text: `{"verdict": "no", "rationale": "judge noise"}`},
+		},
+	}
+
+	outcomes := []QuestionOutcome{
+		{
+			ID:          "q1_abs",
+			Category:    "single-session-user",
+			Question:    "What is my hamster's name?",
+			GroundTruth: "You did not mention this information.",
+			AgentAnswer: "I do not have that information.",
+		},
+	}
+
+	result, traces, _, err := ScoreWithJudge(context.Background(), JudgeConfig{
+		Provider:   fp,
+		Model:      "fake-judge",
+		MaxRetries: 1,
+	}, outcomes)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if result.Questions[0].JudgeVerdict != "abstain_correct" {
+		t.Fatalf("JudgeVerdict = %q, want abstain_correct", result.Questions[0].JudgeVerdict)
+	}
+	if traces[0].Verdict.Verdict != "abstain_correct" {
+		t.Fatalf("trace verdict = %q, want abstain_correct", traces[0].Verdict.Verdict)
+	}
+	if traces[0].Verdict.Rationale != "deterministic abstention scoring" {
+		t.Fatalf("trace rationale = %q", traces[0].Verdict.Rationale)
+	}
+	if fp.callIdx != 0 {
+		t.Fatalf("provider called %d times, want 0", fp.callIdx)
+	}
+}
+
 func TestJudgeVerdict_RetryThenSuccess(t *testing.T) {
 	fp := &scriptedProvider{
 		responses: []llm.CompleteResponse{
@@ -184,7 +264,7 @@ func TestJudgeVerdict_RetryThenSuccess(t *testing.T) {
 	}
 }
 
-func TestJudgeVerdict_AllRetriesFail_FallbackExactMatch(t *testing.T) {
+func TestJudgeVerdict_AllRetriesFail_RecordsError(t *testing.T) {
 	fp := &scriptedProvider{
 		errors: []error{
 			fmt.Errorf("network error"),
@@ -206,21 +286,24 @@ func TestJudgeVerdict_AllRetriesFail_FallbackExactMatch(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if result.Questions[0].JudgeVerdict != "correct" {
-		t.Errorf("q1 verdict = %q, want correct (exact-match fallback)", result.Questions[0].JudgeVerdict)
+	if result.Questions[0].JudgeVerdict != "error" {
+		t.Errorf("q1 verdict = %q, want error", result.Questions[0].JudgeVerdict)
 	}
-	if result.Questions[0].JudgeRationale != "exact-match fallback" {
-		t.Errorf("q1 rationale = %q, want 'exact-match fallback'", result.Questions[0].JudgeRationale)
+	if result.Questions[0].JudgeRationale != "judge failure" {
+		t.Errorf("q1 rationale = %q, want 'judge failure'", result.Questions[0].JudgeRationale)
 	}
-	if result.Questions[1].JudgeVerdict != "incorrect" {
-		t.Errorf("q2 verdict = %q, want incorrect (exact-match fallback)", result.Questions[1].JudgeVerdict)
+	if result.Questions[1].JudgeVerdict != "error" {
+		t.Errorf("q2 verdict = %q, want error", result.Questions[1].JudgeVerdict)
 	}
 
+	if result.OverallScore != 0 {
+		t.Errorf("OverallScore = %v, want 0", result.OverallScore)
+	}
 	if traces[0].Error == "" {
-		t.Error("expected non-empty error in trace for fallback")
+		t.Error("expected non-empty error in trace")
 	}
 	if traces[1].Error == "" {
-		t.Error("expected non-empty error in trace for fallback")
+		t.Error("expected non-empty error in trace")
 	}
 }
 
@@ -493,6 +576,62 @@ func TestScoreWithJudge_SkipsUsageForErrorOutcomes(t *testing.T) {
 
 	if usage.InputTokens != 50 || usage.OutputTokens != 2 {
 		t.Errorf("expected only successful call counted, got %+v", usage)
+	}
+}
+
+func TestScoreWithJudge_ReusesCachedVerdict(t *testing.T) {
+	fp := &scriptedProvider{
+		responses: []llm.CompleteResponse{
+			{Text: `{"verdict": "yes", "rationale": "cached ok"}`, TokensIn: 80, TokensOut: 4},
+		},
+	}
+
+	outcomes := []QuestionOutcome{
+		{ID: "q1", Category: "single-session", Question: "Q?", GroundTruth: "A", AgentAnswer: "A"},
+	}
+	cacheDir := t.TempDir()
+	cfg := JudgeConfig{
+		Provider:   fp,
+		Model:      "fake-judge",
+		MaxRetries: 1,
+		CacheDir:   cacheDir,
+	}
+
+	first, firstTrace, firstUsage, err := ScoreWithJudge(context.Background(), cfg, append([]QuestionOutcome(nil), outcomes...))
+	if err != nil {
+		t.Fatalf("first ScoreWithJudge: %v", err)
+	}
+	if fp.callIdx != 1 {
+		t.Fatalf("provider call count after first run = %d, want 1", fp.callIdx)
+	}
+	if first.OverallScore != 1.0 {
+		t.Fatalf("first OverallScore = %v, want 1.0", first.OverallScore)
+	}
+	if firstUsage.InputTokens != 80 || firstUsage.OutputTokens != 4 {
+		t.Fatalf("first usage = %+v, want input=80 output=4", firstUsage)
+	}
+	if firstTrace[0].RawResponse == "" {
+		t.Fatal("first trace raw response = empty, want cached payload recorded")
+	}
+
+	second, secondTrace, secondUsage, err := ScoreWithJudge(context.Background(), cfg, append([]QuestionOutcome(nil), outcomes...))
+	if err != nil {
+		t.Fatalf("second ScoreWithJudge: %v", err)
+	}
+	if fp.callIdx != 1 {
+		t.Fatalf("provider call count after second run = %d, want cache hit without new call", fp.callIdx)
+	}
+	if second.OverallScore != 1.0 {
+		t.Fatalf("second OverallScore = %v, want 1.0", second.OverallScore)
+	}
+	if secondUsage.InputTokens != 0 || secondUsage.OutputTokens != 0 {
+		t.Fatalf("second usage = %+v, want zero on cache hit", secondUsage)
+	}
+	if secondTrace[0].RawResponse == "" {
+		t.Fatal("second trace raw response = empty, want cached payload recorded")
+	}
+	if secondTrace[0].Verdict.Verdict != "correct" {
+		t.Fatalf("second trace verdict = %q, want correct", secondTrace[0].Verdict.Verdict)
 	}
 }
 

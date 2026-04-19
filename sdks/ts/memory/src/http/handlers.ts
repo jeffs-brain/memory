@@ -15,8 +15,14 @@ import type {
 } from '../memory/index.js'
 import { parseFrontmatter } from '../memory/frontmatter.js'
 import { scopeTopic } from '../memory/index.js'
-import { readerTodayAnchor, resolvedTemporalHintLine } from '../query/index.js'
+import { augmentQueryWithTemporal, resolvedTemporalHintLine } from '../query/index.js'
 import type { RetrievalFilters } from '../retrieval/index.js'
+import {
+  buildAugmentedReaderPrompt,
+  READER_AUGMENTED_MAX_TOKENS,
+  READER_AUGMENTED_TEMPERATURE,
+} from '../augmented-reader/prompt.js'
+import { resolveDeterministicAugmentedAnswer } from '../augmented-reader/resolver.js'
 import {
   ErrConflict,
   ErrInvalidPath,
@@ -589,7 +595,7 @@ const runSearch = async (
     }
   }
   return {
-    chunks: await naiveStoreSearch(br, query, topK, opts.filters),
+    chunks: await naiveStoreSearch(br, query, opts.questionDate, topK, opts.filters),
     ...(trace !== undefined ? { trace } : {}),
     ...(attempts !== undefined ? { attempts } : {}),
   }
@@ -601,28 +607,45 @@ const runSearch = async (
 const naiveStoreSearch = async (
   br: BrainResources,
   query: string,
+  questionDate: string | undefined,
   topK: number,
   filters: RetrievalFilters | undefined,
 ): Promise<RetrievedChunk[]> => {
-  const q = query.toLowerCase()
+  const probes = [query, augmentQueryWithTemporal(query, questionDate ?? '')]
+    .map((value) => value.trim().toLowerCase())
+    .filter((value, index, all) => value !== '' && all.indexOf(value) === index)
   const entries = await br.store.list('', { recursive: true, includeGenerated: true })
   const hits: RetrievedChunk[] = []
   for (const entry of entries) {
     if (entry.isDir) continue
-    if (!/\.(md|markdown|txt)$/i.test(entry.path)) continue
+    if (!/\.md$/i.test(entry.path)) continue
     if (!matchesSearchPathFilters(entry.path, filters)) continue
     try {
       const buf = await br.store.read(entry.path)
-      const text = buf.toString('utf8')
-      if (!text.toLowerCase().includes(q)) continue
+      const raw = buf.toString('utf8')
+      const { frontmatter, body } = parseFrontmatter(raw)
+      const text = body === '' ? raw : body
+      const lowered = text.toLowerCase()
+      if (!probes.some((probe) => lowered.includes(probe))) continue
+      const metadata: Record<string, unknown> = {
+        ...(frontmatter.scope !== undefined ? { scope: frontmatter.scope } : {}),
+        ...(frontmatter.type !== undefined ? { type: frontmatter.type } : {}),
+        ...(frontmatter.session_id !== undefined ? { sessionId: frontmatter.session_id } : {}),
+        ...(frontmatter.session_date !== undefined
+          ? { sessionDate: frontmatter.session_date }
+          : {}),
+        ...(frontmatter.observed_on !== undefined ? { observedOn: frontmatter.observed_on } : {}),
+        ...(frontmatter.modified !== undefined ? { modified: frontmatter.modified } : {}),
+      }
       hits.push({
         chunkId: entry.path,
         documentId: entry.path,
         path: entry.path,
         score: 1,
         text: text.slice(0, 800),
-        title: entry.path,
-        summary: '',
+        title: frontmatter.name?.trim() ?? entry.path,
+        summary: frontmatter.description ?? '',
+        ...(Object.keys(metadata).length > 0 ? { metadata } : {}),
         bm25Rank: 0,
         vectorSimilarity: 0,
         rerankScore: 0,
@@ -647,6 +670,7 @@ type AskRequest = {
   readonly readerMode?: unknown
   readonly reader_mode?: unknown
   readonly questionDate?: unknown
+  readonly filters?: unknown
 }
 
 export const handleAsk = async (
@@ -674,8 +698,13 @@ export const handleAsk = async (
   const readerModeRaw = body.readerMode ?? body.reader_mode
   let readerMode: ReaderMode = 'basic'
   if (readerModeRaw !== undefined) {
-    if (readerModeRaw === 'basic' || readerModeRaw === 'augmented') {
-      readerMode = readerModeRaw
+    if (typeof readerModeRaw === 'string') {
+      const normalisedReaderMode = readerModeRaw.trim().toLowerCase()
+      if (normalisedReaderMode === 'basic' || normalisedReaderMode === 'augmented') {
+        readerMode = normalisedReaderMode
+      } else {
+        return validationError("readerMode must be 'basic' or 'augmented'")
+      }
     } else {
       return validationError("readerMode must be 'basic' or 'augmented'")
     }
@@ -684,12 +713,14 @@ export const handleAsk = async (
     typeof body.questionDate === 'string' && body.questionDate !== ''
       ? body.questionDate
       : undefined
+  const filters = parseSearchFilters(body.filters)
 
   await br.refresh()
   const search = await runSearch(br, question, topK, mode, {
     ...(candidateK !== undefined ? { candidateK } : {}),
     ...(rerankTopN !== undefined ? { rerankTopN } : {}),
     ...(questionDate !== undefined ? { questionDate } : {}),
+    ...(filters !== undefined ? { filters } : {}),
   })
   const chunks = search.chunks
 
@@ -701,6 +732,32 @@ export const handleAsk = async (
     try {
       writer.sendJson('retrieve', { chunks, topK, mode })
 
+      const augmentedEvidence =
+        readerMode === 'augmented'
+          ? formatAugmentedChunks(question, chunks, questionDate)
+          : undefined
+      const deterministicAnswer =
+        augmentedEvidence !== undefined
+          ? resolveDeterministicAugmentedAnswer({
+              question,
+              rendered: augmentedEvidence,
+            })
+          : undefined
+      if (deterministicAnswer !== undefined) {
+        writer.sendJson('answer_delta', { text: deterministicAnswer.answer })
+        for (const c of chunks) {
+          if (writer.closed) return
+          writer.sendJson('citation', {
+            chunkId: c.chunkId,
+            path: c.path,
+            title: c.title,
+            score: c.score,
+          })
+        }
+        writer.sendJson('done', { ok: true })
+        return
+      }
+
       const provider = daemon.provider
       if (provider === undefined) {
         writer.sendJson('error', { message: 'no LLM provider configured' })
@@ -711,7 +768,16 @@ export const handleAsk = async (
 
       const messages: Message[] =
         readerMode === 'augmented'
-          ? [{ role: 'user', content: buildAugmentedAskPrompt(question, chunks, questionDate) }]
+          ? [
+              {
+                role: 'user',
+                content: buildAugmentedAskPrompt(
+                  question,
+                  augmentedEvidence ?? '',
+                  questionDate,
+                ),
+              },
+            ]
           : [
               { role: 'system', content: ASK_SYSTEM_PROMPT },
               { role: 'user', content: buildAskPrompt(question, chunks) },
@@ -767,11 +833,6 @@ export const handleAsk = async (
 const ASK_SYSTEM_PROMPT =
   'You are Jeffs Brain, a helpful assistant. When evidence is supplied, ground your answer in it and cite the path of any source you rely on. When no evidence is supplied, answer concisely from general knowledge.'
 
-/** Mirrors readerMaxTokens / readerTemperature in sdks/go/eval/lme/reader.go.
- *  Held as constants so the test can assert byte-identical wiring. */
-const READER_AUGMENTED_MAX_TOKENS = 800
-const READER_AUGMENTED_TEMPERATURE = 0.0
-
 const buildAskPrompt = (question: string, chunks: readonly RetrievedChunk[]): string => {
   const parts: string[] = []
   if (chunks.length > 0) {
@@ -796,57 +857,9 @@ const buildAskPrompt = (question: string, chunks: readonly RetrievedChunk[]): st
  */
 const buildAugmentedAskPrompt = (
   question: string,
-  chunks: readonly RetrievedChunk[],
+  evidenceBlock: string,
   questionDate: string | undefined,
-): string => {
-  const today = readerTodayAnchor(questionDate)
-  const date = questionDate !== undefined && questionDate !== '' ? questionDate : 'unknown'
-  const evidenceBlock = formatAugmentedChunks(question, chunks, questionDate)
-
-  return `I will give you several history chats between you and a user. Please answer the question based on the relevant chat history. Answer the question step by step: first extract all the relevant information, and then reason over the information to get the answer.
-
-Resolving conflicting information:
-- Each fact is tagged with a date. When the same topic appears with different values on different dates, prefer the value from the most recent session date.
-- Treat explicit supersession phrases as hard overrides regardless of how often the old value appears: "now", "currently", "most recently", "actually", "correction", "I updated", "I changed", "no longer".
-- Do not vote by frequency. One later correction outweighs any number of earlier mentions.
-- When the question names a specific item, event, place, or descriptor, prefer the fact that matches that target most directly. Do not substitute a broader category match or a different example from the same topic.
-- A direct statement of the full usual value outranks a newer note about only one segment, leg, or example from that routine unless the newer note explicitly says the full value changed.
-- Do not let an example note about a narrower segment override the whole routine. For example, a "30-minute morning commute" note does not replace a direct statement of a "45-minute daily commute to work".
-- When one fact names the event and another fact gives the associated submission, booking, or join date for that same event or venue, combine them if the connection is explicit in the retrieved facts.
-
-Enumeration and counting:
-- When the question asks to list, count, enumerate, or total ("how many", "list", "which", "what are all", "total", "in total"), return every matching item you find across the retrieved facts, one per line, each tagged with its session date. Then state the count or total explicitly at the end.
-- Do not summarise into a single sentence when the question demands a list.
-- Add numeric values across sessions when the question asks for a total (hours, days, money, items). Show the arithmetic.
-- For totals over named items, sum only the facts that match those named items directly. Do not add alternative purchases, adjacent examples, or broader category summaries unless the note clearly says they refer to the same item.
-- When a total names multiple specific items, people, or occasions, every named part must be supported directly. If any named part is missing or lacks an amount, do not return a partial total. State that the information provided is not enough.
-- When the question names a singular item plus another category, choose the single best-matching fact for that singular item. Do not combine multiple different handbags, flights, meals, or other same-category purchases unless the question explicitly asks for all of them.
-- When multiple notes appear to describe the same purchase, gift, booking, or transaction, count it once. Prefer the most direct transactional fact over recap notes, budget summaries, tracker entries, or assistant bookkeeping.
-- For "spent", "cost", and "total amount" questions, prefer direct transactional facts over plans, budgets, broad summaries, or calculations that only restate the same purchase.
-
-Preference-sensitive questions:
-- When the user asks for ideas, advice, inspiration, or recommendations, anchor the answer in explicit prior preferences, recent projects, recurring habits, and stated dislikes from the retrieved facts.
-- Avoid generic suggestions when the history already contains concrete tastes or recent examples. Reuse those specifics directly in the answer.
-- When the question asks for a specific or exact previously recommended item, answer with the narrowest directly supported set from the retrieved facts. Do not widen the answer with adjacent frameworks, resource catalogues, or loosely related examples.
-
-Unanswerable questions:
-- If the retrieved facts do not directly answer the question, state that clearly in the first sentence.
-- Keep the extraction step brief and limited to the missing subject. Do not narrate your search process.
-- Do not pad the answer with near-miss facts about a different city, person, product, or date unless they directly explain why the requested fact is unavailable.
-- End with a direct abstention that the information provided is not enough to answer the question.
-
-Temporal reasoning:
-- Today is ${today} (this is the current date). Resolve relative references ("recently", "last week", "a few days ago", "this month") against this anchor.
-- For date-arithmetic questions ("how many days between X and Y"), first extract each event's ISO date from the fact tags, then compute the difference in days.
-
-History Chats:
-
-${evidenceBlock}
-
-Current Date: ${date}
-Question: ${question}
-Answer (step by step):`
-}
+): string => buildAugmentedReaderPrompt(question, evidenceBlock, questionDate)
 
 const formatAugmentedChunks = (
   question: string,
@@ -956,8 +969,18 @@ const sourceTagFromPath = (value: string): string => {
 const parseSearchFilters = (raw: unknown): RetrievalFilters | undefined => {
   if (typeof raw !== 'object' || raw === null) return undefined
   const value = raw as Record<string, unknown>
+  const pathsRaw = Array.isArray(value.paths)
+    ? value.paths
+    : Array.isArray(value.documentPaths)
+      ? value.documentPaths
+      : Array.isArray(value.document_paths)
+        ? value.document_paths
+        : []
   const tagsRaw = Array.isArray(value.tags) ? value.tags : []
   const filters: RetrievalFilters = {
+    ...(pathsRaw.length > 0
+      ? { paths: pathsRaw.filter((path): path is string => typeof path === 'string') }
+      : {}),
     ...(typeof value.pathPrefix === 'string'
       ? { pathPrefix: value.pathPrefix }
       : typeof value.path_prefix === 'string'
@@ -973,6 +996,7 @@ const parseSearchFilters = (raw: unknown): RetrievalFilters | undefined => {
 }
 
 const hasSearchFilters = (filters: RetrievalFilters): boolean =>
+  (normaliseSearchPaths(filters.paths).length ?? 0) > 0 ||
   (filters.pathPrefix?.trim() ?? '') !== '' ||
   (filters.scope?.trim() ?? '') !== '' ||
   (filters.project?.trim() ?? '') !== '' ||
@@ -983,6 +1007,8 @@ const matchesSearchPathFilters = (
   filters: RetrievalFilters | undefined,
 ): boolean => {
   if (filters === undefined) return true
+  const paths = normaliseSearchPaths(filters.paths)
+  if (paths.length > 0 && !paths.includes(path)) return false
   const pathPrefix = filters.pathPrefix?.trim() ?? ''
   if (pathPrefix !== '' && !path.startsWith(pathPrefix)) return false
 
@@ -1008,6 +1034,9 @@ const matchesSearchPathFilters = (
       case 'raw_document':
         if (!path.startsWith('raw/')) return false
         break
+      case 'raw_lme':
+        if (!path.startsWith('raw/lme/')) return false
+        break
       default:
         return false
     }
@@ -1023,6 +1052,9 @@ const matchesSearchPathFilters = (
 
   return true
 }
+
+const normaliseSearchPaths = (paths: readonly string[] | undefined): string[] =>
+  paths?.map((path) => path.trim()).filter((path) => path !== '') ?? []
 
 type IngestFileRequest = {
   readonly path?: unknown
@@ -1345,7 +1377,7 @@ export const handleExtract = async (
   const sessionDate =
     typeof body.sessionDate === 'string' && body.sessionDate !== '' ? body.sessionDate : undefined
   try {
-    const extracted = await br.memory.extract({
+    const extracted = await (br.memory.previewExtract ?? br.memory.extract)({
       messages: msgs,
       actorId,
       scope,

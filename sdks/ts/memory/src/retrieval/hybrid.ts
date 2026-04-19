@@ -31,6 +31,7 @@
  */
 
 import type { Embedder, Logger } from '../llm/types.js'
+import { parseFrontmatter } from '../memory/frontmatter.js'
 import {
   type AliasTable,
   type Distiller,
@@ -81,12 +82,12 @@ const PREFERENCE_QUERY_RE =
 const ENUMERATION_OR_TOTAL_QUERY_RE =
   /\b(?:how many|count|total|in total|sum|add up|list|what are all)\b/i
 const PROPERTY_LOOKUP_QUERY_RE =
-  /\b(?:how long is my|what specific|which specific|what exact|which exact)\b/i
+  /\b(?:how long is my|how often do i|what time do i|what time is my|where do i|where have i|where did i|where am i|where is my|what speed is my|how fast is my|what percentage(?: of)?|(?:what was the )?page count|which mode of transport did i|what mode of transport did i|which transport did i|what transport did i|what specific|which specific|what exact|which exact)\b/i
 const SPECIFIC_RECOMMENDATION_QUERY_RE = /\b(?:specific|exact)\b/i
 const FIRST_PERSON_FACT_LOOKUP_RE = /\b(?:did i|have i|was i|were i)\b/i
 const FIRST_PERSON_CONCRETE_QUERY_RE = /\b(?:my|me|i)\b/i
 const FACT_LOOKUP_VERB_RE =
-  /\b(?:pick(?:ed)? up|bought|ordered|spent|earned|sold|drove|travelled|traveled|watched|visited|completed|finished|submitted|booked)\b/i
+  /\b(?:pick(?:ed)? up|bought|ordered|spent|earned|sold|drove|travelled|traveled|watched|visited|completed|finished|submitted|booked|take|took|keep|kept|see|saw)\b/i
 const PREFERENCE_NOTE_RE =
   /\b(?:prefer(?:s|red)?|like(?:s|d)?|love(?:s|d)?|want(?:s|ed)?|need(?:s|ed)?|avoid(?:s|ed)?|dislike(?:s|d)?|hate(?:s|d)?|enjoy(?:s|ed)?|interested in|looking for)\b/i
 const GENERIC_NOTE_RE =
@@ -112,6 +113,9 @@ const RECENCY_QUERY_RE = /\b(?:most recent|latest|last time|current(?:ly)?|now|n
 const EARLIEST_QUERY_RE = /\b(?:earliest|first|initial|original|at first)\b/i
 const INLINE_DATE_TAG_RE = /\[(?:observed on|date):?\s*([^\]]+)\]/i
 const FRONTMATTER_DATE_KEYS = ['observed_on', 'observedOn', 'session_date', 'sessionDate', 'modified'] as const
+const COMPOSITE_CONNECTOR_RE = /\b(?:and|or|plus)\b/i
+const STALE_SUPERSEDED_TEXT_RE =
+  /(?:superseded_by\s*:|superseded by\b|replaced by\b|status\s*:\s*superseded\b|no longer current\b)/i
 const QUESTION_TOKEN_STOP_WORDS: ReadonlySet<string> = new Set([
   'the', 'and', 'for', 'with', 'what',
   'who', 'when', 'where', 'why', 'how',
@@ -192,6 +196,14 @@ type ResolvedQueryPlan = {
   readonly temporalAugmented: boolean
 }
 
+type HydratedChunk = {
+  readonly path: string
+  readonly title?: string
+  readonly summary?: string
+  readonly content?: string
+  readonly metadata?: Record<string, unknown>
+}
+
 export type CreateRetrievalOptions = {
   index: SearchIndex
   embedder?: Embedder
@@ -213,6 +225,7 @@ export type CreateRetrievalOptions = {
    * with a hand-built corpus.
    */
   trigramChunks?: readonly TrigramSourceChunk[]
+  bodyLookup?: (paths: readonly string[]) => Promise<readonly HydratedChunk[]>
 }
 
 export type Retrieval = {
@@ -242,7 +255,7 @@ export function createRetrieval(opts: CreateRetrievalOptions): Retrieval {
       // path + title + summary + content so the payload stays small.
       const rows = opts.index.db
         .prepare(
-          `SELECT id, path, title, summary, content FROM knowledge_chunks`,
+          `SELECT id, path, title, summary, content, tags, metadata_json FROM knowledge_chunks`,
         )
         .all() as Array<{
         id: string
@@ -250,15 +263,25 @@ export function createRetrieval(opts: CreateRetrievalOptions): Retrieval {
         title: string | null
         summary: string | null
         content: string | null
+        tags: string | null
+        metadata_json: string | null
       }>
       trigramIndex = buildTrigramIndex(
-        rows.map((r) => ({
-          id: r.id,
-          path: r.path,
-          title: r.title ?? '',
-          summary: r.summary ?? '',
-          content: r.content ?? '',
-        })),
+        rows.map((r) => {
+          const metadata =
+            r.metadata_json !== null && r.metadata_json !== ''
+              ? parseChunkMetadata(r.metadata_json)
+              : undefined
+          return {
+            id: r.id,
+            path: r.path,
+            title: r.title ?? '',
+            summary: r.summary ?? '',
+            content: r.content ?? '',
+            ...(r.tags !== null && r.tags !== '' ? { tags: r.tags } : {}),
+            ...(metadata !== undefined ? { metadata } : {}),
+          }
+        }),
       )
       return trigramIndex
     } catch (err) {
@@ -298,7 +321,7 @@ export function createRetrieval(opts: CreateRetrievalOptions): Retrieval {
     }
 
     const queryPlan = buildQueryPlan(effectiveQuery, req.questionDate, opts.aliases)
-    const semanticQuery = queryPlan.baseQuery
+    const semanticQuery = effectiveQuery
 
     const embedderReady = opts.embedder !== undefined
 
@@ -447,13 +470,33 @@ export function createRetrieval(opts: CreateRetrievalOptions): Retrieval {
           const tokens = queryTokens(semanticQuery)
           const tri = ensureTrigramIndex()
           if (tri !== undefined && tokens.length > 0) {
-            const fuzzy: readonly TrigramHit[] = tri.search(tokens, candidateK)
+            const fetchLimit = hasRetrievalFilters(req.filters)
+              ? Math.max(candidateK * 10, 200)
+              : candidateK
+            const fuzzy: readonly TrigramHit[] = tri
+              .search(tokens, fetchLimit)
+              .filter((hit) =>
+                matchesRetrievalFilters(
+                  {
+                    id: hit.id,
+                    path: hit.path,
+                    title: hit.title,
+                    summary: hit.summary,
+                    content: hit.content,
+                    ...(hit.tags !== undefined ? { tags: hit.tags } : {}),
+                    ...(hit.metadata !== undefined ? { metadata: hit.metadata } : {}),
+                  },
+                  req.filters,
+                ),
+              )
+              .slice(0, candidateK)
             bmCandidates = fuzzy.map((h, idx) => ({
               id: h.id,
               path: h.path,
               title: h.title,
               summary: h.summary,
               content: h.content,
+              ...(h.metadata !== undefined ? { metadata: h.metadata } : {}),
               bm25Rank: idx,
             }))
             attempts.push({
@@ -527,6 +570,7 @@ export function createRetrieval(opts: CreateRetrievalOptions): Retrieval {
       fused = reciprocalRankFusion(lists, RRF_DEFAULT_K)
     }
     fused = reweightSharedMemoryRanking(semanticQuery, fused)
+    fused = await hydrateResults(fused, opts.bodyLookup, log)
     trace.fusionElapsed = Date.now() - fuseStart
     trace.fusedCount = fused.length
 
@@ -666,6 +710,74 @@ function composeRerankText(r: RetrievalResult): string {
     '',
     `    content: ${snippet}`,
   ].join('\n')
+}
+
+async function hydrateResults(
+  results: readonly RetrievalResult[],
+  bodyLookup: CreateRetrievalOptions['bodyLookup'],
+  log: Logger | undefined,
+): Promise<RetrievalResult[]> {
+  if (results.length === 0 || bodyLookup === undefined) {
+    return [...results]
+  }
+  const paths: string[] = []
+  const seen = new Set<string>()
+  for (const result of results) {
+    if (result.path === '' || seen.has(result.path)) continue
+    seen.add(result.path)
+    paths.push(result.path)
+  }
+  if (paths.length === 0) return [...results]
+
+  let rows: readonly HydratedChunk[]
+  try {
+    rows = await bodyLookup(paths)
+  } catch (err) {
+    log?.warn?.('body hydration failed', { err: String(err) })
+    return [...results]
+  }
+  if (rows.length === 0) return [...results]
+
+  const byPath = new Map(rows.map((row) => [row.path, row] as const))
+  return results.map((result) => {
+    const row = byPath.get(result.path)
+    if (row === undefined) return { ...result }
+    const metadata = mergeChunkMetadata(result.metadata, row.metadata)
+    return {
+      ...result,
+      title: normalisedHydratedString(row.title) ?? result.title,
+      summary: normalisedHydratedString(row.summary) ?? result.summary,
+      content: normalisedHydratedBody(row.content) ?? result.content,
+      ...(metadata !== undefined ? { metadata } : {}),
+    }
+  })
+}
+
+function normalisedHydratedString(value: string | undefined): string | undefined {
+  if (value === undefined) return undefined
+  const trimmed = value.trim()
+  return trimmed !== '' ? trimmed : undefined
+}
+
+function normalisedHydratedBody(value: string | undefined): string | undefined {
+  if (value === undefined) return undefined
+  const trimmed = value.trim()
+  if (trimmed === '') return undefined
+  if (!trimmed.startsWith('---')) return trimmed
+  const parsed = parseFrontmatter(trimmed)
+  return parsed.body.trim() !== '' ? parsed.body.trim() : trimmed
+}
+
+function mergeChunkMetadata(
+  current: Record<string, unknown> | undefined,
+  hydrated: Record<string, unknown> | undefined,
+): Record<string, unknown> | undefined {
+  if (hydrated === undefined) return current
+  const merged: Record<string, unknown> = {
+    ...(current ?? {}),
+    ...hydrated,
+  }
+  return Object.keys(merged).length > 0 ? merged : undefined
 }
 
 function reweightSharedMemoryRanking(
@@ -865,6 +977,7 @@ function retrievalIntentMultiplier(
     multiplier *= focusAlignedConcreteFactMultiplier(query, text)
     multiplier *= firstPersonConcreteFactMultiplier(query, result, text)
   }
+  multiplier *= staleSupersededNoteMultiplier(result, text)
   return multiplier
 }
 
@@ -935,6 +1048,7 @@ function buildBM25QueryTexts(args: {
   const priorityQueries = derivePrioritySubQueries(phraseSource)
   if (shouldUsePriorityOnlyBM25(phraseSource) && priorityQueries.length >= 2) {
     for (const query of priorityQueries) push(query)
+    for (const phrase of filteredPhraseProbes(phraseSource)) push(phrase)
     return out.slice(0, MAX_BM25_FANOUT_QUERIES)
   }
   for (const query of priorityQueries) push(query)
@@ -1256,10 +1370,9 @@ function filteredPhraseProbes(query: string): readonly string[] {
 }
 
 function shouldUsePriorityOnlyBM25(query: string): boolean {
-  const lowered = query.trim().toLowerCase()
   return (
     deriveActionDateContextProbes(query).length > 0 ||
-    (filteredPhraseProbes(query).length >= 2 && lowered.includes(' and '))
+    (filteredPhraseProbes(query).length >= 2 && isCompositeConcreteQuery(query))
   )
 }
 
@@ -1467,6 +1580,7 @@ function searchVectorCandidates(
 function hasRetrievalFilters(filters: RetrievalFilters | undefined): boolean {
   if (filters === undefined) return false
   return (
+    normaliseFilterPaths(filters.paths).length > 0 ||
     (filters.pathPrefix?.trim() ?? '') !== '' ||
     (filters.scope?.trim() ?? '') !== '' ||
     (filters.project?.trim() ?? '') !== '' ||
@@ -1479,6 +1593,9 @@ function matchesRetrievalFilters(
   filters: RetrievalFilters | undefined,
 ): boolean {
   if (!hasRetrievalFilters(filters)) return true
+
+  const paths = normaliseFilterPaths(filters?.paths)
+  if (paths.length > 0 && !paths.includes(chunk.path)) return false
 
   const pathPrefix = filters?.pathPrefix?.trim() ?? ''
   if (pathPrefix !== '' && !chunk.path.startsWith(pathPrefix)) return false
@@ -1507,6 +1624,22 @@ function matchesRetrievalFilters(
   return true
 }
 
+function normaliseFilterPaths(paths: readonly string[] | undefined): string[] {
+  return paths?.map((path) => path.trim()).filter((path) => path !== '') ?? []
+}
+
+function parseChunkMetadata(raw: string): Readonly<Record<string, unknown>> | undefined {
+  try {
+    const parsed = JSON.parse(raw) as unknown
+    if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
+      return parsed as Readonly<Record<string, unknown>>
+    }
+  } catch {
+    /* ignore malformed metadata rows */
+  }
+  return undefined
+}
+
 function resolveChunkScope(chunk: Chunk): string | undefined {
   const metadataScope = chunk.metadata?.['scope']
   if (typeof metadataScope === 'string' && metadataScope.trim() !== '') {
@@ -1517,6 +1650,7 @@ function resolveChunkScope(chunk: Chunk): string | undefined {
   if (chunk.path.startsWith('memory/project/')) return 'project'
   if (chunk.path.startsWith('memory/agent/')) return 'agent'
   if (chunk.path.startsWith('wiki/')) return 'wiki'
+  if (chunk.path.startsWith('raw/lme/')) return 'raw_lme'
   if (chunk.path.startsWith('raw/')) return 'raw_document'
   return undefined
 }
@@ -1556,7 +1690,9 @@ function matchesScopeFilter(actual: string | undefined, expected: string): boole
       return actual === 'agent' || actual === 'agent_memory'
     case 'raw':
     case 'raw_document':
-      return actual === 'raw' || actual === 'raw_document'
+      return actual === 'raw' || actual === 'raw_document' || actual === 'raw_lme'
+    case 'raw_lme':
+      return actual === 'raw_lme'
     default:
       return actual === expected
   }
@@ -1644,7 +1780,30 @@ function firstPersonConcreteFactMultiplier(
   }
 
   const path = result.path.toLowerCase()
-  let multiplier = path.includes('memory/global/') ? 1.18 : 0.7
+  const metadataType = retrievalMetadataString(result.metadata, ['type'])
+  const isGlobal = path.includes('memory/global/')
+  const isProjectOrAgent =
+    path.includes('memory/project/') || path.includes('memory/agent/')
+  const isDirectUserFactPath =
+    path.includes('user-fact-') ||
+    path.includes('milestone-') ||
+    path.includes('/user-')
+  const isDirectGlobalUserFact =
+    isGlobal &&
+    (isDirectUserFactPath ||
+      metadataType === 'user' ||
+      DATE_TAG_RE.test(text) ||
+      ATOMIC_EVENT_NOTE_RE.test(text))
+
+  let multiplier = 1
+  if (isGlobal) multiplier *= 1.28
+  if (isProjectOrAgent) multiplier *= 0.58
+  if (isDirectGlobalUserFact) multiplier *= 1.45
+  if (metadataType === 'project') multiplier *= 0.82
+  if (metadataType === 'reference') multiplier *= 0.68
+  if (GENERIC_NOTE_RE.test(text) && isProjectOrAgent) multiplier *= 0.68
+  if (QUESTION_LIKE_NOTE_RE.test(text)) multiplier *= 0.55
+  if (ROLLUP_NOTE_RE.test(text)) multiplier *= 0.7
   if (DURATION_QUERY_RE.test(normalisedQuery) && ROUTINE_SCOPE_QUERY_RE.test(normalisedQuery)) {
     if (ROUTINE_SCOPE_NOTE_RE.test(text)) {
       multiplier *= 1.2
@@ -1697,10 +1856,15 @@ function diversifyCompositeConcreteRanking(
 
 function isCompositeConcreteQuery(query: string): boolean {
   const lowered = query.trim().toLowerCase()
-  if (!ENUMERATION_OR_TOTAL_QUERY_RE.test(lowered)) {
+  if (!COMPOSITE_CONNECTOR_RE.test(lowered)) {
     return false
   }
-  return lowered.includes(' and ') || lowered.includes(' plus ') || lowered.includes(' or ')
+  return (
+    ENUMERATION_OR_TOTAL_QUERY_RE.test(lowered) ||
+    PROPERTY_LOOKUP_QUERY_RE.test(lowered) ||
+    (FIRST_PERSON_FACT_LOOKUP_RE.test(lowered) &&
+      FACT_LOOKUP_VERB_RE.test(lowered))
+  )
 }
 
 function bestCompositeFocusMatch(
@@ -1753,4 +1917,34 @@ function retrievalResultText(result: RetrievalResult): string {
   return [result.path, result.title, result.summary, result.content]
     .join('\n')
     .toLowerCase()
+}
+
+function staleSupersededNoteMultiplier(
+  result: RetrievalResult,
+  text: string,
+): number {
+  const supersededBy = retrievalMetadataString(result.metadata, [
+    'superseded_by',
+    'supersededBy',
+  ])
+  const status = retrievalMetadataString(result.metadata, ['status'])
+  if (supersededBy !== undefined) return 0.18
+  if (status === 'superseded' || status === 'stale' || status === 'obsolete') {
+    return 0.18
+  }
+  return STALE_SUPERSEDED_TEXT_RE.test(text) ? 0.32 : 1
+}
+
+function retrievalMetadataString(
+  metadata: Record<string, unknown> | undefined,
+  keys: readonly string[],
+): string | undefined {
+  if (metadata === undefined) return undefined
+  for (const key of keys) {
+    const value = metadata[key]
+    if (typeof value === 'string' && value.trim() !== '') {
+      return value.trim().toLowerCase()
+    }
+  }
+  return undefined
 }

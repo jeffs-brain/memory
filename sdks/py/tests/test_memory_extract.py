@@ -84,6 +84,16 @@ def test_parse_extraction_result_wrapped():
     assert len(parse_extraction_result(raw)) == 1
 
 
+def test_parse_extraction_result_repairs_trailing_comma():
+    raw = '{"memories": [{"filename": "x.md", "content": "hi",}]}'
+    assert len(parse_extraction_result(raw)) == 1
+
+
+def test_parse_extraction_result_accepts_bare_array():
+    raw = '[{"filename": "x.md", "content": "hi"}]'
+    assert len(parse_extraction_result(raw)) == 1
+
+
 def test_parse_extraction_result_normalises_fields():
     raw = """
     {
@@ -234,6 +244,34 @@ def test_apply_extractions_supersession(iso):
     assert "superseded_by: new.md" in old
 
 
+def test_apply_extractions_supersession_falls_back_across_scopes(iso):
+    store = MemStore()
+    mem = MemoryManager(store)
+    slug = project_slug("/x")
+    store.write(
+        memory_global_topic("old"),
+        b"---\nname: Old\ntype: user\n---\n\nOld global body.\n",
+    )
+    apply_extractions(
+        mem,
+        slug,
+        [
+            ExtractedMemory(
+                action="create",
+                filename="new.md",
+                name="New",
+                description="New version",
+                type="project",
+                content="New body",
+                scope="project",
+                supersedes="old.md",
+            )
+        ],
+    )
+    old = store.read(memory_global_topic("old")).decode("utf-8")
+    assert "superseded_by: new.md" in old
+
+
 def test_apply_extractions_skips_empty():
     store = MemStore()
     mem = MemoryManager(store)
@@ -298,6 +336,32 @@ async def test_extractor_maybe_extract_writes(iso):
 
 
 @pytest.mark.asyncio
+async def test_extractor_maybe_extract_allows_two_message_turn(iso):
+    store = MemStore()
+    mem = MemoryManager(store)
+    ex = Extractor(mem)
+
+    provider = FakeProvider(
+        [
+            '{"memories": [{"action": "create", "filename": "facts.md", "name": "Facts", "description": "facts", "type": "project", "scope": "project", "content": "A fact.", "index_entry": "- facts"}]}'
+        ]
+    )
+
+    await ex.maybe_extract(
+        provider,
+        "test-model",
+        "/p",
+        [
+            Message(role=Role.USER, content="tell me"),
+            Message(role=Role.ASSISTANT, content="here is info"),
+        ],
+    )
+    slug = project_slug("/p")
+    data = store.read(memory_project_topic(slug, "facts")).decode("utf-8")
+    assert "A fact." in data
+
+
+@pytest.mark.asyncio
 async def test_extract_from_messages_returns_parsed(iso):
     store = MemStore()
     mem = MemoryManager(store)
@@ -325,7 +389,7 @@ async def test_extract_from_messages_includes_existing_memory_summaries_and_zero
     mem = MemoryManager(store)
     slug = project_slug("/p")
     long_body = "Use OIDC with a stable issuer URL and PKCE for browser flows. " * 8
-    preview = " ".join(long_body.split())[:220] + "..."
+    preview = " ".join(long_body.split())[:400] + "..."
     store.write(
         memory_global_topic("feedback-testing"),
         (
@@ -419,6 +483,332 @@ async def test_extract_from_messages_adds_heuristic_user_fact_for_quantified_upd
     assert heuristic.scope == "global"
     assert heuristic.type == "user"
     assert "user-fact-2023-05-22-session-a" in heuristic.filename
+
+
+@pytest.mark.asyncio
+async def test_extract_from_messages_rewrites_heuristic_filename_using_provider_session_id(iso):
+    store = MemStore()
+    mem = MemoryManager(store)
+    provider = FakeProvider(
+        [
+            '{"memories": [{"action": "create", "filename": "project-note.md", "name": "Project note", "type": "project", "scope": "project", "content": "Keep the plan handy.", "sessionId": "session-provider"}]}'
+        ]
+    )
+
+    out = await extract_from_messages(
+        provider,
+        "m",
+        mem,
+        "/p",
+        [
+            Message(
+                role=Role.SYSTEM,
+                content="This conversation took place on 2023/07/15 (Sat) 22:42.",
+            ),
+            Message(
+                role=Role.USER,
+                content="I've been reading about the Amazon rainforest and I just finished my fifth issue.",
+            ),
+            Message(role=Role.ASSISTANT, content="That sounds fascinating."),
+        ],
+    )
+
+    heuristic = next((memory for memory in out if "fifth issue" in memory.content), None)
+    assert heuristic is not None
+    assert "session-provider" in heuristic.filename
+    assert heuristic.session_id == "session-provider"
+
+
+@pytest.mark.asyncio
+async def test_extract_from_messages_rewrites_heuristic_filename_using_system_session_id(iso):
+    store = MemStore()
+    mem = MemoryManager(store)
+    provider = FakeProvider(['{"memories": []}'])
+
+    out = await extract_from_messages(
+        provider,
+        "m",
+        mem,
+        "/p",
+        [
+            Message(
+                role=Role.SYSTEM,
+                content="session_id: session-system\nThis conversation took place on 2023/07/15 (Sat) 22:42.",
+            ),
+            Message(
+                role=Role.USER,
+                content="I've been reading about the Amazon rainforest and I just finished my fifth issue.",
+            ),
+            Message(role=Role.ASSISTANT, content="That sounds fascinating."),
+        ],
+    )
+
+    heuristic = next((memory for memory in out if "fifth issue" in memory.content), None)
+    assert heuristic is not None
+    assert "session-system" in heuristic.filename
+    assert heuristic.session_id == "session-system"
+
+
+@pytest.mark.asyncio
+async def test_extract_from_messages_adds_heuristic_user_fact_for_ordinal_update(iso):
+    store = MemStore()
+    mem = MemoryManager(store)
+    provider = FakeProvider(['{"memories": []}'])
+
+    out = await extract_from_messages(
+        provider,
+        "m",
+        mem,
+        "/p",
+        [
+            Message(
+                role=Role.SYSTEM,
+                content="This conversation took place on 2023/07/15 (Sat) 22:42.",
+            ),
+            Message(
+                role=Role.USER,
+                content="I've been reading about the Amazon rainforest and I just finished my fifth issue.",
+            ),
+            Message(role=Role.ASSISTANT, content="That sounds fascinating."),
+        ],
+        session_id="session-ordinal",
+        session_date="2023/07/15 (Sat) 22:42",
+    )
+
+    heuristic = next(
+        (memory for memory in out if "fifth issue" in memory.content),
+        None,
+    )
+    assert heuristic is not None
+    assert heuristic.scope == "global"
+    assert heuristic.type == "user"
+    assert "user-fact-2023-07-15-session-ordinal" in heuristic.filename
+
+
+@pytest.mark.asyncio
+async def test_extract_from_messages_adds_heuristic_user_fact_for_cadence(iso):
+    store = MemStore()
+    mem = MemoryManager(store)
+    provider = FakeProvider(['{"memories": []}'])
+
+    out = await extract_from_messages(
+        provider,
+        "m",
+        mem,
+        "/p",
+        [
+            Message(
+                role=Role.SYSTEM,
+                content="This conversation took place on 2024/03/25 (Mon) 09:15.",
+            ),
+            Message(
+                role=Role.USER,
+                content="I see Dr. Smith every week now, and it has been helping.",
+            ),
+            Message(role=Role.ASSISTANT, content="That sounds useful."),
+        ],
+        session_id="session-cadence",
+        session_date="2024/03/25 (Mon) 09:15",
+    )
+
+    heuristic = next(
+        (memory for memory in out if "I see Dr. Smith every week now" in memory.content),
+        None,
+    )
+    assert heuristic is not None
+    assert heuristic.scope == "global"
+    assert heuristic.type == "user"
+    assert "user-fact-2024-03-25-session-cadence" in heuristic.filename
+
+
+@pytest.mark.asyncio
+async def test_extract_from_messages_adds_heuristic_user_fact_for_biweekly_cadence(iso):
+    store = MemStore()
+    mem = MemoryManager(store)
+    provider = FakeProvider(['{"memories": []}'])
+
+    out = await extract_from_messages(
+        provider,
+        "m",
+        mem,
+        "/p",
+        [
+            Message(
+                role=Role.SYSTEM,
+                content="This conversation took place on 2024/03/25 (Mon) 09:15.",
+            ),
+            Message(
+                role=Role.USER,
+                content="I meet with my coach bi-weekly to review my progress.",
+            ),
+            Message(role=Role.ASSISTANT, content="That sounds useful."),
+        ],
+        session_id="session-biweekly",
+        session_date="2024/03/25 (Mon) 09:15",
+    )
+
+    heuristic = next((memory for memory in out if "bi-weekly" in memory.content), None)
+    assert heuristic is not None
+    assert heuristic.scope == "global"
+    assert heuristic.type == "user"
+    assert "user-fact-2024-03-25-session-biweekly" in heuristic.filename
+
+
+@pytest.mark.asyncio
+async def test_extract_from_messages_adds_heuristic_user_fact_for_bandwidth(iso):
+    store = MemStore()
+    mem = MemoryManager(store)
+    provider = FakeProvider(['{"memories": []}'])
+
+    out = await extract_from_messages(
+        provider,
+        "m",
+        mem,
+        "/p",
+        [
+            Message(
+                role=Role.SYSTEM,
+                content="This conversation took place on 2024/03/25 (Mon) 09:15.",
+            ),
+            Message(
+                role=Role.USER,
+                content="My new internet plan is 500 Mbps and the backup sync now runs at 1.5 GB/s.",
+            ),
+            Message(role=Role.ASSISTANT, content="That sounds useful."),
+        ],
+        session_id="session-bandwidth",
+        session_date="2024/03/25 (Mon) 09:15",
+    )
+
+    heuristic = next((memory for memory in out if "500 Mbps" in memory.content), None)
+    assert heuristic is not None
+    assert heuristic.scope == "global"
+    assert heuristic.type == "user"
+    assert "user-fact-2024-03-25-session-bandwidth" in heuristic.filename
+    assert "500 Mbps" in heuristic.tags
+    assert "1.5 GB/s" in heuristic.tags
+
+
+@pytest.mark.asyncio
+async def test_extract_from_messages_adds_heuristic_assistant_table_row_fact(iso):
+    store = MemStore()
+    mem = MemoryManager(store)
+    provider = FakeProvider(['{"memories": []}'])
+
+    out = await extract_from_messages(
+        provider,
+        "m",
+        mem,
+        "/p",
+        [
+            Message(
+                role=Role.SYSTEM,
+                content="This conversation took place on 2024/03/25 (Mon) 09:15.",
+            ),
+            Message(
+                role=Role.USER,
+                content="Can you put the rota into a table?",
+            ),
+            Message(
+                role=Role.ASSISTANT,
+                content=(
+                    "| Day | Day Shift | Evening Shift |\n"
+                    "| --- | --- | --- |\n"
+                    "| Sunday | Admon, 8 am - 4 pm | Bea, 4 pm - 12 am |\n"
+                ),
+            ),
+        ],
+        session_id="session-shift",
+        session_date="2024/03/25 (Mon) 09:15",
+    )
+
+    heuristic = next((memory for memory in out if "Admon" in memory.content), None)
+    assert heuristic is not None
+    assert heuristic.scope == "project"
+    assert heuristic.type == "reference"
+    assert heuristic.name.startswith("Reference:")
+    assert heuristic.filename.startswith("reference-2024-03-25-")
+    assert heuristic.content.startswith("[Date: 2024-03-25 Monday March 2024]\n\n")
+    assert heuristic.content.endswith(
+        "Sunday roster: Admon, 8 am - 4 pm, Day Shift; Bea, 4 pm - 12 am, Evening Shift."
+    )
+
+
+@pytest.mark.asyncio
+async def test_extract_from_messages_adds_heuristic_user_fact_for_storage_location(iso):
+    store = MemStore()
+    mem = MemoryManager(store)
+    provider = FakeProvider(['{"memories": []}'])
+
+    out = await extract_from_messages(
+        provider,
+        "m",
+        mem,
+        "/p",
+        [
+            Message(
+                role=Role.SYSTEM,
+                content="This conversation took place on 2024/03/25 (Mon) 09:15.",
+            ),
+            Message(
+                role=Role.USER,
+                content="I've been keeping the spare blankets under my bed.",
+            ),
+            Message(role=Role.ASSISTANT, content="That should make them easy to find."),
+        ],
+        session_id="session-storage",
+        session_date="2024/03/25 (Mon) 09:15",
+    )
+
+    heuristic = next(
+        (
+            memory
+            for memory in out
+            if "keeping the spare blankets under my bed" in memory.content
+        ),
+        None,
+    )
+    assert heuristic is not None
+    assert heuristic.scope == "global"
+    assert heuristic.type == "user"
+    assert "user-fact-2024-03-25-session-storage" in heuristic.filename
+
+
+@pytest.mark.asyncio
+async def test_extract_from_messages_derives_session_date_from_system_message(iso):
+    store = MemStore()
+    mem = MemoryManager(store)
+    provider = FakeProvider(['{"memories": []}'])
+
+    out = await extract_from_messages(
+        provider,
+        "m",
+        mem,
+        "/p",
+        [
+            Message(
+                role=Role.SYSTEM,
+                content="This conversation took place on 2024/03/25 (Mon) 09:15.",
+            ),
+            Message(
+                role=Role.USER,
+                content="My car was getting 30 miles per gallon in the city.",
+            ),
+            Message(role=Role.ASSISTANT, content="That sounds useful."),
+        ],
+        session_id="session-date-fallback",
+        session_date="",
+    )
+
+    heuristic = next(
+        (memory for memory in out if "30 miles per gallon" in memory.content),
+        None,
+    )
+    assert heuristic is not None
+    assert heuristic.content.startswith(
+        "[Date: 2024-03-25 Monday March 2024]\n\n[Observed on 2024/03/25 (Mon) 09:15]\n\n"
+    )
+    assert heuristic.observed_on == "2024-03-25T09:15:00Z"
 
 
 @pytest.mark.asyncio

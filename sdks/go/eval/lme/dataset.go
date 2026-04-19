@@ -164,31 +164,64 @@ func (d *Dataset) Sample(n int, seed int64) []Question {
 
 	byCategory := d.ByCategory()
 	total := len(d.Questions)
-
-	var result []Question
-	remaining := n
 	catOrder := make([]string, 0, len(byCategory))
 	for c := range byCategory {
 		catOrder = append(catOrder, c)
 	}
 	sort.Strings(catOrder)
 
+	type categoryAllocation struct {
+		category  string
+		questions []Question
+		alloc     int
+		remainder int
+	}
+
+	allocations := make([]categoryAllocation, 0, len(catOrder))
+	allocated := 0
 	for _, cat := range catOrder {
 		qs := byCategory[cat]
-		alloc := (len(qs) * n) / total
-		if alloc == 0 && remaining > 0 {
-			alloc = 1
-		}
-		if alloc > remaining {
-			alloc = remaining
-		}
+		numerator := len(qs) * n
+		alloc := numerator / total
 		if alloc > len(qs) {
 			alloc = len(qs)
 		}
+		allocations = append(allocations, categoryAllocation{
+			category:  cat,
+			questions: qs,
+			alloc:     alloc,
+			remainder: numerator % total,
+		})
+		allocated += alloc
+	}
 
-		selected := deterministicSelect(qs, alloc, seed)
+	remaining := n - allocated
+	if remaining > 0 {
+		sort.SliceStable(allocations, func(i, j int) bool {
+			if allocations[i].remainder != allocations[j].remainder {
+				return allocations[i].remainder > allocations[j].remainder
+			}
+			return allocations[i].category < allocations[j].category
+		})
+		for i := range allocations {
+			if remaining == 0 {
+				break
+			}
+			if allocations[i].alloc >= len(allocations[i].questions) {
+				continue
+			}
+			allocations[i].alloc++
+			remaining--
+		}
+		sort.SliceStable(allocations, func(i, j int) bool {
+			return allocations[i].category < allocations[j].category
+		})
+	}
+
+	result := make([]Question, 0, n)
+	for _, alloc := range allocations {
+		selected := deterministicSelect(alloc.questions, alloc.alloc, seed)
 		result = append(result, selected...)
-		remaining -= len(selected)
 	}
 
 	return result

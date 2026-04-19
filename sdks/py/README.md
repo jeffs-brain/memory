@@ -92,7 +92,10 @@ if __name__ == "__main__":
 
 ## CLI
 
-The `memory` CLI ships with the package. Available commands: `init`, `ingest`, `search`, `ask`, `serve`, `remember`, `recall`, `reflect`, `consolidate`, `create-brain`, `list-brains`. See the [CLI reference](https://docs.jeffsbrain.com/reference/cli/) for the full surface.
+The `memory` CLI ships with the package. Today the production-ready Python
+CLI command is `serve`; the broader local command surface is still scaffolded.
+See the [CLI reference](https://docs.jeffsbrain.com/reference/cli/) for the
+current per-SDK status.
 
 `memory serve` speaks the wire protocol in [`spec/PROTOCOL.md`](../../spec/PROTOCOL.md), so the cross-SDK eval runner and any TS or Go client can drive it identically across `ask-basic`, `ask-augmented`, and `search-retrieve-only`.
 

@@ -3,6 +3,9 @@
 package lme
 
 import (
+	"encoding/json"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/jeffs-brain/memory/go/retrieval"
@@ -17,8 +20,10 @@ func TestBuildRunManifest_IncludesActorSettings(t *testing.T) {
 		RunConfig{
 			Seed:               7,
 			SampleSize:         5,
+			SampleIDs:          []string{"q1", "q2"},
 			ActorEndpoint:      "http://127.0.0.1:18850",
 			ActorEndpointStyle: " retrieve-only ",
+			ActorRetrievalMode: retrieval.ModeBM25,
 			ActorTopK:          0,
 			ActorCandidateK:    120,
 			ActorRerankTopN:    0,
@@ -34,8 +39,32 @@ func TestBuildRunManifest_IncludesActorSettings(t *testing.T) {
 	if manifest.ActorEndpointStyle != "retrieve-only" {
 		t.Fatalf("ActorEndpointStyle = %q, want retrieve-only", manifest.ActorEndpointStyle)
 	}
+	if manifest.ReaderFailureMode != "question-error" {
+		t.Fatalf("ReaderFailureMode = %q, want question-error", manifest.ReaderFailureMode)
+	}
+	if manifest.JudgeFailureMode != "question-error" {
+		t.Fatalf("JudgeFailureMode = %q, want question-error", manifest.JudgeFailureMode)
+	}
+	if manifest.ReaderModel != "" {
+		t.Fatalf("ReaderModel = %q, want empty", manifest.ReaderModel)
+	}
+	if manifest.ExtractModel != "" {
+		t.Fatalf("ExtractModel = %q, want empty", manifest.ExtractModel)
+	}
+	if manifest.SampleSignature == "" {
+		t.Fatal("SampleSignature = empty, want derived signature")
+	}
+	if manifest.BenchmarkMode != BenchmarkModeRealRetrieval {
+		t.Fatalf("BenchmarkMode = %q, want %q", manifest.BenchmarkMode, BenchmarkModeRealRetrieval)
+	}
+	if manifest.ContextSource != ContextSourceActorRetrieve {
+		t.Fatalf("ContextSource = %q, want %q", manifest.ContextSource, ContextSourceActorRetrieve)
+	}
 	if manifest.ActorBrain != "eval-lme" {
 		t.Fatalf("ActorBrain = %q, want eval-lme", manifest.ActorBrain)
+	}
+	if manifest.ActorRetrievalMode != string(retrieval.ModeBM25) {
+		t.Fatalf("ActorRetrievalMode = %q, want %q", manifest.ActorRetrievalMode, retrieval.ModeBM25)
 	}
 	if manifest.ActorTopK == nil || *manifest.ActorTopK != 20 {
 		t.Fatalf("ActorTopK = %v, want 20", manifest.ActorTopK)
@@ -57,13 +86,127 @@ func TestBuildRunManifest_IncludesActorSettings(t *testing.T) {
 	}
 }
 
+func TestBuildRunManifest_InfersFullContextFromDataset(t *testing.T) {
+	dir := t.TempDir()
+	dsPath := filepath.Join(dir, "full-context.json")
+	raw, err := json.Marshal([]map[string]any{
+		{
+			"question_id":          "q1",
+			"question_type":        "multi-session",
+			"question":             "Where did we go after lunch?",
+			"answer":               "the park",
+			"haystack_session_ids": []string{"sess-001", "sess-002"},
+			"answer_session_ids":   []string{"sess-002"},
+			"haystack_sessions": [][]map[string]any{
+				{{"role": "user", "content": "We had lunch in town."}},
+				{{"role": "assistant", "content": "After lunch we went to the park."}},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("marshal dataset: %v", err)
+	}
+	if err := os.WriteFile(dsPath, raw, 0o644); err != nil {
+		t.Fatalf("write dataset: %v", err)
+	}
+
+	manifest := BuildRunManifest(
+		&LMEResult{
+			DatasetSHA: "dataset-sha",
+			IngestMode: "bulk",
+		},
+		RunConfig{
+			DatasetPath: dsPath,
+		},
+		"judge-m",
+	)
+
+	if manifest.BenchmarkMode != BenchmarkModeFullContext {
+		t.Fatalf("BenchmarkMode = %q, want %q", manifest.BenchmarkMode, BenchmarkModeFullContext)
+	}
+	if manifest.ContextSource != ContextSourceDatasetFull {
+		t.Fatalf("ContextSource = %q, want %q", manifest.ContextSource, ContextSourceDatasetFull)
+	}
+}
+
+func TestBuildRunManifest_ExtractOnlyUsesPrepBenchmarkMode(t *testing.T) {
+	manifest := BuildRunManifest(
+		&LMEResult{
+			DatasetSHA: "dataset-sha",
+			IngestMode: "replay",
+		},
+		RunConfig{
+			IngestMode:         "replay",
+			ReplayExtractModel: "extract-m",
+			ExtractOnly:        true,
+		},
+		"judge-m",
+	)
+
+	if manifest.BenchmarkMode != BenchmarkModeExtractPrep {
+		t.Fatalf("BenchmarkMode = %q, want %q", manifest.BenchmarkMode, BenchmarkModeExtractPrep)
+	}
+	if manifest.ContextSource != ContextSourceExtractPrep {
+		t.Fatalf("ContextSource = %q, want %q", manifest.ContextSource, ContextSourceExtractPrep)
+	}
+	if !manifest.ExtractOnly {
+		t.Fatal("ExtractOnly = false, want true")
+	}
+	if manifest.ExtractModel != "extract-m" {
+		t.Fatalf("ExtractModel = %q, want extract-m", manifest.ExtractModel)
+	}
+}
+
+func TestBuildRunManifest_FullActorStyleRecordsActualRequestShape(t *testing.T) {
+	manifest := BuildRunManifest(
+		&LMEResult{
+			DatasetSHA: "dataset-sha",
+			IngestMode: "none",
+		},
+		RunConfig{
+			ActorEndpoint:      "http://127.0.0.1:18850",
+			ActorEndpointStyle: "full",
+		},
+		"judge-m",
+	)
+
+	if manifest.BenchmarkMode != BenchmarkModeDaemonRead {
+		t.Fatalf("BenchmarkMode = %q, want %q", manifest.BenchmarkMode, BenchmarkModeDaemonRead)
+	}
+	if manifest.ContextSource != ContextSourceActorAsk {
+		t.Fatalf("ContextSource = %q, want %q", manifest.ContextSource, ContextSourceActorAsk)
+	}
+	if manifest.ActorRetrievalMode != string(retrieval.ModeHybridRerank) {
+		t.Fatalf("ActorRetrievalMode = %q, want %q", manifest.ActorRetrievalMode, retrieval.ModeHybridRerank)
+	}
+	if manifest.ActorTopK == nil || *manifest.ActorTopK != 5 {
+		t.Fatalf("ActorTopK = %v, want 5", manifest.ActorTopK)
+	}
+	if manifest.ActorCandidateK != nil {
+		t.Fatalf("ActorCandidateK = %v, want nil", manifest.ActorCandidateK)
+	}
+	if manifest.ActorRerankTopN != nil {
+		t.Fatalf("ActorRerankTopN = %v, want nil", manifest.ActorRerankTopN)
+	}
+}
+
 func TestRunManifest_IsComparableIncludesActorSettings(t *testing.T) {
 	base := RunManifest{
 		DatasetSHA:         "dataset-sha",
 		JudgeModel:         "judge-m",
 		JudgePromptVersion: 6,
+		JudgeFailureMode:   "question-error",
+		ReaderFailureMode:  "question-error",
+		ReaderModel:        "reader-m",
+		ExtractModel:       "extract-m",
+		SampleSignature:    "sample-sha",
+		Contextualise:      true,
+		ExtractOnly:        false,
+		BenchmarkMode:      BenchmarkModeRealRetrieval,
+		ContextSource:      ContextSourceActorRetrieve,
 		ActorEndpointStyle: "retrieve-only",
 		ActorBrain:         "eval-lme",
+		ActorRetrievalMode: string(retrieval.ModeHybridRerank),
 		ActorTopK:          intPtr(20),
 		ActorCandidateK:    intPtr(100),
 		ActorRerankTopN:    intPtr(60),
@@ -75,8 +218,14 @@ func TestRunManifest_IsComparableIncludesActorSettings(t *testing.T) {
 	}
 
 	changed := base
-	changed.ActorCandidateK = intPtr(120)
+	changed.ActorRetrievalMode = string(retrieval.ModeBM25)
 	if base.IsComparable(changed) {
 		t.Fatal("expected changed actor settings to break comparability")
+	}
+
+	changed = base
+	changed.SampleSignature = "other-sample"
+	if base.IsComparable(changed) {
+		t.Fatal("expected changed sample signature to break comparability")
 	}
 }

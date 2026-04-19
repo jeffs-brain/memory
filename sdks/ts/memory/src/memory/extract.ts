@@ -30,10 +30,11 @@ import type {
 
 const EXTRACT_MAX_TOKENS = 4096
 const EXTRACT_TEMPERATURE = 0
-const DEFAULT_MIN_MESSAGES = 6
-const DEFAULT_MAX_RECENT = 40
-const EXISTING_MEMORY_LIMIT = 12
-const EXISTING_MEMORY_PREVIEW_LIMIT = 220
+const DEFAULT_MIN_MESSAGES = 2
+const DEFAULT_MAX_RECENT = 80
+const EXISTING_MEMORY_LIMIT = 24
+const EXISTING_MEMORY_PREVIEW_LIMIT = 400
+const TRAILING_COMMA_RE = /,(\s*[}\]])/g
 const DATE_TAG_RE = /\b\d{4}[-/]\d{2}[-/]\d{2}\b/g
 const WEEKDAY_TAG_RE =
   /\b(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/gi
@@ -41,13 +42,17 @@ const QUANTITY_TAG_RE = /\b\d{1,6}(?:\.\d+)?\b/g
 const PROPER_NOUN_TAG_RE = /\b[A-Z][a-zA-Z]+\b/g
 const MONEY_TAG_RE = /[\$£€]\s?\d{1,3}(?:,\d{3})*(?:\.\d+)?/g
 const UNIT_QUANTITY_TAG_RE =
-  /\b(\d{1,6}(?:\.\d+)?)\s+(minutes?|mins?|hours?|hrs?|seconds?|secs?|days?|weeks?|months?|years?|km|kilometres?|miles?|metres?|meters?|kg|kilograms?|pounds?|lbs?|grams?|percent|%)\b/gi
+  /\b(\d{1,6}(?:\.\d+)?)\s+(minutes?|mins?|hours?|hrs?|seconds?|secs?|days?|weeks?|months?|years?|km|kilometres?|miles?|metres?|meters?|kg|kilograms?|pounds?|lbs?|grams?|percent|%|kbps|mbps|gbps|tbps|mb\/s|gb\/s|tb\/s)\b/gi
 const WORD_UNIT_QUANTITY_TAG_RE =
   /\b(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\s+(minutes?|mins?|hours?|hrs?|seconds?|secs?|days?|weeks?|months?|years?)\b/gi
+const ORDINAL_QUANTITY_TAG_RE =
+  /\b(?:first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth)\b/i
 const MONTH_NAME_DATE_RE =
   /\b(January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2}(?:st|nd|rd|th)?(?:,?\s+\d{4})?\b/i
 const DATE_INPUT_RE =
   /^(\d{4})[/-](\d{2})[/-](\d{2})(?:\s+\([A-Za-z]{3}\))?(?:\s+(\d{2}):(\d{2})(?::(\d{2}))?)?$/
+const SYSTEM_SESSION_DATE_RE =
+  /\b\d{4}[/-]\d{2}[/-]\d{2}(?:\s+\([A-Za-z]{3}\))?(?:\s+\d{2}:\d{2}(?::\d{2})?)?\b/
 const HEURISTIC_USER_FACT_LIMIT = 2
 const HEURISTIC_MILESTONE_FACT_LIMIT = 2
 const HEURISTIC_PREFERENCE_FACT_LIMIT = 2
@@ -55,6 +60,21 @@ const HEURISTIC_PENDING_FACT_LIMIT = 3
 const HEURISTIC_EVENT_FACT_LIMIT = 2
 const FIRST_PERSON_FACT_RE = /\b(i|i'm|i’ve|i've|my|we|we're|we’ve|we've|our)\b/i
 const HEURISTIC_WORD_RE = /[A-Za-z][A-Za-z-]{2,}/g
+const HEURISTIC_CADENCE_FACT_RE =
+  /\b(?:(?:every|each)\s+(?:day|morning|afternoon|evening|night|weekday|weekend|week|month|year|other\s+week|two\s+weeks?|monday|tuesday|wednesday|thursday|friday|saturday|sunday)|(?:once|twice)\s+(?:a|per)\s+(?:day|week|month|year)|\d+\s+times?\s+(?:a|per)\s+(?:day|week|month|year)|daily|weekly|monthly|yearly|annually|usually|normally|bi-?weekly|fortnightly)\b/i
+const HEURISTIC_STORAGE_LOCATION_FACT_RE =
+  /\b(?:i|i'm|i’ve|i've|i have)\s+(?:been\s+)?(?:keep(?:ing)?|kept|stor(?:e|ing|ed)|stash(?:ed|ing)?|leave|left|put|placed)\b[^.!?\n]*\b(?:under|inside|in|on|at|behind|beside|next to)\b/i
+const HEURISTIC_QUESTION_LEAD_RE =
+  /^\s*(?:what|when|where|why|how|which|who|can|could|should|would|do|did|does|is|are|am|have|has|had)\b/i
+const SYSTEM_SESSION_ID_RE =
+  /(?im)\bsession[_ ]id\s*[:=]\s*([A-Za-z0-9._-]+)\b/
+const SENTENCE_SPLIT_PROTECTED_ABBREVIATIONS: ReadonlyArray<readonly [RegExp, string]> = [
+  [/\bDr\./g, 'Dr__DOT__'],
+  [/\bMr\./g, 'Mr__DOT__'],
+  [/\bMrs\./g, 'Mrs__DOT__'],
+  [/\bMs\./g, 'Ms__DOT__'],
+  [/\bProf\./g, 'Prof__DOT__'],
+] as const
 const HEURISTIC_MILESTONE_EVENT_RE =
   /\b(?:(?:just|recently)\s+)?(?:completed|submitted|graduated|finished|started|joined|accepted|presented)\b/i
 const HEURISTIC_MILESTONE_TIME_RE =
@@ -157,6 +177,7 @@ const HEURISTIC_STOPWORDS = new Set([
   'their',
   'weeks',
 ])
+const MEMORY_SCOPES: readonly Scope[] = ['global', 'project', 'agent']
 
 export type ExtractDeps = {
   readonly store: Store
@@ -171,6 +192,11 @@ export type ExtractDeps = {
   readonly contextualPrefixBuilder?: ContextualPrefixBuilder
 }
 
+type ExtractRunOptions = {
+  readonly persist: boolean
+  readonly advanceCursor: boolean
+}
+
 type ExistingMemorySummary = {
   readonly path: string
   readonly scope: Scope
@@ -182,62 +208,81 @@ type ExistingMemorySummary = {
 }
 
 export const createExtract = (deps: ExtractDeps) => {
-  return async (args: ExtractArgs): Promise<readonly ExtractedMemory[]> => {
-    const actorId = args.actorId ?? deps.defaultActorId
-    const scope = args.scope ?? deps.defaultScope
-    const messages = args.messages
-    const cursorScope = args.sessionId ? { sessionId: args.sessionId } : undefined
+  return async (args: ExtractArgs): Promise<readonly ExtractedMemory[]> =>
+    runExtract(deps, args, { persist: true, advanceCursor: true })
+}
 
-    const cursor = Math.min(await deps.cursorStore.get(actorId, cursorScope), messages.length)
-    if (messages.length - cursor < deps.minMessages) {
-      return []
-    }
+export const createPreviewExtract = (deps: ExtractDeps) => {
+  return async (args: ExtractArgs): Promise<readonly ExtractedMemory[]> =>
+    runExtract(deps, args, { persist: false, advanceCursor: false })
+}
 
-    const recent = messages.slice(cursor)
-    const windowed = recent.length > deps.maxRecent ? recent.slice(-deps.maxRecent) : recent
+const runExtract = async (
+  deps: ExtractDeps,
+  args: ExtractArgs,
+  opts: ExtractRunOptions,
+): Promise<readonly ExtractedMemory[]> => {
+  const actorId = args.actorId ?? deps.defaultActorId
+  const scope = args.scope ?? deps.defaultScope
+  const messages = args.messages
+  const cursorScope = args.sessionId ? { sessionId: args.sessionId } : undefined
 
-    await fireExtractionStart(
-      deps.plugins,
-      { actorId, scope, messages: windowed, extracted: [] },
-      deps.logger,
-    )
+  const cursor = opts.advanceCursor
+    ? Math.min(await deps.cursorStore.get(actorId, cursorScope), messages.length)
+    : 0
+  if (messages.length - cursor < deps.minMessages) {
+    return []
+  }
 
-    let existingMemories: readonly ExistingMemorySummary[] = []
-    try {
-      existingMemories = await listExistingMemories(deps.store, actorId, scope)
-    } catch (err) {
-      deps.logger.warn('memory: failed to load existing memories for extraction', {
-        err: err instanceof Error ? err.message : String(err),
-      })
-    }
+  const recent = messages.slice(cursor)
+  const windowed = recent.length > deps.maxRecent ? recent.slice(-deps.maxRecent) : recent
 
-    const userPrompt = buildExtractUserPrompt(windowed, existingMemories)
+  await fireExtractionStart(
+    deps.plugins,
+    { actorId, scope, messages: windowed, extracted: [] },
+    deps.logger,
+  )
 
-    let raw: string
-    try {
-      const resp = await deps.provider.complete({
-        messages: [{ role: 'user', content: userPrompt }],
-        system: EXTRACTION_SYSTEM_PROMPT,
-        maxTokens: EXTRACT_MAX_TOKENS,
-        temperature: EXTRACT_TEMPERATURE,
-      })
-      raw = resp.content
-    } catch (err) {
-      deps.logger.warn('memory: extract provider call failed', {
-        err: err instanceof Error ? err.message : String(err),
-      })
-      return []
-    }
+  let existingMemories: readonly ExistingMemorySummary[] = []
+  try {
+    existingMemories = await listExistingMemories(deps.store, actorId, scope)
+  } catch (err) {
+    deps.logger.warn('memory: failed to load existing memories for extraction', {
+      err: err instanceof Error ? err.message : String(err),
+    })
+  }
 
-    const parsed = parseExtractionJson(raw)
-    const normalised = parsed.map((m) =>
-      normaliseExtracted(m, scope, args.sessionId, args.sessionDate),
-    )
-    const extracted = await applyContextualPrefixes(
-      deps.contextualPrefixBuilder,
+  const userPrompt = buildExtractUserPrompt(windowed, existingMemories)
+
+  let raw: string
+  try {
+    const resp = await deps.provider.complete({
+      messages: [{ role: 'user', content: userPrompt }],
+      system: EXTRACTION_SYSTEM_PROMPT,
+      maxTokens: EXTRACT_MAX_TOKENS,
+      temperature: EXTRACT_TEMPERATURE,
+    })
+    raw = resp.content
+  } catch (err) {
+    deps.logger.warn('memory: extract provider call failed', {
+      err: err instanceof Error ? err.message : String(err),
+    })
+    return []
+  }
+
+  const parsed = parseExtractionPayload(raw)
+  if (!parsed.parsed) {
+    deps.logger.warn('memory: extract response parse failed')
+  }
+  const normalised = parsed.memories.map((m) =>
+    normaliseExtracted(m, scope, args.sessionId, args.sessionDate),
+  )
+  const extracted = await applyContextualPrefixes(
+    deps.contextualPrefixBuilder,
+    windowed,
+    args.sessionId,
+    postProcessSessionExtractions(
       windowed,
-      args.sessionId,
-      postProcessSessionExtractions(
       [
         ...normalised,
         ...deriveHeuristicUserFacts(
@@ -264,6 +309,12 @@ export const createExtract = (deps: ExtractDeps) => {
           args.sessionId,
           args.sessionDate,
         ),
+        ...deriveHeuristicAssistantTableFacts(
+          windowed,
+          normalised,
+          args.sessionId,
+          args.sessionDate,
+        ),
         ...deriveHeuristicMilestoneFacts(
           windowed,
           normalised,
@@ -273,29 +324,31 @@ export const createExtract = (deps: ExtractDeps) => {
       ],
       args.sessionId,
       args.sessionDate,
-      ),
-    )
+    ),
+  )
 
-    if (extracted.length > 0) {
-      try {
-        await persistExtractions(deps.store, actorId, extracted)
-      } catch (err) {
-        deps.logger.warn('memory: extract persist failed', {
-          err: err instanceof Error ? err.message : String(err),
-        })
-      }
+  if (opts.persist && extracted.length > 0) {
+    try {
+      await persistExtractions(deps.store, actorId, extracted)
+    } catch (err) {
+      deps.logger.warn('memory: extract persist failed', {
+        err: err instanceof Error ? err.message : String(err),
+      })
+      return []
     }
-
-    await deps.cursorStore.set(actorId, messages.length, cursorScope)
-
-    await fireExtractionEnd(
-      deps.plugins,
-      { actorId, scope, messages: windowed, extracted },
-      deps.logger,
-    )
-
-    return extracted
   }
+
+  if (opts.advanceCursor) {
+    await deps.cursorStore.set(actorId, messages.length, cursorScope)
+  }
+
+  await fireExtractionEnd(
+    deps.plugins,
+    { actorId, scope, messages: windowed, extracted },
+    deps.logger,
+  )
+
+  return extracted
 }
 
 export const defaultExtractConfig = (): { minMessages: number; maxRecent: number } => ({
@@ -396,22 +449,100 @@ type RawExtracted = Partial<Record<keyof ExtractedMemory, unknown>> & {
   modified_override?: unknown
 }
 
+type ParseExtractionPayload = {
+  readonly memories: readonly RawExtracted[]
+  readonly parsed: boolean
+}
+
 export const parseExtractionJson = (content: string): readonly RawExtracted[] => {
+  return parseExtractionPayload(content).memories
+}
+
+const parseExtractionPayload = (content: string): ParseExtractionPayload => {
+  for (const candidate of extractionJsonCandidates(content)) {
+    const parsed = decodeExtractionJsonCandidate(candidate)
+    if (parsed.parsed) return parsed
+    const repaired = repairExtractionJsonCandidate(candidate)
+    if (repaired === candidate) continue
+    const repairedParsed = decodeExtractionJsonCandidate(repaired)
+    if (repairedParsed.parsed) return repairedParsed
+  }
+  return { memories: [], parsed: false }
+}
+
+const extractionJsonCandidates = (content: string): readonly string[] => {
   const trimmed = content.trim()
-  const first = trimmed.indexOf('{')
-  const last = trimmed.lastIndexOf('}')
-  if (first < 0 || last <= first) return []
-  const slice = trimmed.slice(first, last + 1)
-  try {
-    const parsed = JSON.parse(slice) as { memories?: unknown }
-    if (!parsed || typeof parsed !== 'object') return []
-    const list = parsed.memories
-    if (!Array.isArray(list)) return []
-    return list.filter((m): m is RawExtracted => typeof m === 'object' && m !== null)
-  } catch {
-    return []
+  if (trimmed === '') return []
+  const out: string[] = []
+  const seen = new Set<string>()
+  const add = (candidate: string) => {
+    const value = candidate.trim()
+    if (value === '' || seen.has(value)) return
+    seen.add(value)
+    out.push(value)
+  }
+  add(trimmed)
+  add(bracketSlice(trimmed, '{', '}'))
+  add(bracketSlice(trimmed, '[', ']'))
+  return out
+}
+
+const bracketSlice = (content: string, open: string, close: string): string => {
+  const start = content.indexOf(open)
+  const end = content.lastIndexOf(close)
+  return start >= 0 && end > start ? content.slice(start, end + 1) : ''
+}
+
+const repairExtractionJsonCandidate = (content: string): string => {
+  let repaired = content
+  while (true) {
+    const next = repaired.replace(TRAILING_COMMA_RE, '$1')
+    if (next === repaired) return repaired
+    repaired = next
   }
 }
+
+const decodeExtractionJsonCandidate = (content: string): ParseExtractionPayload => {
+  const trimmed = content.trim()
+  if (trimmed === '') return { memories: [], parsed: false }
+  try {
+    const parsed = JSON.parse(trimmed) as unknown
+    if (Array.isArray(parsed)) {
+      return {
+        memories: parsed.filter((m): m is RawExtracted => typeof m === 'object' && m !== null),
+        parsed: true,
+      }
+    }
+    if (!parsed || typeof parsed !== 'object') return { memories: [], parsed: false }
+
+    const record = parsed as Record<string, unknown>
+    const list = record.memories
+    if (Array.isArray(list)) {
+      return {
+        memories: list.filter((m): m is RawExtracted => typeof m === 'object' && m !== null),
+        parsed: true,
+      }
+    }
+    const single = record.memory
+    if (single && typeof single === 'object') {
+      return { memories: [single as RawExtracted], parsed: true }
+    }
+    if (looksLikeRawExtracted(record)) {
+      return { memories: [record as RawExtracted], parsed: true }
+    }
+    return { memories: [], parsed: true }
+  } catch {
+    return { memories: [], parsed: false }
+  }
+}
+
+const looksLikeRawExtracted = (value: Record<string, unknown>): boolean =>
+  typeof value.filename === 'string' ||
+  typeof value.content === 'string' ||
+  typeof value.name === 'string' ||
+  typeof value.description === 'string' ||
+  typeof value.indexEntry === 'string' ||
+  typeof value.index_entry === 'string'
 
 const normaliseExtracted = (
   raw: RawExtracted,
@@ -419,6 +550,12 @@ const normaliseExtracted = (
   sessionId?: string,
   sessionDate?: string,
 ): ExtractedMemory => {
+  const rawSessionId =
+    typeof raw.session_id === 'string' && raw.session_id.trim() !== ''
+      ? raw.session_id.trim()
+      : typeof raw.sessionId === 'string' && raw.sessionId.trim() !== ''
+        ? raw.sessionId.trim()
+        : sessionId?.trim() ?? ''
   const scopeRaw = typeof raw.scope === 'string' ? raw.scope : ''
   const scope: Scope =
     scopeRaw === 'global' || scopeRaw === 'project' || scopeRaw === 'agent'
@@ -436,9 +573,13 @@ const normaliseExtracted = (
   const tags = Array.isArray(raw.tags)
     ? raw.tags.filter((t): t is string => typeof t === 'string')
     : undefined
+  const filename =
+    typeof raw.filename === 'string'
+      ? rewriteHeuristicFilenameForSession(raw.filename, rawSessionId)
+      : ''
   const memory: ExtractedMemory = {
     action,
-    filename: typeof raw.filename === 'string' ? raw.filename : '',
+    filename,
     name: typeof raw.name === 'string' ? raw.name : '',
     description: typeof raw.description === 'string' ? raw.description : '',
     type,
@@ -454,7 +595,7 @@ const normaliseExtracted = (
       ? { supersedes: raw.supersedes }
       : {}),
     ...(tags && tags.length > 0 ? { tags } : {}),
-    ...(sessionId ? { sessionId } : {}),
+    ...(rawSessionId !== '' ? { sessionId: rawSessionId } : {}),
     ...(typeof raw.observed_on === 'string' && raw.observed_on
       ? { observedOn: raw.observed_on }
       : typeof raw.observedOn === 'string' && raw.observedOn
@@ -512,7 +653,8 @@ const persistExtractions = async (
       if (!em.supersedes) continue
       const oldFile = ensureMarkdown(em.supersedes)
       const newFile = ensureMarkdown(em.filename)
-      const oldPath = scopeTopic(em.scope, actorId, oldFile)
+      const oldPath = await resolveSupersededPath(b, actorId, em.scope, oldFile)
+      if (oldPath === undefined) continue
       await stampSupersededBy(b, oldPath, newFile)
     }
     for (const [scope, entries] of indexEntriesByScope) {
@@ -520,6 +662,34 @@ const persistExtractions = async (
       await appendIndexEntries(b, indexPath, entries)
     }
   })
+}
+
+const resolveSupersededPath = async (
+  batch: import('../store/index.js').Batch,
+  actorId: string,
+  preferredScope: Scope,
+  filename: string,
+): Promise<import('../store/path.js').Path | undefined> => {
+  const preferredPath = scopeTopic(preferredScope, actorId, filename)
+  if (await batchPathExists(batch, preferredPath)) return preferredPath
+  for (const scope of MEMORY_SCOPES) {
+    if (scope === preferredScope) continue
+    const candidatePath = scopeTopic(scope, actorId, filename)
+    if (await batchPathExists(batch, candidatePath)) return candidatePath
+  }
+  return undefined
+}
+
+const batchPathExists = async (
+  batch: import('../store/index.js').Batch,
+  path: import('../store/path.js').Path,
+): Promise<boolean> => {
+  try {
+    await batch.read(path)
+    return true
+  } catch {
+    return false
+  }
 }
 
 const stampSupersededBy = async (
@@ -611,20 +781,22 @@ const deriveHeuristicUserFacts = (
 ): readonly ExtractedMemory[] => {
   const out: ExtractedMemory[] = []
   const seenSentences = buildExistingMemoryTextSet(existing)
-  const stamp = parseSessionDateRfc3339(sessionDate)
+  const resolvedSessionDate = resolveHeuristicSessionDate(messages, sessionDate)
+  const stamp = parseSessionDateRfc3339(resolvedSessionDate)
   const iso = shortIsoDate(stamp)
 
   for (const message of messages) {
     if (message.role !== 'user') continue
-    const sentences = splitIntoFactSentences(message.content ?? '')
+    const sentences = heuristicUserFactCandidates(message.content ?? '')
     for (const sentence of sentences) {
       const canonical = sentence.toLowerCase()
       if (!FIRST_PERSON_FACT_RE.test(sentence)) continue
-      if (!hasQuantifiedFact(sentence)) continue
+      if (!hasHeuristicUserFactSignal(sentence)) continue
       if (seenSentences.has(canonical)) continue
       const slug = heuristicFactSlug(sentence)
       if (slug === '') continue
-      const observedOn = resolveHeuristicObservedOn(sentence, sessionDate)
+      let observedOn = resolveHeuristicObservedOn(sentence, resolvedSessionDate)
+      if (observedOn === '' && stamp !== '') observedOn = stamp
       out.push({
         action: 'create',
         filename: buildHeuristicUserFactFilename({
@@ -640,7 +812,9 @@ const deriveHeuristicUserFacts = (
         indexEntry: truncateOneLine(sentence, 140),
         ...(observedOn !== '' ? { observedOn } : {}),
         ...(sessionId !== undefined && sessionId !== '' ? { sessionId } : {}),
-        ...(sessionDate !== undefined && sessionDate !== '' ? { sessionDate } : {}),
+        ...(resolvedSessionDate !== undefined && resolvedSessionDate !== ''
+          ? { sessionDate: resolvedSessionDate }
+          : {}),
       })
       seenSentences.add(canonical)
       if (out.length >= HEURISTIC_USER_FACT_LIMIT) return out
@@ -649,19 +823,34 @@ const deriveHeuristicUserFacts = (
   return out
 }
 
+const buildHeuristicFilename = (
+  prefix: string,
+  iso: string,
+  slug: string,
+): string => {
+  const parts = [prefix]
+  if (iso !== '') parts.push(iso)
+  parts.push(slug)
+  return `${parts.join('-')}.md`
+}
+
+const buildHeuristicSessionFilename = (
+  prefix: string,
+  iso: string,
+  sessionId: string | undefined,
+  slug: string,
+): string =>
+  rewriteHeuristicFilenameForSession(
+    buildHeuristicFilename(prefix, iso, slug),
+    sessionId,
+  )
+
 const buildHeuristicUserFactFilename = (args: {
   readonly iso: string
   readonly sessionId?: string
   readonly slug: string
-}): string => {
-  const parts = ['user-fact']
-  if (args.iso !== '') parts.push(args.iso)
-  if (args.sessionId !== undefined && args.sessionId !== '') {
-    parts.push(sanitiseHeuristicFileSegment(args.sessionId))
-  }
-  parts.push(args.slug)
-  return `${parts.join('-')}.md`
-}
+}): string =>
+  buildHeuristicSessionFilename('user-fact', args.iso, args.sessionId, args.slug)
 
 const deriveHeuristicMilestoneFacts = (
   messages: readonly Message[],
@@ -671,7 +860,8 @@ const deriveHeuristicMilestoneFacts = (
 ): readonly ExtractedMemory[] => {
   const out: ExtractedMemory[] = []
   const seenSentences = buildExistingMemoryTextSet(existing)
-  const stamp = parseSessionDateRfc3339(sessionDate)
+  const resolvedSessionDate = resolveHeuristicSessionDate(messages, sessionDate)
+  const stamp = parseSessionDateRfc3339(resolvedSessionDate)
   const iso = shortIsoDate(stamp)
 
   for (const message of messages) {
@@ -683,7 +873,8 @@ const deriveHeuristicMilestoneFacts = (
       if (seenSentences.has(canonical)) continue
       const slug = heuristicFactSlug(sentence)
       if (slug === '') continue
-      const observedOn = resolveHeuristicObservedOn(sentence, sessionDate)
+      let observedOn = resolveHeuristicObservedOn(sentence, resolvedSessionDate)
+      if (observedOn === '' && stamp !== '') observedOn = stamp
       out.push({
         action: 'create',
         filename: buildHeuristicUserFactFilename({
@@ -699,7 +890,9 @@ const deriveHeuristicMilestoneFacts = (
         indexEntry: truncateOneLine(sentence, 140),
         ...(observedOn !== '' ? { observedOn } : {}),
         ...(sessionId !== undefined && sessionId !== '' ? { sessionId } : {}),
-        ...(sessionDate !== undefined && sessionDate !== '' ? { sessionDate } : {}),
+        ...(resolvedSessionDate !== undefined && resolvedSessionDate !== ''
+          ? { sessionDate: resolvedSessionDate }
+          : {}),
       })
       seenSentences.add(canonical)
       if (out.length >= HEURISTIC_MILESTONE_FACT_LIMIT) return out
@@ -729,7 +922,8 @@ const deriveHeuristicPreferenceFacts = (
     ]
       .filter((value) => value !== ''),
   )
-  const stamp = parseSessionDateRfc3339(sessionDate)
+  const resolvedSessionDate = resolveHeuristicSessionDate(messages, sessionDate)
+  const stamp = parseSessionDateRfc3339(resolvedSessionDate)
   const iso = shortIsoDate(stamp)
 
   for (const message of messages) {
@@ -753,7 +947,9 @@ const deriveHeuristicPreferenceFacts = (
         content: buildHeuristicPreferenceContent(candidate),
         indexEntry: truncateOneLine(candidate.summary, 140),
         ...(sessionId !== undefined && sessionId !== '' ? { sessionId } : {}),
-        ...(sessionDate !== undefined && sessionDate !== '' ? { sessionDate } : {}),
+        ...(resolvedSessionDate !== undefined && resolvedSessionDate !== ''
+          ? { sessionDate: resolvedSessionDate }
+          : {}),
       })
       seenSummaries.add(canonical)
       if (out.length >= HEURISTIC_PREFERENCE_FACT_LIMIT) return out
@@ -771,7 +967,8 @@ const deriveHeuristicPendingFacts = (
 ): readonly ExtractedMemory[] => {
   const out: ExtractedMemory[] = []
   const seen = buildExistingMemoryTextSet(existing)
-  const stamp = parseSessionDateRfc3339(sessionDate)
+  const resolvedSessionDate = resolveHeuristicSessionDate(messages, sessionDate)
+  const stamp = parseSessionDateRfc3339(resolvedSessionDate)
   const iso = shortIsoDate(stamp)
 
   for (const message of messages) {
@@ -799,7 +996,9 @@ const deriveHeuristicPendingFacts = (
           content: `${summary}\n\nEvidence: ${sentence}`,
           indexEntry: truncateOneLine(summary, 140),
           ...(sessionId !== undefined && sessionId !== '' ? { sessionId } : {}),
-          ...(sessionDate !== undefined && sessionDate !== '' ? { sessionDate } : {}),
+          ...(resolvedSessionDate !== undefined && resolvedSessionDate !== ''
+            ? { sessionDate: resolvedSessionDate }
+            : {}),
         })
         seen.add(canonical)
         if (out.length >= HEURISTIC_PENDING_FACT_LIMIT) return out
@@ -818,7 +1017,8 @@ const deriveHeuristicEventFacts = (
 ): readonly ExtractedMemory[] => {
   const out: ExtractedMemory[] = []
   const seen = buildExistingMemoryTextSet(existing)
-  const stamp = parseSessionDateRfc3339(sessionDate)
+  const resolvedSessionDate = resolveHeuristicSessionDate(messages, sessionDate)
+  const stamp = parseSessionDateRfc3339(resolvedSessionDate)
   const iso = shortIsoDate(stamp)
 
   for (const message of messages) {
@@ -833,7 +1033,8 @@ const deriveHeuristicEventFacts = (
       if (seen.has(canonical)) continue
       const slug = heuristicFactSlug(summary)
       if (slug === '') continue
-      const observedOn = resolveHeuristicObservedOn(sentence, sessionDate)
+      let observedOn = resolveHeuristicObservedOn(sentence, resolvedSessionDate)
+      if (observedOn === '' && stamp !== '') observedOn = stamp
       out.push({
         action: 'create',
         filename: buildHeuristicUserFactFilename({
@@ -849,7 +1050,9 @@ const deriveHeuristicEventFacts = (
         indexEntry: truncateOneLine(summary, 140),
         ...(observedOn !== '' ? { observedOn } : {}),
         ...(sessionId !== undefined && sessionId !== '' ? { sessionId } : {}),
-        ...(sessionDate !== undefined && sessionDate !== '' ? { sessionDate } : {}),
+        ...(resolvedSessionDate !== undefined && resolvedSessionDate !== ''
+          ? { sessionDate: resolvedSessionDate }
+          : {}),
       })
       seen.add(canonical)
       if (out.length >= HEURISTIC_EVENT_FACT_LIMIT) return out
@@ -859,11 +1062,172 @@ const deriveHeuristicEventFacts = (
   return out
 }
 
+type AssistantTableCell = {
+  readonly header: string
+  readonly value: string
+}
+
+type AssistantMarkdownTable = {
+  readonly headers: readonly string[]
+  readonly rows: readonly string[][]
+}
+
+const deriveHeuristicAssistantTableFacts = (
+  messages: readonly Message[],
+  existing: readonly ExtractedMemory[],
+  sessionId: string | undefined,
+  sessionDate: string | undefined,
+): readonly ExtractedMemory[] => {
+  const out: ExtractedMemory[] = []
+  const seen = buildExistingMemoryTextSet(existing)
+  const resolvedSessionDate = resolveHeuristicSessionDate(messages, sessionDate)
+  const stamp = parseSessionDateRfc3339(resolvedSessionDate)
+  const iso = shortIsoDate(stamp)
+
+  for (const message of messages) {
+    if (message.role !== 'assistant') continue
+    for (const table of extractMarkdownTables(message.content ?? '')) {
+      for (const row of table.rows) {
+        const weekday = normaliseWeekdayLabel(row[0] ?? '')
+        if (weekday === undefined) continue
+
+        const entries = table.headers
+          .slice(1)
+          .map((header, index) => ({
+            header: header.trim(),
+            value: (row[index + 1] ?? '').trim(),
+          }))
+          .filter(
+            (entry): entry is AssistantTableCell =>
+              entry.header !== '' && entry.value !== '' && entry.value !== '-',
+          )
+
+        if (entries.length === 0) continue
+
+        const summary = buildAssistantTableRowSummary(weekday, entries)
+        const canonical = normaliseMemoryText(summary)
+        if (seen.has(canonical)) continue
+
+        const slug = heuristicFactSlug(summary)
+        if (slug === '') continue
+
+        out.push({
+          action: 'create',
+          filename: buildAssistantTableFilename({ iso, slug }),
+          name: `Reference: ${toTitleCase(slug.replaceAll('-', ' '))}`,
+          description: truncateOneLine(summary, 140),
+          type: 'reference',
+          scope: 'project',
+          content: withObservedDatePrefix(summary, stamp),
+          indexEntry: truncateOneLine(summary, 140),
+          ...(stamp !== '' ? { observedOn: stamp } : {}),
+          ...(sessionId !== undefined && sessionId !== '' ? { sessionId } : {}),
+          ...(resolvedSessionDate !== undefined && resolvedSessionDate !== ''
+            ? { sessionDate: resolvedSessionDate }
+            : {}),
+        })
+        seen.add(canonical)
+      }
+    }
+  }
+
+  return out
+}
+
+const buildAssistantTableRowSummary = (
+  weekday: string,
+  entries: readonly AssistantTableCell[],
+): string =>
+  ensureTrailingFullStop(
+    `${weekday} roster: ${entries.map((entry) => `${entry.value}, ${entry.header}`).join('; ')}`,
+  )
+
+const buildAssistantTableFilename = (args: {
+  readonly iso: string
+  readonly slug: string
+}): string => buildHeuristicFilename('reference', args.iso, args.slug)
+
+const extractMarkdownTables = (content: string): readonly AssistantMarkdownTable[] => {
+  const lines = content.split(/\r?\n/)
+  const tables: AssistantMarkdownTable[] = []
+
+  let index = 0
+  while (index < lines.length - 1) {
+    const headerLine = lines[index] ?? ''
+    const separatorLine = lines[index + 1] ?? ''
+    if (!isMarkdownTableRow(headerLine) || !isMarkdownTableSeparator(separatorLine)) {
+      index++
+      continue
+    }
+
+    const headers = parseMarkdownTableCells(headerLine)
+    if (headers.length < 2) {
+      index++
+      continue
+    }
+
+    const rows: string[][] = []
+    let rowIndex = index + 2
+    while (rowIndex < lines.length) {
+      const rowLine = lines[rowIndex] ?? ''
+      if (!isMarkdownTableRow(rowLine)) break
+      const cells = parseMarkdownTableCells(rowLine)
+      if (cells.length >= 2) rows.push(cells)
+      rowIndex++
+    }
+
+    if (rows.length > 0) {
+      tables.push({ headers, rows })
+    }
+
+    index = rowIndex
+  }
+
+  return tables
+}
+
+const isMarkdownTableRow = (line: string): boolean => {
+  const trimmed = line.trim()
+  if (trimmed === '' || !trimmed.includes('|')) return false
+  return trimmed.includes('|')
+}
+
+const isMarkdownTableSeparator = (line: string): boolean => {
+  const cells = parseMarkdownTableCells(line)
+  return cells.length >= 2 && cells.every((cell) => /^:?-{3,}:?$/.test(cell.trim()))
+}
+
+const parseMarkdownTableCells = (line: string): string[] =>
+  line
+    .trim()
+    .replace(/^\|/, '')
+    .replace(/\|$/, '')
+    .split('|')
+    .map((cell) => cell.trim())
+
+const normaliseWeekdayLabel = (value: string): string | undefined => {
+  const trimmed = value.trim().toLowerCase()
+  if (trimmed === '') return undefined
+  const match = WEEKDAY_NAMES.find((weekday) => weekday.toLowerCase() === trimmed)
+  return match
+}
+
 const splitIntoFactSentences = (content: string): readonly string[] =>
-  content
+  protectSentenceSplitAbbreviations(content)
     .split(/[\n]+|(?<=[.!?])\s+/)
-    .map((part) => part.trim())
+    .map((part) => restoreSentenceSplitAbbreviations(part).trim())
     .filter((part) => part !== '')
+
+const protectSentenceSplitAbbreviations = (content: string): string => {
+  let protectedContent = content
+  for (const [pattern, replacement] of SENTENCE_SPLIT_PROTECTED_ABBREVIATIONS) {
+    protectedContent = protectedContent.replace(pattern, replacement)
+  }
+  return protectedContent
+}
+
+const restoreSentenceSplitAbbreviations = (content: string): string =>
+  content.replaceAll('__DOT__', '.')
 
 const hasQuantifiedFact = (sentence: string): boolean => {
   UNIT_QUANTITY_TAG_RE.lastIndex = 0
@@ -875,7 +1239,42 @@ const hasQuantifiedFact = (sentence: string): boolean => {
   MONTH_NAME_DATE_RE.lastIndex = 0
   if (MONTH_NAME_DATE_RE.test(sentence)) return true
   if (HEURISTIC_DURATION_FACT_RE.test(sentence)) return true
+  if (ORDINAL_QUANTITY_TAG_RE.test(sentence)) return true
   return /\b\d{1,4}\b/.test(sentence)
+}
+
+const hasHeuristicUserFactSignal = (sentence: string): boolean => {
+  if (hasQuantifiedFact(sentence)) return true
+  if (isLikelyQuestionSentence(sentence)) return false
+  return hasCadenceFact(sentence) || hasStorageLocationFact(sentence)
+}
+
+const heuristicUserFactCandidates = (content: string): readonly string[] => {
+  const candidates = splitIntoFactSentences(content)
+  const trimmed = content.trim()
+  if (
+    trimmed === '' ||
+    (!hasCadenceFact(trimmed) && !hasStorageLocationFact(trimmed))
+  ) {
+    return candidates
+  }
+  const canonical = trimmed.toLowerCase()
+  for (const candidate of candidates) {
+    if (candidate.trim().toLowerCase() === canonical) return candidates
+  }
+  return [...candidates, trimmed]
+}
+
+const hasCadenceFact = (sentence: string): boolean =>
+  HEURISTIC_CADENCE_FACT_RE.test(sentence)
+
+const hasStorageLocationFact = (sentence: string): boolean =>
+  HEURISTIC_STORAGE_LOCATION_FACT_RE.test(sentence)
+
+const isLikelyQuestionSentence = (sentence: string): boolean => {
+  const trimmed = sentence.trim()
+  if (trimmed === '') return false
+  return trimmed.endsWith('?') || HEURISTIC_QUESTION_LEAD_RE.test(trimmed)
 }
 
 const hasMilestoneFact = (sentence: string): boolean => {
@@ -1128,15 +1527,8 @@ const buildHeuristicPreferenceFilename = (args: {
   readonly iso: string
   readonly sessionId?: string
   readonly slug: string
-}): string => {
-  const parts = ['user-preference']
-  if (args.iso !== '') parts.push(args.iso)
-  if (args.sessionId !== undefined && args.sessionId !== '') {
-    parts.push(sanitiseHeuristicFileSegment(args.sessionId))
-  }
-  parts.push(args.slug)
-  return `${parts.join('-')}.md`
-}
+}): string =>
+  buildHeuristicSessionFilename('user-preference', args.iso, args.sessionId, args.slug)
 
 const buildHeuristicPreferenceContent = (
   candidate: HeuristicPreferenceCandidate,
@@ -1211,41 +1603,128 @@ const toTitleCase = (value: string): string =>
     .join(' ')
 
 const postProcessSessionExtractions = (
+  messages: readonly Message[],
   extracted: readonly ExtractedMemory[],
   sessionId?: string,
   sessionDate?: string,
 ): readonly ExtractedMemory[] => {
   if (extracted.length === 0) return extracted
 
-  const modifiedOverride = parseSessionDateRfc3339(sessionDate)
+  const { sessionRaw, modifiedOverride } = resolveHeuristicSessionMetadata(
+    messages,
+    sessionDate,
+  )
+  const resolvedSessionId = resolveHeuristicSessionId(messages, extracted, sessionId)
   const sessionDateIso = shortIsoDate(modifiedOverride)
   const dateTokens = buildDateTokens(modifiedOverride)
 
   return extracted.map((memory) => {
     const shaped = shapeExtractedMemory(memory)
+    const currentSessionId = shaped.sessionId?.trim() ?? ''
+    const nextSessionId = currentSessionId !== '' ? currentSessionId : resolvedSessionId
     const content =
-      sessionDate !== undefined &&
-      sessionDate !== '' &&
+      sessionRaw !== '' &&
+      shaped.content.trim() !== '' &&
       !shaped.content.startsWith('[Date:')
-        ? `${dateTokens}[Observed on ${sessionDate}]\n\n${shaped.content}`
+        ? `${dateTokens}[Observed on ${sessionRaw}]\n\n${shaped.content}`
         : shaped.content
     const tags = mergeTags(shaped.tags, autoFactTags(content))
     return {
       ...shaped,
+      filename: rewriteHeuristicFilenameForSession(shaped.filename, nextSessionId),
       content,
-      ...(sessionId !== undefined && sessionId !== '' && shaped.sessionId === undefined
-        ? { sessionId }
-        : {}),
-      ...(modifiedOverride !== '' && shaped.modifiedOverride === undefined
+      ...(nextSessionId !== '' ? { sessionId: nextSessionId } : {}),
+      ...(modifiedOverride !== '' &&
+      (shaped.modifiedOverride === undefined || shaped.modifiedOverride === '')
         ? { modifiedOverride }
         : {}),
-      ...(modifiedOverride !== '' && shaped.observedOn === undefined
+      ...(modifiedOverride !== '' &&
+      (shaped.observedOn === undefined || shaped.observedOn === '')
         ? { observedOn: modifiedOverride }
         : {}),
-      ...(sessionDateIso !== '' ? { sessionDate: sessionDateIso } : {}),
+      ...(sessionDateIso !== '' &&
+      (shaped.sessionDate === undefined || shaped.sessionDate === '')
+        ? { sessionDate: sessionDateIso }
+        : {}),
       ...(tags.length > 0 ? { tags } : {}),
     }
   })
+}
+
+const resolveHeuristicSessionId = (
+  messages: readonly Message[],
+  extracted: readonly ExtractedMemory[],
+  sessionId?: string,
+): string => {
+  const direct = sessionId?.trim() ?? ''
+  if (direct !== '') return direct
+  for (const memory of extracted) {
+    const fromMemory = memory.sessionId?.trim() ?? ''
+    if (fromMemory !== '') return fromMemory
+  }
+  for (const message of messages) {
+    if (message.role !== 'system') continue
+    const matched = SYSTEM_SESSION_ID_RE.exec(message.content ?? '')?.[1]?.trim()
+    if (matched !== undefined && matched !== '') return matched
+  }
+  return ''
+}
+
+const resolveHeuristicSessionMetadata = (
+  messages: readonly Message[],
+  sessionDate?: string,
+): {
+  readonly sessionRaw: string
+  readonly modifiedOverride: string
+} => {
+  const direct = sessionDate?.trim() ?? ''
+  if (direct !== '') {
+    const parsed = parseDateInput(direct)
+    if (parsed !== undefined) {
+      return { sessionRaw: direct, modifiedOverride: parsed.toISOString() }
+    }
+  }
+  for (const message of messages) {
+    if (message.role !== 'system') continue
+    const matched = SYSTEM_SESSION_DATE_RE.exec(message.content ?? '')?.[0]?.trim()
+    if (matched === undefined || matched === '') continue
+    const parsed = parseDateInput(matched)
+    if (parsed !== undefined) {
+      return { sessionRaw: matched, modifiedOverride: parsed.toISOString() }
+    }
+  }
+  return { sessionRaw: '', modifiedOverride: '' }
+}
+
+const rewriteHeuristicFilenameForSession = (
+  filename: string,
+  sessionId: string | undefined,
+): string => {
+  const sessionSegment = sanitiseHeuristicFileSegment(sessionId ?? '')
+  if (sessionSegment === '') return filename
+
+  const dated = HEURISTIC_FILENAME_DATED_RE.exec(filename)
+  if (dated !== null) {
+    const prefix = dated[1] ?? ''
+    const iso = dated[2] ?? ''
+    const rest = dated[3] ?? ''
+    if (rest === sessionSegment || rest.startsWith(`${sessionSegment}-`)) {
+      return filename
+    }
+    return `${prefix}-${iso}-${sessionSegment}-${rest}.md`
+  }
+
+  const plain = HEURISTIC_FILENAME_RE.exec(filename)
+  if (plain !== null) {
+    const prefix = plain[1] ?? ''
+    const rest = plain[2] ?? ''
+    if (rest === sessionSegment || rest.startsWith(`${sessionSegment}-`)) {
+      return filename
+    }
+    return `${prefix}-${sessionSegment}-${rest}.md`
+  }
+
+  return filename
 }
 
 const shapeExtractedMemory = (memory: ExtractedMemory): ExtractedMemory => {
@@ -1367,6 +1846,24 @@ const parseSessionDateRfc3339 = (value: string | undefined): string => {
   if (trimmed === '') return ''
   const parsed = parseDateInput(trimmed)
   return parsed === undefined ? '' : parsed.toISOString()
+}
+
+const resolveHeuristicSessionDate = (
+  messages: readonly Message[],
+  sessionDate: string | undefined,
+): string | undefined => {
+  const direct = sessionDate?.trim()
+  if (direct !== undefined && direct !== '' && parseDateInput(direct) !== undefined) {
+    return direct
+  }
+  for (const message of messages) {
+    if (message.role !== 'system') continue
+    const matched = SYSTEM_SESSION_DATE_RE.exec(message.content ?? '')?.[0]?.trim()
+    if (matched !== undefined && matched !== '' && parseDateInput(matched) !== undefined) {
+      return matched
+    }
+  }
+  return sessionDate
 }
 
 const parseDateInput = (value: string): Date | undefined => {
@@ -1711,6 +2208,19 @@ const weekdayName = (date: Date): string =>
   ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][
     date.getUTCDay()
   ] ?? 'Unknown'
+
+const WEEKDAY_NAMES = [
+  'Sunday',
+  'Monday',
+  'Tuesday',
+  'Wednesday',
+  'Thursday',
+  'Friday',
+  'Saturday',
+] as const
+const HEURISTIC_FILENAME_DATED_RE =
+  /^(user-(?:fact|preference))-(\d{4}-\d{2}-\d{2})-(.+)\.md$/
+const HEURISTIC_FILENAME_RE = /^(user-(?:fact|preference))-(.+)\.md$/
 
 const monthName = (date: Date): string =>
   [

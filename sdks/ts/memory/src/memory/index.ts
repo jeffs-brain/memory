@@ -13,7 +13,7 @@ import { createConsolidate } from './consolidate.js'
 import { createContextualPrefixBuilder } from './contextual-prefix.js'
 import { createContextualise } from './contextualise.js'
 import { createEpisodeRecorder } from './episodes.js'
-import { createExtract, defaultExtractConfig } from './extract.js'
+import { createExtract, createPreviewExtract, defaultExtractConfig } from './extract.js'
 import { createMemoryLifecycle } from './lifecycle.js'
 import { createStoreBackedProceduralStore } from './procedural-store.js'
 import { createRecall } from './recall.js'
@@ -38,6 +38,20 @@ export const createMemory = (opts: MemoryOpts): Memory => {
   })
 
   const extract = createExtract({
+    store: opts.store,
+    provider: opts.provider,
+    cursorStore: opts.cursorStore,
+    logger,
+    plugins,
+    defaultScope: opts.scope,
+    defaultActorId: opts.actorId,
+    minMessages: extractMinMessages,
+    maxRecent: extractMaxRecent,
+    ...(opts.contextualPrefixBuilder !== undefined
+      ? { contextualPrefixBuilder: opts.contextualPrefixBuilder }
+      : {}),
+  })
+  const previewExtract = createPreviewExtract({
     store: opts.store,
     provider: opts.provider,
     cursorStore: opts.cursorStore,
@@ -92,6 +106,7 @@ export const createMemory = (opts: MemoryOpts): Memory => {
 
   return {
     extract,
+    previewExtract,
     recall,
     reflect,
     consolidate,

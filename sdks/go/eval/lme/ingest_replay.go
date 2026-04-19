@@ -18,11 +18,10 @@ import (
 	"github.com/jeffs-brain/memory/go/memory"
 )
 
-// DefaultReplayExtractModel is the cheap extraction model used when the
-// caller does not override it via [ReplayOpts.ExtractModel]. Haiku is
-// strong enough to produce structured JSON at replay volume without
-// dominating the run's cost budget.
-const DefaultReplayExtractModel = "claude-haiku-4-5"
+// DefaultReplayExtractModel is the quality-first extraction model used
+// when the caller does not override it via [ReplayOpts.ExtractModel].
+// Benchmark work prioritises extraction fidelity over spend.
+const DefaultReplayExtractModel = "gpt-5"
 
 // defaultReplayConcurrency bounds the in-flight extraction LLM calls
 // when the caller leaves [ReplayOpts.Concurrency] at zero. Tuned for

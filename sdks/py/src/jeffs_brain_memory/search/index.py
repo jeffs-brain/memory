@@ -326,6 +326,13 @@ def _scope_matches_filter(row_scope: str, want: Any) -> bool:
         "global_memory": {"global_memory"},
         "project": {"project_memory"},
         "project_memory": {"project_memory"},
+        "agent": {"agent_memory"},
+        "agent_memory": {"agent_memory"},
+        "raw": {"raw_document", "raw_lme"},
+        "raw_document": {"raw_document"},
+        "raw_lme": {"raw_lme"},
+        "wiki": {"wiki"},
+        "sources": {"sources"},
     }
     if isinstance(want, str):
         trimmed = want.strip().lower()
@@ -341,14 +348,16 @@ def _scope_matches_filter(row_scope: str, want: Any) -> bool:
             expected.update(aliases.get(trimmed, {trimmed}))
     else:
         expected = {str(want).strip().lower()}
-    return row_scope in expected if row_scope else True
+    return row_scope.strip().lower() in expected if row_scope else True
 
 
 def _indexed_text_for(scope: str, raw: str, body: str) -> str:
-    """Choose the indexed body while preserving replay session headers."""
-    if scope == "raw_lme":
-        return raw.strip()
-    return body
+    """Choose the indexed body consistently across SDKs."""
+    del scope
+    stripped_body = body.strip()
+    if stripped_body:
+        return stripped_body
+    return raw.strip()
 
 
 class Index:
@@ -652,9 +661,11 @@ class Index:
         if not _scope_matches_filter(str(row["scope"] or ""), scope):
             return False
         project_slug = filters.get("project_slug") or filters.get("project")
-        if project_slug and row["project_slug"] and row["project_slug"] != project_slug:
+        wanted_project = str(project_slug or "").strip().lower()
+        actual_project = str(row["project_slug"] or "").strip().lower()
+        if wanted_project and actual_project and actual_project != wanted_project:
             return False
-        tags = (row["tags"] or "").split()
+        tags = {tag.strip().lower() for tag in str(row["tags"] or "").split() if tag.strip()}
         wanted_tags: list[str] = []
         tag = filters.get("tag")
         if tag:
@@ -663,7 +674,7 @@ class Index:
         if isinstance(tags_raw, list):
             wanted_tags.extend(str(value) for value in tags_raw if str(value))
         for wanted in wanted_tags:
-            if wanted not in tags:
+            if wanted.strip().lower() not in tags:
                 return False
         path_prefix = filters.get("path_prefix")
         if path_prefix and not row["path"].startswith(path_prefix):

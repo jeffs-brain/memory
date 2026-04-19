@@ -28,7 +28,7 @@ Cross-SDK evaluation runner for `jeffs-brain/memory`. Drives the TypeScript, Go,
 | SDK | Status |
 | --- | ------ |
 | Go | Full native `memory eval lme run` surface, including replay ingest, extract-only runs, `actor-endpoint-style=retrieve-only`, and the shared tri-SDK orchestration in `eval/scripts/run_tri_lme.sh`. This is the reference path. |
-| TypeScript | Native `memory eval lme` commands exist for single-SDK fetch, run, compare, and check flows. They are not the coordinator for the replay-backed tri-SDK benchmark. |
+| TypeScript | Native `memory eval lme` commands exist for single-SDK fetch, run, score, compare, and doctor flows. They are not the coordinator for the replay-backed tri-SDK benchmark. |
 | Python | No native `memory eval lme` CLI today. Python joins parity runs through `memory serve`, either under this shared runner or under the Go tri-SDK orchestration. |
 
 ## Pre-ingestion
@@ -39,7 +39,12 @@ The runner assumes a brain has already been populated against the target SDK whe
 memory ingest ./corpus --brain eval
 ```
 
-Override the brain via `--brain <id>` on the runner when you want to target something else. `smoke.jsonl` is for fast scenario checks; `lme.jsonl` is the broader cross-SDK dataset used for corpus-grounded verification. The tri-SDK replay script does its own shared extract step and does not require a pre-populated daemon brain.
+Override the brain via `--brain <id>` on the runner when you want to target
+something else. `smoke.jsonl` is for fast scenario checks; `lme.jsonl` is the
+shared corpus-grounded daemon dataset used for `ask-augmented` and
+`search-retrieve-only` once the `eval` brain has been populated. The
+tri-SDK replay script does its own shared extract step and does not require a
+pre-populated daemon brain.
 
 ## Local run
 
@@ -148,7 +153,7 @@ For the native Go LME runner (`memory eval lme run`) the additional knobs are `J
 
 ## Dataset contract
 
-JSONL, one question per line.
+The shared daemon runner consumes JSONL, one question per line. Native LongMemEval replay uses the upstream `longmemeval_s.json` JSON array directly and does not go through `runner.py`.
 
 | key                   | type     | notes                                                 |
 | --------------------- | -------- | ----------------------------------------------------- |
@@ -209,11 +214,13 @@ results/
 
 The cross-SDK runner does not perform replay ingest or agentic LongMemEval runs. Use the native SDK runners for those workflows. Recommended Go configuration for local runs:
 
-- **Extract model**: `gpt-5-mini`. Cheap, reasoning-capable, no temperature knob.
+- **Extract model**: `gpt-5`. Use the stronger extractor by default for replay fidelity.
 - **Actor model**: `gpt-4o`. Paper's recommended reader.
 - **Judge model**: `gpt-4o`. Paper's recommended judge.
 - **Dataset**: `longmemeval_s.json` (500 questions, SHA-pinned). Fetch via `scripts/fetch-lme.sh` from the repo root.
-- **Concurrency**: 16 replay workers, 16 question workers locally. OpenAI tier-5 handles this comfortably on gpt-4o + gpt-5-mini.
+- **Concurrency**: 16 replay workers, 16 question workers locally. OpenAI tier-5 handles this comfortably on gpt-4o + gpt-5.
+- **Sampling**: the Go sampler now fills the requested `--sample-size` exactly. `50` means 50 questions, not a floored per-category subset.
+- **Reproducibility**: use the shared reader cache plus the shared judge cache when you care about score stability across reruns.
 
 ### Single-SDK run
 
@@ -225,7 +232,7 @@ memory eval lme run \
   --sample-size 50 \
   --seed 42 \
   --ingest-mode replay \
-  --extract-model gpt-5-mini \
+  --extract-model gpt-5 \
   --replay-concurrency 16 \
   --concurrency 16 \
   --actor gpt-4o \
@@ -245,26 +252,62 @@ set -a && source ~/code/jeffs-brain/memory/.env && set +a
 JB_LLM_PROVIDER=openai \
 ACTOR_MODEL=gpt-4o \
 JUDGE_MODEL=gpt-4o \
-EXTRACT_MODEL=gpt-5-mini \
+EXTRACT_MODEL=gpt-5 \
 SAMPLE_SIZE=50 \
 CONCURRENCY=16 \
 REPLAY_CONCURRENCY=16 \
+CANDIDATE_K=60 \
+RERANK_TOP_N=20 \
 MAX_COST=25 \
+JB_HOME=/tmp/jb-lme-s50 \
 bash eval/scripts/run_tri_lme.sh
 ```
 
 Phases:
-1. Go extracts into `$JB_HOME/brains/$BRAIN_ID` (`/tmp/jb-lme-shared/brains/eval-lme` by default).
+1. Go extracts into `$JB_HOME/brains/$BRAIN_ID` (`/tmp/jb-lme-s50/brains/eval-lme` in the example above).
 2. TS, Go, Py `memory serve` daemons spawn against the shared brain.
 3. Go LME runner fires three times in parallel with `--actor-endpoint` pointed at each daemon. In `retrieve-only` mode the daemon stays retrieval-only, returning `/search` payloads only. The scored answer still comes from the shared Go-side evidence renderer, augmented reader, and judge, which keeps the cross-SDK comparison aligned.
    For replay-backed tri-SDK runs we pin actor retrieval to replay memory only via `--actor-scope memory --actor-project <brain-id>`, which keeps global memory plus the eval brain's project memory in scope while excluding raw transcript rows.
-4. Tear daemons down; emit `tri-lme-<timestamp>/README.md` with the run summary plus `extract.json`, `manifest.json`, per-SDK result JSON, per-SDK manifests, and daemon or runner logs.
+4. Tear daemons down; emit `tri-lme-<timestamp>/README.md` with the run
+summary plus `extract.json`, `manifest.json`, per-SDK result JSON, per-SDK
+manifests, and daemon or runner logs.
+
+The script now cleans only `$JB_HOME/brains/$BRAIN_ID` before the extract
+step rather than deleting the whole `JB_HOME` tree.
+
+When extraction is already known-good and you only need to re-measure daemon
+retrieval or reader changes, set `SKIP_EXTRACT=1` and point `JB_HOME` at an
+existing replay cache:
+
+```bash
+set -a && source ~/code/jeffs-brain/memory/.env && set +a
+
+JB_LLM_PROVIDER=openai \
+ACTOR_MODEL=gpt-4o \
+JUDGE_MODEL=gpt-4o \
+SAMPLE_SIZE=50 \
+CONCURRENCY=16 \
+REPLAY_CONCURRENCY=16 \
+CANDIDATE_K=60 \
+RERANK_TOP_N=20 \
+MAX_COST=25 \
+JB_HOME=/tmp/jb-lme-shared-20260419-poststabilise-openai \
+SKIP_EXTRACT=1 \
+bash eval/scripts/run_tri_lme.sh
+```
 
 Every run writes a `RunManifest` with the base LME fields. In the replay-backed tri-SDK flow:
 
 - `build-go.log` and `build-ts.log` capture the pre-daemon build steps. If the harness stops before daemon spawn, those logs are the first place to check.
 - `manifest.json` is the shared extract-only replay manifest.
 - Each `manifest-<sdk>.json` is a per-SDK retrieve-only benchmark manifest. The script stamps `sdk`, `scenario`, `actor_endpoint_style`, `actor_brain`, `actor_topk`, `actor_candidatek`, `actor_rerank_topn`, `actor_scope`, `actor_project`, `actor_path_prefix`, `shared_extract_output`, and `shared_extract_manifest` so the retrieve-only comparison is reproducible from disk alone.
+
+Benchmark notes:
+
+- `run_lme_modes.sh` and `run_tri_lme.sh` both default `READER_CACHE_DIR=~/.local/state/jeffs-brain/evals/reader-cache`.
+- Both now also default `JUDGE_CACHE_DIR=~/.local/state/jeffs-brain/evals/judge-cache`.
+- `run_lme_modes.sh` now forwards `SKIP_EXTRACT` into the real-retrieval leg, so a sample-50 replay can populate the shared brain once and the later 500-question run can reuse it.
+- If you need an exact dev or held-out subset, pass `SAMPLE_IDS_FILE=/abs/path/to/ids.txt`. The top-level mode runner copies that file into its output root and reuses it across all benchmark modes.
 
 ## Adding a new SDK
 

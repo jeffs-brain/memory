@@ -25,6 +25,7 @@ def test_mode_enum_has_canonical_values() -> None:
 def test_filters_has_any_detects_non_zero_fields() -> None:
     assert not Filters().has_any()
     assert Filters(path_prefix="memory/").has_any()
+    assert Filters(paths=["wiki/a.md"]).has_any()
     assert Filters(tags=["a"]).has_any()
     assert Filters(scope="global_memory").has_any()
     assert Filters(project="alpha").has_any()
@@ -37,6 +38,7 @@ def test_request_defaults_are_sane() -> None:
     assert req.top_k == 0
     assert req.mode == Mode.AUTO
     assert req.filters.path_prefix == ""
+    assert req.filters.paths == []
     assert not req.skip_retry_ladder
 
 

@@ -108,11 +108,9 @@ export type { OfficialScorerOutcome, RunOfficialScorerArgs } from './official.js
 export {
   runStandaloneLMEEval,
 } from './run.js'
-export type {
-  StandaloneLMERunArgs,
-  StandaloneLMERunOutcome,
-} from './run.js'
-export { runRead, createProviderReader, truncateSmartly, READER_USER_TEMPLATE } from './read.js'
+export type { StandaloneLMERunArgs, StandaloneLMERunOutcome } from './run.js'
+export { READER_USER_TEMPLATE } from '../augmented-reader/prompt.js'
+export { runRead, createProviderReader, truncateSmartly } from './read.js'
 export {
   createProviderJudge,
   createStaticJudge,

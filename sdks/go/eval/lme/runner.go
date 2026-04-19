@@ -30,9 +30,14 @@ type RunConfig struct {
 	DatasetPath string
 	SampleSize  int
 	Seed        int64
+	SampleIDs   []string
 	IngestMode  string
-	ExpectedSHA string
-	MaxCostUSD  float64
+	// BenchmarkMode records the evaluation semantics the run should use:
+	// oracle, real-retrieval, or full-context. When empty, the runner
+	// infers the mode from the dataset split or the active actor path.
+	BenchmarkMode string
+	ExpectedSHA   string
+	MaxCostUSD    float64
 
 	// Judge configures the LLM judge scorer. When nil, only exact-match
 	// scoring is used.
@@ -94,6 +99,11 @@ type RunConfig struct {
 	// frequently miss the supporting evidence.
 	ActorTopK int
 
+	// ActorRetrievalMode controls which retrieval mode the actor daemon
+	// should run for retrieve-only searches. Empty selects
+	// retrieval.ModeHybridRerank to preserve the current default.
+	ActorRetrievalMode retrieval.Mode
+
 	// ActorCandidateK widens the pre-fusion candidate slate per retriever
 	// leg on the daemon. Zero defers to the daemon default.
 	ActorCandidateK int
@@ -143,9 +153,23 @@ type RunConfig struct {
 }
 
 const (
-	defaultConcurrency = 8
-	minConcurrency     = 1
-	maxConcurrency     = 256
+	BenchmarkModeOracle        = "oracle"
+	BenchmarkModeRealRetrieval = "real-retrieval"
+	BenchmarkModeFullContext   = "full-context"
+	BenchmarkModeDaemonRead    = "daemon-read"
+	BenchmarkModeAgentic       = "agentic"
+	BenchmarkModeExtractPrep   = "extract-only-prep"
+	ContextSourceDatasetOracle = "dataset-oracle-sessions"
+	ContextSourceDatasetFull   = "dataset-full-context"
+	ContextSourceActorRetrieve = "actor-retrieve-only-search"
+	ContextSourceActorAsk      = "actor-ask"
+	ContextSourceAgenticSearch = "agentic-local-search"
+	ContextSourceExtractPrep   = "replay-extract-cache"
+	actorEndpointStyleFull     = "full"
+	actorEndpointStyleRetrieve = "retrieve-only"
+	defaultConcurrency         = 8
+	minConcurrency             = 1
+	maxConcurrency             = 256
 )
 
 func clampConcurrency(n int) int {
@@ -159,6 +183,173 @@ func clampConcurrency(n int) int {
 		return maxConcurrency
 	}
 	return n
+}
+
+type benchmarkSpec struct {
+	Mode               string
+	ContextSource      string
+	ActorEndpointStyle string
+}
+
+func resolveBenchmarkSpec(ds *Dataset, cfg RunConfig) (benchmarkSpec, error) {
+	mode, ok := normaliseBenchmarkMode(cfg.BenchmarkMode)
+	if !ok {
+		return benchmarkSpec{}, fmt.Errorf("invalid --benchmark-mode %q (want %q, %q, or %q)",
+			cfg.BenchmarkMode, BenchmarkModeOracle, BenchmarkModeRealRetrieval, BenchmarkModeFullContext)
+	}
+
+	if mode == "" {
+		return inferBenchmarkSpec(ds, cfg)
+	}
+
+	switch mode {
+	case BenchmarkModeRealRetrieval:
+		if cfg.AgenticMode {
+			return benchmarkSpec{}, fmt.Errorf("--benchmark-mode %s is only supported for actor-backed runs", BenchmarkModeRealRetrieval)
+		}
+		if strings.TrimSpace(cfg.ActorEndpoint) == "" {
+			return benchmarkSpec{}, fmt.Errorf("--benchmark-mode %s requires --actor-endpoint", BenchmarkModeRealRetrieval)
+		}
+		style, ok := resolveActorEndpointStyle(cfg.ActorEndpointStyle, actorEndpointStyleRetrieve)
+		if !ok {
+			return benchmarkSpec{}, fmt.Errorf("unknown --actor-endpoint-style %q (want %q or %q)",
+				cfg.ActorEndpointStyle, actorEndpointStyleFull, actorEndpointStyleRetrieve)
+		}
+		if style != actorEndpointStyleRetrieve {
+			return benchmarkSpec{}, fmt.Errorf("--benchmark-mode %s requires --actor-endpoint-style %s",
+				BenchmarkModeRealRetrieval, actorEndpointStyleRetrieve)
+		}
+		return benchmarkSpec{
+			Mode:               BenchmarkModeRealRetrieval,
+			ContextSource:      ContextSourceActorRetrieve,
+			ActorEndpointStyle: style,
+		}, nil
+	case BenchmarkModeOracle, BenchmarkModeFullContext:
+		if strings.TrimSpace(cfg.ActorEndpoint) != "" {
+			return benchmarkSpec{}, fmt.Errorf("--benchmark-mode %s cannot be combined with --actor-endpoint", mode)
+		}
+		if cfg.AgenticMode {
+			return benchmarkSpec{}, fmt.Errorf("--benchmark-mode %s is not supported with agentic mode", mode)
+		}
+		if ds != nil {
+			actualMode := inferDatasetBenchmarkMode(ds)
+			if actualMode != mode {
+				return benchmarkSpec{}, fmt.Errorf("--benchmark-mode %s does not match dataset context (inferred %s from dataset sessions)",
+					mode, actualMode)
+			}
+		}
+		return benchmarkSpec{
+			Mode:          mode,
+			ContextSource: contextSourceForDatasetMode(mode),
+		}, nil
+	default:
+		return benchmarkSpec{}, fmt.Errorf("unsupported benchmark mode %q", mode)
+	}
+}
+
+func inferBenchmarkSpec(ds *Dataset, cfg RunConfig) (benchmarkSpec, error) {
+	if strings.TrimSpace(cfg.ActorEndpoint) != "" {
+		style, ok := resolveActorEndpointStyle(cfg.ActorEndpointStyle, actorEndpointStyleFull)
+		if !ok {
+			return benchmarkSpec{}, fmt.Errorf("unknown --actor-endpoint-style %q (want %q or %q)",
+				cfg.ActorEndpointStyle, actorEndpointStyleFull, actorEndpointStyleRetrieve)
+		}
+		spec := benchmarkSpec{
+			ActorEndpointStyle: style,
+		}
+		if style == actorEndpointStyleRetrieve {
+			spec.Mode = BenchmarkModeRealRetrieval
+			spec.ContextSource = ContextSourceActorRetrieve
+		} else {
+			spec.Mode = BenchmarkModeDaemonRead
+			spec.ContextSource = ContextSourceActorAsk
+		}
+		return spec, nil
+	}
+
+	if cfg.AgenticMode {
+		return benchmarkSpec{
+			Mode:          BenchmarkModeAgentic,
+			ContextSource: ContextSourceAgenticSearch,
+		}, nil
+	}
+
+	mode := BenchmarkModeOracle
+	if ds != nil {
+		mode = inferDatasetBenchmarkMode(ds)
+	}
+	return benchmarkSpec{
+		Mode:          mode,
+		ContextSource: contextSourceForDatasetMode(mode),
+	}, nil
+}
+
+func normaliseBenchmarkMode(raw string) (string, bool) {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "":
+		return "", true
+	case BenchmarkModeOracle:
+		return BenchmarkModeOracle, true
+	case BenchmarkModeRealRetrieval:
+		return BenchmarkModeRealRetrieval, true
+	case BenchmarkModeFullContext:
+		return BenchmarkModeFullContext, true
+	default:
+		return "", false
+	}
+}
+
+func resolveActorEndpointStyle(raw, fallback string) (string, bool) {
+	style := strings.ToLower(strings.TrimSpace(raw))
+	if style == "" {
+		style = fallback
+	}
+	switch style {
+	case "", actorEndpointStyleFull:
+		return style, true
+	case actorEndpointStyleRetrieve:
+		return actorEndpointStyleRetrieve, true
+	default:
+		return "", false
+	}
+}
+
+func inferDatasetBenchmarkMode(ds *Dataset) string {
+	if ds == nil {
+		return BenchmarkModeOracle
+	}
+	for _, q := range ds.Questions {
+		if isFullContextQuestion(q) {
+			return BenchmarkModeFullContext
+		}
+	}
+	return BenchmarkModeOracle
+}
+
+func isFullContextQuestion(q Question) bool {
+	if len(q.AnswerSessionIDs) == 0 {
+		return false
+	}
+	if len(q.AnswerSessionIDs) != len(q.SessionIDs) {
+		return true
+	}
+	answerIDs := make(map[string]struct{}, len(q.AnswerSessionIDs))
+	for _, sid := range q.AnswerSessionIDs {
+		answerIDs[sid] = struct{}{}
+	}
+	for _, sid := range q.SessionIDs {
+		if _, ok := answerIDs[sid]; !ok {
+			return true
+		}
+	}
+	return false
+}
+
+func contextSourceForDatasetMode(mode string) string {
+	if mode == BenchmarkModeFullContext {
+		return ContextSourceDatasetFull
+	}
+	return ContextSourceDatasetOracle
 }
 
 // Run executes a full LME benchmark: load dataset, ingest into an
@@ -178,8 +369,18 @@ func Run(ctx context.Context, cfg RunConfig) (*LMEResult, error) {
 		}
 	}
 
+	spec, err := resolveBenchmarkSpec(ds, cfg)
+	if err != nil {
+		return nil, fmt.Errorf("lme run: %w", err)
+	}
+
 	questions := ds.Questions
-	if cfg.SampleSize > 0 && cfg.SampleSize < len(questions) {
+	if len(cfg.SampleIDs) > 0 {
+		questions, err = selectQuestionsByID(ds.Questions, cfg.SampleIDs)
+		if err != nil {
+			return nil, fmt.Errorf("lme run: %w", err)
+		}
+	} else if cfg.SampleSize > 0 && cfg.SampleSize < len(questions) {
 		questions = ds.Sample(cfg.SampleSize, cfg.Seed)
 	}
 
@@ -303,9 +504,9 @@ func Run(ctx context.Context, cfg RunConfig) (*LMEResult, error) {
 		if brainID == "" {
 			brainID = "eval-lme"
 		}
-		style := strings.ToLower(strings.TrimSpace(cfg.ActorEndpointStyle))
+		style := spec.ActorEndpointStyle
 		if style == "" {
-			style = "full"
+			style = actorEndpointStyleFull
 		}
 		fmt.Fprintf(os.Stderr, "[actor] endpoint=%s brain=%s style=%s workers=%d\n", cfg.ActorEndpoint, brainID, style, workers)
 		topK := cfg.ActorTopK
@@ -315,7 +516,7 @@ func Run(ctx context.Context, cfg RunConfig) (*LMEResult, error) {
 		candidateK := cfg.ActorCandidateK
 		rerankTopN := cfg.ActorRerankTopN
 		switch style {
-		case "retrieve-only":
+		case actorEndpointStyleRetrieve:
 			outcomes = runQuestionsActorRetrieveOnly(
 				ctx,
 				cfg.ActorEndpoint,
@@ -326,14 +527,16 @@ func Run(ctx context.Context, cfg RunConfig) (*LMEResult, error) {
 				costs,
 				workers,
 				topK,
+				normaliseActorRetrievalMode(cfg.ActorRetrievalMode),
 				candidateK,
 				rerankTopN,
 				cfg.ActorFilters,
 			)
-		case "full":
+		case actorEndpointStyleFull:
 			outcomes = runQuestionsActor(ctx, cfg.ActorEndpoint, brainID, questions, workers)
 		default:
-			return nil, fmt.Errorf("lme run: unknown --actor-endpoint-style %q (want 'full' or 'retrieve-only')", cfg.ActorEndpointStyle)
+			return nil, fmt.Errorf("lme run: unknown --actor-endpoint-style %q (want %q or %q)",
+				cfg.ActorEndpointStyle, actorEndpointStyleFull, actorEndpointStyleRetrieve)
 		}
 	case cfg.AgenticMode:
 		if cfg.Reader == nil || cfg.Reader.Provider == nil {
@@ -540,14 +743,25 @@ func processQuestionStore(
 	var inputTokens, outputTokens int
 	if reader != nil && answer != "" {
 		readAnswer, usage, readErr := ReadAnswer(ctx, *reader, q.Question, q.QuestionDate, answer)
-		answer = readAnswer
 		if costs != nil {
 			costs.AddAgent(EstimateUSD(readerModel, usage))
 		}
 		if readErr != nil {
-			slog.Warn("lme reader: call failed, falling back to raw retrieval",
+			slog.Warn("lme reader: call failed",
 				"question", q.ID, "err", readErr)
+			return QuestionOutcome{
+				ID:           q.ID,
+				Category:     q.Category,
+				Question:     q.Question,
+				QuestionDate: q.QuestionDate,
+				GroundTruth:  q.Answer,
+				Error:        fmt.Sprintf("reader error: %v", readErr),
+				LatencyMs:    int(time.Since(qStart).Milliseconds()),
+				InputTokens:  usage.InputTokens,
+				OutputTokens: usage.OutputTokens,
+			}
 		}
+		answer = readAnswer
 		inputTokens = usage.InputTokens
 		outputTokens = usage.OutputTokens
 	}
@@ -569,6 +783,10 @@ func processQuestionStore(
 // question. Multi-session questions reference 2-6 sessions whose combined
 // content contains the ground-truth answer.
 func searchForAnswer(ctx context.Context, store brain.Store, q Question) string {
+	if len(q.HaystackSessions) > 0 {
+		return renderDatasetSessionContext(q)
+	}
+
 	files, err := store.List(ctx, brain.Path("raw/lme"), brain.ListOpts{
 		Recursive:        true,
 		IncludeGenerated: true,
@@ -607,6 +825,74 @@ func searchForAnswer(ctx context.Context, store brain.Store, q Question) string 
 	}
 
 	return strings.Join(parts, "\n\n")
+}
+
+func renderDatasetSessionContext(q Question) string {
+	if len(q.HaystackSessions) == 0 {
+		return ""
+	}
+
+	parts := make([]string, 0, len(q.HaystackSessions))
+	for i, sess := range q.HaystackSessions {
+		sid := q.ID + "-session"
+		if i < len(q.SessionIDs) && strings.TrimSpace(q.SessionIDs[i]) != "" {
+			sid = q.SessionIDs[i]
+		}
+		sessionDate := ""
+		if i < len(q.HaystackDates) {
+			sessionDate = strings.TrimSpace(q.HaystackDates[i])
+		}
+
+		var body strings.Builder
+		fmt.Fprintln(&body, "---")
+		fmt.Fprintf(&body, "session_id: %s\n", sid)
+		if sessionDate != "" {
+			fmt.Fprintf(&body, "session_date: %s\n", sessionDate)
+		}
+		fmt.Fprintln(&body, "---")
+		body.WriteByte('\n')
+		for _, msg := range sess {
+			fmt.Fprintf(&body, "[%s]: %s\n\n", msg.Role, msg.Content)
+		}
+		parts = append(parts, strings.TrimSpace(body.String()))
+	}
+
+	return strings.Join(parts, "\n\n")
+}
+
+func selectQuestionsByID(questions []Question, ids []string) ([]Question, error) {
+	if len(ids) == 0 {
+		return questions, nil
+	}
+
+	byID := make(map[string]Question, len(questions))
+	for _, q := range questions {
+		byID[q.ID] = q
+	}
+
+	selected := make([]Question, 0, len(ids))
+	missing := make([]string, 0)
+	seen := make(map[string]bool, len(ids))
+	for _, id := range ids {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			continue
+		}
+		if seen[id] {
+			return nil, fmt.Errorf("duplicate sample id: %s", id)
+		}
+		seen[id] = true
+		q, ok := byID[id]
+		if !ok {
+			missing = append(missing, id)
+			continue
+		}
+		selected = append(selected, q)
+	}
+	if len(missing) > 0 {
+		return nil, fmt.Errorf("sample ids missing from dataset: %s", strings.Join(missing, ", "))
+	}
+	return selected, nil
 }
 
 func containsSessionID(content, sessionID string) bool {
@@ -680,6 +966,7 @@ func runQuestionsActorRetrieveOnly(
 	costs *CostAccumulator,
 	workers int,
 	topK int,
+	retrievalMode retrieval.Mode,
 	candidateK int,
 	rerankTopN int,
 	filters retrieval.Filters,
@@ -703,6 +990,7 @@ func runQuestionsActorRetrieveOnly(
 			q.Question,
 			q.QuestionDate,
 			topK,
+			retrievalMode,
 			candidateK,
 			rerankTopN,
 			filters,
@@ -724,14 +1012,25 @@ func runQuestionsActorRetrieveOnly(
 		answer := content
 		if reader != nil && content != "" {
 			readAnswer, usage, readErr := ReadAnswer(ctx, *reader, q.Question, q.QuestionDate, content)
-			answer = readAnswer
 			if costs != nil {
 				costs.AddAgent(EstimateUSD(readerModel, usage))
 			}
 			if readErr != nil {
-				slog.Warn("lme reader (retrieve-only): call failed, falling back to raw retrieval",
+				slog.Warn("lme reader (retrieve-only): call failed",
 					"question", q.ID, "err", readErr)
+				return QuestionOutcome{
+					ID:           q.ID,
+					Category:     q.Category,
+					Question:     q.Question,
+					QuestionDate: q.QuestionDate,
+					GroundTruth:  q.Answer,
+					Error:        fmt.Sprintf("reader error: %v", readErr),
+					LatencyMs:    int(time.Since(qStart).Milliseconds()),
+					InputTokens:  usage.InputTokens,
+					OutputTokens: usage.OutputTokens,
+				}
 			}
+			answer = readAnswer
 			inputTokens = usage.InputTokens
 			outputTokens = usage.OutputTokens
 		}
@@ -757,6 +1056,7 @@ func callActorRetrieve(
 	ctx context.Context,
 	endpoint, brainID, question, questionDate string,
 	topK int,
+	retrievalMode retrieval.Mode,
 	candidateK int,
 	rerankTopN int,
 	filters retrieval.Filters,
@@ -772,7 +1072,7 @@ func callActorRetrieve(
 		"query":        question,
 		"questionDate": questionDate,
 		"topK":         topK,
-		"mode":         "hybrid-rerank",
+		"mode":         normaliseActorRetrievalMode(retrievalMode),
 	}
 	if filters.HasAny() {
 		reqBody["filters"] = filters
@@ -873,6 +1173,19 @@ func callActorRetrieve(
 		passages = append(passages, passage)
 	}
 	return RenderRetrievedPassages(passages, question, questionDate), nil
+}
+
+func normaliseActorRetrievalMode(mode retrieval.Mode) retrieval.Mode {
+	switch mode {
+	case retrieval.ModeAuto,
+		retrieval.ModeBM25,
+		retrieval.ModeSemantic,
+		retrieval.ModeHybrid,
+		retrieval.ModeHybridRerank:
+		return mode
+	default:
+		return retrieval.ModeHybridRerank
+	}
 }
 
 // callActorEndpoint posts a single question to an HTTP actor daemon and

@@ -7,6 +7,12 @@
  * measured separately so downstream reports can attribute slow runs.
  */
 
+import { resolveDeterministicAugmentedAnswer } from '../augmented-reader/resolver.js'
+import {
+  buildAugmentedReaderPrompt,
+  READER_AUGMENTED_MAX_TOKENS,
+  READER_AUGMENTED_TEMPERATURE,
+} from '../augmented-reader/prompt.js'
 import type { Provider } from '../llm/index.js'
 import type {
   LMEExample,
@@ -14,8 +20,6 @@ import type {
   RetrievalFn,
   RetrievalResult,
 } from './types.js'
-import { readerTodayAnchor } from './temporal.js'
-
 export type ReadOutcome = {
   readonly id: string
   readonly predicted: string
@@ -65,6 +69,19 @@ export const runRead = async (
   }
 
   const readStart = Date.now()
+  const resolved = resolveDeterministicAugmentedAnswer({
+    question: example.question,
+    rendered: retrieval.rendered,
+  })
+  if (resolved !== undefined) {
+    return {
+      id: example.id,
+      predicted: resolved.answer.trim(),
+      retrievalMs,
+      readMs: Date.now() - readStart,
+      passages: retrieval.passages,
+    }
+  }
   let predicted = ''
   try {
     predicted = await deps.reader({
@@ -93,62 +110,18 @@ export const runRead = async (
   }
 }
 
-/** LME official CoT reader prompt. */
-export const READER_USER_TEMPLATE = `I will give you several history chats between you and a user. Please answer the question based on the relevant chat history. Answer the question step by step: first extract all the relevant information, and then reason over the information to get the answer.
-
-Resolving conflicting information:
-- Each fact is tagged with a date. When the same topic appears with different values on different dates, prefer the value from the most recent session date.
-- Treat explicit supersession phrases as hard overrides regardless of how often the old value appears: "now", "currently", "most recently", "actually", "correction", "I updated", "I changed", "no longer".
-- Do not vote by frequency. One later correction outweighs any number of earlier mentions.
-- Never use a fact dated after the current date.
-- When the question names a specific item, event, place, or descriptor, prefer the fact that matches that target most directly. Do not substitute a broader category match or a different example from the same topic.
-- A direct statement of the full usual value outranks a newer note about only one segment, leg, or example from that routine unless the newer note explicitly says the full value changed.
-
-Enumeration and counting:
-- When the question asks to list, count, enumerate, or total ("how many", "list", "which", "what are all", "total", "in total"), return every matching item you find across the retrieved facts, one per line, each tagged with its session date. Then state the count or total explicitly at the end.
-- Do not summarise into a single sentence when the question demands a list.
-- Add numeric values across sessions when the question asks for a total (hours, days, money, items). Show the arithmetic.
-- When both atomic event facts and retrospective roll-up summaries are present, prefer the atomic event facts and avoid double counting the roll-up.
-- Treat first-person past-tense purchases, gifts, sales, earnings, completions, or submissions as confirmed historical events even when they appear inside a planning or advice conversation. Exclude only clearly hypothetical or planned amounts.
-- If a spending or earnings question does not explicitly restrict the timeframe ("today", "this time", "most recent", "current"), include all confirmed historical amounts for the same subject across sessions.
-- For totals over named items, sum only the facts that match those named items directly. Do not add alternative purchases, adjacent examples, or broader category summaries unless the note clearly says they refer to the same item.
-
-Temporal reasoning:
-- Today is %TODAY% (this is the current date). Resolve relative references ("recently", "last week", "a few days ago", "this month") against this anchor.
-- For date-arithmetic questions ("how many days between X and Y"), first extract each event's ISO date from the fact tags, then compute the difference in days.
-
-Preference questions:
-- When the question is phrased like a request for advice or a recommendation ("can you suggest", "what should I choose", "where should I stay"), answer with the user's inferred preferences from the chat history unless the history itself already contains the exact recommendation.
-- Do not invent a fresh recommendation from general knowledge when the benchmark is testing remembered preferences or constraints.
-- Infer durable preferences from concrete desired features or liked attributes even when the earlier example was tied to a different city, venue, or product.
-- When concrete amenities or features are present, prefer them over generic travel style or budget signals.
-- Ignore unrelated hostel, budget, or solo-travel examples when the retrieved facts already contain a clearer accommodation-feature preference and the question does not ask about price.
-- When the question asks for a specific or exact previously recommended item, answer with the narrowest directly supported set from the retrieved facts. Do not widen the answer with adjacent frameworks, resource catalogues, or loosely related examples.
-
-History Chats:
-
-%CONTEXT%
-
-Current Date: %DATE%
-Question: %QUESTION%
-Answer (step by step):`
-
-const READER_MAX_TOKENS = 800
-const READER_TEMPERATURE = 0.0
+const READER_MAX_TOKENS = READER_AUGMENTED_MAX_TOKENS
+const READER_TEMPERATURE = READER_AUGMENTED_TEMPERATURE
 
 /** Build the default provider-backed reader. Mirrors `ReadAnswer` in Go. */
 export const createProviderReader = (
   provider: Provider,
   opts: { readonly model?: string; readonly budgetChars?: number } = {},
 ): ReaderFn => {
-  const budget = opts.budgetChars ?? 100_000
+  const budget = opts.budgetChars ?? 200_000
   return async ({ question, questionDate, context }) => {
-    const trimmed = truncateSmartly(context, budget)
-    const todayAnchor = readerTodayAnchor(questionDate)
-    const prompt = READER_USER_TEMPLATE.replace('%CONTEXT%', trimmed)
-      .replace('%TODAY%', todayAnchor)
-      .replace('%DATE%', questionDate !== undefined && questionDate !== '' ? questionDate : 'unknown')
-      .replace('%QUESTION%', question)
+    const trimmed = truncateForQuestion(context, budget, question)
+    const prompt = buildAugmentedReaderPrompt(question, trimmed, questionDate)
     try {
       const resp = await provider.complete({
         ...(opts.model !== undefined ? { model: opts.model } : {}),
@@ -157,9 +130,9 @@ export const createProviderReader = (
         temperature: READER_TEMPERATURE,
       })
       const content = resp.content.trim()
-      return content === '' ? trimmed.trim() : content
+      return content === '' ? context.trim() : content
     } catch {
-      return trimmed.trim()
+      return context.trim()
     }
   }
 }
@@ -197,6 +170,63 @@ export const truncateSmartly = (content: string, budget: number): string => {
 
 const errText = (err: unknown): string => (err instanceof Error ? err.message : String(err))
 
+const questionTokens = (question: string): readonly string[] => {
+  if (question === '') return []
+  const stopWords = new Set([
+    'the',
+    'and',
+    'for',
+    'with',
+    'what',
+    'who',
+    'when',
+    'where',
+    'why',
+    'how',
+    'did',
+    'does',
+    'was',
+    'were',
+    'are',
+    'you',
+    'your',
+    'about',
+    'this',
+    'that',
+    'have',
+    'has',
+    'had',
+    'from',
+    'into',
+    'than',
+    'then',
+    'them',
+    'they',
+    'their',
+  ])
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const raw of question.toLowerCase().split(/\s+/)) {
+    const token = raw.replace(/^[^a-z0-9]+|[^a-z0-9]+$/g, '')
+    if (token.length < 3 || stopWords.has(token) || seen.has(token)) continue
+    seen.add(token)
+    out.push(token)
+  }
+  return out
+}
+
+const scoreChunkRelevance = (
+  chunk: string,
+  tokens: readonly string[],
+): number => {
+  const lower = chunk.toLowerCase()
+  let score = 0
+  for (const token of tokens) {
+    if (lower.includes(token)) score++
+  }
+  return score
+}
+
 const splitSessions = (content: string): readonly string[] => {
   const bySessionId = content.split('\n\n---\nsession_id:')
   if (bySessionId.length > 1) {
@@ -211,6 +241,93 @@ const splitSessions = (content: string): readonly string[] => {
     return byFrontmatter.map((part, index) => (index === 0 ? part : `---\n${part}`))
   }
   return [content]
+}
+
+const truncateForQuestion = (
+  content: string,
+  budget: number,
+  question: string,
+): string => {
+  if (budget <= 0) return ''
+  if (content.length <= budget) return content
+  if (question.trim() === '') return truncateSmartly(content, budget)
+
+  const sections = splitSessions(content)
+  if (sections.length <= 1) {
+    return relevantSnippetForQuestion(content, question, budget)
+  }
+
+  const parts: string[] = []
+  let remaining = budget
+  for (const section of sections) {
+    const separator = parts.length > 0 ? '\n\n---\n\n' : ''
+    if (remaining <= separator.length) break
+    const allocation = remaining - separator.length
+    if (section.length <= allocation) {
+      parts.push(section)
+      remaining -= separator.length + section.length
+      continue
+    }
+    const snippet = relevantSnippetForQuestion(section, question, allocation)
+    if (snippet === '') break
+    parts.push(snippet)
+    break
+  }
+  return parts.length > 0 ? parts.join('\n\n---\n\n') : relevantSnippetForQuestion(content, question, budget)
+}
+
+const relevantSnippetForQuestion = (
+  content: string,
+  question: string,
+  budget: number,
+): string => {
+  if (budget <= 0) return ''
+  if (content.length <= budget) return content
+  const tokens = questionTokens(question)
+  if (tokens.length === 0) return headTailTruncate(content, budget)
+
+  const lines = content.split('\n')
+  let prefixEnd = 0
+  while (
+    prefixEnd < lines.length &&
+    !lines[prefixEnd]!.startsWith('[user]:') &&
+    !lines[prefixEnd]!.startsWith('[assistant]:')
+  ) {
+    prefixEnd++
+  }
+
+  const selected = Array<boolean>(lines.length).fill(false)
+  for (let index = 0; index < prefixEnd; index++) {
+    selected[index] = true
+  }
+
+  let matched = false
+  for (let index = prefixEnd; index < lines.length; index++) {
+    if (scoreChunkRelevance(lines[index] ?? '', tokens) === 0) continue
+    matched = true
+    const from = Math.max(0, index - 2)
+    const to = Math.min(lines.length, index + 3)
+    for (let cursor = from; cursor < to; cursor++) {
+      selected[cursor] = true
+    }
+  }
+
+  if (!matched) return headTailTruncate(content, budget)
+
+  const rendered: string[] = []
+  let omitted = false
+  for (const [index, line] of lines.entries()) {
+    if (selected[index]) {
+      if (omitted) {
+        rendered.push('[...omitted irrelevant lines...]')
+        omitted = false
+      }
+      rendered.push(line)
+      continue
+    }
+    if (rendered.length > 0) omitted = true
+  }
+  return headTailTruncate(rendered.join('\n').trim(), budget)
 }
 
 const headTailTruncate = (content: string, budget: number): string => {
