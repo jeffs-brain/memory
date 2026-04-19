@@ -29,7 +29,7 @@ The published `memory` binary runs on Node 20+ (its shebang is `#!/usr/bin/env n
 - Authorisation: pluggable `AccessControlProvider` contract (`@jeffs-brain/memory/acl`), in-process RBAC (workspace -> brain -> collection -> document hierarchy, `admin`/`writer`/`reader` roles, `deny:<role>` overrides), `withAccessControl(store, provider, subject, ...)` Store wrapper, optional `close()` lifecycle hook. Pair with [`@jeffs-brain/memory-openfga`](https://www.npmjs.com/package/@jeffs-brain/memory-openfga) for production tuple-store backed checks.
 - Conformance: 28/29 cases green against `spec/conformance/http-contract.json`.
 - Cross-SDK daemon scenarios: `ask-basic`, `ask-augmented`, `search-retrieve-only`.
-- CLI: `memory init|ingest|search|ask|serve|remember|recall|reflect|consolidate|create-brain|list-brains|eval`.
+- CLI: `memory init|ingest|search|extract|reflect|consolidate|eval|serve|acl|git`.
 
 ## Embedded usage
 
@@ -62,10 +62,12 @@ const ended = await lifecycle.endSession({ messages, sessionId: 'session-1', con
 
 ```bash
 memory init ./brain
-memory ingest ./brain --path notes/meeting.md --content "we picked Postgres"
-memory search ./brain --query "which database did we pick?"
+memory ingest notes/meeting.md --brain ./brain
+memory search "which database did we pick?" --brain ./brain
 memory serve --addr 127.0.0.1:18844
 ```
+
+`--brain` is optional once `JB_BRAIN` is exported. `memory serve` honours `JB_HOME` for its multi-brain root.
 
 `memory serve` speaks the wire protocol documented at [`spec/PROTOCOL.md`](https://github.com/jeffs-brain/memory/blob/main/spec/PROTOCOL.md) so any language SDK or the cross-SDK eval runner can drive `ask-basic`, `ask-augmented`, and `search-retrieve-only` identically.
 
@@ -124,11 +126,15 @@ To expose a brain to Claude Code, Claude Desktop, Cursor, Windsurf, or Zed, inst
 npx @jeffs-brain/install
 ```
 
-## Examples and docs
+## Documentation
 
+- TypeScript getting started: https://docs.jeffsbrain.com/getting-started/typescript/
+- Memory lifecycle guide: https://docs.jeffsbrain.com/guides/memory-lifecycle/
+- Retrieval guide: https://docs.jeffsbrain.com/guides/retrieval/
+- Stores guide: https://docs.jeffsbrain.com/guides/stores/
+- Authorisation guide: https://docs.jeffsbrain.com/guides/authorization/
 - [`examples/ts/hello-world`](https://github.com/jeffs-brain/memory/tree/main/examples/ts/hello-world) - BM25 search over a markdown corpus.
 - [`spec/`](https://github.com/jeffs-brain/memory/tree/main/spec) - protocol, storage, algorithms, query DSL, MCP tool contract.
-- Docs site: https://docs.jeffsbrain.com
 
 ## Companion packages
 

@@ -1,0 +1,93 @@
+---
+title: Configuration
+description: Environment variables and config keys consumed by the CLI, daemon, and SDKs across all three languages.
+sidebar:
+  order: 2
+---
+
+The TypeScript, Go, and Python SDKs share a small set of `JB_*` environment variables. They are read by the `provider_from_env` / `embedder_from_env` / `ProviderFromEnv` style helpers in each SDK, and by the `memory` CLI and `memory serve` daemon at startup. Provider-native variables such as `OPENAI_API_KEY` and `ANTHROPIC_API_KEY` are honoured as fallbacks when the corresponding `JB_*` override is unset.
+
+This page lists every variable, what it does, and which SDKs read it. The matrix at the bottom calls out parity gaps.
+
+## Brain location
+
+These variables tell the SDKs and CLI where to find a local brain, or how to reach the hosted backend instead.
+
+| Variable      | Default                      | Effect                                                                                                                                  |
+| ------------- | ---------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `JB_HOME`     | `~/.jeffs-brain`             | Base directory for local brains. Used by `memory serve` (`--root` overrides) and by the MCP servers when no token is set.               |
+| `JB_BRAIN`    | unset                        | Default brain id or path applied when the CLI flag, MCP tool argument, or hosted client call omits an explicit brain.                   |
+| `JB_TOKEN`    | unset                        | Hosted bearer token. When set, MCP servers and SDK clients prefer the remote `HttpStore` over the local filesystem.                     |
+| `JB_ENDPOINT` | `https://api.jeffsbrain.com` | Hosted API base URL paired with `JB_TOKEN`.                                                                                             |
+
+## LLM provider
+
+`JB_LLM_PROVIDER` selects the provider; the per-provider variables below supply the credentials. When `JB_LLM_PROVIDER` is unset, each SDK auto-detects from the cloud keys it can see (OpenAI first, then Anthropic, then a reachable local Ollama).
+
+| Variable             | Effect                                                                                              | SDKs                |
+| -------------------- | --------------------------------------------------------------------------------------------------- | ------------------- |
+| `JB_LLM_PROVIDER`    | Selects `anthropic`, `openai`, `ollama`, or `fake` (Go and Python). TS accepts the first three.     | TS, Go, Python      |
+| `JB_LLM_MODEL`       | Overrides the provider default model name.                                                          | TS, Go, Python      |
+| `JB_LLM_API_KEY`     | Cross-provider API key override; takes precedence over `OPENAI_API_KEY` / `ANTHROPIC_API_KEY`.      | TS                  |
+| `JB_LLM_BASE_URL`    | Cross-provider base URL override; takes precedence over the per-provider `*_BASE_URL` variables.    | TS                  |
+| `OPENAI_API_KEY`     | OpenAI credential. Required when `JB_LLM_PROVIDER=openai` and no `JB_LLM_API_KEY` is set.           | TS, Go, Python      |
+| `OPENAI_BASE_URL`    | OpenAI API base URL override (proxies, Azure-compatible gateways).                                  | TS, Go, Python      |
+| `ANTHROPIC_API_KEY`  | Anthropic credential. Required when `JB_LLM_PROVIDER=anthropic` and no `JB_LLM_API_KEY` is set.     | TS, Go, Python      |
+| `ANTHROPIC_BASE_URL` | Anthropic API base URL override.                                                                    | TS, Go              |
+| `OLLAMA_HOST`        | Ollama daemon URL. Defaults to `http://localhost:11434`. Port `11434` is appended when omitted.     | TS, Go, Python      |
+
+## Embedder
+
+The embedder follows the same auto-detect rules as the provider when `JB_EMBED_PROVIDER` is blank.
+
+| Variable              | Effect                                                                                                                            | SDKs                |
+| --------------------- | --------------------------------------------------------------------------------------------------------------------------------- | ------------------- |
+| `JB_EMBED_PROVIDER`   | Selects `openai`, `ollama`, `tei` (TS), `hash` (TS), or `fake` (Go and Python). Falls back to `JB_LLM_PROVIDER` when blank.       | TS, Go, Python      |
+| `JB_EMBED_MODEL`      | Overrides the embedder model. Defaults to `text-embedding-3-small` (OpenAI) or `bge-m3` (Ollama).                                 | TS, Go, Python      |
+| `JB_EMBED_DIMENSIONS` | Declared as a constant in the Go and Python `llm` packages; reserved for downstream callers that pin vector width.                | Go, Python          |
+| `JB_EMBED_URL`        | Override the embedder base URL. Used by the TS CLI for OpenAI-compatible, Ollama, and TEI endpoints.                              | TS                  |
+
+## Daemon (`memory serve`)
+
+Variables consumed by the HTTP daemon at startup. CLI flags take precedence in every case; the env vars below are the fallbacks.
+
+| Variable                     | Effect                                                                                                                | SDKs                |
+| ---------------------------- | --------------------------------------------------------------------------------------------------------------------- | ------------------- |
+| `JB_ADDR`                    | Bind address as `host:port`. Defaults to `:8080` when neither `--addr` nor the env var is set.                        | TS, Go, Python      |
+| `JB_AUTH_TOKEN`              | Optional shared bearer token. When set, every request must present `Authorization: Bearer <token>`.                   | TS, Go, Python      |
+| `JB_CONTEXTUALISE`           | Enable per-chunk contextualisation. Truthy values (`1`, `true`, `yes`) switch it on.                                  | TS, Go, Python      |
+| `JB_CONTEXTUALISE_CACHE_DIR` | Directory for cached contextualisation prompts and responses. Avoids paying the model cost twice for identical input. | TS, Go, Python      |
+| `JB_CONTEXTUALISE_MODEL`     | Model id used by the contextualisation pipeline. Defaults to the active provider model when blank.                    | TS, Go, Python      |
+| `JB_RERANK_CONCURRENCY`      | Cap on concurrent reranker calls per request. Positive integer; invalid values raise a startup error.                 | TS, Go, Python      |
+
+## Per-SDK availability
+
+The matrix below summarises which SDK reads which variable. `n/a` means the SDK has no codepath that consumes the variable today.
+
+| Variable                     | TypeScript | Go     | Python |
+| ---------------------------- | ---------- | ------ | ------ |
+| `JB_HOME`                    | yes        | yes    | yes    |
+| `JB_BRAIN`                   | yes        | n/a    | n/a    |
+| `JB_TOKEN`                   | yes        | n/a    | yes    |
+| `JB_ENDPOINT`                | yes        | n/a    | yes    |
+| `JB_LLM_PROVIDER`            | yes        | yes    | yes    |
+| `JB_LLM_MODEL`               | yes        | yes    | yes    |
+| `JB_LLM_API_KEY`             | yes        | n/a    | n/a    |
+| `JB_LLM_BASE_URL`            | yes        | n/a    | n/a    |
+| `OPENAI_API_KEY`             | yes        | yes    | yes    |
+| `OPENAI_BASE_URL`            | yes        | yes    | yes    |
+| `ANTHROPIC_API_KEY`          | yes        | yes    | yes    |
+| `ANTHROPIC_BASE_URL`         | yes        | yes    | n/a    |
+| `OLLAMA_HOST`                | yes        | yes    | yes    |
+| `JB_EMBED_PROVIDER`          | yes        | yes    | yes    |
+| `JB_EMBED_MODEL`             | yes        | yes    | yes    |
+| `JB_EMBED_DIMENSIONS`        | n/a        | yes    | yes    |
+| `JB_EMBED_URL`               | yes        | n/a    | n/a    |
+| `JB_ADDR`                    | yes        | yes    | yes    |
+| `JB_AUTH_TOKEN`              | yes        | yes    | yes    |
+| `JB_CONTEXTUALISE`           | yes        | yes    | yes    |
+| `JB_CONTEXTUALISE_CACHE_DIR` | yes        | yes    | yes    |
+| `JB_CONTEXTUALISE_MODEL`     | yes        | yes    | yes    |
+| `JB_RERANK_CONCURRENCY`      | yes        | yes    | yes    |
+
+`JB_BRAIN`, `JB_TOKEN`, and `JB_ENDPOINT` are also read by the MCP servers (`@jeffs-brain/memory-mcp` for TS, `jeffs-brain-memory-mcp` for Python, and `memory-mcp` for Go) regardless of the host SDK. The matrix above reflects only the core SDK and `memory` CLI surface.

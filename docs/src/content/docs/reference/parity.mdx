@@ -1,0 +1,70 @@
+---
+title: SDK parity matrix
+description: Feature parity across the TypeScript, Go, and Python SDKs.
+sidebar:
+  order: 3
+---
+
+`jeffs-brain/memory` ships three SDKs that share the same `spec/`. They are not identical. This page tracks where they diverge so users can pick the right one for the job.
+
+## Matrix
+
+| Feature                                                  | TypeScript                            | Go                                | Python                            |
+| -------------------------------------------------------- | ------------------------------------- | --------------------------------- | --------------------------------- |
+| `FsStore` / `MemStore` / `GitStore` / `HttpStore`        | Yes                                   | Yes                               | Yes                               |
+| `PostgresStore`                                          | Yes (`@jeffs-brain/memory-postgres`)  | No                                | No                                |
+| Search index (FTS / trigram + vector)                    | Yes (FTS5 + cosine vectors)           | Yes (trigram + cosine vectors)    | Yes (trigram + cosine vectors)    |
+| Hybrid retrieval (RRF, retry ladder, intent reweighting) | Yes                                   | Yes                               | Yes                               |
+| Embedder: OpenAI                                         | Yes                                   | Yes                               | Yes                               |
+| Embedder: Ollama                                         | Yes                                   | Yes                               | Yes                               |
+| Embedder: TEI                                            | Yes                                   | No                                | No                                |
+| Embedder: Hash (deterministic)                           | Yes                                   | No                                | No                                |
+| Embedder: Fake (deterministic test stub)                 | No                                    | Yes                               | Yes                               |
+| Embedder: Anthropic                                      | n/a (no first-party API)              | n/a (no first-party API)          | n/a (no first-party API)          |
+| LLM provider: OpenAI                                     | Yes                                   | Yes                               | Yes                               |
+| LLM provider: Anthropic                                  | Yes                                   | Yes                               | Yes                               |
+| LLM provider: Ollama                                     | Yes                                   | Yes                               | Yes                               |
+| LLM provider: Fake                                       | No                                    | Yes                               | Yes                               |
+| Reranker: cross-encoder (in-process)                     | Yes                                   | No                                | Stub only                         |
+| Reranker: HTTP / TEI                                     | Yes                                   | Yes                               | No                                |
+| Reranker: LLM-based                                      | Yes                                   | Yes                               | No                                |
+| Reranker: Auto (primary + fallback)                      | Yes                                   | Yes                               | No                                |
+| Reranker: pluggable interface                            | Yes                                   | Yes                               | Yes                               |
+| Knowledge: ingest / compile / search                     | Yes                                   | Yes                               | Yes                               |
+| Memory stages: extract / reflect / recall / consolidate  | Yes (full + lifecycle wrapper)        | Yes (no lifecycle wrapper)        | Yes (no lifecycle wrapper)        |
+| L0 rolling buffer                                        | Yes                                   | Yes                               | Yes                               |
+| Procedural records                                       | Yes                                   | Yes                               | Yes                               |
+| Episode recorder                                         | Yes                                   | Yes                               | Yes                               |
+| ACL: in-process RBAC                                     | Yes                                   | Yes                               | Yes                               |
+| ACL: OpenFGA adapter                                     | Yes (`@jeffs-brain/memory-openfga`)   | Yes (`aclopenfga`)                | Yes (`acl_openfga`)               |
+| HTTP daemon (`memory serve`)                             | Yes                                   | Yes                               | Yes                               |
+| MCP server                                               | Yes (`@jeffs-brain/memory-mcp`)       | Yes (`cmd/memory-mcp`)            | Yes (`jeffs-brain-memory-mcp` and the daemon) |
+| LongMemEval native runner                                | Yes                                   | Yes                               | No (use the daemon-only runner)   |
+
+## Postgres adapter is TypeScript-only
+
+`PostgresStore` lives in `@jeffs-brain/memory-postgres` and is not ported to Go or Python. If you need a Postgres-backed brain from a Go or Python process, run a TypeScript daemon (`memory serve`) on top of `PostgresStore` and point your Go or Python process at it through `HttpStore`. The wire protocol is the spec, so the calling SDK does not lose any features that work over HTTP.
+
+## Memory stages are uneven across SDKs
+
+All three SDKs implement the four stages (extract, reflect, recall, consolidate), the L0 buffer, the procedural detector, and the episode recorder. They diverge at the orchestration layer:
+
+- TypeScript ships a full lifecycle wrapper that hosts the stages, the buffer, the procedural detector, and the episode recorder behind a single entry point.
+- Go and Python expose each stage as a discrete function or struct. Callers wire them together themselves, or drive them through the HTTP daemon and let the spec do the orchestration.
+
+If you need a hosted lifecycle today, use the TypeScript SDK directly or call any SDK's daemon over HTTP.
+
+## Reranker availability differs
+
+The reranker contract is identical across SDKs, but the bundled implementations are not:
+
+- TypeScript ships an in-process cross-encoder, an LLM reranker, an HTTP / TEI reranker, and an Auto reranker that prefers a primary and falls back to a secondary.
+- Go ships an HTTP / TEI reranker, an LLM reranker, and an Auto reranker. There is no in-process cross-encoder.
+- Python ships only the cross-encoder stub; the public reranker interface is in place so you can supply your own implementation.
+
+For Go and Python users who want a cross-encoder today, point the HTTP reranker at a `bge-reranker-v2-m3` served by `llama-server` or another TEI-compatible endpoint.
+
+## See also
+
+- [Configuration reference](/reference/configuration/)
+- [Spec](/spec/protocol/)

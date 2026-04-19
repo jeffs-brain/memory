@@ -1,0 +1,374 @@
+---
+title: Memory lifecycle
+description: Wire and call the extract, reflect, recall, consolidate stages from each SDK.
+sidebar:
+  order: 4
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components'
+
+This guide is the practical companion to [memory stages](/concepts/memory-stages/), which describes the five-stage pipeline conceptually. Here we wire those stages from each SDK and show what is currently callable.
+
+The five stages map to concrete SDK calls:
+
+| Stage         | TypeScript                  | Go                              | Python                         |
+| ------------- | --------------------------- | ------------------------------- | ------------------------------ |
+| `remember`    | `Store.batch` writes        | `brain.Store.Batch` writes      | `Store.write` via batch        |
+| `extract`     | `memory.extract`            | `memory.ExtractFromMessages`    | `extract_from_messages`        |
+| `reflect`     | `memory.reflect`            | `Reflector.MaybeReflect`        | `Reflector.maybe_reflect`      |
+| `recall`      | `memory.recall`             | `Memory.Recall`                 | `recall(...)`                  |
+| `consolidate` | `memory.consolidate`        | `Consolidator.RunFull`          | `Consolidator.run_full`        |
+
+The Go and Python SDKs ship the lower-level scaffold today. The TypeScript SDK additionally wraps the scaffold in a single `createMemory` factory and a `createMemoryLifecycle` orchestrator. Until those wrappers ship in Go and Python, callers compose the stages themselves.
+
+## Constructing a Memory
+
+Every stage flows through a `Store`. Construct a memory instance once per process or per request and inject it everywhere.
+
+<Tabs>
+  <TabItem label="TypeScript">
+    ```ts
+    import {
+      createMemory,
+      createStoreBackedCursorStore,
+      type Memory,
+    } from '@jeffs-brain/memory'
+
+    const memory: Memory = createMemory({
+      store,
+      provider,
+      embedder,
+      scope: 'global',
+      actorId: 'alex',
+      cursorStore: createStoreBackedCursorStore(store),
+    })
+    ```
+
+    `createMemory` wires extract, reflect, consolidate, recall, and contextualise against the supplied `Store`, `Provider`, optional `Embedder`, and a persistent `CursorStore`. Every call returns a fresh instance; there is no process-wide singleton.
+  </TabItem>
+  <TabItem label="Go">
+    ```go
+    import "github.com/jeffs-brain/memory/go/memory"
+
+    mem := memory.New(store)
+    ```
+
+    `memory.New` returns a `*Memory` bound to the supplied `brain.Store`. Sibling components such as `Extractor`, `Reflector`, and `Consolidator` are constructed against the same `*Memory` so every mutation flows through one shared store.
+  </TabItem>
+  <TabItem label="Python">
+    ```python
+    from jeffs_brain_memory.memory import MemoryManager
+
+    mem = MemoryManager(store)
+    ```
+
+    `MemoryManager` (aliased as `Memory`) is the entry point. It exposes `store` and helpers such as `list_project_topics`, `apply_extractions`, and `apply_heuristics` that the stage functions rely on.
+  </TabItem>
+</Tabs>
+
+## Extract
+
+Turn a transcript into zero or more `ExtractedMemory` records. The TypeScript surface is fully wired; Go and Python ship the underlying functions and an `Extractor` class but do not bundle them behind a single `memory.extract` method yet.
+
+<Tabs>
+  <TabItem label="TypeScript">
+    ```ts
+    import type { ExtractedMemory, Message } from '@jeffs-brain/memory'
+
+    const messages: Message[] = [
+      { role: 'user', content: 'I prefer vitest over jest.' },
+      { role: 'assistant', content: 'Noted.' },
+    ]
+
+    const extracted: readonly ExtractedMemory[] = await memory.extract({
+      messages,
+      sessionId: 'session-2026-04-19',
+    })
+    ```
+
+    `extract` honours the configured `scope` and `actorId` defaults, advances the cursor stored in the injected `CursorStore`, runs any registered plugins, and persists the extracted notes through the `Store`.
+  </TabItem>
+  <TabItem label="Go">
+    ```go
+    import (
+      "context"
+
+      "github.com/jeffs-brain/memory/go/llm"
+      "github.com/jeffs-brain/memory/go/memory"
+    )
+
+    messages := []memory.Message{
+      {Role: memory.RoleUser, Content: "I prefer vitest over jest."},
+      {Role: memory.RoleAssistant, Content: "Noted."},
+    }
+
+    extracted, err := memory.ExtractFromMessages(
+      ctx,
+      provider,
+      "claude-sonnet-4",
+      mem,
+      projectPath,
+      messages,
+    )
+    ```
+
+    `ExtractFromMessages` runs the LLM call and returns `[]ExtractedMemory` without writing them. To persist + advance a cursor, use `memory.NewExtractor(mem)` and call `MaybeExtract`. There is no top-level `Memory.Extract` method today; callers wire the extractor manually.
+  </TabItem>
+  <TabItem label="Python">
+    ```python
+    from jeffs_brain_memory.memory import (
+        ExtractedMemory,
+        Message,
+        extract_from_messages,
+    )
+
+    messages: list[Message] = [
+        Message(role="user", content="I prefer vitest over jest."),
+        Message(role="assistant", content="Noted."),
+    ]
+
+    extracted: list[ExtractedMemory] = await extract_from_messages(
+        provider,
+        "claude-sonnet-4",
+        mem,
+        project_path,
+        messages,
+        session_id="session-2026-04-19",
+    )
+    ```
+
+    `extract_from_messages` returns the parsed memories without writing. For background extraction with cursor advancement and persistence, instantiate `Extractor(mem)` and call `await extractor.maybe_extract(...)`. As with Go, there is no `MemoryManager.extract` shortcut yet.
+  </TabItem>
+</Tabs>
+
+## Reflect
+
+Close a session and produce a `ReflectionResult`. The TypeScript SDK exposes a single `reflect` call; Go and Python expose a `Reflector` that owns its own cursor and locking.
+
+<Tabs>
+  <TabItem label="TypeScript">
+    ```ts
+    import type { ReflectionResult } from '@jeffs-brain/memory'
+
+    const reflection: ReflectionResult | undefined = await memory.reflect({
+      messages,
+      sessionId: 'session-2026-04-19',
+    })
+    ```
+
+    `reflect` may return `undefined` when the session has too little signal to reflect on (mirrors the Go `should_reflect` gate).
+  </TabItem>
+  <TabItem label="Go">
+    ```go
+    reflector := memory.NewReflector(mem)
+    result, err := reflector.MaybeReflect(
+      ctx,
+      provider,
+      "claude-sonnet-4",
+      projectPath,
+      messages,
+    )
+    ```
+
+    `Reflector.MaybeReflect` performs the gate check and returns `(*ReflectionResult, error)`. Use `ForceReflect` to skip the gate.
+  </TabItem>
+  <TabItem label="Python">
+    ```python
+    from jeffs_brain_memory.memory import Reflector, ReflectionResult
+
+    reflector = Reflector(mem)
+    result: ReflectionResult | None = await reflector.maybe_reflect(
+        provider,
+        "claude-sonnet-4",
+        project_path,
+        messages,
+    )
+    ```
+
+    Mirrors the Go surface. `maybe_reflect` returns `None` when `should_reflect` declines; `force_reflect` runs unconditionally.
+  </TabItem>
+</Tabs>
+
+## Recall
+
+Read durable memory back. The TypeScript SDK takes a single `RecallOpts` object; Go and Python use positional arguments plus a `RecallWeights` struct that biases recall toward project or global scope.
+
+<Tabs>
+  <TabItem label="TypeScript">
+    ```ts
+    import type { RecallHit, RecallOpts } from '@jeffs-brain/memory'
+
+    const opts: RecallOpts = {
+      query: 'how does the user prefer to test?',
+      k: 5,
+      scope: 'global',
+      selector: 'auto',
+    }
+
+    const hits: readonly RecallHit[] = await memory.recall(opts)
+    ```
+
+    `RecallOpts` accepts `query`, `k`, `scope`, `actorId`, `excludedPaths`, `surfacedPaths`, and `selector` (`'off' | 'auto'`). When an `Embedder` and `SearchIndex` are wired the call runs hybrid retrieval; otherwise it falls back to listing notes and ranking on cosine alone.
+  </TabItem>
+  <TabItem label="Go">
+    ```go
+    weights := memory.RecallWeights{Global: 1.0, Project: 0.0}
+    hits, err := mem.Recall(
+      ctx,
+      provider,
+      "claude-sonnet-4",
+      projectPath,
+      "how does the user prefer to test?",
+      nil,
+      weights,
+    )
+    ```
+
+    `Memory.Recall` returns `[]SurfacedMemory`. The `surfaced` set is used to skip files already injected into the prompt this turn.
+  </TabItem>
+  <TabItem label="Python">
+    ```python
+    from jeffs_brain_memory.memory import (
+        RecallWeights,
+        SurfacedMemory,
+        recall,
+    )
+
+    weights = RecallWeights(global_weight=1.0, project_weight=0.0)
+    hits: list[SurfacedMemory] = await recall(
+        mem,
+        provider,
+        "claude-sonnet-4",
+        project_path,
+        "how does the user prefer to test?",
+        surfaced=None,
+        weights=weights,
+    )
+    ```
+
+    Mirrors the Go signature one-for-one. There is no `Filters` or `Mode` enum on the Python or Go side today; the equivalent of TypeScript's `selector` lives implicitly in the `RecallWeights` bias.
+  </TabItem>
+</Tabs>
+
+## Consolidate
+
+Compact accumulated memory into a smaller, higher-quality set. This stage is the least developed across all three SDKs.
+
+<Tabs>
+  <TabItem label="TypeScript">
+    ```ts
+    import type { ConsolidationReport } from '@jeffs-brain/memory'
+
+    const report: ConsolidationReport = await memory.consolidate({
+      scope: 'global',
+    })
+    ```
+
+    The wiring is in place but the underlying compaction logic is partial. The returned `ConsolidationReport` lists `merged`, `deleted`, `promoted`, the `ops` log, and any `errors`. See the [memory stages spec](/concepts/memory-stages/#4-consolidate) for the target semantics.
+  </TabItem>
+  <TabItem label="Go">
+    ```go
+    consolidator := memory.NewConsolidator(provider, "claude-sonnet-4", mem)
+    report, err := consolidator.RunFull(ctx)
+    ```
+
+    `RunFull` performs index rebuilds, dedup, staleness detection, and heuristic reinforcement. `RunQuick` skips the LLM-powered dedup. Wiki promotion is deliberately omitted until the upstream `KnowledgeBase` integration is ported.
+  </TabItem>
+  <TabItem label="Python">
+    ```python
+    from jeffs_brain_memory.memory import Consolidator
+
+    consolidator = Consolidator(provider, "claude-sonnet-4", mem)
+    report = await consolidator.run_full()
+    ```
+
+    Mirrors the Go surface: `run_full` for the LLM-powered pass, `run_quick` for the cheap pass.
+  </TabItem>
+</Tabs>
+
+Consolidation is reserved across all three SDKs in the sense that the persisted output schema and the compaction heuristics are still settling. Treat the current behaviour as a working scaffold rather than a stable contract; lock callers to the report fields documented above and avoid relying on incidental ordering.
+
+## Lifecycle wrappers
+
+The TypeScript SDK ships `createMemoryLifecycle` to orchestrate the per-turn and end-of-session flows. Go and Python do not yet ship a wrapper; compose the stages manually.
+
+<Tabs>
+  <TabItem label="TypeScript">
+    ```ts
+    import { createMemoryLifecycle, type MemoryLifecycle } from '@jeffs-brain/memory'
+
+    const lifecycle: MemoryLifecycle = createMemoryLifecycle({ memory })
+
+    const prompt = await lifecycle.beforeTurn({
+      message: userMessage,
+      topK: 5,
+    })
+
+    // ...run the agent turn with prompt.systemReminder injected...
+
+    await lifecycle.afterTurn({
+      messages,
+      sessionId: 'session-2026-04-19',
+    })
+
+    const result = await lifecycle.endSession({
+      messages,
+      sessionId: 'session-2026-04-19',
+      consolidate: true,
+    })
+    ```
+
+    `beforeTurn` calls `contextualise` (which wraps `recall`) and folds in any L0 buffer reminder. `afterTurn` calls `extract` and, when wired, `detectAndPersistProceduralRecords`. `endSession` calls `reflect`, optionally records an episode, and optionally runs `consolidate`. All hooks fail open so a misbehaving plugin never blocks the agent loop.
+  </TabItem>
+  <TabItem label="Go">
+    ```go
+    // Before each turn: surface relevant memories.
+    hits, _ := mem.Recall(ctx, provider, model, projectPath, userMessage, nil, weights)
+
+    // ...inject hits into the prompt and run the turn...
+
+    // After each turn: extract durable facts.
+    extractor := memory.NewExtractor(mem)
+    _ = extractor.MaybeExtract(ctx, provider, model, projectPath, messages, sessionID, sessionDate)
+
+    // End of session: reflect and optionally consolidate.
+    reflector := memory.NewReflector(mem)
+    _, _ = reflector.MaybeReflect(ctx, provider, model, projectPath, messages)
+
+    consolidator := memory.NewConsolidator(provider, model, mem)
+    _, _ = consolidator.RunQuick(ctx)
+    ```
+
+    There is no `memory.Lifecycle` type today. Hold the `Extractor`, `Reflector`, and `Consolidator` instances on your agent struct so they keep their cursors and in-progress locks across turns.
+  </TabItem>
+  <TabItem label="Python">
+    ```python
+    from jeffs_brain_memory.memory import (
+        Consolidator,
+        Extractor,
+        RecallWeights,
+        Reflector,
+        recall,
+    )
+
+    extractor = Extractor(mem)
+    reflector = Reflector(mem)
+    consolidator = Consolidator(provider, model, mem)
+    weights = RecallWeights(global_weight=1.0, project_weight=0.0)
+
+    # Before each turn.
+    hits = await recall(mem, provider, model, project_path, user_message, None, weights)
+
+    # ...run the turn...
+
+    # After each turn.
+    await extractor.maybe_extract(provider, model, project_path, messages)
+
+    # End of session.
+    await reflector.maybe_reflect(provider, model, project_path, messages)
+    await consolidator.run_quick()
+    ```
+
+    As in Go, hold the stage instances for the lifetime of the agent so cursor state survives between turns. A `Lifecycle` wrapper is on the roadmap; until then this manual composition is the supported path.
+  </TabItem>
+</Tabs>

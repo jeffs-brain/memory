@@ -1,33 +1,180 @@
 # Jeffs Brain Go SDK
 
-Module path: `github.com/jeffs-brain/memory/go`
+The Go implementation of the Jeffs Brain memory and knowledge stack. Ships the public Go packages, the `memory` CLI with HTTP daemon, the `memory-mcp` stdio wrapper, and the `memory eval lme run` LongMemEval harness.
 
-The Go SDK is a full implementation of the [`spec/`](../../spec) wire contract. It ships the `memory` CLI with an HTTP daemon, the `memory-mcp` stdio wrapper, and a `memory eval lme run` benchmark harness that drives the full LongMemEval replay path.
+Module path: `github.com/jeffs-brain/memory/go`.
 
-Wire-compatible with the TypeScript and Python SDKs. Shared cross-SDK evaluation parity today is the daemon surface exposed by `memory serve`.
-
-Cross-SDK daemon parity today is `ask-basic`, `ask-augmented`, and `search-retrieve-only` through `memory serve`. Full LongMemEval replay, replay ingest, and agentic loops stay in the native `memory eval lme run` path.
-
-Native LME status today is split by SDK. Go is the reference runner for replay ingest and the replay-backed tri-SDK benchmark, TypeScript ships native `memory eval lme` commands for single-SDK runs, and Python does not currently ship a native LME CLI.
-
-In the shared runner, `--mode auto` is the default, and the daemon resolves that to `hybrid` when embeddings are configured or `bm25` otherwise.
+Wire-compatible with the TypeScript and Python SDKs over the [`spec/PROTOCOL.md`](../../spec/PROTOCOL.md) HTTP contract. Cross-SDK daemon parity today is `ask-basic`, `ask-augmented`, and `search-retrieve-only` through `memory serve`.
 
 ## Install
+
+```bash
+go get github.com/jeffs-brain/memory/go@latest
+```
+
+CLI binaries:
 
 ```bash
 go install github.com/jeffs-brain/memory/go/cmd/memory@latest
 go install github.com/jeffs-brain/memory/go/cmd/memory-mcp@latest
 ```
 
-## Build from source
+## Quickstart
 
-```bash
-cd sdks/go
-go build ./...
-go test ./...
+Open a filesystem-backed brain, attach a search index, ingest a document, and run a hybrid search. Mirrors [`examples/go/hello-world`](../../examples/go/hello-world).
+
+```go
+package main
+
+import (
+    "context"
+    "fmt"
+    "log"
+    "os"
+    "path/filepath"
+
+    "github.com/jeffs-brain/memory/go/brain"
+    "github.com/jeffs-brain/memory/go/knowledge"
+    "github.com/jeffs-brain/memory/go/search"
+    "github.com/jeffs-brain/memory/go/store/fs"
+)
+
+func main() {
+    ctx := context.Background()
+    root, _ := filepath.Abs("./data/hello-world")
+    if err := os.MkdirAll(root, 0o755); err != nil {
+        log.Fatal(err)
+    }
+
+    store, err := fs.New(root)
+    if err != nil {
+        log.Fatal(err)
+    }
+    defer store.Close()
+
+    b, err := brain.Open(ctx, brain.Options{ID: "hello-world", Root: root, Store: store})
+    if err != nil {
+        log.Fatal(err)
+    }
+    defer b.Close()
+
+    db, err := search.OpenDB(filepath.Join(root, ".search.db"))
+    if err != nil {
+        log.Fatal(err)
+    }
+    defer search.CloseDB(db)
+
+    idx, err := search.NewIndex(db, b.Store())
+    if err != nil {
+        log.Fatal(err)
+    }
+    unsub := idx.Subscribe(b.Store())
+    defer unsub()
+
+    kb, err := knowledge.New(knowledge.Options{
+        BrainID: "hello-world",
+        Store:   b.Store(),
+        Index:   idx,
+    })
+    if err != nil {
+        log.Fatal(err)
+    }
+    defer kb.Close()
+
+    if _, err := kb.Ingest(ctx, knowledge.IngestRequest{Path: "./docs/hedgehogs.md"}); err != nil {
+        log.Fatal(err)
+    }
+
+    resp, err := kb.Search(ctx, knowledge.SearchRequest{Query: "where do hedgehogs live?", MaxResults: 3})
+    if err != nil {
+        log.Fatal(err)
+    }
+    for i, h := range resp.Hits {
+        fmt.Printf("%d. [%.3f] %s\n", i+1, h.Score, h.Path)
+    }
+}
 ```
 
-## Scenario verification
+## Packages
+
+- `brain` - storage abstraction (`Store`, `Path`, events, errors), brain lifecycle.
+- `acl` - authorisation contract (`Provider`), in-process RBAC, and `Wrap` to guard any `brain.Store`.
+- `aclopenfga` - `acl.Provider` against an OpenFGA HTTP API.
+- `llm` - cross-cutting LLM abstraction (Ollama, OpenAI, Anthropic).
+- `search` - SQLite FTS5 + pure-Go vector index.
+- `query` - structured query AST, stopword filtering, alias expansion, optional LLM distillation.
+- `retrieval` - hybrid BM25 + vector + cross-encoder rerank with retry ladder.
+- `knowledge` - ingest, compile, and hybrid search over markdown, URL, file, PDF.
+- `memory` - extract, reflect, consolidate, recall, session buffers, episodes, feedback.
+- `eval/lme` - LongMemEval benchmark harness with bulk, replay, and agentic ingest modes.
+- `store/fs` - filesystem-backed `brain.Store`.
+- `store/git` - git-backed `brain.Store`.
+- `store/mem` - in-memory `brain.Store` for tests.
+- `store/http` - HTTP-backed `brain.Store` speaking the wire protocol.
+- `store/pt` - filesystem passthrough store mirroring the on-disk tree byte-for-byte; the layout the daemon and every SDK reads.
+
+The `cmd/memory` binary is the reference CLI plus HTTP daemon. The `cmd/memory-mcp` binary exposes the canonical `memory_*` tools over MCP stdio.
+
+## Documentation
+
+- Getting started: <https://docs.jeffsbrain.com/getting-started/go/>
+- Guides: <https://docs.jeffsbrain.com/guides/knowledge/>, [`/guides/retrieval/`](https://docs.jeffsbrain.com/guides/retrieval/), [`/guides/memory-lifecycle/`](https://docs.jeffsbrain.com/guides/memory-lifecycle/), [`/guides/stores/`](https://docs.jeffsbrain.com/guides/stores/), [`/guides/authorization/`](https://docs.jeffsbrain.com/guides/authorization/)
+- CLI reference: <https://docs.jeffsbrain.com/reference/cli/>
+- Configuration reference: <https://docs.jeffsbrain.com/reference/configuration/>
+- Wire spec and algorithms: <https://docs.jeffsbrain.com/spec/protocol/>, [`/spec/algorithms/`](https://docs.jeffsbrain.com/spec/algorithms/), [`/spec/storage/`](https://docs.jeffsbrain.com/spec/storage/), [`/spec/query-dsl/`](https://docs.jeffsbrain.com/spec/query-dsl/), [`/spec/mcp-tools/`](https://docs.jeffsbrain.com/spec/mcp-tools/)
+
+## Postgres store
+
+The Go SDK does not currently ship a Postgres store adapter. A Postgres-backed store is provided by the TypeScript SDK only. Use `store/fs`, `store/git`, `store/http`, or `store/pt` from Go.
+
+## CLI quickstart
+
+```bash
+memory init
+memory ingest ./docs
+memory search "question"
+memory serve --addr 127.0.0.1:18841
+```
+
+## Authorisation
+
+The `acl` package exposes `Provider`, in-process RBAC (`NewRbacProvider`), and a `Wrap` helper that turns any `brain.Store` into one that checks every read, write, and delete first.
+
+```go
+import (
+    "github.com/jeffs-brain/memory/go/acl"
+    "github.com/jeffs-brain/memory/go/aclopenfga"
+)
+
+provider, err := aclopenfga.NewProvider(aclopenfga.Options{
+    APIURL:  "https://fga.example.com",
+    StoreID: "store-1",
+})
+if err != nil { /* ... */ }
+defer provider.Close()
+
+guarded := acl.Wrap(store, provider, acl.Subject{Kind: acl.SubjectUser, ID: "alice"}, acl.WrapOptions{
+    Resource: acl.Resource{Type: acl.ResourceBrain, ID: "notes"},
+})
+```
+
+A denied call returns an `*acl.ForbiddenError` that satisfies `errors.Is(err, brain.ErrForbidden)`, so existing handlers keep matching.
+
+## SQLite vector search
+
+The default build uses `modernc.org/sqlite` (pure Go, no CGo) for FTS5 and implements vector search in pure Go at `search/vectors.go`, so `go install` works without a C toolchain.
+
+When you want native `sqlite-vec`, add the CGo-gated binding by compiling with the `sqlite_vec` tag:
+
+```go
+//go:build sqlite_vec
+
+package search
+
+import _ "github.com/asg017/sqlite-vec-go-bindings/cgo"
+```
+
+## Cross-SDK daemon scenarios
 
 Shared daemon scenarios verified in this SDK:
 
@@ -66,30 +213,9 @@ OPENAI_API_KEY=sk-... uv run python runner.py --sdk go --dataset datasets/lme.js
 
 Use one output root per scenario so same-day runs do not overwrite `<output>/<date>/go.json`. For the full three-way comparison flow, see [`../../eval/README.md`](../../eval/README.md).
 
-## Feature support
-
-- Stores: `store/fs`, `store/git`, `store/mem`, `store/http` (spec/PROTOCOL.md wire client).
-- Search: SQLite FTS5 BM25 plus pure-Go vector search (default, no CGo). Opt-in sqlite-vec binding via the `sqlite_vec` build tag.
-- Query: structured AST, stopword filtering (en and nl), alias expansion, optional LLM distillation.
-- Retrieval: hybrid BM25 + vector, five-rung retry ladder, intent reweight, real cross-encoder rerank (LLM and HTTP modes).
-- Memory stages: extract, reflect, consolidate, recall, session buffers, episodes, feedback loop.
-- Knowledge: markdown, URL, file, PDF ingest with frontmatter, wikilinks, compile passes.
-- Cross-SDK daemon scenarios: `ask-basic`, `ask-augmented`, `search-retrieve-only`.
-- Eval: full LongMemEval runner with bulk, replay, and agentic ingest modes.
-- MCP: `cmd/memory-mcp` exposes the 11 canonical `memory_*` tools over MCP stdio.
-
-## CLI quickstart
-
-```bash
-memory init
-memory ingest ./docs
-memory search "question"
-memory serve --addr 127.0.0.1:18841
-```
-
 ## LongMemEval replay
 
-Go is the reference native LME runner and also the coordinator for the replay-backed tri-SDK retrieve-only workflow. If you want the cross-SDK replay comparison, run [`../../eval/scripts/run_tri_lme.sh`](../../eval/scripts/run_tri_lme.sh) from the repo root rather than trying to stitch the three daemons together by hand.
+Go is the reference native LME runner and the coordinator for the replay-backed tri-SDK retrieve-only workflow. For the cross-SDK replay comparison, run [`../../eval/scripts/run_tri_lme.sh`](../../eval/scripts/run_tri_lme.sh) from the repo root rather than stitching the three daemons together by hand.
 
 ```bash
 memory eval lme run \
@@ -102,66 +228,13 @@ memory eval lme run \
 
 Env knobs: `JB_LME_JUDGE_MODEL`, `JB_LME_ACTOR_MODEL`, plus the standard `JB_LLM_PROVIDER`, `JB_LLM_MODEL`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `OLLAMA_HOST`. A soft cost cap is enforced via `--max-cost-usd`.
 
-## Layout
+## Build from source
 
-- `acl/` - authorisation contract (`Provider`), in-process RBAC, and `Wrap(brain.Store, provider, subject, opts)` for guarding any backend.
-- `aclopenfga/` - OpenFGA HTTP adapter. See [`spec/openfga/schema.fga`](../../spec/openfga/schema.fga) for the model.
-- `brain/` - storage abstraction (`Store`, `Path`, events, errors).
-- `store/fs` | `store/git` | `store/mem` | `store/http` - Store backends.
-- `search/` - FTS5 + vector index.
-- `query/` - structured query AST + distillation.
-- `retrieval/` - hybrid BM25 + vector + cross-encoder rerank.
-- `memory/` - remember / recall / reflect / consolidate manager with extras (contextualiser, distiller, episodes, feedback).
-- `knowledge/` - ingest / compile / search.
-- `llm/` - provider abstraction (Ollama, OpenAI, Anthropic).
-- `eval/lme/` - LongMemEval harness with replay and agentic modes.
-- `cmd/memory/` - reference CLI + HTTP daemon.
-- `cmd/memory-mcp/` - stdio MCP wrapper exposing the 11 `memory_*` tools.
-- `internal/httpd/` - shared HTTP daemon helpers.
-
-## Authorisation
-
-The `acl` package exposes `Provider`, in-process RBAC (`NewRbacProvider`), and a `Wrap` helper that turns any `brain.Store` into one that checks every read/write/delete first.
-
-```go
-import (
-    "github.com/jeffs-brain/memory/go/acl"
-    "github.com/jeffs-brain/memory/go/aclopenfga"
-)
-
-provider, err := aclopenfga.NewProvider(aclopenfga.Options{
-    APIURL:  "https://fga.example.com",
-    StoreID: "store-1",
-})
-if err != nil { /* ... */ }
-defer provider.Close()
-
-guarded := acl.Wrap(store, provider, acl.Subject{Kind: acl.SubjectUser, ID: "alice"}, acl.WrapOptions{
-    Resource: acl.Resource{Type: acl.ResourceBrain, ID: "notes"},
-})
+```bash
+cd sdks/go
+go build ./...
+go test ./...
 ```
-
-A denied call returns an `*acl.ForbiddenError` that satisfies `errors.Is(err, brain.ErrForbidden)`, so existing handlers keep matching.
-
-## SQLite vector search
-
-The default build uses `modernc.org/sqlite` (pure Go, no CGo) for FTS5 and implements vector search in pure Go at `search/vectors.go`, so `go install` works without a C toolchain.
-
-When you want native `sqlite-vec`, add the CGo-gated binding by compiling with the `sqlite_vec` tag:
-
-```go
-//go:build sqlite_vec
-
-package search
-
-import _ "github.com/asg017/sqlite-vec-go-bindings/cgo"
-```
-
-Leave the default build pure-Go so `go install` works everywhere.
-
-## Protocol
-
-`memory serve` implements the wire contract documented at [`spec/PROTOCOL.md`](../../spec/PROTOCOL.md). The shared conformance suite at [`spec/conformance/http-contract.json`](../../spec/conformance/http-contract.json) drives the daemon through 28/29 green cases.
 
 ## Examples
 

@@ -51,7 +51,60 @@ Cross-SDK eval parity today is the shared daemon surface: `ask-basic`, `ask-augm
 This page focuses on the CLI path. The Python SDK already ships the core store, search, retrieval, and daemon surface; use the [Python SDK README](https://github.com/jeffs-brain/memory/tree/main/sdks/py) for the fuller API inventory while this page catches up.
 :::
 
-A minimal embedded example will land here in a later docs pass.
+### Programmatic hello-world
+
+Open an `FsStore` for persistence, attach a SQLite-backed `search.Index` for ranking, ingest a markdown snippet, then run a BM25 query. Store ops are async; index ops are sync, so the example wraps the async pieces in `asyncio.run`.
+
+```python
+# SPDX-License-Identifier: Apache-2.0
+import asyncio
+from pathlib import Path
+
+from jeffs_brain_memory.knowledge import (
+    CONTENT_TYPE_MARKDOWN,
+    IngestRequest,
+    Options,
+    SearchRequest,
+    new,
+)
+from jeffs_brain_memory.search import Chunk, Index
+from jeffs_brain_memory.store.fs import FsStore
+
+BRAIN_ID = "hello"
+MARKDOWN = "# Hedgehogs\n\nHedgehogs live in hedgerows across Europe.\n"
+
+
+async def amain() -> None:
+    root = Path("./data") / BRAIN_ID
+    root.mkdir(parents=True, exist_ok=True)
+
+    store = FsStore(root)
+    index = Index(root / "search.db")
+    kb = new(Options(brain_id=BRAIN_ID, store=store, index=index))
+
+    try:
+        ingest = await kb.ingest(
+            IngestRequest(
+                path="hedgehogs.md",
+                content=MARKDOWN.encode("utf-8"),
+                content_type=CONTENT_TYPE_MARKDOWN,
+            )
+        )
+        index.upsert_chunks(
+            [Chunk(id=f"{ingest.path}:0", document_id=ingest.path, path=ingest.path, text=MARKDOWN)]
+        )
+
+        for hit in index.search_bm25("where do hedgehogs live?", top_k=3):
+            print(f"[{hit.score:.3f}] {hit.path}: {hit.snippet}")
+    finally:
+        index.close()
+        await store.close()
+
+
+asyncio.run(amain())
+```
+
+See [`examples/python/`](/examples/python/) for the full walkthrough, including the in-memory BM25 fallback when no `Index` is wired.
 
 ## Next steps
 

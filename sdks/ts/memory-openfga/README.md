@@ -13,8 +13,11 @@ bun add @jeffs-brain/memory @jeffs-brain/memory-openfga
 ## Usage
 
 ```ts
+import { createMemStore } from '@jeffs-brain/memory'
 import { withAccessControl } from '@jeffs-brain/memory/acl'
 import { createOpenFgaProvider } from '@jeffs-brain/memory-openfga'
+
+const store = createMemStore()
 
 const acl = createOpenFgaProvider({
   apiUrl: 'https://fga.example.com',
@@ -34,6 +37,8 @@ const guarded = withAccessControl(
 // every read/write/delete now runs through OpenFGA first.
 ```
 
+`modelId` and `token` are optional. Omit `modelId` to let the OpenFGA server resolve the latest authorisation model for the store. Omit `token` when running against an unauthenticated dev server.
+
 See [`@jeffs-brain/memory/acl`](https://www.npmjs.com/package/@jeffs-brain/memory) for the provider contract and the in-box RBAC alternative. The shared FGA model lives at [`spec/openfga/schema.fga`](https://github.com/jeffs-brain/memory/blob/main/spec/openfga/schema.fga).
 
 ## Lifecycle
@@ -48,11 +53,11 @@ when you swap providers or move to a transport that holds real state.
 - Pure `fetch`; no FGA SDK dependency.
 - Works against any OpenFGA-compatible backend (self-hosted or managed).
 
-## Docs
+## Documentation
 
-- Repo README: https://github.com/jeffs-brain/memory#readme
+- Authorisation guide: https://docs.jeffsbrain.com/guides/authorization/
+- TypeScript getting started: https://docs.jeffsbrain.com/getting-started/typescript/
 - Protocol and storage spec: [`spec/`](https://github.com/jeffs-brain/memory/tree/main/spec)
-- Docs site: https://docs.jeffsbrain.com
 
 ## License
 

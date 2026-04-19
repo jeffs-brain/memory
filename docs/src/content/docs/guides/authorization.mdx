@@ -1,0 +1,241 @@
+---
+title: Authorization
+description: Guard store operations with in-process RBAC or OpenFGA.
+sidebar:
+  order: 5
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components'
+
+Every SDK ships an `AccessControlProvider` interface, an in-process RBAC implementation, and an OpenFGA HTTP adapter. The model is the same in all three languages: a `Subject` is checked against an `Action` on a `Resource`, with a fixed resource hierarchy of `workspace > brain > collection > document`. Wrap any `Store` with the helper supplied by the SDK and every read, write, delete, and rename consults the provider before touching the underlying storage.
+
+## Subjects, resources, actions
+
+The vocabulary is intentionally small so the same tuples round-trip between the in-process RBAC store and the OpenFGA wire format without translation.
+
+| Category | Literal values |
+| --- | --- |
+| Subject kinds | `user`, `api_key`, `service` |
+| Actions | `read`, `write`, `delete`, `admin`, `export` |
+| Resource types | `workspace`, `brain`, `collection`, `document` |
+
+The RBAC adapter collapses actions onto three roles: `reader` covers `read` and `export`, `writer` adds `write`, `admin` adds `delete` and `admin`. Grants inherit down the hierarchy; a `deny:<role>` tuple at any level overrides matching grants at or below that level. The OpenFGA adapter forwards each action as the relation declared in `spec/openfga/schema.fga` (`reader`, `writer`, `can_delete`, `admin`, `can_export`).
+
+## In-process RBAC
+
+The RBAC provider is the right default for single-tenant installs and tests. It stores tuples in memory by default; swap in a custom backing store by implementing the small tuple-store interface.
+
+<Tabs>
+  <TabItem label="TypeScript">
+    ```ts
+    import { createRbacProvider, withAccessControl, type Subject, type Resource } from '@jeffs-brain/memory/acl'
+
+    const provider = createRbacProvider()
+
+    const subject: Subject = { kind: 'user', id: 'alex' }
+    const brain: Resource = { type: 'brain', id: 'research' }
+
+    await provider.write?.({
+      writes: [{ subject, relation: 'writer', resource: brain }],
+    })
+
+    const guarded = withAccessControl(store, provider, subject, { resource: brain })
+    await guarded.write('notes/hedgehog.md', Buffer.from('spiky'))
+    ```
+  </TabItem>
+  <TabItem label="Go">
+    ```go
+    import (
+        "context"
+
+        "github.com/jeffs-brain/memory/go/acl"
+    )
+
+    provider := acl.NewRbacProvider(acl.RbacOptions{Store: acl.NewMemoryTupleStore()})
+
+    subject := acl.Subject{Kind: acl.SubjectUser, ID: "alex"}
+    brain := acl.Resource{Type: acl.ResourceBrain, ID: "research"}
+
+    if err := provider.Write(ctx, acl.WriteTuplesRequest{
+        Writes: []acl.Tuple{acl.GrantTuple(subject, acl.RoleWriter, brain)},
+    }); err != nil {
+        return err
+    }
+
+    guarded := acl.Wrap(store, provider, subject, acl.WrapOptions{Resource: brain})
+    if err := guarded.Write(ctx, "notes/hedgehog.md", []byte("spiky")); err != nil {
+        return err
+    }
+    ```
+  </TabItem>
+  <TabItem label="Python">
+    ```python
+    import asyncio
+
+    from jeffs_brain_memory.acl import (
+        InMemoryTupleStore,
+        Resource,
+        Subject,
+        WriteTuplesRequest,
+        create_rbac_provider,
+        grant_tuple,
+        wrap_store,
+    )
+
+    async def main(store) -> None:
+        provider = create_rbac_provider(InMemoryTupleStore())
+
+        subject = Subject(kind="user", id="alex")
+        brain = Resource(type="brain", id="research")
+
+        await provider.write(
+            WriteTuplesRequest(writes=[grant_tuple(subject, "writer", brain)])
+        )
+
+        guarded = wrap_store(store, provider, subject, resource=brain)
+        await guarded.write("notes/hedgehog.md", b"spiky")
+
+    asyncio.run(main(store))
+    ```
+  </TabItem>
+</Tabs>
+
+Pass `resolveResource` (TS), `WrapOptions.ResolveResource` (Go), or `resolve_resource=` (Python) when one `Store` spans multiple brains or collections, so each path resolves to its own resource.
+
+## OpenFGA
+
+The OpenFGA adapter speaks plain HTTP and is stateless beyond the optional client it owns. Construct it with the API URL, store ID, and an optional model ID to pin a specific authorisation model version. The bearer token is forwarded on every request when supplied.
+
+<Tabs>
+  <TabItem label="TypeScript">
+    ```ts
+    import { createOpenFgaProvider } from '@jeffs-brain/memory-openfga'
+    import { withAccessControl, type Subject, type Resource } from '@jeffs-brain/memory/acl'
+
+    const provider = createOpenFgaProvider({
+      apiUrl: 'https://fga.example.com',
+      storeId: '01HZ...',
+      modelId: '01HZMODEL...',
+      token: process.env.FGA_TOKEN,
+    })
+
+    const subject: Subject = { kind: 'user', id: 'alex' }
+    const brain: Resource = { type: 'brain', id: 'research' }
+
+    const guarded = withAccessControl(store, provider, subject, { resource: brain })
+    ```
+  </TabItem>
+  <TabItem label="Go">
+    ```go
+    import (
+        "github.com/jeffs-brain/memory/go/acl"
+        "github.com/jeffs-brain/memory/go/aclopenfga"
+    )
+
+    provider, err := aclopenfga.NewProvider(aclopenfga.Options{
+        APIURL:  "https://fga.example.com",
+        StoreID: "01HZ...",
+        ModelID: "01HZMODEL...",
+        Token:   os.Getenv("FGA_TOKEN"),
+    })
+    if err != nil {
+        return err
+    }
+    defer provider.Close()
+
+    subject := acl.Subject{Kind: acl.SubjectUser, ID: "alex"}
+    brain := acl.Resource{Type: acl.ResourceBrain, ID: "research"}
+
+    guarded := acl.Wrap(store, provider, subject, acl.WrapOptions{Resource: brain})
+    ```
+  </TabItem>
+  <TabItem label="Python">
+    ```python
+    import asyncio
+    import os
+
+    from jeffs_brain_memory.acl import Resource, Subject, wrap_store
+    from jeffs_brain_memory.acl_openfga import OpenFgaOptions, create_openfga_provider
+
+    async def main(store) -> None:
+        provider = create_openfga_provider(
+            OpenFgaOptions(
+                api_url="https://fga.example.com",
+                store_id="01HZ...",
+                model_id="01HZMODEL...",
+                token=os.environ.get("FGA_TOKEN"),
+            )
+        )
+
+        subject = Subject(kind="user", id="alex")
+        brain = Resource(type="brain", id="research")
+
+        guarded = wrap_store(store, provider, subject, resource=brain)
+        try:
+            await guarded.write("notes/hedgehog.md", b"spiky")
+        finally:
+            await provider.close()
+
+    asyncio.run(main(store))
+    ```
+  </TabItem>
+</Tabs>
+
+Tuples written to OpenFGA via `provider.write` use the same `{subject, relation, resource}` shape as the RBAC adapter; the provider serialises them to OpenFGA's `{user, relation, object}` keys on the wire.
+
+## Catching denials
+
+The wrapper surfaces denied checks as a `ForbiddenError` (TypeScript and Python) or as `*acl.ForbiddenError`, which satisfies `errors.Is(err, brain.ErrForbidden)` (Go). Branch on the typed error so business logic stays decoupled from the adapter in use.
+
+<Tabs>
+  <TabItem label="TypeScript">
+    ```ts
+    import { ForbiddenError, isForbidden } from '@jeffs-brain/memory/acl'
+
+    try {
+      await guarded.read('notes/hedgehog.md')
+    } catch (err) {
+      if (isForbidden(err)) {
+        console.warn('denied:', err.action, err.resource.type, err.resource.id, err.reason)
+        return
+      }
+      throw err
+    }
+    ```
+  </TabItem>
+  <TabItem label="Go">
+    ```go
+    import (
+        "errors"
+
+        "github.com/jeffs-brain/memory/go/brain"
+    )
+
+    if _, err := guarded.Read(ctx, "notes/hedgehog.md"); err != nil {
+        if errors.Is(err, brain.ErrForbidden) {
+            // denied; treat as 403 upstream.
+            return nil
+        }
+        return err
+    }
+    ```
+  </TabItem>
+  <TabItem label="Python">
+    ```python
+    from jeffs_brain_memory.acl import ForbiddenError
+
+    try:
+        await guarded.read("notes/hedgehog.md")
+    except ForbiddenError as exc:
+        log.warning(
+            "denied: %s %s:%s (%s)",
+            exc.action,
+            exc.resource.type,
+            exc.resource.id,
+            exc.reason,
+        )
+    ```
+  </TabItem>
+</Tabs>
+
+Both adapters return a `CheckResult` with a `reason` field on every decision, including allows, so audit logs can capture why a request resolved the way it did.
