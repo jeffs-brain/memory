@@ -32,6 +32,8 @@ memory search "where do hedgehogs live?" --brain ./my-brain
 
 Same subcommand shapes as the TypeScript CLI. See the [CLI reference](/reference/cli/) for every flag.
 
+Cross-SDK eval parity today is the shared daemon surface: `ask-basic`, `ask-augmented`, and `search-retrieve-only`. Go also ships the native `memory eval lme run` path for full replay and agentic LongMemEval work.
+
 ## Programmatic use
 
 End-to-end hello-world taken from [`examples/go/hello-world/`](https://github.com/jeffs-brain/memory/tree/main/examples/go/hello-world). It opens a filesystem-backed brain, ingests a markdown file through `knowledge.Ingest`, and runs `knowledge.Search` against the FTS5-backed index.
@@ -120,10 +122,10 @@ func main() {
 
 ## Status
 
-Phase 3 scaffold. Interfaces and types compile; the CLI and reference daemon are in active development. See the [Go SDK README](https://github.com/jeffs-brain/memory/tree/main/sdks/go) for the current implementation state.
+Go ships the reference CLI, HTTP daemon, MCP wrapper, and native LongMemEval runner. See the [Go SDK README](https://github.com/jeffs-brain/memory/tree/main/sdks/go) for the full surface.
 
 ## Next steps
 
 - [Concepts](/concepts/brains/).
-- [MCP integration](/mcp/claude-code/) (TypeScript wrapper today, Go wrapper in flight).
+- [MCP integration](/mcp/claude-code/).
 - [Spec](/spec/protocol/): the source of truth the Go SDK implements.

@@ -24,8 +24,10 @@ synthesising markdown bodies.
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
 import math
+import re
 import sqlite3
 import struct
 from dataclasses import dataclass, field
@@ -47,6 +49,8 @@ __all__ = [
     "Index",
     "EMBED_TEXT_MAX",
     "EMBED_BATCH_SIZE",
+    "compile_fts_ast",
+    "parse_query",
 ]
 
 _log = logging.getLogger(__name__)
@@ -132,6 +136,9 @@ class BM25Hit:
     score: float
     document_id: str
     chunk_id: str = ""
+    summary: str = ""
+    content: str = ""
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)
@@ -143,6 +150,9 @@ class VectorHit:
     score: float
     document_id: str
     chunk_id: str = ""
+    summary: str = ""
+    content: str = ""
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)
@@ -204,6 +214,16 @@ def _checksum(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
+def _deserialise_metadata(raw: str) -> dict[str, Any]:
+    if not raw:
+        return {}
+    try:
+        parsed = json.loads(raw)
+    except (TypeError, ValueError):
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
 def _classify_path(path: str) -> tuple[str, str]:
     """Return ``(scope, project_slug)`` for a logical brain path."""
     if not path.endswith(".md"):
@@ -227,6 +247,108 @@ def _classify_path(path: str) -> tuple[str, str]:
         # eval falls back gracefully when extraction produces no facts.
         return ("raw_lme", "")
     return ("", "")
+
+
+def _normalise_date_like(value: str) -> str:
+    from ..query.temporal import parse_question_date
+
+    trimmed = value.strip()
+    if not trimmed:
+        return ""
+    try:
+        return parse_question_date(trimmed).strftime("%Y-%m-%d")
+    except ValueError:
+        return trimmed
+
+
+_DATE_SEARCH_RE = re.compile(r"\b(\d{4})[/-](\d{2})[/-](\d{2})\b")
+
+
+def _dedupe_strings(values: Iterable[str]) -> list[str]:
+    seen: set[str] = set()
+    out: list[str] = []
+    for value in values:
+        trimmed = value.strip()
+        if not trimmed or trimmed in seen:
+            continue
+        seen.add(trimmed)
+        out.append(trimmed)
+    return out
+
+
+def _date_search_tokens(value: str) -> list[str]:
+    from ..query.temporal import parse_question_date
+
+    trimmed = value.strip()
+    if not trimmed:
+        return []
+    try:
+        parsed = parse_question_date(trimmed)
+    except ValueError:
+        match = _DATE_SEARCH_RE.search(trimmed)
+        if match is None:
+            return []
+        year = match.group(1)
+        month = match.group(2)
+        day = match.group(3)
+        return _dedupe_strings(
+            [
+                f"{year}-{month}-{day}",
+                f"{year}/{month}/{day}",
+                year,
+            ]
+        )
+    return _dedupe_strings(
+        [
+            parsed.strftime("%Y-%m-%d"),
+            parsed.strftime("%Y/%m/%d"),
+            parsed.strftime("%Y"),
+            parsed.strftime("%A"),
+            parsed.strftime("%B"),
+        ]
+    )
+
+
+def _session_date_from_fields(*values: str) -> str:
+    for value in values:
+        normalised = _normalise_date_like(value)
+        if normalised:
+            return normalised
+    return ""
+
+
+def _scope_matches_filter(row_scope: str, want: Any) -> bool:
+    if not want:
+        return True
+    aliases = {
+        "memory": {"global_memory", "project_memory"},
+        "global": {"global_memory"},
+        "global_memory": {"global_memory"},
+        "project": {"project_memory"},
+        "project_memory": {"project_memory"},
+    }
+    if isinstance(want, str):
+        trimmed = want.strip().lower()
+        if not trimmed:
+            return True
+        expected = aliases.get(trimmed, {trimmed})
+    elif isinstance(want, (list, tuple, set)):
+        expected: set[str] = set()
+        for value in want:
+            trimmed = str(value).strip().lower()
+            if not trimmed:
+                continue
+            expected.update(aliases.get(trimmed, {trimmed}))
+    else:
+        expected = {str(want).strip().lower()}
+    return row_scope in expected if row_scope else True
+
+
+def _indexed_text_for(scope: str, raw: str, body: str) -> str:
+    """Choose the indexed body while preserving replay session headers."""
+    if scope == "raw_lme":
+        return raw.strip()
+    return body
 
 
 class Index:
@@ -355,11 +477,20 @@ class Index:
         title = str(chunk.metadata.get("title") or "")
         summary = str(chunk.metadata.get("summary") or "")
         tags_raw = chunk.metadata.get("tags") or ""
+        tag_values: list[str]
         if isinstance(tags_raw, list):
-            tags = " ".join(str(t) for t in tags_raw)
+            tag_values = [str(t) for t in tags_raw]
         else:
-            tags = str(tags_raw)
-        session_date = str(chunk.metadata.get("session_date") or "")
+            tag_values = [str(tags_raw)]
+        tag_values.extend(_date_search_tokens(str(chunk.metadata.get("session_date") or "")))
+        tag_values.extend(_date_search_tokens(str(chunk.metadata.get("observed_on") or "")))
+        tag_values.extend(_date_search_tokens(str(chunk.metadata.get("modified") or "")))
+        tags = " ".join(_dedupe_strings(tag_values))
+        session_date = _session_date_from_fields(
+            str(chunk.metadata.get("session_date") or ""),
+            str(chunk.metadata.get("observed_on") or ""),
+            str(chunk.metadata.get("modified") or ""),
+        )
         body = chunk.text or ""
         generated = 1 if chunk.metadata.get("generated") else 0
         metadata_blob = _serialise_metadata(chunk.metadata)
@@ -473,6 +604,9 @@ class Index:
                 fts.session_date AS session_date,
                 c.document_id  AS document_id,
                 c.chunk_id     AS chunk_id,
+                c.summary      AS summary,
+                c.content      AS content,
+                c.metadata     AS metadata,
                 c.generated    AS generated,
                 c.tags         AS tags
             FROM knowledge_fts AS fts
@@ -496,6 +630,9 @@ class Index:
                     score=float(row["score"] or 0.0),
                     document_id=row["document_id"] or "",
                     chunk_id=row["chunk_id"] or "",
+                    summary=row["summary"] or "",
+                    content=row["content"] or "",
+                    metadata=_deserialise_metadata(row["metadata"] or ""),
                 )
             )
             if len(hits) >= limit:
@@ -512,15 +649,21 @@ class Index:
             return False
         filters = opts.filters or {}
         scope = filters.get("scope")
-        if scope and row["scope"] and row["scope"] != scope:
+        if not _scope_matches_filter(str(row["scope"] or ""), scope):
             return False
-        project_slug = filters.get("project_slug")
+        project_slug = filters.get("project_slug") or filters.get("project")
         if project_slug and row["project_slug"] and row["project_slug"] != project_slug:
             return False
+        tags = (row["tags"] or "").split()
+        wanted_tags: list[str] = []
         tag = filters.get("tag")
         if tag:
-            tags = (row["tags"] or "").split()
-            if tag not in tags:
+            wanted_tags.append(str(tag))
+        tags_raw = filters.get("tags")
+        if isinstance(tags_raw, list):
+            wanted_tags.extend(str(value) for value in tags_raw if str(value))
+        for wanted in wanted_tags:
+            if wanted not in tags:
                 return False
         path_prefix = filters.get("path_prefix")
         if path_prefix and not row["path"].startswith(path_prefix):
@@ -554,7 +697,9 @@ class Index:
         sql = """
             SELECT e.chunk_id AS chunk_id, e.vector AS vector,
                    c.path AS path, c.title AS title,
-                   c.document_id AS document_id, c.generated AS generated,
+                   c.summary AS summary, c.content AS content,
+                   c.metadata AS metadata, c.document_id AS document_id,
+                   c.generated AS generated,
                    c.scope AS scope, c.project_slug AS project_slug,
                    c.tags AS tags
             FROM knowledge_embeddings AS e
@@ -584,6 +729,9 @@ class Index:
                     score=score,
                     document_id=row["document_id"] or "",
                     chunk_id=row["chunk_id"],
+                    summary=row["summary"] or "",
+                    content=row["content"] or "",
+                    metadata=_deserialise_metadata(row["metadata"] or ""),
                 )
             )
         scored.sort(key=lambda h: (-h.score, h.path))
@@ -752,20 +900,34 @@ class Index:
                 if scope == "wiki":
                     wiki, body = parse_wiki_frontmatter(raw)
                     title, summary, tags = wiki.title, wiki.summary, wiki.tags
+                    session_id = wiki.session_id
+                    session_date = _session_date_from_fields(
+                        wiki.session_date,
+                        wiki.observed_on,
+                        wiki.modified,
+                    )
                 else:
                     mem, body = parse_memory_frontmatter(raw)
                     title, summary, tags = mem.name, mem.description, mem.tags
+                    session_id = mem.session_id
+                    session_date = _session_date_from_fields(
+                        mem.session_date,
+                        mem.observed_on,
+                        mem.modified,
+                    )
                 chunk = Chunk(
                     id=f"{path}#0",
                     document_id=path,
                     path=path,
-                    text=body,
+                    text=_indexed_text_for(scope, raw, body),
                     metadata={
                         "title": title,
                         "summary": summary,
                         "tags": tags,
                         "scope": scope,
                         "project_slug": project_slug,
+                        "session_id": session_id,
+                        "session_date": session_date,
                     },
                 )
                 self._write_chunk(chunk)
@@ -790,6 +952,3 @@ def _serialise_metadata(metadata: dict[str, Any]) -> str:
         return json.dumps(metadata, ensure_ascii=False, default=str)
     except (TypeError, ValueError):
         return "{}"
-
-
-__all__.extend(["parse_query", "compile_fts_ast"])

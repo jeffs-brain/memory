@@ -44,7 +44,12 @@ export { SSEParser, iterateSSE, type SSEEvent } from './sse.js'
 export { extractJSON, runStructured, validateAgainstSchema } from './structured.js'
 
 export { AnthropicProvider, type AnthropicConfig } from './anthropic.js'
-export { OpenAIProvider, type OpenAIConfig } from './openai.js'
+export {
+  OpenAIProvider,
+  OpenAIEmbedder,
+  type OpenAIConfig,
+  type OpenAIEmbedderConfig,
+} from './openai.js'
 export { OllamaProvider, OllamaEmbedder, type OllamaConfig, type OllamaEmbedderConfig } from './ollama.js'
 export { TEIEmbedder, TEIReranker, type TEIEmbedderConfig, type TEIRerankerConfig } from './tei.js'
 

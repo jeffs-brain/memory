@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -16,6 +17,8 @@ import (
 
 	"github.com/jeffs-brain/memory/go/eval/lme"
 	"github.com/jeffs-brain/memory/go/llm"
+	"github.com/jeffs-brain/memory/go/memory"
+	"github.com/jeffs-brain/memory/go/retrieval"
 )
 
 func evalCmd() *cobra.Command {
@@ -39,34 +42,41 @@ func evalLmeCmd() *cobra.Command {
 
 // evalLmeRunCmd drives a full LongMemEval benchmark.
 //
-//   memory eval lme run --dataset longmemeval_s.json --concurrency 8 \
-//                       --judge claude-haiku-4-5
+//	memory eval lme run --dataset longmemeval_s.json --concurrency 8 \
+//	                    --judge claude-haiku-4-5
 func evalLmeRunCmd() *cobra.Command {
 	var (
-		datasetPath       string
-		sampleSize        int
-		seed              int64
-		concurrency       int
-		ingestMode        string
-		expectedSHA       string
-		maxCostUSD        float64
-		judgeModel        string
-		actorModel        string
-		extractModel      string
-		replayConcurrency int
-		maxIterations     int
-		questionTimeout   time.Duration
-		outputPath        string
-		manifestPath      string
-		slackWebhook      string
-		disableReader     bool
-		judgeTimeout      time.Duration
-		extractOnly       bool
-		brainCache        string
-		actorEndpoint     string
-		actorBrain        string
+		datasetPath        string
+		sampleSize         int
+		seed               int64
+		concurrency        int
+		ingestMode         string
+		expectedSHA        string
+		maxCostUSD         float64
+		judgeModel         string
+		actorModel         string
+		extractModel       string
+		replayConcurrency  int
+		maxIterations      int
+		questionTimeout    time.Duration
+		outputPath         string
+		manifestPath       string
+		slackWebhook       string
+		disableReader      bool
+		judgeTimeout       time.Duration
+		extractOnly        bool
+		brainCache         string
+		contextualise      bool
+		contextualCacheDir string
+		actorEndpoint      string
+		actorBrain         string
 		actorEndpointStyle string
-		actorTopK         int
+		actorTopK          int
+		actorCandidateK    int
+		actorRerankTopN    int
+		actorScope         string
+		actorProject       string
+		actorPathPrefix    string
 	)
 
 	cmd := &cobra.Command{
@@ -128,6 +138,13 @@ func evalLmeRunCmd() *cobra.Command {
 				ActorBrainID:       actorBrain,
 				ActorEndpointStyle: actorEndpointStyle,
 				ActorTopK:          actorTopK,
+				ActorCandidateK:    actorCandidateK,
+				ActorRerankTopN:    actorRerankTopN,
+				ActorFilters: retrieval.Filters{
+					Scope:      actorScope,
+					Project:    actorProject,
+					PathPrefix: actorPathPrefix,
+				},
 			}
 
 			// Wire the judge unless the caller explicitly passed
@@ -185,6 +202,21 @@ func evalLmeRunCmd() *cobra.Command {
 				}
 				extractProvider = p
 				cfg.Provider = p
+				if contextualise {
+					cacheDir := contextualCacheDir
+					if cacheDir == "" {
+						cacheDir = defaultEvalContextualiseCacheDir()
+					}
+					cfg.Contextualiser = memory.NewContextualiser(memory.ContextualiserConfig{
+						Provider: extractProvider,
+						Model:    em,
+						CacheDir: cacheDir,
+					})
+					if cfg.Contextualiser == nil {
+						return fmt.Errorf("build contextualiser: provider unavailable")
+					}
+					fmt.Fprintf(cmd.ErrOrStderr(), "memory contextualiser enabled (model=%s)\n", cfg.Contextualiser.ModelName())
+				}
 			}
 
 			result, runErr := lme.Run(ctx, cfg)
@@ -214,14 +246,7 @@ func evalLmeRunCmd() *cobra.Command {
 			}
 
 			if manifestPath != "" {
-				manifest := lme.RunManifest{
-					DatasetSHA:         result.DatasetSHA,
-					JudgeModel:         judgeModel,
-					JudgePromptVersion: lme.JudgePromptVersion,
-					RunSeed:            seed,
-					SampleSize:         sampleSize,
-					IngestMode:         result.IngestMode,
-				}
+				manifest := lme.BuildRunManifest(result, cfg, judgeModel)
 				if err := lme.SaveManifest(manifest, manifestPath); err != nil {
 					return fmt.Errorf("save manifest: %w", err)
 				}
@@ -261,12 +286,27 @@ func evalLmeRunCmd() *cobra.Command {
 	cmd.Flags().DurationVar(&judgeTimeout, "judge-timeout", 0, "Per-question judge timeout (0 = no cap)")
 	cmd.Flags().BoolVar(&extractOnly, "extract-only", false, "Run the extraction phase only (seed bulk + replay), write the manifest, then exit. Requires --brain-cache.")
 	cmd.Flags().StringVar(&brainCache, "brain-cache", "", "Persistent brain cache directory. Required when --extract-only is set. Shared by downstream daemons.")
+	cmd.Flags().BoolVar(&contextualise, "contextualise", false, "Enable replay contextualisation so extracted facts carry a situating prefix.")
+	cmd.Flags().StringVar(&contextualCacheDir, "contextualise-cache-dir", "", "Override the replay contextualiser cache directory.")
 	cmd.Flags().StringVar(&actorEndpoint, "actor-endpoint", "", "HTTP endpoint of a spec-compliant memory daemon. When set, the runner skips in-process retrieval and routes through the daemon. See --actor-endpoint-style for read vs retrieve-only mode.")
 	cmd.Flags().StringVar(&actorBrain, "actor-brain", "", "Brain id the actor endpoint should query (defaults to 'eval-lme').")
 	cmd.Flags().StringVar(&actorEndpointStyle, "actor-endpoint-style", "retrieve-only", "How to use --actor-endpoint: 'full' posts each question to /ask (daemon retrieves + reads), 'retrieve-only' posts to /search and runs the augmented CoT reader + judge in-process (recommended for apples-to-apples cross-SDK benchmarking).")
 	cmd.Flags().IntVar(&actorTopK, "actor-topk", 20, "Chunks to request from the actor daemon's /search endpoint per question (retrieve-only mode only). LongMemEval multi-session questions reference 2-6 sessions so top-5 BM25 frequently misses supporting evidence.")
+	cmd.Flags().IntVar(&actorCandidateK, "actor-candidatek", 0, "Per-leg candidate slate size to request from the actor daemon during retrieve-only runs. Zero defers to the daemon default.")
+	cmd.Flags().IntVar(&actorRerankTopN, "actor-rerank-topn", 0, "Post-fusion head width to rerank on the actor daemon during retrieve-only runs. Zero defers to the daemon default.")
+	cmd.Flags().StringVar(&actorScope, "actor-scope", "", "Optional retrieve-only daemon scope filter, for example 'project' to search replay memory facts only.")
+	cmd.Flags().StringVar(&actorProject, "actor-project", "", "Optional retrieve-only daemon project slug filter, for example 'eval-lme' for memory/project/eval-lme.")
+	cmd.Flags().StringVar(&actorPathPrefix, "actor-path-prefix", "", "Optional retrieve-only daemon path prefix filter.")
 
 	return cmd
+}
+
+func defaultEvalContextualiseCacheDir() string {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return ""
+	}
+	return filepath.Join(home, ".local", "state", "jeffs-brain", "evals", "contextualise-cache")
 }
 
 func resolveJudgeModel(flagValue string) string {

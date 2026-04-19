@@ -192,7 +192,8 @@ func TestIndexSource_NewIndexSource_RequiresModelWhenVectorsSet(t *testing.T) {
 
 func TestIndexSource_BM25_ReturnsTopHitsWithIDs(t *testing.T) {
 	t.Parallel()
-	src, _, _, _ := setupIndexSource(t, indexSourceCorpus())
+	corpus := indexSourceCorpus()
+	src, _, _, _ := setupIndexSource(t, corpus)
 
 	hits, err := src.SearchBM25(context.Background(), "invoice", 5, Filters{})
 	if err != nil {
@@ -220,6 +221,35 @@ func TestIndexSource_BM25_ReturnsTopHitsWithIDs(t *testing.T) {
 	if !strings.Contains(top, "invoice") {
 		t.Errorf("top hit %q does not look invoice-related (paths: %v)", hits[0].Path, hitPaths(hits))
 	}
+	expectedByPath := make(map[string]string, len(corpus))
+	for _, article := range corpus {
+		expectedByPath[article.Path] = article.Body
+	}
+	if want := expectedByPath[hits[0].Path]; hits[0].Content != want {
+		t.Errorf("top hit content = %q, want full indexed body for %s", hits[0].Content, hits[0].Path)
+	}
+}
+
+func TestIndexSource_BM25_QuotedDatePhraseMatchesStoredSlashDate(t *testing.T) {
+	t.Parallel()
+
+	src, _, _, _ := setupIndexSource(t, []indexSourceArticle{{
+		Path:    "memory/global/weekly-note.md",
+		Title:   "Weekly note",
+		Summary: "Supplier timeline update",
+		Body:    "[Observed on 2024/03/08 (Fri) 10:00]\nMet the supplier and agreed the timeline.",
+	}})
+
+	hits, err := src.SearchBM25(context.Background(), `"2024/03/08"`, 5, Filters{})
+	if err != nil {
+		t.Fatalf("SearchBM25 quoted date: %v", err)
+	}
+	if len(hits) == 0 {
+		t.Fatal("expected quoted date phrase to match stored slash date")
+	}
+	if hits[0].Path != "memory/global/weekly-note.md" {
+		t.Fatalf("top hit = %q, want weekly note", hits[0].Path)
+	}
 }
 
 func TestIndexSource_BM25_RespectsScopeFilter(t *testing.T) {
@@ -243,6 +273,102 @@ func TestIndexSource_BM25_RespectsScopeFilter(t *testing.T) {
 		if !strings.HasPrefix(h.Path, "memory/global/") {
 			t.Errorf("scope leak: %s", h.Path)
 		}
+	}
+}
+
+func TestIndexSource_BM25_MemoryScopeIncludesGlobalAndProjectForProjectSlug(t *testing.T) {
+	t.Parallel()
+	corpus := []indexSourceArticle{
+		{
+			Path:    "memory/global/farmers-market.md",
+			Title:   "Farmers market summary",
+			Summary: "Latest market earnings",
+			Body:    "The most recent Downtown Farmers Market visit earned $420.",
+		},
+		{
+			Path:    "memory/project/eval-lme/farmers-market-plan.md",
+			Title:   "Farmers market plan",
+			Summary: "Promo notes for the next market",
+			Body:    "Prepare signage for the Downtown Farmers Market and restock candles.",
+		},
+		{
+			Path:    "memory/project/other/farmers-market-other.md",
+			Title:   "Other project market plan",
+			Summary: "Unrelated project",
+			Body:    "This other project also mentions the Downtown Farmers Market.",
+		},
+		{
+			Path:    "raw/lme/farmers-market-session.md",
+			Title:   "Raw session",
+			Summary: "Transcript",
+			Body:    "User mentioned the Downtown Farmers Market in a raw session transcript.",
+		},
+	}
+	src, _, _, _ := setupIndexSource(t, corpus)
+
+	hits, err := src.SearchBM25(context.Background(), "downtown farmers market", 10, Filters{
+		Scope:   "memory",
+		Project: "eval-lme",
+	})
+	if err != nil {
+		t.Fatalf("SearchBM25 memory scope: %v", err)
+	}
+	if len(hits) == 0 {
+		t.Fatal("expected filtered hits")
+	}
+	if !containsBM25Path(hits, "memory/global/farmers-market.md") {
+		t.Fatalf("expected global memory hit, got %v", hitPaths(hits))
+	}
+	if !containsBM25Path(hits, "memory/project/eval-lme/farmers-market-plan.md") {
+		t.Fatalf("expected eval-lme project hit, got %v", hitPaths(hits))
+	}
+	if containsBM25Path(hits, "memory/project/other/farmers-market-other.md") {
+		t.Fatalf("unexpected other-project hit: %v", hitPaths(hits))
+	}
+	if containsBM25Path(hits, "raw/lme/farmers-market-session.md") {
+		t.Fatalf("unexpected raw hit: %v", hitPaths(hits))
+	}
+}
+
+func TestIndexSource_BM25_ProjectScopeExcludesGlobalAndRaw(t *testing.T) {
+	t.Parallel()
+	corpus := []indexSourceArticle{
+		{
+			Path:    "memory/global/farmers-market.md",
+			Title:   "Farmers market summary",
+			Summary: "Latest market earnings",
+			Body:    "The most recent Downtown Farmers Market visit earned $420.",
+		},
+		{
+			Path:    "memory/project/eval-lme/farmers-market-plan.md",
+			Title:   "Farmers market plan",
+			Summary: "Promo notes for the next market",
+			Body:    "Prepare signage for the Downtown Farmers Market and restock candles.",
+		},
+		{
+			Path:    "raw/lme/farmers-market-session.md",
+			Title:   "Raw session",
+			Summary: "Transcript",
+			Body:    "User mentioned the Downtown Farmers Market in a raw session transcript.",
+		},
+	}
+	src, _, _, _ := setupIndexSource(t, corpus)
+
+	hits, err := src.SearchBM25(context.Background(), "downtown farmers market", 10, Filters{
+		Scope:   "project",
+		Project: "eval-lme",
+	})
+	if err != nil {
+		t.Fatalf("SearchBM25 project scope: %v", err)
+	}
+	if len(hits) == 0 {
+		t.Fatal("expected project-scoped hit")
+	}
+	if !containsBM25Path(hits, "memory/project/eval-lme/farmers-market-plan.md") {
+		t.Fatalf("expected eval-lme project hit, got %v", hitPaths(hits))
+	}
+	if containsBM25Path(hits, "memory/global/farmers-market.md") || containsBM25Path(hits, "raw/lme/farmers-market-session.md") {
+		t.Fatalf("project scope leaked non-project rows: %v", hitPaths(hits))
 	}
 }
 
@@ -290,6 +416,71 @@ func TestIndexSource_Vectors_ReturnsTopSemanticHits(t *testing.T) {
 		if h.ID != h.Path {
 			t.Errorf("hit %d ID=%q != Path=%q", i, h.ID, h.Path)
 		}
+	}
+	if hits[0].Content == "" {
+		t.Fatal("expected vector hit to hydrate full content")
+	}
+	if !strings.Contains(hits[0].Content, "invoice") {
+		t.Errorf("vector hit content = %q, want hydrated article body", hits[0].Content)
+	}
+}
+
+func TestIndexSource_Vectors_MemoryScopeIncludesGlobalAndProjectButNotRaw(t *testing.T) {
+	t.Parallel()
+	corpus := []indexSourceArticle{
+		{
+			Path:    "memory/global/farmers-market.md",
+			Title:   "Farmers market summary",
+			Summary: "Latest market earnings",
+			Body:    "The most recent Downtown Farmers Market visit earned $420.",
+		},
+		{
+			Path:    "memory/project/eval-lme/farmers-market-plan.md",
+			Title:   "Farmers market plan",
+			Summary: "Promo notes for the next market",
+			Body:    "Prepare signage for the Downtown Farmers Market and restock candles.",
+		},
+		{
+			Path:    "memory/project/other/farmers-market-other.md",
+			Title:   "Other project market plan",
+			Summary: "Unrelated project",
+			Body:    "This other project also mentions the Downtown Farmers Market.",
+		},
+		{
+			Path:    "raw/lme/farmers-market-session.md",
+			Title:   "Raw session",
+			Summary: "Transcript",
+			Body:    "User mentioned the Downtown Farmers Market in a raw session transcript.",
+		},
+	}
+	src, _, _, _ := setupIndexSource(t, corpus)
+
+	embedder := llm.NewFakeEmbedder(64)
+	vecs, err := embedder.Embed(context.Background(), []string{"downtown farmers market earnings"})
+	if err != nil {
+		t.Fatalf("embed query: %v", err)
+	}
+	hits, err := src.SearchVector(context.Background(), vecs[0], 10, Filters{
+		Scope:   "memory",
+		Project: "eval-lme",
+	})
+	if err != nil {
+		t.Fatalf("SearchVector memory scope: %v", err)
+	}
+	if len(hits) == 0 {
+		t.Fatal("expected vector hits")
+	}
+	if !containsVectorPath(hits, "memory/global/farmers-market.md") {
+		t.Fatalf("expected global memory hit, got %v", vectorHitPaths(hits))
+	}
+	if !containsVectorPath(hits, "memory/project/eval-lme/farmers-market-plan.md") {
+		t.Fatalf("expected eval-lme project hit, got %v", vectorHitPaths(hits))
+	}
+	if containsVectorPath(hits, "memory/project/other/farmers-market-other.md") {
+		t.Fatalf("unexpected other-project hit: %v", vectorHitPaths(hits))
+	}
+	if containsVectorPath(hits, "raw/lme/farmers-market-session.md") {
+		t.Fatalf("unexpected raw hit: %v", vectorHitPaths(hits))
 	}
 }
 
@@ -496,6 +687,32 @@ func hitPaths(hits []BM25Hit) []string {
 		out = append(out, h.Path)
 	}
 	return out
+}
+
+func vectorHitPaths(hits []VectorHit) []string {
+	out := make([]string, 0, len(hits))
+	for _, h := range hits {
+		out = append(out, h.Path)
+	}
+	return out
+}
+
+func containsBM25Path(hits []BM25Hit, want string) bool {
+	for _, hit := range hits {
+		if hit.Path == want {
+			return true
+		}
+	}
+	return false
+}
+
+func containsVectorPath(hits []VectorHit, want string) bool {
+	for _, hit := range hits {
+		if hit.Path == want {
+			return true
+		}
+	}
+	return false
 }
 
 // hitPathsFromChunks extracts path strings from RetrievedChunk slices.

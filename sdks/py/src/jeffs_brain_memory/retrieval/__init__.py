@@ -27,7 +27,14 @@ from .intent import (
     retrieval_result_text,
     reweight_shared_memory_ranking,
 )
-from .reranker import LLMReranker, RERANK_SNIPPET_LIMIT, Reranker, compose_rerank_text
+from .reranker import (
+    AutoReranker,
+    HTTPReranker,
+    LLMReranker,
+    RERANK_SNIPPET_LIMIT,
+    Reranker,
+    compose_rerank_text,
+)
 from .retriever import (
     DEFAULT_CANDIDATE_K,
     DEFAULT_RERANK_TOP_N,
@@ -52,6 +59,11 @@ from .retry import (
 )
 from .rrf import RRF_DEFAULT_K, RRFCandidate, reciprocal_rank_fusion
 from .source import BM25Hit, Source, TrigramChunk, VectorHit
+from .temporal import (
+    augment_query_with_temporal,
+    resolved_temporal_hint_line,
+    temporal_query_variants,
+)
 from .types import (
     Attempt,
     Filters,
@@ -65,6 +77,7 @@ from .types import (
 __all__ = [
     "ATOMIC_EVENT_NOTE_RE",
     "Attempt",
+    "AutoReranker",
     "BM25Hit",
     "DATE_TAG_RE",
     "DEFAULT_CANDIDATE_K",
@@ -75,6 +88,7 @@ __all__ = [
     "FIRST_PERSON_FACT_LOOKUP_RE",
     "Filters",
     "GENERIC_NOTE_RE",
+    "HTTPReranker",
     "IndexedRow",
     "IndexSource",
     "LLMReranker",
@@ -103,6 +117,7 @@ __all__ = [
     "UNANIMITY_WINDOW",
     "VectorHit",
     "VectorStore",
+    "augment_query_with_temporal",
     "build_trigram_index",
     "compose_rerank_text",
     "compute_trigrams",
@@ -113,10 +128,12 @@ __all__ = [
     "preference_intent_multiplier",
     "query_tokens",
     "reciprocal_rank_fusion",
+    "resolved_temporal_hint_line",
     "retrieval_intent_multiplier",
     "retrieval_result_text",
     "reweight_shared_memory_ranking",
     "sanitise_query",
     "slug_text_for",
     "strongest_term",
+    "temporal_query_variants",
 ]

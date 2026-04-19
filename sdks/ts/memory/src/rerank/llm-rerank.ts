@@ -13,6 +13,7 @@
  */
 
 import type { CompletionRequest, Provider } from '../llm/types.js'
+import { runWithSharedRerankConcurrency } from './concurrency.js'
 import { runBatches } from './batch.js'
 import type { Reranker, RerankRequest, RerankResult } from './index.js'
 
@@ -36,6 +37,7 @@ Use British English.`
 
 const RERANK_MAX_TOKENS = 2048
 const RERANK_TEMPERATURE = 0.1
+const RERANK_SNIPPET_LIMIT = 1200
 
 export type LLMRerankerConfig = {
   provider: Provider
@@ -43,6 +45,8 @@ export type LLMRerankerConfig = {
   parallelism?: number
   /** Optional label surfaced via name() for traces. */
   label?: string
+  /** Shared concurrency cap for outbound provider calls. */
+  concurrencyCap?: number
 }
 
 /**
@@ -99,18 +103,24 @@ export class LLMReranker implements Reranker {
   private readonly batchSize: number
   private readonly parallelism: number
   private readonly label: string
+  private readonly concurrencyCap: number | undefined
 
   constructor(cfg: LLMRerankerConfig) {
     this.provider = cfg.provider
     this.batchSize = cfg.batchSize ?? DEFAULT_RERANK_BATCH_SIZE
     this.parallelism = cfg.parallelism ?? DEFAULT_RERANK_PARALLELISM
     this.label = cfg.label ?? 'llm-rerank'
+    this.concurrencyCap = cfg.concurrencyCap
     if (this.batchSize <= 0) throw new Error('LLMReranker: batchSize must be > 0')
     if (this.parallelism <= 0) throw new Error('LLMReranker: parallelism must be > 0')
   }
 
   name(): string {
     return this.label
+  }
+
+  async isAvailable(): Promise<boolean> {
+    return true
   }
 
   async rerank(req: RerankRequest, signal?: AbortSignal): Promise<readonly RerankResult[]> {
@@ -128,7 +138,13 @@ export class LLMReranker implements Reranker {
       batches,
       parallelism: this.parallelism,
       worker: async (batch) => {
-        const batchScores = await callRerank(this.provider, req.query, batch.docs, signal)
+        const batchScores = await callRerank(
+          this.provider,
+          req.query,
+          batch.docs,
+          signal,
+          this.concurrencyCap,
+        )
         for (let li = 0; li < batchScores.length; li++) {
           const gi = batch.offset + li
           if (gi >= scores.length) break
@@ -156,6 +172,7 @@ async function callRerank(
   query: string,
   candidates: readonly { local: number; text: string }[],
   signal: AbortSignal | undefined,
+  concurrencyCap: number | undefined,
 ): Promise<readonly number[]> {
   const user = renderUserPrompt(query, candidates)
   const baseReq: CompletionRequest = {
@@ -166,7 +183,10 @@ async function callRerank(
   }
 
   try {
-    const resp = await provider.complete(baseReq, signal)
+    const resp = await runWithSharedRerankConcurrency(
+      () => provider.complete(baseReq, signal),
+      concurrencyCap,
+    )
     const parsed = parseRerankResponse(resp.content, candidates.length)
     if (parsed !== undefined) return parsed
   } catch {
@@ -174,7 +194,10 @@ async function callRerank(
   }
 
   const strictReq: CompletionRequest = { ...baseReq, system: RERANK_SYSTEM_PROMPT_STRICT }
-  const resp = await provider.complete(strictReq, signal)
+  const resp = await runWithSharedRerankConcurrency(
+    () => provider.complete(strictReq, signal),
+    concurrencyCap,
+  )
   const parsed = parseRerankResponse(resp.content, candidates.length)
   if (parsed === undefined) {
     // Malformed -> all zeros is the documented fallback.
@@ -193,6 +216,29 @@ function renderUserPrompt(
     lines.push('')
   }
   return lines.join('\n')
+}
+
+export function composeLLMRerankDocument(args: {
+  readonly id: number
+  readonly path: string
+  readonly title: string
+  readonly summary: string
+  readonly content: string
+}): string {
+  const body = args.content.replace(/\s+/g, ' ').trim()
+  const snippet =
+    body === ''
+      ? '(no body excerpt available)'
+      : body.length <= RERANK_SNIPPET_LIMIT
+        ? body
+        : `${body.slice(0, RERANK_SNIPPET_LIMIT)}...`
+  return [
+    `[${args.id}] title: ${args.title.trim() !== '' ? args.title.trim() : '(untitled)'}`,
+    `    path: ${args.path}`,
+    `    summary: ${args.summary.trim() !== '' ? args.summary.trim() : '(no summary available)'}`,
+    '',
+    `    content: ${snippet}`,
+  ].join('\n')
 }
 
 /**

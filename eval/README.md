@@ -1,30 +1,37 @@
 # eval
 
-Cross-SDK evaluation runner for `jeffs-brain/memory`. Drives the TypeScript, Go, and Python SDKs through the same HTTP ask contract, scores their answers, and publishes a matrix under `results/`.
+Cross-SDK evaluation runner for `jeffs-brain/memory`. Drives the TypeScript, Go, and Python SDKs through the shared HTTP daemon surface, scores the resulting answers or retrieval blobs, and writes per-run artefacts under `results/`.
 
 ## What it does
 
 1. Spawns the chosen SDK's `memory serve` daemon on a random port (or one you supply).
 2. Loads a JSONL dataset of questions.
-3. For each question, POSTs `/v1/brains/{brain}/ask` with `{"question", "topK", "mode"}` and consumes the SSE response, folding `answer_delta` (or `token`) frames into the final answer and collecting `citation` frames.
-4. Scores with either the deterministic `exact` scorer (case-insensitive substring match) or the `judge` scorer (LLM-as-judge via OpenAI `gpt-4o-mini` by default).
-5. Writes `results/<date>/<sdk>.json`.
-6. Fails loudly when the pass rate falls below a configurable floor (default 0.90; target greater than or equal to 0.934).
+3. For each question, runs one explicit cross-SDK scenario:
+   - `ask-basic`: `POST /v1/brains/{brain}/ask` with `{"question", "topK", "mode"}`.
+   - `ask-augmented`: `POST /v1/brains/{brain}/ask` with `{"question", "topK", "mode", "readerMode": "augmented", "questionDate"?}`.
+   - `search-retrieve-only`: `POST /v1/brains/{brain}/search` with `{"query", "topK", "mode", "questionDate"?, "candidateK"?, "rerankTopN"?}` and folds the returned chunk text into a retrieval-only answer blob for scoring.
+4. Forwards the retrieval `mode` unchanged to the daemon. The runner default is `auto`, so each SDK resolves it locally to `hybrid` when embeddings are available or `bm25` otherwise.
+5. Scores with either the deterministic `exact` scorer (case-insensitive substring match) or the `judge` scorer (LLM-as-judge via OpenAI `gpt-4o` by default).
+6. Writes `<output>/<YYYY-MM-DD>/<sdk>.json`.
+7. Fails loudly when the pass rate falls below a configurable floor (default `0.90`).
 
-## Current results
+## Parity expectations
 
-- Tri-SDK smoke (20 questions, Ollama `gemma3:latest`, `exact` scorer, 2026-04-18): TypeScript, Go, and Python all at 19/20 (95%). Write-up: [`results/cross-sdk/cross-sdk-smoke-tri-fix-2026-04-18.md`](./results/cross-sdk/cross-sdk-smoke-tri-fix-2026-04-18.md). Per-SDK JSON: `results/cross-sdk/{ts,go,py}-smoke-tri-fix-2026-04-18.json`.
-- Full LongMemEval replay lives in the Go SDK (`memory eval lme run --ingest-mode=replay`) and targets the 93.4% parity benchmark.
+- The runner verifies the same three daemon scenarios across `ts`, `go`, and `py`: `ask-basic`, `ask-augmented`, and `search-retrieve-only`.
+- Parity means the same request shape, transport shape, retrieval-mode semantics, and temporal forwarding rules across all three daemons.
+- `ask-basic` and `ask-augmented` are answer-scoring scenarios. `search-retrieve-only` is a retrieval-scoring scenario built from returned chunks only.
+- The runner is for pass/fail comparison and artefact inspection. We are not treating this README as a published benchmark page.
+- Full LongMemEval replay still lives in the native SDK runners. Go's `memory eval lme run --ingest-mode=replay` path remains the reference workflow there.
 
 ## Pre-ingestion
 
-The runner assumes a brain has already been populated against the target SDK. Before running a corpus-grounded dataset, create and populate a brain named `eval` via the SDK's CLI, for example:
+The runner assumes a brain has already been populated against the target SDK when you are doing corpus-grounded verification. Before running `ask-augmented` or `search-retrieve-only` against a memory corpus, create and populate a brain named `eval` via the SDK's CLI, for example:
 
 ```bash
 memory ingest ./corpus --brain eval
 ```
 
-Override the brain via `--brain <id>` on the runner when you want to target something else. The packaged `smoke.jsonl` and `lme.jsonl` are provider-agnostic and do not require a specific corpus.
+Override the brain via `--brain <id>` on the runner when you want to target something else. `smoke.jsonl` is for fast scenario checks; `lme.jsonl` is the broader cross-SDK dataset used for corpus-grounded verification. The tri-SDK replay script does its own shared extract step and does not require a pre-populated daemon brain.
 
 ## Local run
 
@@ -32,29 +39,90 @@ Override the brain via `--brain <id>` on the runner when you want to target some
 cd ~/code/jeffs-brain/memory/eval
 uv sync
 
-# Smoke (exact scorer, no API cost)
-uv run python runner.py --sdk ts --dataset datasets/smoke.jsonl --scorer exact
-uv run python runner.py --sdk go --dataset datasets/smoke.jsonl --scorer exact
-uv run python runner.py --sdk py --dataset datasets/smoke.jsonl --scorer exact
+# Fast parity check for the basic ask path
+for sdk in ts go py; do
+  uv run python runner.py \
+    --sdk "$sdk" \
+    --dataset datasets/smoke.jsonl \
+    --scorer exact \
+    --scenario ask-basic \
+    --output results/ask-basic
+done
 
-# Full (LLM judge, needs OPENAI_API_KEY)
-OPENAI_API_KEY=sk-... uv run python runner.py --sdk ts --dataset datasets/lme.jsonl --scorer judge
+# Corpus-grounded parity checks, against a populated `eval` brain
+for sdk in ts go py; do
+  OPENAI_API_KEY=sk-... uv run python runner.py \
+    --sdk "$sdk" \
+    --dataset datasets/lme.jsonl \
+    --scorer judge \
+    --scenario ask-augmented \
+    --brain eval \
+    --output results/ask-augmented
+done
+
+for sdk in ts go py; do
+  OPENAI_API_KEY=sk-... uv run python runner.py \
+    --sdk "$sdk" \
+    --dataset datasets/lme.jsonl \
+    --scorer judge \
+    --scenario search-retrieve-only \
+    --brain eval \
+    --output results/search-retrieve-only
+done
 ```
+
+Use a separate `--output` root per scenario when comparing SDKs on the same day. The runner writes one `<sdk>.json` under `<output>/<YYYY-MM-DD>/`, so a second scenario pointed at the same output root overwrites the first.
 
 ### CLI flags
 
 | Flag         | Default                 | Notes                                                                 |
 | ------------ | ----------------------- | --------------------------------------------------------------------- |
 | `--sdk`      | required                | `ts`, `go`, or `py`.                                                  |
-| `--mode`     | `direct`                | `direct` or `agentic`.                                                |
+| `--scenario` | `ask-basic`             | `ask-basic`, `ask-augmented`, or `search-retrieve-only`.              |
+| `--mode`     | `auto`                  | Daemon retrieval mode: `auto`, `hybrid`, `hybrid-rerank`, `bm25`, or `semantic`. Forwarded unchanged to `/ask` or `/search`. |
 | `--dataset`  | `datasets/lme.jsonl`    | JSONL file.                                                           |
 | `--scorer`   | `judge`                 | `exact` or `judge`.                                                   |
 | `--limit`    | none                    | Cap question count.                                                   |
-| `--output`   | `results/`              | Where to write `<date>/<sdk>.json`.                                   |
+| `--output`   | `results/`              | Where to write `<output>/<YYYY-MM-DD>/<sdk>.json`.                    |
 | `--port`     | `0`                     | `0` means random free port.                                           |
 | `--floor`    | `0.90`                  | Below this, the runner exits non-zero.                                |
-| `--brain`    | `eval`                  | brainId passed into `POST /v1/brains/{brain}/ask`; pre-populate it before running. |
-| `--top-k`    | `5`                     | Forwarded as `topK` on each ask payload.                              |
+| `--brain`    | `eval`                  | brainId passed into `POST /v1/brains/{brain}/ask` or `/search`; pre-populate it before running. |
+| `--top-k`    | `5`                     | Forwarded as `topK` on `/ask` or `/search`.                           |
+| `--candidate-k` | `0`                  | Forwarded as `candidateK` on `search-retrieve-only`. `0` defers to the daemon default. |
+| `--rerank-top-n` | `0`                 | Forwarded as `rerankTopN` on `search-retrieve-only`. `0` defers to the daemon default. |
+
+### What each scenario exercises
+
+| Scenario | Request | Transport | Scored artefact | What it exercises |
+| -------- | ------- | --------- | --------------- | ----------------- |
+| `ask-basic` | `POST /ask` with `question`, `topK`, `mode` | SSE | concatenated `answer_delta` stream, or `done.answer` when present | Standard `/ask` retrieval-to-reader path, plus `retrieve`, `citation`, and `done` event shape. |
+| `ask-augmented` | `POST /ask` with `question`, `topK`, `mode`, `readerMode=augmented`, optional `questionDate` | SSE | concatenated `answer_delta` stream, or `done.answer` when present | Augmented reader prompt path, temporal anchor forwarding, and the same SSE contract. |
+| `search-retrieve-only` | `POST /search` with `query`, `topK`, `mode`, optional `questionDate`, `candidateK`, and `rerankTopN` | JSON | concatenated returned chunk `text`, falling back to `summary` | Pure retrieval behaviour: chunk selection, optional rerank knobs, and returned chunk payload parity. |
+
+### How we test it
+
+- `ask-basic` and `ask-augmented` both consume SSE, ignore `retrieve` frames for scoring, collect `citation` frames for the result JSON, and score only the final answer text.
+- `search-retrieve-only` calls `/search` directly, records chunk metadata as citations, and scores the merged retrieval blob the runner builds from the returned chunks.
+- `question_date` is forwarded in `ask-augmented` and `search-retrieve-only`, where the runner sends it as `questionDate`.
+- `candidateK` and `rerankTopN` are forwarded only for `search-retrieve-only`, and only when the CLI flags are set above zero.
+- `--mode auto` is the shared default because it matches daemon semantics. The harness does not resolve `auto` itself.
+
+### Verification workflow
+
+1. Pick the scenario you want to verify.
+2. Run the SDK-local regression tests that pin that scenario's behaviour.
+3. Run the shared runner across `ts`, `go`, and `py` for that same scenario.
+4. Compare `results/<scenario>/<YYYY-MM-DD>/ts.json`, `go.json`, and `py.json` for request, citation, and answer or retrieval-blob shape. Treat the output as verification artefacts rather than a public benchmark.
+
+### SDK-local regression commands
+
+The runner compares SDKs against each other. Scenario regressions inside one SDK are pinned by its own test suite:
+
+| SDK | Command |
+| --- | ------- |
+| TypeScript | `cd sdks/ts/memory && bun x vitest run src/http/handlers.test.ts src/http/daemon.test.ts` |
+| Go | `cd sdks/go && go test ./cmd/memory ./eval/lme` |
+| Python | `cd sdks/py && uv run pytest tests/test_serve_ask_augmented.py tests/test_serve_handlers_real.py tests/test_retrieval_temporal.py` |
 
 ## Environment
 
@@ -68,7 +136,7 @@ OPENAI_API_KEY=sk-... uv run python runner.py --sdk ts --dataset datasets/lme.js
 - `OLLAMA_HOST` - Ollama endpoint for local Ollama-backed runs (default `http://localhost:11434`).
 - `ANTHROPIC_API_KEY` - required when `JB_LLM_PROVIDER=anthropic`.
 
-For the Go LME runner (`memory eval lme run`) the additional knobs are `JB_LME_JUDGE_MODEL` and `JB_LME_ACTOR_MODEL`.
+For the native Go LME runner (`memory eval lme run`) the additional knobs are `JB_LME_JUDGE_MODEL` and `JB_LME_ACTOR_MODEL`.
 
 ## Dataset contract
 
@@ -78,6 +146,7 @@ JSONL, one question per line.
 | --------------------- | -------- | ----------------------------------------------------- |
 | `id`                  | string   | unique per dataset                                    |
 | `question`            | string   | the prompt                                            |
+| `question_date`       | string   | optional. Forwarded as `questionDate` in `ask-augmented` and `search-retrieve-only`. |
 | `expected_substrings` | string[] | required for `exact` scorer                           |
 | `reference_answer`    | string   | required for `judge` scorer                           |
 | `tags`                | string[] | optional, for slicing results                         |
@@ -89,28 +158,39 @@ See `datasets/README.md` for details and how to populate `lme.jsonl`.
 - `exact` - deterministic. `answer` must contain at least one `expected_substring` (case-insensitive). Returns 1.0 or 0.0. No network.
 - `judge` - asks an LLM to rate the answer against the `reference_answer` on a 0..1 scale (rubric: faithfulness, citation presence, semantic match). Defaults to OpenAI `gpt-4o` (paper-faithful); override with `JB_EVAL_JUDGE_MODEL`. Set `JB_EVAL_BUDGET_USD` to cap spend.
 
-## Cross-SDK results layout
+## Results layout
 
 ```
 results/
-  <date>/              # single-SDK runs written by runner.py
+  <YYYY-MM-DD>/        # single-SDK runs written by runner.py
     ts.json
     go.json
     py.json
-  cross-sdk/           # multi-SDK benchmark reports
-    cross-sdk-smoke-tri-fix-2026-04-18.md
-    ts-smoke-tri-fix-2026-04-18.json
-    go-smoke-tri-2026-04-18.json
-    py-smoke-tri-2026-04-18.json
+  tri-lme-<timestamp>/ # replay-backed tri-SDK benchmark runs
+    README.md
+    extract.json
+    manifest.json
+    result-ts.json
+    result-go.json
+    result-py.json
+    manifest-ts.json
+    manifest-go.json
+    manifest-py.json
+    daemon-ts.log
+    daemon-go.log
+    daemon-py.log
+    runner-ts.log
+    runner-go.log
+    runner-py.log
 ```
 
-## LongMemEval replay
+## Native LongMemEval replay
 
-Full replay lives in the Go SDK. Recommended configuration for local runs:
+The cross-SDK runner does not perform replay ingest or agentic LongMemEval runs. Use the native SDK runners for those workflows. Recommended Go configuration for local runs:
 
-- **Extract model**: `gpt-5-mini` — cheap, reasoning-capable, no temperature knob.
-- **Actor model**: `gpt-4o` — paper's recommended reader.
-- **Judge model**: `gpt-4o` — paper's recommended judge.
+- **Extract model**: `gpt-5-mini`. Cheap, reasoning-capable, no temperature knob.
+- **Actor model**: `gpt-4o`. Paper's recommended reader.
+- **Judge model**: `gpt-4o`. Paper's recommended judge.
 - **Dataset**: `longmemeval_s.json` (500 questions, SHA-pinned). Fetch via `scripts/fetch-lme.sh` from the repo root.
 - **Concurrency**: 16 replay workers, 16 question workers locally. OpenAI tier-5 handles this comfortably on gpt-4o + gpt-5-mini.
 
@@ -136,7 +216,7 @@ memory eval lme run \
 
 ### Tri-SDK run (recommended)
 
-The orchestrator extracts once and benchmarks all three daemons from the shared brain:
+The orchestrator extracts once and benchmarks all three daemons from the shared brain. It exercises the shared daemon `search-retrieve-only` scenario only, using actor-endpoint `retrieve-only` mode so retrieval happens in each daemon while the shared augmented reader and judge stay in the Go runner process:
 
 ```bash
 set -a && source ~/code/jeffs-brain/memory/.env && set +a
@@ -155,10 +235,11 @@ bash eval/scripts/run_tri_lme.sh
 Phases:
 1. Go extracts into `$JB_HOME/brains/$BRAIN_ID` (`/tmp/jb-lme-shared/brains/eval-lme` by default).
 2. TS, Go, Py `memory serve` daemons spawn against the shared brain.
-3. Go LME runner fires three times in parallel with `--actor-endpoint` pointed at each daemon — retrieval + reader happen in the daemon, judge happens in-process so every SDK scores against the same gpt-4o judge config.
-4. Tear daemons down; emit `tri-lme-<timestamp>/README.md` with the pass-rate table plus per-SDK result JSON + manifest.
+3. Go LME runner fires three times in parallel with `--actor-endpoint` pointed at each daemon. In `retrieve-only` mode the daemon stays retrieval-only and the shared augmented reader + judge run in-process, which keeps the cross-SDK comparison aligned.
+   For replay-backed tri-SDK runs we pin actor retrieval to replay memory only via `--actor-scope memory --actor-project <brain-id>`, which keeps global memory plus the eval brain's project memory in scope while excluding raw transcript rows.
+4. Tear daemons down; emit `tri-lme-<timestamp>/README.md` with the run summary plus `extract.json`, shared manifests, per-SDK result JSON, per-SDK manifests, and daemon or runner logs.
 
-The 93.4% parity target is tracked against the jeff baseline. Every run writes a `RunManifest` (dataset SHA, judge model, prompt version, seed, sample size, ingest mode) so scores are only comparable when all four key fields match.
+Every run writes a `RunManifest` with the base LME fields, and the tri-SDK script also stamps each per-SDK manifest with `sdk`, `scenario`, `actor_endpoint_style`, `actor_brain`, `actor_topk`, `actor_candidatek`, `actor_rerank_topn`, `actor_scope`, `actor_project`, and `actor_path_prefix`.
 
 ## Adding a new SDK
 
@@ -172,12 +253,12 @@ The 93.4% parity target is tracked against the jeff baseline. Every run writes a
 
 ## CI
 
-- `eval-smoke` runs on every PR across `{ts, go, py}`: ~15 questions, `exact` scorer, no LLM cost.
-- `eval-nightly` runs at 03:00 UTC across `{ts, go, py}` with the `judge` scorer and the full LME set. Floor 0.90, target 0.934.
+- `eval-smoke` runs on every PR across `{ts, go, py}` on the shared runner's default daemon scenario, `ask-basic`, with the `exact` scorer.
+- `eval-nightly` is reserved for broader benchmark coverage; native LongMemEval parity still lives with the SDK-specific runners.
 
 ## Cost model
 
-Per the restructure plan: roughly $3 to $5 per day with `gpt-4o-mini` as both reader and judge across three SDKs and 500 questions, so $100 to $150 per month. Paid from the Erys AI card. `JB_EVAL_BUDGET_USD` caps spend per run.
+Per the restructure plan: roughly $3 to $5 per day on a cheaper `gpt-4o-mini` reader and judge profile across three SDKs and 500 questions, so $100 to $150 per month. Paid from the Erys AI card. `JB_EVAL_BUDGET_USD` caps spend per run.
 
 ## Release-candidate runs
 

@@ -104,6 +104,9 @@ func TestHybridRerank_HTTP_EndToEnd_MarksTrace(t *testing.T) {
 
 	callCount := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if serveHealthyProbe(w, r) {
+			return
+		}
 		callCount++
 		req := decodeRerankRequest(t, r)
 		results := make([]httpRerankHit, len(req.Documents))

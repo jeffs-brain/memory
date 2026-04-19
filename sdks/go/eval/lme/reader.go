@@ -55,11 +55,25 @@ Resolving conflicting information:
 - Each fact is tagged with a date. When the same topic appears with different values on different dates, prefer the value from the most recent session date.
 - Treat explicit supersession phrases as hard overrides regardless of how often the old value appears: "now", "currently", "most recently", "actually", "correction", "I updated", "I changed", "no longer".
 - Do not vote by frequency. One later correction outweighs any number of earlier mentions.
+- When the question names a specific item, event, place, or descriptor, prefer the fact that matches that target most directly. Do not substitute a broader category match or a different example from the same topic.
+- A direct statement of the full usual value outranks a newer note about only one segment, leg, or example from that routine unless the newer note explicitly says the full value changed.
 
 Enumeration and counting:
 - When the question asks to list, count, enumerate, or total ("how many", "list", "which", "what are all", "total", "in total"), return every matching item you find across the retrieved facts, one per line, each tagged with its session date. Then state the count or total explicitly at the end.
 - Do not summarise into a single sentence when the question demands a list.
 - Add numeric values across sessions when the question asks for a total (hours, days, money, items). Show the arithmetic.
+- For totals over named items, sum only the facts that match those named items directly. Do not add alternative purchases, adjacent examples, or broader category summaries unless the note clearly says they refer to the same item.
+
+Preference-sensitive questions:
+- When the user asks for ideas, advice, inspiration, or recommendations, anchor the answer in explicit prior preferences, recent projects, recurring habits, and stated dislikes from the retrieved facts.
+- Avoid generic suggestions when the history already contains concrete tastes or recent examples. Reuse those specifics directly in the answer.
+- When the question asks for a specific or exact previously recommended item, answer with the narrowest directly supported set from the retrieved facts. Do not widen the answer with adjacent frameworks, resource catalogues, or loosely related examples.
+
+Unanswerable questions:
+- If the retrieved facts do not directly answer the question, state that clearly in the first sentence.
+- Keep the extraction step brief and limited to the missing subject. Do not narrate your search process.
+- Do not pad the answer with near-miss facts about a different city, person, product, or date unless they directly explain why the requested fact is unavailable.
+- End with a direct abstention that the information provided is not enough to answer the question.
 
 Temporal reasoning:
 - Today is %s (this is the current date). Resolve relative references ("recently", "last week", "a few days ago", "this month") against this anchor.

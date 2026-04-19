@@ -64,4 +64,37 @@ describe('CrossEncoderReranker', () => {
     expect(out).toEqual([])
     expect(calls).toEqual([])
   })
+
+  it('delegates availability checks to the TEI client when present', async () => {
+    const { client } = stubClient([])
+    client.isAvailable = vi.fn(async () => false)
+    const reranker = new CrossEncoderReranker({ client })
+    await expect(reranker.isAvailable?.()).resolves.toBe(false)
+    expect(client.isAvailable).toHaveBeenCalledTimes(1)
+  })
+
+  it('shares the configured concurrency cap across reranker instances', async () => {
+    let active = 0
+    let maxActive = 0
+    const client: TEIRerankerContract = {
+      name: () => 'slow-tei',
+      rerank: vi.fn(async () => {
+        active += 1
+        maxActive = Math.max(maxActive, active)
+        await new Promise((resolve) => setTimeout(resolve, 10))
+        active -= 1
+        return [{ index: 0, score: 1 }]
+      }),
+    }
+
+    const left = new CrossEncoderReranker({ client, concurrencyCap: 1 })
+    const right = new CrossEncoderReranker({ client, concurrencyCap: 1 })
+
+    await Promise.all([
+      left.rerank({ query: 'q', documents: [{ id: 'a', text: 'alpha' }] }),
+      right.rerank({ query: 'q', documents: [{ id: 'b', text: 'bravo' }] }),
+    ])
+
+    expect(maxActive).toBe(1)
+  })
 })

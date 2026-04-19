@@ -24,6 +24,22 @@ func TestExpandTemporal_TwoWeeksAgo(t *testing.T) {
 	}
 }
 
+func TestExpandTemporal_TwoWeeksAgo_NumberWord(t *testing.T) {
+	exp := ExpandTemporal(
+		"What did we discuss two weeks ago?",
+		"2023/04/10 (Mon) 23:07",
+	)
+	if !exp.Resolved {
+		t.Fatal("expected Resolved to be true")
+	}
+	if !strings.Contains(exp.ExpandedQuery, "2023/03/27") {
+		t.Errorf("expected expanded query to contain 2023/03/27, got %q", exp.ExpandedQuery)
+	}
+	if len(exp.DateHints) != 1 || exp.DateHints[0] != "2023/03/27" {
+		t.Errorf("expected DateHints [2023/03/27], got %v", exp.DateHints)
+	}
+}
+
 func TestExpandTemporal_ThreeDaysAgo(t *testing.T) {
 	// 2023/04/10 minus 3 days = 2023/04/07.
 	exp := ExpandTemporal(
@@ -72,6 +88,57 @@ func TestExpandTemporal_LastSaturday(t *testing.T) {
 	}
 	if len(exp.DateHints) != 1 || exp.DateHints[0] != "2023/04/08" {
 		t.Errorf("expected DateHints [2023/04/08], got %v", exp.DateHints)
+	}
+}
+
+func TestExpandTemporal_Today(t *testing.T) {
+	exp := ExpandTemporal(
+		"What did I do today?",
+		"2023/04/10 (Mon) 23:07",
+	)
+	if !exp.Resolved {
+		t.Fatal("expected Resolved to be true")
+	}
+	if !strings.Contains(exp.ExpandedQuery, "2023/04/10") {
+		t.Errorf("expected expanded query to contain 2023/04/10, got %q", exp.ExpandedQuery)
+	}
+	if len(exp.DateHints) != 1 || exp.DateHints[0] != "2023/04/10" {
+		t.Errorf("expected DateHints [2023/04/10], got %v", exp.DateHints)
+	}
+}
+
+func TestExpandTemporal_Yesterday(t *testing.T) {
+	exp := ExpandTemporal(
+		"What did I do yesterday?",
+		"2023/04/10 (Mon) 23:07",
+	)
+	if !exp.Resolved {
+		t.Fatal("expected Resolved to be true")
+	}
+	if !strings.Contains(exp.ExpandedQuery, "2023/04/09") {
+		t.Errorf("expected expanded query to contain 2023/04/09, got %q", exp.ExpandedQuery)
+	}
+	if len(exp.DateHints) != 1 || exp.DateHints[0] != "2023/04/09" {
+		t.Errorf("expected DateHints [2023/04/09], got %v", exp.DateHints)
+	}
+}
+
+func TestExpandTemporal_LastWeek(t *testing.T) {
+	exp := ExpandTemporal(
+		"Where did I volunteer last week?",
+		"2023/04/10 (Mon) 23:07",
+	)
+	if !exp.Resolved {
+		t.Fatal("expected Resolved to be true")
+	}
+	if !strings.Contains(exp.ExpandedQuery, "2023/04/03") || !strings.Contains(exp.ExpandedQuery, "2023/04/09") {
+		t.Errorf("expected expanded query to contain last-week bounds, got %q", exp.ExpandedQuery)
+	}
+	if len(exp.DateHints) != 7 {
+		t.Fatalf("expected 7 DateHints, got %v", exp.DateHints)
+	}
+	if exp.DateHints[0] != "2023/04/03" || exp.DateHints[6] != "2023/04/09" {
+		t.Errorf("expected DateHints to span 2023/04/03..2023/04/09, got %v", exp.DateHints)
 	}
 }
 

@@ -9,7 +9,12 @@ import { LLMError } from './errors.js'
 import { AnthropicProvider, type AnthropicConfig } from './anthropic.js'
 import { HashEmbedder, type HashEmbedderOptions } from './hashembed.js'
 import { OllamaProvider, OllamaEmbedder, type OllamaConfig, type OllamaEmbedderConfig } from './ollama.js'
-import { OpenAIProvider, type OpenAIConfig } from './openai.js'
+import {
+  OpenAIProvider,
+  OpenAIEmbedder,
+  type OpenAIConfig,
+  type OpenAIEmbedderConfig,
+} from './openai.js'
 import { TEIEmbedder, type TEIEmbedderConfig } from './tei.js'
 import type { Embedder, Provider } from './types.js'
 
@@ -35,6 +40,7 @@ export function createProvider(config: ProviderConfig): Provider {
 
 export type EmbedderConfig =
   | ({ type: 'hash' } & HashEmbedderOptions)
+  | ({ type: 'openai' } & OpenAIEmbedderConfig)
   | ({ type: 'ollama' } & OllamaEmbedderConfig)
   | ({ type: 'tei' } & TEIEmbedderConfig)
 
@@ -42,6 +48,8 @@ export function createEmbedder(config: EmbedderConfig): Embedder {
   switch (config.type) {
     case 'hash':
       return new HashEmbedder(config)
+    case 'openai':
+      return new OpenAIEmbedder(config)
     case 'ollama':
       return new OllamaEmbedder(config)
     case 'tei':

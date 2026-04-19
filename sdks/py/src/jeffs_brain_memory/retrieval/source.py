@@ -8,7 +8,8 @@ to be safe for concurrent use and must not mutate returned values.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import Any
 from typing import Protocol, Sequence, runtime_checkable
 
 from .types import Filters
@@ -23,6 +24,7 @@ class BM25Hit:
     title: str = ""
     summary: str = ""
     content: str = ""
+    metadata: dict[str, Any] = field(default_factory=dict)
     score: float = 0.0
 
 
@@ -35,6 +37,7 @@ class VectorHit:
     title: str = ""
     summary: str = ""
     content: str = ""
+    metadata: dict[str, Any] = field(default_factory=dict)
     similarity: float = 0.0
 
 

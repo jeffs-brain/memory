@@ -7,6 +7,9 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+
+	"github.com/jeffs-brain/memory/go/memory"
+	"github.com/jeffs-brain/memory/go/query"
 )
 
 // sessionBlock represents a parsed session from retrieved content, with
@@ -241,4 +244,127 @@ func scoreChunkRelevance(chunk string, tokens []string) int {
 		}
 	}
 	return score
+}
+
+// RetrievedPassage is the retrieve-only rendering shape used by the
+// actor-backed LongMemEval path.
+type RetrievedPassage struct {
+	Path      string
+	Score     float64
+	Body      string
+	Date      string
+	SessionID string
+}
+
+// RenderRetrievedPassages renders retrieve-only evidence with explicit
+// boundaries so the reader can distinguish neighbouring hits.
+func RenderRetrievedPassages(passages []RetrievedPassage, question, questionDate string) string {
+	ordered := clusterPassagesBySession(passages)
+	if len(ordered) == 0 {
+		return ""
+	}
+
+	var parts []string
+	if hint := resolvedTemporalHintLine(question, questionDate); hint != "" {
+		parts = append(parts, hint, "")
+	}
+	parts = append(parts, fmt.Sprintf("Retrieved facts (%d):", len(ordered)), "")
+	for i, passage := range ordered {
+		labels := []string{fmt.Sprintf("[%s]", passageDate(passage))}
+		if sessionID := passageSessionID(passage); sessionID != "" {
+			labels = append(labels, fmt.Sprintf("[session=%s]", sessionID))
+		}
+		if source := sourceTagFromPath(passage.Path); source != "" {
+			labels = append(labels, fmt.Sprintf("[%s]", source))
+		}
+		parts = append(parts, fmt.Sprintf("%2d. %s", i+1, strings.Join(labels, " ")))
+		parts = append(parts, passageDisplayBody(passage), "")
+	}
+	return strings.TrimSpace(strings.Join(parts, "\n"))
+}
+
+func clusterPassagesBySession(passages []RetrievedPassage) []RetrievedPassage {
+	if len(passages) <= 1 {
+		out := make([]RetrievedPassage, len(passages))
+		copy(out, passages)
+		return out
+	}
+	order := make([]string, 0, len(passages))
+	groups := make(map[string][]RetrievedPassage, len(passages))
+	for i, passage := range passages {
+		key := passageSessionID(passage)
+		if key == "" {
+			key = fmt.Sprintf("__solo_%d__", i)
+		}
+		if _, ok := groups[key]; !ok {
+			order = append(order, key)
+		}
+		groups[key] = append(groups[key], passage)
+	}
+	out := make([]RetrievedPassage, 0, len(passages))
+	for _, key := range order {
+		out = append(out, groups[key]...)
+	}
+	return out
+}
+
+func passageDate(passage RetrievedPassage) string {
+	if trimmed := strings.TrimSpace(passage.Date); trimmed != "" {
+		return trimmed
+	}
+	for _, key := range []string{"session_date", "observed_on", "modified"} {
+		if value := firstFrontmatterValue(passage.Body, key); value != "" {
+			return value
+		}
+	}
+	return "unknown"
+}
+
+func passageSessionID(passage RetrievedPassage) string {
+	if trimmed := strings.TrimSpace(passage.SessionID); trimmed != "" {
+		return trimmed
+	}
+	return firstFrontmatterValue(passage.Body, "session_id")
+}
+
+func passageDisplayBody(passage RetrievedPassage) string {
+	_, body := memory.ParseFrontmatter(passage.Body)
+	return strings.TrimSpace(body)
+}
+
+func firstFrontmatterValue(content, key string) string {
+	lines := strings.Split(content, "\n")
+	inFrontmatter := false
+	prefix := key + ":"
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "---" {
+			if inFrontmatter {
+				break
+			}
+			inFrontmatter = true
+			continue
+		}
+		if !inFrontmatter || !strings.HasPrefix(trimmed, prefix) {
+			continue
+		}
+		return strings.TrimSpace(strings.TrimPrefix(trimmed, prefix))
+	}
+	return ""
+}
+
+func sourceTagFromPath(path string) string {
+	base := path
+	if idx := strings.LastIndexByte(base, '/'); idx >= 0 && idx < len(base)-1 {
+		base = base[idx+1:]
+	}
+	return strings.TrimSuffix(base, ".md")
+}
+
+func resolvedTemporalHintLine(question, questionDate string) string {
+	expansion := query.ExpandTemporal(question, questionDate)
+	if !expansion.Resolved || len(expansion.DateHints) == 0 {
+		return ""
+	}
+	return fmt.Sprintf("[Resolved temporal references: %s]", strings.Join(expansion.DateHints, ", "))
 }

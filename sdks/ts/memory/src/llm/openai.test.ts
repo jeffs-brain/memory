@@ -10,7 +10,7 @@
 import { describe, expect, it } from 'vitest'
 
 import type { HttpClient } from './http.js'
-import { OpenAIProvider } from './openai.js'
+import { OpenAIEmbedder, OpenAIProvider } from './openai.js'
 import type { StreamEvent } from './types.js'
 
 type RecordedCall = {
@@ -284,5 +284,48 @@ describe('OpenAIProvider streaming', () => {
       expect(done.usage?.inputTokens).toBe(3)
       expect(done.usage?.outputTokens).toBe(1)
     }
+  })
+})
+
+describe('OpenAIEmbedder', () => {
+  it('posts to the embeddings endpoint and preserves response order', async () => {
+    const seen: { url?: string; body?: unknown } = {}
+    const http: HttpClient = {
+      fetch: async (input, init) => {
+        seen.url = typeof input === 'string' ? input : input.toString()
+        seen.body = typeof init?.body === 'string' ? JSON.parse(init.body) : null
+        return new Response(
+          JSON.stringify({
+            data: [
+              { index: 1, embedding: [4, 5, 6] },
+              { index: 0, embedding: [1, 2, 3] },
+            ],
+          }),
+          {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          },
+        )
+      },
+    }
+
+    const embedder = new OpenAIEmbedder({
+      apiKey: 'sk-test',
+      model: 'text-embedding-3-small',
+      baseURL: 'https://proxy.example.com',
+      http,
+    })
+    const out = await embedder.embed(['alpha', 'bravo'])
+
+    expect(seen.url).toBe('https://proxy.example.com/v1/embeddings')
+    expect(seen.body).toEqual({
+      input: ['alpha', 'bravo'],
+      model: 'text-embedding-3-small',
+    })
+    expect(out).toEqual([
+      [1, 2, 3],
+      [4, 5, 6],
+    ])
+    expect(embedder.dimension()).toBe(3)
   })
 })

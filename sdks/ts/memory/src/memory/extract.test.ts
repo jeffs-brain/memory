@@ -498,6 +498,77 @@ describe('extract', () => {
     expect(tenDay?.indexEntry).toContain('10-day break from Instagram')
   })
 
+  it('adds heuristic user facts for relative-time number words', async () => {
+    const store = createMemStore()
+    const cursorStore = createStoreBackedCursorStore(store)
+    const mem = createMemory({
+      store,
+      provider: stubProvider('{"memories":[]}'),
+      cursorStore,
+      scope: 'project',
+      actorId: 'tenant-a',
+      extractMinMessages: 2,
+    })
+
+    const extracted = await mem.extract({
+      messages: [
+        {
+          role: 'user',
+          content:
+            "I'm actually planning to buy a new phone charger, since I lost my old one at the gym about two weeks ago.",
+        },
+        {
+          role: 'assistant',
+          content: 'Buying a new charger makes sense.',
+        },
+      ],
+      sessionId: 'session-charger',
+      sessionDate: '2023/05/26 (Fri) 18:20',
+    })
+
+    const heuristic = extracted.find((memory) =>
+      memory.content.includes('lost my old one at the gym about two weeks ago'),
+    )
+    expect(heuristic).toBeDefined()
+    expect(heuristic?.observedOn).toBe('2023-05-12T00:00:00.000Z')
+  })
+
+  it('adds heuristic user facts for Airbnb booking lead times', async () => {
+    const store = createMemStore()
+    const cursorStore = createStoreBackedCursorStore(store)
+    const mem = createMemory({
+      store,
+      provider: stubProvider('{"memories":[]}'),
+      cursorStore,
+      scope: 'project',
+      actorId: 'tenant-a',
+      extractMinMessages: 2,
+    })
+
+    const extracted = await mem.extract({
+      messages: [
+        {
+          role: 'user',
+          content:
+            "I've had a great experience with Airbnb in the past, like when I stayed in Haight-Ashbury for my best friend's wedding and had to book three months in advance.",
+        },
+        {
+          role: 'assistant',
+          content: 'That sounds like a memorable trip.',
+        },
+      ],
+      sessionId: 'session-airbnb',
+      sessionDate: '2023/05/27 (Sat) 03:04',
+    })
+
+    const heuristic = extracted.find((memory) =>
+      memory.content.includes('Airbnb') &&
+      memory.content.includes('book three months in advance'),
+    )
+    expect(heuristic).toBeDefined()
+    expect(heuristic?.filename).toContain('session-airbnb')
+  })
+
   it('does not infer a pending task from a generic advice question', async () => {
     const store = createMemStore()
     const cursorStore = createStoreBackedCursorStore(store)
@@ -682,6 +753,74 @@ describe('extract', () => {
     expect(heuristic?.filename).toContain('milestone')
   })
 
+  it('adds heuristic user fact notes for month-name dates', async () => {
+    const store = createMemStore()
+    const cursorStore = createStoreBackedCursorStore(store)
+    const mem = createMemory({
+      store,
+      provider: stubProvider('{"memories":[]}'),
+      cursorStore,
+      scope: 'project',
+      actorId: 'tenant-a',
+      extractMinMessages: 2,
+    })
+
+    const extracted = await mem.extract({
+      messages: [
+        {
+          role: 'user',
+          content:
+            "My close friend Rachel got engaged on May 15th, and we're already planning her bachelorette party.",
+        },
+        {
+          role: 'assistant',
+          content: 'That sounds exciting.',
+        },
+      ],
+      sessionId: 'session-rachel',
+      sessionDate: '2023/07/07 (Fri) 04:44',
+    })
+
+    const heuristic = extracted.find((memory) => memory.content.includes('May 15th'))
+    expect(heuristic).toBeDefined()
+    expect(heuristic?.content.startsWith('[Date: 2023-05-15')).toBe(true)
+    expect(heuristic?.observedOn).toBe('2023-05-15T00:00:00.000Z')
+  })
+
+  it('adds milestone notes for group joins with resolved dates', async () => {
+    const store = createMemStore()
+    const cursorStore = createStoreBackedCursorStore(store)
+    const mem = createMemory({
+      store,
+      provider: stubProvider('{"memories":[]}'),
+      cursorStore,
+      scope: 'project',
+      actorId: 'tenant-a',
+      extractMinMessages: 2,
+    })
+
+    const extracted = await mem.extract({
+      messages: [
+        {
+          role: 'user',
+          content:
+            'I just joined a new book club group called "Page Turners" last week, where we discuss our favourite novels and share recommendations.',
+        },
+        {
+          role: 'assistant',
+          content: 'That sounds like a great group.',
+        },
+      ],
+      sessionId: 'session-page-turners',
+      sessionDate: '2023/05/25 (Thu) 01:50',
+    })
+
+    const heuristic = extracted.find((memory) => memory.content.includes('Page Turners'))
+    expect(heuristic).toBeDefined()
+    expect(heuristic?.content.startsWith('[Date: 2023-05-18')).toBe(true)
+    expect(heuristic?.observedOn).toBe('2023-05-18T00:00:00.000Z')
+  })
+
   it('reshapes appointment notes so the doctor type appears in the summary and index entry', async () => {
     const store = createMemStore()
     const cursorStore = createStoreBackedCursorStore(store)
@@ -768,6 +907,42 @@ describe('extract', () => {
     expect(
       extracted.some((memory) => memory.description.includes('medical appointment')),
     ).toBe(false)
+  })
+
+  it('adds heuristic event notes for religious services', async () => {
+    const store = createMemStore()
+    const cursorStore = createStoreBackedCursorStore(store)
+    const mem = createMemory({
+      store,
+      provider: stubProvider('{"memories":[]}'),
+      cursorStore,
+      scope: 'project',
+      actorId: 'tenant-a',
+      extractMinMessages: 2,
+    })
+
+    const extracted = await mem.extract({
+      messages: [
+        {
+          role: 'user',
+          content:
+            "I'm glad I got to attend the Maundy Thursday service at the Episcopal Church, it was a beautiful and moving experience.",
+        },
+        {
+          role: 'assistant',
+          content: 'That sounds meaningful.',
+        },
+      ],
+      sessionId: 'session-service',
+      sessionDate: '2023/04/06 (Thu) 05:36',
+    })
+
+    const eventMemory = extracted.find((memory) =>
+      memory.content.includes('Maundy Thursday service at the Episcopal Church'),
+    )
+    expect(eventMemory).toBeDefined()
+    expect(eventMemory?.description).toContain('Episcopal Church')
+    expect(eventMemory?.observedOn).toBe('2023-04-06T05:36:00.000Z')
   })
 
   it('adds heuristic preference notes for recommendation constraints', async () => {

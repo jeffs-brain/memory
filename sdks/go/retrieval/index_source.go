@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/jeffs-brain/memory/go/llm"
 	"github.com/jeffs-brain/memory/go/search"
@@ -89,27 +90,63 @@ func (s *IndexSource) SearchBM25(ctx context.Context, expr string, k int, filter
 	if expr == "" {
 		return nil, nil
 	}
+	searchLimit := k
+	if searchLimit <= 0 {
+		searchLimit = 20
+	}
+	if filters.HasAny() {
+		searchLimit = max(searchLimit*10, 200)
+	}
 	opts := search.SearchOpts{
-		Scope:       filters.Scope,
-		ProjectSlug: filters.Project,
-		MaxResults:  k,
+		MaxResults: searchLimit,
+	}
+	if scope, ok := exactSearchScope(filters.Scope); ok {
+		opts.Scope = scope
+		if scope == "project_memory" {
+			opts.ProjectSlug = strings.TrimSpace(filters.Project)
+		}
 	}
 	results, err := s.index.SearchRaw(expr, opts)
 	if err != nil {
 		return nil, fmt.Errorf("retrieval: IndexSource SearchRaw: %w", err)
 	}
+	paths := make([]string, 0, len(results))
+	for _, result := range results {
+		paths = append(paths, result.Path)
+	}
+	rows, err := s.index.LookupRows(ctx, paths)
+	if err != nil {
+		return nil, fmt.Errorf("retrieval: IndexSource LookupRows: %w", err)
+	}
+	byPath := make(map[string]search.IndexedRow, len(rows))
+	for _, row := range rows {
+		byPath[row.Path] = row
+	}
 
 	out := make([]BM25Hit, 0, len(results))
 	for _, r := range results {
-		if !pathPassesFilters(r.Path, filters) {
+		row, ok := byPath[r.Path]
+		if !ok || !indexedRowPassesFilters(row, filters) {
 			continue
+		}
+		title := r.Title
+		summary := r.Summary
+		content := r.Snippet
+		if strings.TrimSpace(row.Title) != "" {
+			title = row.Title
+		}
+		if strings.TrimSpace(row.Summary) != "" {
+			summary = row.Summary
+		}
+		if strings.TrimSpace(row.Content) != "" {
+			content = row.Content
 		}
 		out = append(out, BM25Hit{
 			ID:      r.Path,
 			Path:    r.Path,
-			Title:   r.Title,
-			Summary: r.Summary,
-			Content: r.Snippet,
+			Title:   title,
+			Summary: summary,
+			Content: content,
 			Score:   r.Score,
 		})
 		if k > 0 && len(out) >= k {
@@ -129,21 +166,54 @@ func (s *IndexSource) SearchVector(ctx context.Context, embedding []float32, k i
 	if len(embedding) == 0 {
 		return nil, nil
 	}
-	hits, err := s.vectors.Search(ctx, embedding, s.model, k)
+	searchLimit := k
+	if searchLimit <= 0 {
+		searchLimit = 20
+	}
+	if filters.HasAny() {
+		searchLimit = max(searchLimit*10, 200)
+	}
+	hits, err := s.vectors.Search(ctx, embedding, s.model, searchLimit)
 	if err != nil {
 		return nil, fmt.Errorf("retrieval: IndexSource VectorIndex.Search: %w", err)
+	}
+	paths := make([]string, 0, len(hits))
+	for _, hit := range hits {
+		paths = append(paths, hit.Path)
+	}
+	rows, err := s.index.LookupRows(ctx, paths)
+	if err != nil {
+		return nil, fmt.Errorf("retrieval: IndexSource LookupRows: %w", err)
+	}
+	byPath := make(map[string]search.IndexedRow, len(rows))
+	for _, row := range rows {
+		byPath[row.Path] = row
 	}
 
 	out := make([]VectorHit, 0, len(hits))
 	for _, h := range hits {
-		if !pathPassesFilters(h.Path, filters) {
+		row, ok := byPath[h.Path]
+		if !ok || !indexedRowPassesFilters(row, filters) {
 			continue
+		}
+		title := h.Title
+		summary := h.Summary
+		content := ""
+		if strings.TrimSpace(row.Title) != "" {
+			title = row.Title
+		}
+		if strings.TrimSpace(row.Summary) != "" {
+			summary = row.Summary
+		}
+		if strings.TrimSpace(row.Content) != "" {
+			content = row.Content
 		}
 		out = append(out, VectorHit{
 			ID:         h.Path,
 			Path:       h.Path,
-			Title:      h.Title,
-			Summary:    h.Summary,
+			Title:      title,
+			Summary:    summary,
+			Content:    content,
 			Similarity: float64(h.Similarity),
 		})
 		if k > 0 && len(out) >= k {
@@ -193,18 +263,93 @@ func (s *IndexSource) Lookup(ctx context.Context, ids []string) ([]search.Indexe
 	return s.index.LookupRows(ctx, ids)
 }
 
-// pathPassesFilters reports whether path satisfies the path-shaped
-// filters carried on Filters. Scope and Project are pushed into the
-// underlying SearchOpts; this function handles the remaining
-// PathPrefix filter.
-func pathPassesFilters(path string, f Filters) bool {
-	if f.PathPrefix == "" {
-		return true
+func exactSearchScope(scope string) (string, bool) {
+	switch strings.ToLower(strings.TrimSpace(scope)) {
+	case "global", "global_memory":
+		return "global_memory", true
+	case "project", "project_memory":
+		return "project_memory", true
+	case "wiki":
+		return "wiki", true
+	case "raw", "raw_document":
+		return "raw_document", true
+	case "sources":
+		return "sources", true
+	default:
+		return "", false
 	}
-	if len(path) < len(f.PathPrefix) {
+}
+
+func indexedRowPassesFilters(row search.IndexedRow, filters Filters) bool {
+	pathPrefix := strings.TrimSpace(filters.PathPrefix)
+	if pathPrefix != "" && !strings.HasPrefix(row.Path, pathPrefix) {
 		return false
 	}
-	return path[:len(f.PathPrefix)] == f.PathPrefix
+	if !scopeMatchesFilter(row.Scope, filters.Scope) {
+		return false
+	}
+	project := strings.ToLower(strings.TrimSpace(filters.Project))
+	rowProject := strings.ToLower(strings.TrimSpace(row.ProjectSlug))
+	if project != "" && rowProject != "" && rowProject != project {
+		return false
+	}
+	if len(filters.Tags) > 0 {
+		rowTags := make(map[string]bool)
+		for _, tag := range strings.Fields(strings.ToLower(row.Tags)) {
+			rowTags[tag] = true
+		}
+		for _, tag := range filters.Tags {
+			if !rowTags[strings.ToLower(strings.TrimSpace(tag))] {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func scopeMatchesFilter(rowScope, want string) bool {
+	trimmed := strings.ToLower(strings.TrimSpace(want))
+	if trimmed == "" {
+		return true
+	}
+	aliases := map[string]map[string]bool{
+		"memory": {
+			"global_memory":  true,
+			"project_memory": true,
+		},
+		"global": {
+			"global_memory": true,
+		},
+		"global_memory": {
+			"global_memory": true,
+		},
+		"project": {
+			"project_memory": true,
+		},
+		"project_memory": {
+			"project_memory": true,
+		},
+		"raw": {
+			"raw_document": true,
+		},
+		"raw_document": {
+			"raw_document": true,
+		},
+		"wiki": {
+			"wiki": true,
+		},
+		"sources": {
+			"sources": true,
+		},
+	}
+	allowed, ok := aliases[trimmed]
+	if !ok {
+		return strings.ToLower(strings.TrimSpace(rowScope)) == trimmed
+	}
+	if rowScope == "" {
+		return true
+	}
+	return allowed[strings.ToLower(strings.TrimSpace(rowScope))]
 }
 
 // compile-time interface check.

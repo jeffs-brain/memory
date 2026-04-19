@@ -13,8 +13,10 @@ import type {
   ExtractedMemory,
   Scope,
 } from '../memory/index.js'
+import { parseFrontmatter } from '../memory/frontmatter.js'
 import { scopeTopic } from '../memory/index.js'
 import { readerTodayAnchor, resolvedTemporalHintLine } from '../query/index.js'
+import type { RetrievalFilters } from '../retrieval/index.js'
 import {
   ErrConflict,
   ErrInvalidPath,
@@ -450,7 +452,17 @@ export const handleBatchOps = async (
 type SearchRequest = {
   readonly query?: unknown
   readonly topK?: unknown
+  readonly candidateK?: unknown
+  readonly rerankTopN?: unknown
   readonly mode?: unknown
+  readonly questionDate?: unknown
+  readonly filters?: unknown
+}
+
+type SearchResultPayload = {
+  readonly chunks: readonly RetrievedChunk[]
+  readonly trace?: unknown
+  readonly attempts?: readonly unknown[]
 }
 
 export const handleSearch = async (
@@ -465,7 +477,20 @@ export const handleSearch = async (
   const query = typeof body.query === 'string' ? body.query : ''
   if (query === '') return validationError('query required')
   const topK = typeof body.topK === 'number' && body.topK > 0 ? Math.trunc(body.topK) : 10
+  const candidateK =
+    typeof body.candidateK === 'number' && body.candidateK > 0
+      ? Math.trunc(body.candidateK)
+      : undefined
+  const rerankTopN =
+    typeof body.rerankTopN === 'number' && body.rerankTopN > 0
+      ? Math.trunc(body.rerankTopN)
+      : undefined
   const mode = typeof body.mode === 'string' ? body.mode : 'auto'
+  const questionDate =
+    typeof body.questionDate === 'string' && body.questionDate !== ''
+      ? body.questionDate
+      : undefined
+  const filters = parseSearchFilters(body.filters)
 
   // Cheap after the first call — awaits the one-shot brain-open scan,
   // subsequent requests resolve instantly. Subscribe handles later
@@ -473,9 +498,21 @@ export const handleSearch = async (
   await br.refresh()
 
   const started = Date.now()
-  const chunks = await runSearch(br, query, topK, mode)
+  const search = await runSearch(br, query, topK, mode, {
+    ...(candidateK !== undefined ? { candidateK } : {}),
+    ...(rerankTopN !== undefined ? { rerankTopN } : {}),
+    ...(questionDate !== undefined ? { questionDate } : {}),
+    ...(filters !== undefined ? { filters } : {}),
+  })
   const tookMs = Date.now() - started
-  return jsonResponse(200, { chunks, tookMs })
+  return jsonResponse(200, {
+    chunks: search.chunks,
+    tookMs,
+    ...(search.trace !== undefined ? { trace: search.trace } : {}),
+    ...(search.attempts !== undefined && search.attempts.length > 0
+      ? { attempts: search.attempts }
+      : {}),
+  })
 }
 
 type RetrievedChunk = {
@@ -486,6 +523,10 @@ type RetrievedChunk = {
   text: string
   title: string
   summary: string
+  metadata?: Record<string, unknown>
+  bm25Rank?: number
+  vectorSimilarity?: number
+  rerankScore?: number
 }
 
 const runSearch = async (
@@ -493,33 +534,65 @@ const runSearch = async (
   query: string,
   topK: number,
   mode: string,
-): Promise<RetrievedChunk[]> => {
+  opts: {
+    readonly candidateK?: number
+    readonly rerankTopN?: number
+    readonly questionDate?: string
+    readonly filters?: RetrievalFilters
+  } = {},
+): Promise<SearchResultPayload> => {
+  let trace: unknown
+  let attempts: readonly unknown[] | undefined
   if (br.retrieval !== undefined) {
     try {
-      const results = await br.retrieval.search({
+      const response = await br.retrieval.searchRaw({
         query,
+        ...(opts.candidateK !== undefined ? { candidateK: opts.candidateK } : {}),
+        ...(opts.rerankTopN !== undefined ? { rerankTopN: opts.rerankTopN } : {}),
+        ...(opts.questionDate !== undefined ? { questionDate: opts.questionDate } : {}),
+        ...(opts.filters !== undefined ? { filters: opts.filters } : {}),
         topK,
         mode:
-          mode === 'bm25' || mode === 'semantic' || mode === 'hybrid' || mode === 'auto'
+          mode === 'bm25' ||
+          mode === 'semantic' ||
+          mode === 'hybrid' ||
+          mode === 'hybrid-rerank' ||
+          mode === 'auto'
             ? mode
             : 'auto',
       })
-      if (results.length > 0) {
-        return results.map((r) => ({
-          chunkId: r.id,
-          documentId: r.path,
-          path: r.path,
-          score: r.score,
-          text: r.content,
-          title: r.title,
-          summary: r.summary,
-        }))
+      trace = response.trace
+      attempts = response.trace.attempts
+      if (response.results.length > 0) {
+        return {
+          chunks: response.results.map((r) => ({
+            chunkId: r.id,
+            documentId: r.path,
+            path: r.path,
+            score: r.score,
+            text: r.content,
+            title: r.title,
+            summary: r.summary,
+            ...(r.metadata !== undefined ? { metadata: r.metadata } : {}),
+            ...(r.bm25Rank !== undefined ? { bm25Rank: r.bm25Rank } : {}),
+            ...(r.vectorSimilarity !== undefined
+              ? { vectorSimilarity: r.vectorSimilarity }
+              : {}),
+            ...(r.rerankScore !== undefined ? { rerankScore: r.rerankScore } : {}),
+          })),
+          ...(trace !== undefined ? { trace } : {}),
+          ...(attempts !== undefined ? { attempts } : {}),
+        }
       }
     } catch {
       /* fall through to naive scan */
     }
   }
-  return naiveStoreSearch(br, query, topK)
+  return {
+    chunks: await naiveStoreSearch(br, query, topK, opts.filters),
+    ...(trace !== undefined ? { trace } : {}),
+    ...(attempts !== undefined ? { attempts } : {}),
+  }
 }
 
 /** Fallback search used when the sqlite-vec index is unavailable.
@@ -529,6 +602,7 @@ const naiveStoreSearch = async (
   br: BrainResources,
   query: string,
   topK: number,
+  filters: RetrievalFilters | undefined,
 ): Promise<RetrievedChunk[]> => {
   const q = query.toLowerCase()
   const entries = await br.store.list('', { recursive: true, includeGenerated: true })
@@ -536,6 +610,7 @@ const naiveStoreSearch = async (
   for (const entry of entries) {
     if (entry.isDir) continue
     if (!/\.(md|markdown|txt)$/i.test(entry.path)) continue
+    if (!matchesSearchPathFilters(entry.path, filters)) continue
     try {
       const buf = await br.store.read(entry.path)
       const text = buf.toString('utf8')
@@ -548,6 +623,9 @@ const naiveStoreSearch = async (
         text: text.slice(0, 800),
         title: entry.path,
         summary: '',
+        bm25Rank: 0,
+        vectorSimilarity: 0,
+        rerankScore: 0,
       })
       if (hits.length >= topK) break
     } catch {
@@ -562,6 +640,8 @@ export type ReaderMode = 'basic' | 'augmented'
 type AskRequest = {
   readonly question?: unknown
   readonly topK?: unknown
+  readonly candidateK?: unknown
+  readonly rerankTopN?: unknown
   readonly mode?: unknown
   readonly model?: unknown
   readonly readerMode?: unknown
@@ -580,6 +660,14 @@ export const handleAsk = async (
   const question = typeof body.question === 'string' ? body.question : ''
   if (question === '') return validationError('question required')
   const topK = typeof body.topK === 'number' && body.topK > 0 ? Math.trunc(body.topK) : 5
+  const candidateK =
+    typeof body.candidateK === 'number' && body.candidateK > 0
+      ? Math.trunc(body.candidateK)
+      : undefined
+  const rerankTopN =
+    typeof body.rerankTopN === 'number' && body.rerankTopN > 0
+      ? Math.trunc(body.rerankTopN)
+      : undefined
   const mode = typeof body.mode === 'string' ? body.mode : 'auto'
   const model = typeof body.model === 'string' ? body.model : undefined
   const readerMode: ReaderMode = body.readerMode === 'augmented' ? 'augmented' : 'basic'
@@ -589,7 +677,12 @@ export const handleAsk = async (
       : undefined
 
   await br.refresh()
-  const chunks = await runSearch(br, question, topK, mode)
+  const search = await runSearch(br, question, topK, mode, {
+    ...(candidateK !== undefined ? { candidateK } : {}),
+    ...(rerankTopN !== undefined ? { rerankTopN } : {}),
+    ...(questionDate !== undefined ? { questionDate } : {}),
+  })
+  const chunks = search.chunks
 
   const session = startSse(req.signal)
   const { writer } = session
@@ -688,9 +781,9 @@ const buildAskPrompt = (question: string, chunks: readonly RetrievedChunk[]): st
  * buildAugmentedAskPrompt mirrors readerUserTemplate in
  * sdks/go/eval/lme/reader.go so the TS /ask endpoint can opt in to the
  * paper-faithful LongMemEval CoT reader. Wording is byte-identical with
- * the Go template; only the rendered chunk format differs (we keep the
- * /ask "### title (path)\n{text|summary}" layout so callers do not have
- * to pre-format LME-style fact blocks).
+ * the Go template and the rendered evidence mirrors the Go and Python
+ * retrieve-only format: temporal hint, numbered facts, date labels, and
+ * session clustering with frontmatter stripped from the body.
  */
 const buildAugmentedAskPrompt = (
   question: string,
@@ -699,17 +792,7 @@ const buildAugmentedAskPrompt = (
 ): string => {
   const today = readerTodayAnchor(questionDate)
   const date = questionDate !== undefined && questionDate !== '' ? questionDate : 'unknown'
-
-  const evidence: string[] = []
-  for (const c of chunks) {
-    evidence.push(`### ${c.title !== '' ? c.title : c.path} (${c.path})`)
-    evidence.push(c.text !== '' ? c.text : c.summary)
-    evidence.push('')
-  }
-  const evidenceBlock = evidence.join('\n').trimEnd()
-
-  const temporalHint = resolvedTemporalHintLine(question, questionDate)
-  const questionLine = temporalHint !== undefined ? `${question} ${temporalHint}` : question
+  const evidenceBlock = formatAugmentedChunks(question, chunks, questionDate)
 
   return `I will give you several history chats between you and a user. Please answer the question based on the relevant chat history. Answer the question step by step: first extract all the relevant information, and then reason over the information to get the answer.
 
@@ -717,11 +800,19 @@ Resolving conflicting information:
 - Each fact is tagged with a date. When the same topic appears with different values on different dates, prefer the value from the most recent session date.
 - Treat explicit supersession phrases as hard overrides regardless of how often the old value appears: "now", "currently", "most recently", "actually", "correction", "I updated", "I changed", "no longer".
 - Do not vote by frequency. One later correction outweighs any number of earlier mentions.
+- When the question names a specific item, event, place, or descriptor, prefer the fact that matches that target most directly. Do not substitute a broader category match or a different example from the same topic.
+- A direct statement of the full usual value outranks a newer note about only one segment, leg, or example from that routine unless the newer note explicitly says the full value changed.
 
 Enumeration and counting:
 - When the question asks to list, count, enumerate, or total ("how many", "list", "which", "what are all", "total", "in total"), return every matching item you find across the retrieved facts, one per line, each tagged with its session date. Then state the count or total explicitly at the end.
 - Do not summarise into a single sentence when the question demands a list.
 - Add numeric values across sessions when the question asks for a total (hours, days, money, items). Show the arithmetic.
+- For totals over named items, sum only the facts that match those named items directly. Do not add alternative purchases, adjacent examples, or broader category summaries unless the note clearly says they refer to the same item.
+
+Preference-sensitive questions:
+- When the user asks for ideas, advice, inspiration, or recommendations, anchor the answer in explicit prior preferences, recent projects, recurring habits, and stated dislikes from the retrieved facts.
+- Avoid generic suggestions when the history already contains concrete tastes or recent examples. Reuse those specifics directly in the answer.
+- When the question asks for a specific or exact previously recommended item, answer with the narrowest directly supported set from the retrieved facts. Do not widen the answer with adjacent frameworks, resource catalogues, or loosely related examples.
 
 Temporal reasoning:
 - Today is ${today} (this is the current date). Resolve relative references ("recently", "last week", "a few days ago", "this month") against this anchor.
@@ -732,8 +823,184 @@ History Chats:
 ${evidenceBlock}
 
 Current Date: ${date}
-Question: ${questionLine}
+Question: ${question}
 Answer (step by step):`
+}
+
+const formatAugmentedChunks = (
+  question: string,
+  chunks: readonly RetrievedChunk[],
+  questionDate: string | undefined,
+): string => {
+  const ordered = clusterChunksBySession(chunks)
+  if (ordered.length === 0) return ''
+
+  const parts: string[] = []
+  const temporalHint = resolvedTemporalHintLine(question, questionDate)
+  if (temporalHint !== undefined) {
+    parts.push(temporalHint, '')
+  }
+  parts.push(`Retrieved facts (${ordered.length}):`, '')
+  for (const [index, chunk] of ordered.entries()) {
+    const labels = [`[${chunkDate(chunk) || 'unknown'}]`]
+    const sessionId = chunkSessionId(chunk)
+    if (sessionId !== '') labels.push(`[session=${sessionId}]`)
+    const source = sourceTagFromPath(chunk.path)
+    if (source !== '') labels.push(`[${source}]`)
+    parts.push(`${String(index + 1).padStart(2, ' ')}. ${labels.join(' ')}`)
+    parts.push(displayBody(chunk), '')
+  }
+  return parts.join('\n').trim()
+}
+
+const metadataValue = (
+  chunk: RetrievedChunk,
+  ...keys: readonly string[]
+): string => {
+  for (const key of keys) {
+    const value = chunk.metadata?.[key]
+    if (typeof value === 'string' && value.trim() !== '') return value.trim()
+  }
+  return ''
+}
+
+const chunkSessionId = (chunk: RetrievedChunk): string => {
+  const fromMetadata = metadataValue(chunk, 'session_id', 'sessionId')
+  if (fromMetadata !== '') return fromMetadata
+  return firstFrontmatterValue(chunk.text, 'session_id')
+}
+
+const chunkDate = (chunk: RetrievedChunk): string => {
+  const fromMetadata = metadataValue(
+    chunk,
+    'session_date',
+    'sessionDate',
+    'observed_on',
+    'observedOn',
+    'modified',
+  )
+  if (fromMetadata !== '') return fromMetadata
+  for (const key of ['session_date', 'observed_on', 'modified']) {
+    const value = firstFrontmatterValue(chunk.text, key)
+    if (value !== '') return value
+  }
+  return ''
+}
+
+const displayBody = (chunk: RetrievedChunk): string => {
+  const body = (chunk.text !== '' ? chunk.text : chunk.summary).trim()
+  if (!body.startsWith('---')) return body
+  const parsed = parseFrontmatter(body)
+  return parsed.body.trim() !== '' ? parsed.body.trim() : body
+}
+
+const clusterChunksBySession = (
+  chunks: readonly RetrievedChunk[],
+): RetrievedChunk[] => {
+  if (chunks.length <= 1) return [...chunks]
+  const order: string[] = []
+  const groups = new Map<string, RetrievedChunk[]>()
+  for (const [index, chunk] of chunks.entries()) {
+    const key = chunkSessionId(chunk) || `__solo_${String(index)}__`
+    if (!groups.has(key)) order.push(key)
+    const group = groups.get(key) ?? []
+    group.push(chunk)
+    groups.set(key, group)
+  }
+  return order.flatMap((key) => groups.get(key) ?? [])
+}
+
+const firstFrontmatterValue = (content: string, key: string): string => {
+  const lines = content.split('\n')
+  let inFrontmatter = false
+  const prefix = `${key}:`
+  for (const line of lines) {
+    const trimmed = line.trim()
+    if (trimmed === '---') {
+      if (inFrontmatter) break
+      inFrontmatter = true
+      continue
+    }
+    if (!inFrontmatter || !trimmed.startsWith(prefix)) continue
+    return trimmed.slice(prefix.length).trim()
+  }
+  return ''
+}
+
+const sourceTagFromPath = (value: string): string => {
+  const base = value.split('/').filter(Boolean).pop() ?? value
+  return base.replace(/\.md$/i, '')
+}
+
+const parseSearchFilters = (raw: unknown): RetrievalFilters | undefined => {
+  if (typeof raw !== 'object' || raw === null) return undefined
+  const value = raw as Record<string, unknown>
+  const tagsRaw = Array.isArray(value.tags) ? value.tags : []
+  const filters: RetrievalFilters = {
+    ...(typeof value.pathPrefix === 'string'
+      ? { pathPrefix: value.pathPrefix }
+      : typeof value.path_prefix === 'string'
+        ? { pathPrefix: value.path_prefix }
+        : {}),
+    ...(typeof value.scope === 'string' ? { scope: value.scope } : {}),
+    ...(typeof value.project === 'string' ? { project: value.project } : {}),
+    ...(tagsRaw.length > 0
+      ? { tags: tagsRaw.filter((tag): tag is string => typeof tag === 'string') }
+      : {}),
+  }
+  return hasSearchFilters(filters) ? filters : undefined
+}
+
+const hasSearchFilters = (filters: RetrievalFilters): boolean =>
+  (filters.pathPrefix?.trim() ?? '') !== '' ||
+  (filters.scope?.trim() ?? '') !== '' ||
+  (filters.project?.trim() ?? '') !== '' ||
+  (filters.tags?.length ?? 0) > 0
+
+const matchesSearchPathFilters = (
+  path: string,
+  filters: RetrievalFilters | undefined,
+): boolean => {
+  if (filters === undefined) return true
+  const pathPrefix = filters.pathPrefix?.trim() ?? ''
+  if (pathPrefix !== '' && !path.startsWith(pathPrefix)) return false
+
+  const scope = filters.scope?.trim().toLowerCase() ?? ''
+  if (scope !== '') {
+    switch (scope) {
+      case 'global':
+      case 'global_memory':
+        if (!path.startsWith('memory/global/')) return false
+        break
+      case 'project':
+      case 'project_memory':
+        if (!path.startsWith('memory/project/')) return false
+        break
+      case 'agent':
+      case 'agent_memory':
+        if (!path.startsWith('memory/agent/')) return false
+        break
+      case 'wiki':
+        if (!path.startsWith('wiki/')) return false
+        break
+      case 'raw':
+      case 'raw_document':
+        if (!path.startsWith('raw/')) return false
+        break
+      default:
+        return false
+    }
+  }
+
+  const project = filters.project?.trim().toLowerCase() ?? ''
+  if (project !== '') {
+    const segments = path.split('/')
+    if (segments[0] !== 'memory' || segments[1] !== 'project' || segments[2]?.toLowerCase() !== project) {
+      return false
+    }
+  }
+
+  return true
 }
 
 type IngestFileRequest = {
@@ -1016,6 +1283,8 @@ type ExtractRequestWire = {
   readonly model?: unknown
   readonly scope?: unknown
   readonly actorId?: unknown
+  readonly sessionId?: unknown
+  readonly sessionDate?: unknown
   readonly messages?: unknown
 }
 
@@ -1050,8 +1319,18 @@ export const handleExtract = async (
   if (msgs instanceof Response) return msgs
   const scope = asScope(body.scope)
   const actorId = typeof body.actorId === 'string' && body.actorId !== '' ? body.actorId : 'daemon'
+  const sessionId =
+    typeof body.sessionId === 'string' && body.sessionId !== '' ? body.sessionId : undefined
+  const sessionDate =
+    typeof body.sessionDate === 'string' && body.sessionDate !== '' ? body.sessionDate : undefined
   try {
-    const extracted = await br.memory.extract({ messages: msgs, actorId, scope })
+    const extracted = await br.memory.extract({
+      messages: msgs,
+      actorId,
+      scope,
+      ...(sessionId !== undefined ? { sessionId } : {}),
+      ...(sessionDate !== undefined ? { sessionDate } : {}),
+    })
     return jsonResponse(200, { memories: extracted as readonly ExtractedMemory[] })
   } catch (err) {
     return respondError(err)

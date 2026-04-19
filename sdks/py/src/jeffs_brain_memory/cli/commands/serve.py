@@ -24,7 +24,23 @@ import click
     default=None,
     help="Shared bearer token (default $JB_AUTH_TOKEN, optional).",
 )
-def serve(addr: str | None, root: str | None, auth_token: str | None) -> None:
+@click.option(
+    "--contextualise/--no-contextualise",
+    default=None,
+    help="Enable live extraction contextualisation.",
+)
+@click.option(
+    "--contextualise-cache-dir",
+    default=None,
+    help="Optional cache directory for live extraction contextualisation.",
+)
+def serve(
+    addr: str | None,
+    root: str | None,
+    auth_token: str | None,
+    contextualise: bool | None,
+    contextualise_cache_dir: str | None,
+) -> None:
     """Start the HTTP daemon matching `spec/PROTOCOL.md`."""
     import uvicorn
 
@@ -33,7 +49,20 @@ def serve(addr: str | None, root: str | None, auth_token: str | None) -> None:
     resolved_addr = addr or os.environ.get("JB_ADDR") or ":8080"
     host, port = _parse_addr(resolved_addr)
     token = auth_token or os.environ.get("JB_AUTH_TOKEN")
-    app = create_app(root=root, auth_token=token)
+    resolved_contextualise = (
+        contextualise
+        if contextualise is not None
+        else _env_enabled(os.environ.get("JB_CONTEXTUALISE"))
+    )
+    app = create_app(
+        root=root,
+        auth_token=token,
+        contextualise=resolved_contextualise,
+        contextualise_cache_dir=(
+            contextualise_cache_dir
+            or os.environ.get("JB_CONTEXTUALISE_CACHE_DIR")
+        ),
+    )
     uvicorn.run(app, host=host, port=port, log_level="info")
 
 
@@ -58,3 +87,9 @@ def _parse_addr(value: str) -> tuple[str, int]:
     except ValueError as exc:
         raise click.BadParameter(f"--addr port must be numeric: {value!r}") from exc
     return host, port
+
+
+def _env_enabled(value: str | None) -> bool:
+    if value is None:
+        return False
+    return value.strip().lower() in {"1", "true", "yes", "on"}

@@ -10,6 +10,7 @@
 import { noopLogger } from '../llm/index.js'
 import type { ChangeEvent } from '../store/index.js'
 import { createConsolidate } from './consolidate.js'
+import { createContextualPrefixBuilder } from './contextual-prefix.js'
 import { createContextualise } from './contextualise.js'
 import { createEpisodeRecorder } from './episodes.js'
 import { createExtract, defaultExtractConfig } from './extract.js'
@@ -46,6 +47,9 @@ export const createMemory = (opts: MemoryOpts): Memory => {
     defaultActorId: opts.actorId,
     minMessages: extractMinMessages,
     maxRecent: extractMaxRecent,
+    ...(opts.contextualPrefixBuilder !== undefined
+      ? { contextualPrefixBuilder: opts.contextualPrefixBuilder }
+      : {}),
   })
 
   const reflect = createReflect({
@@ -151,6 +155,7 @@ export type {
   ConsolidationOp,
   ConsolidationPayload,
   ConsolidationReport,
+  ContextualPrefixBuilder,
   ContextualiseArgs,
   CursorStore,
   ExtractArgs,
@@ -194,6 +199,7 @@ export {
   RECALL_SELECTOR_SYSTEM_PROMPT,
   REFLECTION_SYSTEM_PROMPT,
 } from './prompts.js'
+export { createContextualPrefixBuilder, type ContextualPrefixBuilderConfig } from './contextual-prefix.js'
 
 export {
   MEMORY_AGENT_PREFIX,

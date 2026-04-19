@@ -29,6 +29,9 @@ class MemoryFrontmatter:
     name: str = ""
     description: str = ""
     tags: list[str] = field(default_factory=list)
+    session_id: str = ""
+    session_date: str = ""
+    observed_on: str = ""
     modified: str = ""
     superseded_by: str = ""
 
@@ -40,6 +43,9 @@ class WikiFrontmatter:
     title: str = ""
     summary: str = ""
     tags: list[str] = field(default_factory=list)
+    session_id: str = ""
+    session_date: str = ""
+    observed_on: str = ""
     modified: str = ""
 
 
@@ -158,6 +164,9 @@ def parse_memory_frontmatter(content: str) -> tuple[MemoryFrontmatter, str]:
         name=_coerce_str(fields.get("name")),
         description=_coerce_str(fields.get("description")),
         tags=_coerce_tags(fields.get("tags")),
+        session_id=_coerce_str(fields.get("session_id")),
+        session_date=_coerce_str(fields.get("session_date")),
+        observed_on=_coerce_str(fields.get("observed_on")),
         modified=_coerce_str(fields.get("modified")),
         superseded_by=_coerce_str(fields.get("superseded_by")),
     )
@@ -176,6 +185,9 @@ def parse_wiki_frontmatter(content: str) -> tuple[WikiFrontmatter, str]:
         title=_coerce_str(fields.get("title")),
         summary=_coerce_str(fields.get("summary")),
         tags=_coerce_tags(fields.get("tags")),
+        session_id=_coerce_str(fields.get("session_id")),
+        session_date=_coerce_str(fields.get("session_date")),
+        observed_on=_coerce_str(fields.get("observed_on")),
         modified=_coerce_str(fields.get("modified")),
     )
     return fm, body

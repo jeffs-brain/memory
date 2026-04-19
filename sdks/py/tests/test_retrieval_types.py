@@ -33,6 +33,7 @@ def test_filters_has_any_detects_non_zero_fields() -> None:
 def test_request_defaults_are_sane() -> None:
     req = Request(query="hello")
     assert req.query == "hello"
+    assert req.question_date == ""
     assert req.top_k == 0
     assert req.mode == Mode.AUTO
     assert req.filters.path_prefix == ""

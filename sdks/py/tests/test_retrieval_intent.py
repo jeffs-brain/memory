@@ -46,6 +46,8 @@ def test_detect_preference(query: str, want: bool) -> None:
         ("was I booked for dinner", True),
         ("were I the one who ordered", True),
         ("did i travelled to bosch yesterday", True),
+        ("How long is my daily commute to work?", True),
+        ("What specific languages did you recommend for learning back-end programming?", True),
         ("recommend a flat white", False),
         ("non english text abc xyz", False),
     ],
@@ -106,6 +108,15 @@ def test_concrete_fact_user_fact_path() -> None:
     )
     text = retrieval_result_text(r)
     assert concrete_fact_intent_multiplier(r, text) == 2.2
+
+
+def test_concrete_fact_question_like_user_fact_penalty() -> None:
+    r = RetrievedChunk(
+        path="memory/global/user-fact-commute-question.md",
+        text="What are some tips for staying awake during morning commutes?",
+    )
+    text = retrieval_result_text(r)
+    assert concrete_fact_intent_multiplier(r, text) == pytest.approx(0.99)
 
 
 def test_concrete_fact_rollup_penalty() -> None:

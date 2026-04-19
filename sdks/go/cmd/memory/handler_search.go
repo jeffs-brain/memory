@@ -12,10 +12,13 @@ import (
 )
 
 type searchRequest struct {
-	Query   string            `json:"query"`
-	TopK    int               `json:"topK,omitempty"`
-	Mode    string            `json:"mode,omitempty"`
-	Filters retrieval.Filters `json:"filters,omitempty"`
+	Query        string            `json:"query"`
+	QuestionDate string            `json:"questionDate,omitempty"`
+	TopK         int               `json:"topK,omitempty"`
+	CandidateK   int               `json:"candidateK,omitempty"`
+	RerankTopN   int               `json:"rerankTopN,omitempty"`
+	Mode         string            `json:"mode,omitempty"`
+	Filters      retrieval.Filters `json:"filters,omitempty"`
 }
 
 type searchResponse struct {
@@ -72,11 +75,14 @@ func (d *Daemon) runSearchPipeline(r *http.Request, br *BrainResources, req sear
 			mode = retrieval.ModeAuto
 		}
 		resp, err := br.Retriever.Retrieve(r.Context(), retrieval.Request{
-			Query:   req.Query,
-			TopK:    req.TopK,
-			Mode:    mode,
-			BrainID: br.ID,
-			Filters: req.Filters,
+			Query:        req.Query,
+			QuestionDate: req.QuestionDate,
+			TopK:         req.TopK,
+			CandidateK:   req.CandidateK,
+			RerankTopN:   req.RerankTopN,
+			Mode:         mode,
+			BrainID:      br.ID,
+			Filters:      req.Filters,
 		})
 		if err == nil {
 			took := int64(resp.TookMs)
@@ -90,13 +96,13 @@ func (d *Daemon) runSearchPipeline(r *http.Request, br *BrainResources, req sear
 		return nil, nil, nil, 0
 	}
 	started := time.Now()
-	results, err := br.Search.Search(req.Query, search.SearchOpts{MaxResults: req.TopK})
+	results, err := br.Search.Search(augmentRetrievalQuery(req.Query, req.QuestionDate), search.SearchOpts{MaxResults: req.TopK})
 	if err != nil {
 		return nil, nil, nil, time.Since(started).Milliseconds()
 	}
 	chunks := make([]retrieval.RetrievedChunk, 0, len(results))
 	for _, h := range results {
-		chunks = append(chunks, retrieval.RetrievedChunk{
+		chunk := retrieval.RetrievedChunk{
 			ChunkID:    h.Path,
 			DocumentID: h.Path,
 			Path:       h.Path,
@@ -104,7 +110,8 @@ func (d *Daemon) runSearchPipeline(r *http.Request, br *BrainResources, req sear
 			Text:       h.Snippet,
 			Title:      h.Title,
 			Summary:    h.Summary,
-		})
+		}
+		chunks = append(chunks, hydrateFallbackChunk(r.Context(), br.Store, chunk, h.SessionDate))
 	}
 	return chunks, nil, nil, time.Since(started).Milliseconds()
 }

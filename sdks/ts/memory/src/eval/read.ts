@@ -101,6 +101,8 @@ Resolving conflicting information:
 - Treat explicit supersession phrases as hard overrides regardless of how often the old value appears: "now", "currently", "most recently", "actually", "correction", "I updated", "I changed", "no longer".
 - Do not vote by frequency. One later correction outweighs any number of earlier mentions.
 - Never use a fact dated after the current date.
+- When the question names a specific item, event, place, or descriptor, prefer the fact that matches that target most directly. Do not substitute a broader category match or a different example from the same topic.
+- A direct statement of the full usual value outranks a newer note about only one segment, leg, or example from that routine unless the newer note explicitly says the full value changed.
 
 Enumeration and counting:
 - When the question asks to list, count, enumerate, or total ("how many", "list", "which", "what are all", "total", "in total"), return every matching item you find across the retrieved facts, one per line, each tagged with its session date. Then state the count or total explicitly at the end.
@@ -109,6 +111,7 @@ Enumeration and counting:
 - When both atomic event facts and retrospective roll-up summaries are present, prefer the atomic event facts and avoid double counting the roll-up.
 - Treat first-person past-tense purchases, gifts, sales, earnings, completions, or submissions as confirmed historical events even when they appear inside a planning or advice conversation. Exclude only clearly hypothetical or planned amounts.
 - If a spending or earnings question does not explicitly restrict the timeframe ("today", "this time", "most recent", "current"), include all confirmed historical amounts for the same subject across sessions.
+- For totals over named items, sum only the facts that match those named items directly. Do not add alternative purchases, adjacent examples, or broader category summaries unless the note clearly says they refer to the same item.
 
 Temporal reasoning:
 - Today is %TODAY% (this is the current date). Resolve relative references ("recently", "last week", "a few days ago", "this month") against this anchor.
@@ -120,6 +123,7 @@ Preference questions:
 - Infer durable preferences from concrete desired features or liked attributes even when the earlier example was tied to a different city, venue, or product.
 - When concrete amenities or features are present, prefer them over generic travel style or budget signals.
 - Ignore unrelated hostel, budget, or solo-travel examples when the retrieved facts already contain a clearer accommodation-feature preference and the question does not ask about price.
+- When the question asks for a specific or exact previously recommended item, answer with the narrowest directly supported set from the retrieved facts. Do not widen the answer with adjacent frameworks, resource catalogues, or loosely related examples.
 
 History Chats:
 

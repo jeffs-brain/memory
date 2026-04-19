@@ -97,14 +97,19 @@ memory recall "style preferences" --limit 5
 Start the HTTP daemon that speaks the [protocol](/spec/protocol/).
 
 ```bash
-memory serve --host 127.0.0.1 --port 8080
+memory serve --addr 127.0.0.1:8080
 ```
 
 Flags:
 
-- `--host <host>` — bind address (default `127.0.0.1`).
-- `--port <port>` — listen port (default `8080`).
-- `--home <path>` — override `JB_HOME` for this process.
+- `--addr <host:port>` — shared bind address flag across Go, Python, and the cross-SDK runner.
+- `--root <path>` — override `JB_HOME` for this process.
+- `--auth-token <token>` — optional shared bearer token for the daemon.
+
+TypeScript also accepts the older `--host` and `--port` pair, but `--addr` is the cross-SDK canonical form.
+
+Cross-SDK eval parity against `memory serve` is standardised around three scenarios: `ask-basic`, `ask-augmented`, and `search-retrieve-only`.
+The shared runner defaults `--mode` to `auto`, matching daemon semantics and leaving resolution inside the SDK.
 
 ## `memory acl` (TS only)
 
@@ -114,9 +119,9 @@ Manage OpenFGA-backed authorisation when the brain is wired to `@jeffs-brain/mem
 
 Helpers for the git-backed store: sign a commit, push, fetch, check status. See [`git.ts`](https://github.com/jeffs-brain/memory/blob/main/sdks/ts/memory/src/cli/commands/git.ts).
 
-## `memory eval` (TS only)
+## `memory eval` (Go and TS native runners)
 
-Run the Long-Memory-Eval harness against the brain. See [`lme.ts`](https://github.com/jeffs-brain/memory/blob/main/sdks/ts/memory/src/cli/commands/lme.ts).
+Run the SDK-native LongMemEval harness against the brain. The shared cross-SDK runner in [`eval/`](https://github.com/jeffs-brain/memory/tree/main/eval) only covers the daemon scenarios `ask-basic`, `ask-augmented`, and `search-retrieve-only`.
 
 ## `memory create-brain` / `memory list-brains` (Go only)
 
@@ -124,23 +129,6 @@ Create or list brains hosted at the configured endpoint. Mirror [`memory_create_
 
 ## Parity notes
 
-Subcommand coverage differs by SDK while implementations catch up. The canonical surface every SDK must eventually expose:
+Cross-SDK parity today is narrower than full CLI parity. The shared benchmark and docs only assume three daemon scenarios exposed by `memory serve` on every SDK: `ask-basic`, `ask-augmented`, and `search-retrieve-only`.
 
-| Command         | TS    | Go    | Py            |
-| --------------- | ----- | ----- | ------------- |
-| `init`          | yes   | stub  | stub          |
-| `ingest`        | yes   | stub  | stub          |
-| `search`        | yes   | yes   | stub          |
-| `extract`       | yes   | stub  | stub          |
-| `reflect`       | yes   | stub  | stub          |
-| `consolidate`   | yes   | stub  | stub          |
-| `serve`         | yes   | yes   | stub          |
-| `remember`      | -     | stub  | -             |
-| `recall`        | -     | stub  | -             |
-| `create-brain`  | -     | stub  | -             |
-| `list-brains`   | -     | stub  | -             |
-| `acl`           | yes   | -     | -             |
-| `git`           | yes   | -     | -             |
-| `eval`          | yes   | stub  | -             |
-
-TODO: surface the Go `remember`, `recall`, `create-brain`, `list-brains` commands as first-class CLI verbs in TS and Py as well, once those land.
+Full LongMemEval replay, replay ingest, and agentic loops are native-runner concerns rather than cross-SDK ones. Go provides the reference `memory eval lme run` flow; TypeScript keeps its own native `memory eval lme` commands; Python currently participates through the shared daemon scenarios.

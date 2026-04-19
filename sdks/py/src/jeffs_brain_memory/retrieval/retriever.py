@@ -9,8 +9,10 @@ optional rerank pass, unanimity shortcut.
 from __future__ import annotations
 
 import asyncio
+import re
 import time
-from typing import Awaitable, Callable
+from datetime import datetime
+from typing import Any, Awaitable, Callable
 
 from ..llm.provider import Embedder
 from .intent import (
@@ -27,6 +29,13 @@ from .retry import (
 )
 from .rrf import RRF_DEFAULT_K, RRFCandidate, reciprocal_rank_fusion
 from .source import BM25Hit, Source, TrigramChunk, VectorHit
+from .temporal import (
+    build_bm25_query_plan,
+    compile_bm25_fanout_query,
+    resolved_date_hints,
+    temporal_query_variants,
+)
+from ..query.temporal import parse_question_date
 from .types import (
     Attempt,
     Filters,
@@ -40,8 +49,28 @@ from .types import (
 DEFAULT_TOP_K = 10
 DEFAULT_CANDIDATE_K = 60
 DEFAULT_RERANK_TOP_N = 20
+PHRASE_PROBE_MIN_TOKENS = 2
+PHRASE_PROBE_MAX_TOKENS = 4
+BM25_FANOUT_PRIMARY_WINDOW = 10
+BM25_FANOUT_MIN_OVERLAP = 2
 UNANIMITY_WINDOW = 3
 UNANIMITY_AGREE_MIN = 2
+RECENCY_QUERY_RE = re.compile(
+    r"\b(?:most recent|latest|last time|current(?:ly)?|now|newest)\b",
+    re.IGNORECASE,
+)
+EARLIEST_QUERY_RE = re.compile(
+    r"\b(?:earliest|first|initial|original|at first)\b",
+    re.IGNORECASE,
+)
+INLINE_DATE_TAG_RE = re.compile(r"\[(?:observed on|date):?\s*([^\]]+)\]", re.IGNORECASE)
+FRONTMATTER_DATE_KEYS = (
+    "observed_on",
+    "observedOn",
+    "session_date",
+    "sessionDate",
+    "modified",
+)
 
 
 # Stopwords type kept permissive so callers can pass the search package's
@@ -58,6 +87,55 @@ def _compile_to_fts(q: str) -> str:
 
 def _pick_id(id_: str, path: str) -> str:
     return id_ if id_ else path
+
+
+def _copy_metadata(metadata: dict[str, Any] | None) -> dict[str, Any]:
+    return dict(metadata) if metadata else {}
+
+
+def _join_bm25_attempt_query(queries: list[str]) -> str:
+    compiled: list[str] = []
+    seen: set[str] = set()
+    for query in queries:
+        expr = _compile_to_fts(query)
+        if not expr or expr in seen:
+            continue
+        seen.add(expr)
+        compiled.append(expr)
+    return " || ".join(compiled)
+
+
+def _bm25_fanout_overlap(
+    primary: list[RRFCandidate], secondary: list[RRFCandidate]
+) -> int:
+    if not primary or not secondary:
+        return 0
+    primary_ids = {
+        candidate.id
+        for candidate in primary[:BM25_FANOUT_PRIMARY_WINDOW]
+        if candidate.id
+    }
+    if not primary_ids:
+        return 0
+    overlap = 0
+    for candidate in secondary[:BM25_FANOUT_PRIMARY_WINDOW]:
+        if candidate.id not in primary_ids:
+            continue
+        overlap += 1
+        if overlap >= BM25_FANOUT_MIN_OVERLAP:
+            return overlap
+    return overlap
+
+
+def _should_bypass_bm25_fanout_overlap_gate(expr: str) -> bool:
+    if any(ch.isdigit() for ch in expr):
+        return True
+    terms = 0
+    for token in expr.split():
+        if token in {"AND", "OR", "NOT"}:
+            continue
+        terms += 1
+    return PHRASE_PROBE_MIN_TOKENS <= terms <= PHRASE_PROBE_MAX_TOKENS
 
 
 def _resolve_mode(requested: Mode, has_embedder: bool) -> tuple[Mode, bool]:
@@ -100,6 +178,7 @@ def _single_list(cands: list[RRFCandidate], k: int) -> list[RetrievedChunk]:
             text=c.content,
             title=c.title,
             summary=c.summary,
+            metadata=_copy_metadata(c.metadata),
         )
         if c.have_bm25_rank:
             chunk.bm25_rank = c.bm25_rank
@@ -193,6 +272,7 @@ class Retriever:
         final = await self._maybe_rerank(
             req, mode, fused, bm_candidates, vec_candidates, rerank_top_n, trace
         )
+        final = _reweight_temporal_ranking(req.query, req.question_date, final)
 
         if len(final) > top_k:
             final = final[:top_k]
@@ -205,8 +285,15 @@ class Retriever:
     ) -> tuple[list[RRFCandidate], list[Attempt], bool]:
         attempts: list[Attempt] = []
 
-        initial_expr = _compile_to_fts(req.query)
-        candidates = await self._run_bm25(initial_expr, candidate_k, req.filters)
+        initial_plan = build_bm25_query_plan(req.query, req.question_date)
+        initial_queries = initial_plan.queries
+        initial_expr = _join_bm25_attempt_query(initial_queries)
+        candidates = await self._run_bm25_queries(
+            initial_queries,
+            initial_plan.phrase_probes,
+            candidate_k,
+            req.filters,
+        )
         attempts.append(
             Attempt(
                 rung=0,
@@ -226,8 +313,14 @@ class Retriever:
         lowered_raw = req.query.strip().lower()
         strongest = strongest_term(req.query)
         if strongest and strongest != lowered_raw:
-            expr = _compile_to_fts(strongest)
-            hits = await self._run_bm25(expr, candidate_k, req.filters)
+            strongest_plan = build_bm25_query_plan(strongest, req.question_date)
+            expr = _join_bm25_attempt_query(strongest_plan.queries)
+            hits = await self._run_bm25_queries(
+                strongest_plan.queries,
+                strongest_plan.phrase_probes,
+                candidate_k,
+                req.filters,
+            )
             attempts.append(
                 Attempt(
                     rung=1,
@@ -247,8 +340,14 @@ class Retriever:
         # Rung 3: refreshed sanitised.
         sanitised = sanitise_query(req.query)
         if sanitised:
-            expr = _compile_to_fts(sanitised)
-            hits = await self._run_bm25(expr, candidate_k, req.filters)
+            sanitised_plan = build_bm25_query_plan(sanitised, req.question_date)
+            expr = _join_bm25_attempt_query(sanitised_plan.queries)
+            hits = await self._run_bm25_queries(
+                sanitised_plan.queries,
+                sanitised_plan.phrase_probes,
+                candidate_k,
+                req.filters,
+            )
             attempts.append(
                 Attempt(
                     rung=3,
@@ -265,8 +364,16 @@ class Retriever:
         # Rung 4: refreshed strongest term.
         strongest_of_sanitised = strongest_term(sanitised)
         if strongest_of_sanitised:
-            expr = _compile_to_fts(strongest_of_sanitised)
-            hits = await self._run_bm25(expr, candidate_k, req.filters)
+            strongest_plan = build_bm25_query_plan(
+                strongest_of_sanitised, req.question_date
+            )
+            expr = _join_bm25_attempt_query(strongest_plan.queries)
+            hits = await self._run_bm25_queries(
+                strongest_plan.queries,
+                strongest_plan.phrase_probes,
+                candidate_k,
+                req.filters,
+            )
             attempts.append(
                 Attempt(
                     rung=4,
@@ -329,6 +436,50 @@ class Retriever:
                     title=h.title,
                     summary=h.summary,
                     content=h.content,
+                    metadata=_copy_metadata(h.metadata),
+                    bm25_rank=i,
+                    have_bm25_rank=True,
+                )
+            )
+        return out
+
+    async def _run_bm25_queries(
+        self, queries: list[str], phrase_probes: list[str], k: int, filters: Filters
+    ) -> list[RRFCandidate]:
+        if not queries:
+            return []
+        primary_hits = await self._run_bm25(
+            _compile_to_fts(compile_bm25_fanout_query(queries[0], phrase_probes)),
+            k,
+            filters,
+        )
+        lists: list[list[RRFCandidate]] = [primary_hits] if primary_hits else []
+        for query in queries[1:]:
+            expr = _compile_to_fts(compile_bm25_fanout_query(query, phrase_probes))
+            hits = await self._run_bm25(expr, k, filters)
+            if not hits:
+                continue
+            if (
+                not primary_hits
+                or _should_bypass_bm25_fanout_overlap_gate(expr)
+                or _bm25_fanout_overlap(primary_hits, hits) >= BM25_FANOUT_MIN_OVERLAP
+            ):
+                lists.append(hits)
+        if not lists:
+            return []
+        if len(lists) == 1:
+            return lists[0]
+        fused = reciprocal_rank_fusion(lists, self._rrf_k)
+        out: list[RRFCandidate] = []
+        for i, chunk in enumerate(fused):
+            out.append(
+                RRFCandidate(
+                    id=_pick_id(chunk.chunk_id, chunk.path),
+                    path=chunk.path,
+                    title=chunk.title,
+                    summary=chunk.summary,
+                    content=chunk.text,
+                    metadata=_copy_metadata(chunk.metadata),
                     bm25_rank=i,
                     have_bm25_rank=True,
                 )
@@ -355,6 +506,7 @@ class Retriever:
                     title=h.title,
                     summary=h.summary,
                     content=h.content,
+                    metadata=_copy_metadata(h.metadata),
                     vector_similarity=h.similarity,
                     have_vector_sim=True,
                     bm25_rank=i,
@@ -455,6 +607,150 @@ def _reranker_name(reranker: Reranker) -> str:
         except Exception:
             return "custom"
     return "custom"
+
+
+def _reweight_temporal_ranking(
+    query: str,
+    question_date: str,
+    results: list[RetrievedChunk],
+) -> list[RetrievedChunk]:
+    if not results:
+        return list(results)
+
+    anchor_time = _parse_candidate_time(question_date)
+    filtered_results = list(results)
+    if anchor_time is not None:
+        filtered_results = []
+        for chunk in results:
+            candidate_time = _extract_candidate_time(chunk)
+            if candidate_time is not None and candidate_time > anchor_time:
+                continue
+            filtered_results.append(chunk)
+        if not filtered_results:
+            return []
+
+    wants_recency = RECENCY_QUERY_RE.search(query) is not None
+    wants_earliest = not wants_recency and EARLIEST_QUERY_RE.search(query) is not None
+    hint_times = _dedupe_datetimes(
+        [_parse_candidate_time(hint) for hint in resolved_date_hints(query, question_date)]
+    )
+    hint_times = [value for value in hint_times if value is not None]
+    if not wants_recency and not wants_earliest and not hint_times:
+        return filtered_results
+
+    candidate_times = [_extract_candidate_time(result) for result in filtered_results]
+    dated = [value for value in candidate_times if value is not None]
+    if not dated:
+        return filtered_results
+
+    min_time = min(dated)
+    max_time = max(dated)
+
+    scored: list[tuple[RetrievedChunk, int]] = []
+    for index, chunk in enumerate(filtered_results):
+        candidate_time = candidate_times[index]
+        multiplier = 1.0
+        if candidate_time is not None and hint_times:
+            multiplier *= _temporal_hint_multiplier(candidate_time, hint_times)
+        if candidate_time is not None and max_time > min_time:
+            norm = (candidate_time.timestamp() - min_time.timestamp()) / (
+                max_time.timestamp() - min_time.timestamp()
+            )
+            if wants_recency:
+                multiplier *= 1.0 + 0.25 * norm
+            if wants_earliest:
+                multiplier *= 1.0 + 0.25 * (1.0 - norm)
+        elif candidate_time is None and (wants_recency or wants_earliest):
+            multiplier *= 0.95
+        scored.append(
+            (
+                RetrievedChunk(
+                    chunk_id=chunk.chunk_id,
+                    document_id=chunk.document_id,
+                    path=chunk.path,
+                    score=chunk.score * multiplier,
+                    text=chunk.text,
+                    title=chunk.title,
+                    summary=chunk.summary,
+                    metadata=dict(chunk.metadata),
+                    bm25_rank=chunk.bm25_rank,
+                    vector_similarity=chunk.vector_similarity,
+                    rerank_score=chunk.rerank_score,
+                ),
+                index,
+            )
+        )
+
+    scored.sort(key=lambda item: (-item[0].score, item[1]))
+    return [chunk for chunk, _ in scored]
+
+
+def _temporal_hint_multiplier(candidate_time: datetime, hint_times: list[datetime]) -> float:
+    nearest_days = min(
+        abs((candidate_time - hint).total_seconds()) / 86_400.0 for hint in hint_times
+    )
+    if nearest_days <= 1:
+        return 1.35
+    if nearest_days <= 7:
+        return 1.20
+    if nearest_days <= 30:
+        return 1.08
+    return 0.92
+
+
+def _extract_candidate_time(chunk: RetrievedChunk) -> datetime | None:
+    metadata_time = _extract_metadata_time(chunk.metadata)
+    if metadata_time is not None:
+        return metadata_time
+    return _extract_time_from_text(chunk.text)
+
+
+def _extract_metadata_time(metadata: dict[str, Any]) -> datetime | None:
+    for key in FRONTMATTER_DATE_KEYS:
+        value = metadata.get(key)
+        if not isinstance(value, str):
+            continue
+        parsed = _parse_candidate_time(value)
+        if parsed is not None:
+            return parsed
+    return None
+
+
+def _extract_time_from_text(text: str) -> datetime | None:
+    match = INLINE_DATE_TAG_RE.search(text)
+    if match is not None:
+        parsed = _parse_candidate_time(match.group(1))
+        if parsed is not None:
+            return parsed
+    for key in FRONTMATTER_DATE_KEYS:
+        match = re.search(rf"^{re.escape(key)}:\s*(.+)$", text, re.IGNORECASE | re.MULTILINE)
+        if match is None:
+            continue
+        parsed = _parse_candidate_time(match.group(1))
+        if parsed is not None:
+            return parsed
+    return None
+
+
+def _parse_candidate_time(value: str) -> datetime | None:
+    trimmed = value.strip()
+    if not trimmed:
+        return None
+    try:
+        return parse_question_date(trimmed)
+    except ValueError:
+        return None
+
+
+def _dedupe_datetimes(values: list[datetime]) -> list[datetime]:
+    seen: set[datetime] = set()
+    out: list[datetime] = []
+    for value in values:
+        if value in seen:
+            continue
+        seen.add(value)
+        out.append(value)
+    return out
 
 
 def _force_refresh_index() -> None:

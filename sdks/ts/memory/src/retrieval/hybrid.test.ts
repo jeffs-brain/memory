@@ -133,6 +133,309 @@ describe('createRetrieval happy path', () => {
   })
 })
 
+describe('createRetrieval reusable request surface', () => {
+  it('applies questionDate-driven temporal augmentation inside retrieval', async () => {
+    const idx = await fresh()
+
+    idx.upsertChunks([
+      {
+        id: 'friday',
+        path: 'memory/global/friday.md',
+        title: 'Weekly note',
+        summary: 'Met the supplier',
+        tags: ['2024/03/08', 'Friday'],
+        content: 'Met the supplier and agreed the new timeline.',
+      },
+      {
+        id: 'noise',
+        path: 'memory/global/noise.md',
+        title: 'Weekly plan',
+        summary: 'No matching date',
+        content: 'Planned the next sprint.',
+      },
+    ])
+
+    const retrieval = createRetrieval({ index: idx })
+    const { results, trace } = await retrieval.searchRaw({
+      query: 'What happened last Friday?',
+      questionDate: '2024-03-15',
+      topK: 5,
+      rerank: false,
+    })
+
+    expect(results[0]?.id).toBe('friday')
+    expect(trace.temporalAugmented).toBe(true)
+    expect(trace.bm25Queries.length).toBeGreaterThan(1)
+  })
+
+  it('boosts the most recent dated hit for recency questions', async () => {
+    const idx = await fresh()
+
+    idx.upsertChunks([
+      {
+        id: 'older',
+        path: 'memory/global/a-older.md',
+        title: 'Market visit',
+        content: '[Observed on 2024/03/01 (Fri) 09:00]\nEarned $220 at the Downtown Farmers Market.',
+      },
+      {
+        id: 'newer',
+        path: 'memory/global/z-newer.md',
+        title: 'Market visit',
+        content: '[Observed on 2024/03/08 (Fri) 09:00]\nEarned $420 at the Downtown Farmers Market.',
+      },
+    ])
+
+    const retrieval = createRetrieval({ index: idx })
+    const { results } = await retrieval.searchRaw({
+      query: 'How much did I earn at the Downtown Farmers Market on my most recent visit?',
+      mode: 'bm25',
+      rerank: false,
+      topK: 5,
+    })
+
+    expect(results[0]?.id).toBe('newer')
+  })
+
+  it('boosts candidates closest to the resolved temporal hint date', async () => {
+    const idx = await fresh()
+
+    idx.upsertChunks([
+      {
+        id: 'far',
+        path: 'memory/global/a-far.md',
+        title: 'Weekly note',
+        content: '[Observed on 2024/02/02 (Fri) 10:00]\nMet the supplier and agreed the timeline.',
+      },
+      {
+        id: 'near',
+        path: 'memory/global/z-near.md',
+        title: 'Weekly note',
+        content: '[Observed on 2024/03/08 (Fri) 10:00]\nMet the supplier and agreed the timeline.',
+      },
+    ])
+
+    const retrieval = createRetrieval({ index: idx })
+    const { results } = await retrieval.searchRaw({
+      query: 'What happened last Friday?',
+      questionDate: '2024-03-15',
+      mode: 'bm25',
+      rerank: false,
+      topK: 5,
+    })
+
+    expect(results[0]?.id).toBe('near')
+  })
+
+  it('drops future-dated hits relative to the question date', async () => {
+    const idx = await fresh()
+
+    idx.upsertChunks([
+      {
+        id: 'past',
+        path: 'memory/global/past.md',
+        title: 'Supplier visit',
+        content: '[Observed on 2024/03/10 (Sun) 09:00]\nMet the supplier and agreed the next steps.',
+      },
+      {
+        id: 'future',
+        path: 'memory/global/future.md',
+        title: 'Supplier visit',
+        content: '[Observed on 2024/03/20 (Wed) 09:00]\nMet the supplier and agreed the next steps.',
+      },
+      {
+        id: 'undated',
+        path: 'memory/global/undated.md',
+        title: 'Supplier visit',
+        content: 'Met the supplier and agreed the next steps.',
+      },
+    ])
+
+    const retrieval = createRetrieval({ index: idx })
+    const { results } = await retrieval.searchRaw({
+      query: 'What is the most recent supplier visit?',
+      questionDate: '2024/03/15 (Fri) 09:00',
+      mode: 'bm25',
+      rerank: false,
+      topK: 5,
+    })
+
+    expect(results[0]?.id).toBe('past')
+    expect(results.some((result) => result.id === 'future')).toBe(false)
+  })
+
+  it('drops drifted token probes from BM25 fanout', async () => {
+    const idx = await fresh()
+
+    idx.upsertChunks([
+      {
+        id: 'target',
+        path: 'raw/lme/answer_sharegpt_hChsWOp_97.md',
+        content:
+          'We finally named the Radiation Amplified zombie Fissionator after trying several other names.',
+      },
+      {
+        id: 'conversation',
+        path: 'memory/project/conversation-note.md',
+        title: 'Conversation archive',
+        summary: 'Conversation recap and conversation metadata',
+        content: 'Conversation recap with conversation follow-up notes.',
+      },
+      {
+        id: 'remembered',
+        path: 'memory/project/remembered-note.md',
+        title: 'Remembered preferences',
+        summary: 'Remembered recap and remembered preference note',
+        content: 'Remembered choices and remembered follow-up details.',
+      },
+    ])
+
+    const retrieval = createRetrieval({ index: idx })
+    const { results } = await retrieval.searchRaw({
+      query:
+        'I was thinking back to our previous conversation about the Radiation Amplified zombie, and I was wondering if you remembered what we finally decided to name it?',
+      mode: 'bm25',
+      rerank: false,
+      topK: 5,
+    })
+
+    expect(results[0]?.id).toBe('target')
+  })
+
+  it('adds phrase probes for compound total questions in the BM25 fanout plan', async () => {
+    const idx = await fresh()
+
+    const retrieval = createRetrieval({ index: idx })
+    const { trace } = await retrieval.searchRaw({
+      query:
+        'What is the total amount I spent on the designer handbag and high-end skincare products?',
+      mode: 'bm25',
+      rerank: false,
+      skipRetryLadder: true,
+    })
+
+    expect(
+      trace.bm25Queries.some((query) => query.includes('handbag') && query.includes('cost')),
+    ).toBe(true)
+    expect(
+      trace.bm25Queries.some(
+        (query) => query.includes('skincare') && query.includes('products'),
+      ),
+    ).toBe(true)
+  })
+
+  it('adds a focused recommendation probe for exact back-end language recalls', async () => {
+    const idx = await fresh()
+
+    const retrieval = createRetrieval({ index: idx })
+    const { trace } = await retrieval.searchRaw({
+      query:
+        'I wanted to follow up on our previous conversation about front-end and back-end development. Can you remind me of the specific back-end programming languages you recommended I learn?',
+      mode: 'bm25',
+      rerank: false,
+      skipRetryLadder: true,
+    })
+
+    expect(
+      trace.bm25Queries.some(
+        (query) =>
+          query.includes('back-end') &&
+          query.includes('programming') &&
+          query.includes('language'),
+      ),
+    ).toBe(true)
+  })
+
+  it('adds an action-date probe for when-did-I submission questions', async () => {
+    const idx = await fresh()
+
+    const retrieval = createRetrieval({ index: idx })
+    const { trace } = await retrieval.searchRaw({
+      query: 'When did I submit my research paper on sentiment analysis?',
+      mode: 'bm25',
+      rerank: false,
+      skipRetryLadder: true,
+    })
+
+    expect(
+      trace.bm25Queries.some(
+        (query) =>
+          query.includes('submission') &&
+          query.includes('date') &&
+          query.includes('sentiment') &&
+          query.includes('analysis'),
+      ),
+    ).toBe(true)
+    expect(
+      trace.bm25Queries.some(
+        (query) =>
+          query.includes('submission') &&
+          query.includes('date') &&
+          query.includes('research') &&
+          query.includes('paper'),
+      ),
+    ).toBe(true)
+  })
+
+  it('adds an inspiration-source probe for painting inspiration questions', async () => {
+    const idx = await fresh()
+
+    const retrieval = createRetrieval({ index: idx })
+    const { trace } = await retrieval.searchRaw({
+      query: 'How can I find new inspiration for my paintings?',
+      mode: 'bm25',
+      rerank: false,
+      skipRetryLadder: true,
+    })
+
+    expect(
+      trace.bm25Queries.some(
+        (query) =>
+          query.includes('paintings') &&
+          query.includes('social') &&
+          query.includes('media') &&
+          query.includes('tutorials'),
+      ),
+    ).toBe(true)
+  })
+
+  it('applies retrieval filters before fusion', async () => {
+    const idx = await fresh()
+
+    idx.upsertChunks([
+      {
+        id: 'billing',
+        path: 'memory/project/billing/invoice.md',
+        title: 'Invoice note',
+        summary: 'Customer invoice and payment date',
+        content: 'Invoice 42 has been paid.',
+      },
+      {
+        id: 'global',
+        path: 'memory/global/invoice.md',
+        title: 'Global invoice note',
+        summary: 'General invoice guidance',
+        content: 'Invoice guidance and VAT notes.',
+      },
+    ])
+
+    const retrieval = createRetrieval({ index: idx })
+    const { results, trace } = await retrieval.searchRaw({
+      query: 'invoice',
+      topK: 5,
+      rerank: false,
+      filters: {
+        pathPrefix: 'memory/project/billing/',
+        scope: 'project',
+        project: 'billing',
+      },
+    })
+
+    expect(results.map((result) => result.id)).toEqual(['billing'])
+    expect(trace.filtersApplied).toBe(true)
+  })
+})
+
 describe('createRetrieval intent-aware reweighting', () => {
   it('prioritises durable preference notes for recommendation queries', async () => {
     const idx = await fresh()
@@ -291,6 +594,87 @@ describe('createRetrieval intent-aware reweighting', () => {
     ])
     expect(results[2]!.id).toBe('rollup')
   })
+
+  it('demotes advice-shaped user-fact notes for exact property lookups', async () => {
+    const idx = await fresh()
+
+    const vQuestion = syntheticVector(801)
+    const vDirect = perturb(vQuestion, 0.01, 6)
+
+    idx.upsertChunks([
+      {
+        id: 'question-like',
+        path: 'memory/global/user-fact-commute-question.md',
+        title: 'Commute question',
+        summary: 'Tips for staying awake during a 30-minute train commute',
+        content: 'What are some tips for staying awake during morning commutes, especially when I am stuck on the train for 30 minutes?',
+        embedding: vQuestion,
+      },
+      {
+        id: 'direct',
+        path: 'memory/global/user-fact-commute-duration.md',
+        title: 'Commute duration',
+        summary: 'Daily commute takes 45 minutes each way',
+        content: 'My daily commute to work takes 45 minutes each way.',
+        embedding: vDirect,
+      },
+    ])
+
+    const retrieval = createRetrieval({
+      index: idx,
+      embedder: makeStubEmbedder(
+        new Map([['How long is my daily commute to work?', vQuestion]]),
+      ),
+    })
+
+    const { results } = await retrieval.searchRaw({
+      query: 'How long is my daily commute to work?',
+      topK: 5,
+    })
+
+    expect(results[0]!.id).toBe('direct')
+  })
+
+  it('boosts explicit dated facts for action-date questions', async () => {
+    const idx = await fresh()
+
+    const vQuestion = syntheticVector(911)
+    const vPaper = perturb(vQuestion, 0.01, 6)
+    const vDate = perturb(vQuestion, 0.011, 6)
+
+    idx.upsertChunks([
+      {
+        id: 'paper',
+        path: 'memory/global/user-fact-paper.md',
+        title: 'Submitted paper',
+        summary: 'User submitted a sentiment analysis paper to ACL',
+        content: 'I submitted my research paper on sentiment analysis to ACL.',
+        embedding: vPaper,
+      },
+      {
+        id: 'dated',
+        path: 'memory/global/user-fact-acl-date.md',
+        title: 'ACL submission date',
+        summary: 'ACL submission date note',
+        content: "I'm reviewing for ACL, and their submission date was February 1st.",
+        embedding: vDate,
+      },
+    ])
+
+    const retrieval = createRetrieval({
+      index: idx,
+      embedder: makeStubEmbedder(
+        new Map([['When did I submit my research paper on sentiment analysis?', vQuestion]]),
+      ),
+    })
+
+    const { results } = await retrieval.searchRaw({
+      query: 'When did I submit my research paper on sentiment analysis?',
+      topK: 5,
+    })
+
+    expect(results[0]!.id).toBe('dated')
+  })
 })
 
 describe('createRetrieval unanimity shortcut', () => {
@@ -302,32 +686,32 @@ describe('createRetrieval unanimity shortcut', () => {
     const vC = syntheticVector(30)
     const vD = syntheticVector(40)
 
-    // Arrange the corpus so the BM25 ranking for "alpha beta gamma"
+    // Arrange the corpus so the BM25 ranking for "alphabeta"
     // returns a, b, c, and the vector search (query = vA) returns
     // a, b, d. That gives two top-3 agreements -> unanimity fires.
     idx.upsertChunks([
       {
         id: 'a',
         path: 'a.md',
-        title: 'alpha',
-        summary: 'alpha beta gamma',
-        content: 'alpha is primary here',
+        title: 'alphabeta',
+        summary: 'alphabeta primary',
+        content: 'alphabeta is primary here',
         embedding: vA,
       },
       {
         id: 'b',
         path: 'b.md',
-        title: 'beta',
-        summary: 'alpha beta',
-        content: 'beta body',
+        title: 'second entry',
+        summary: 'alphabeta secondary',
+        content: 'alphabeta body',
         embedding: perturb(vA, 0.001, 1),
       },
       {
         id: 'c',
         path: 'c.md',
-        title: 'gamma',
-        summary: 'gamma only',
-        content: 'gamma body',
+        title: 'third entry',
+        summary: 'alphabeta tertiary',
+        content: 'alphabeta third body',
         embedding: vC,
       },
       {
@@ -353,14 +737,14 @@ describe('createRetrieval unanimity shortcut', () => {
 
     const retrieval = createRetrieval({
       index: idx,
-      embedder: makeStubEmbedder(new Map([['alpha beta gamma', vA]])),
+      embedder: makeStubEmbedder(new Map([['alphabeta', vA]])),
       reranker,
     })
 
     const { trace } = await retrieval.searchRaw({
-      query: 'alpha beta gamma',
+      query: 'alphabeta',
       topK: 5,
-      rerank: true,
+      mode: 'hybrid-rerank',
     })
 
     expect(trace.rerankSkippedReason).toBe('unanimity')
@@ -446,10 +830,70 @@ describe('createRetrieval unanimity shortcut', () => {
     expect(trace.reranked).toBe(true)
     expect(trace.rerankSkippedReason).toBeUndefined()
   })
+
+  it('breaks equal rerank scores using fused score and original order', async () => {
+    const idx = await fresh()
+
+    const vA = syntheticVector(100)
+    const vB = syntheticVector(200)
+    const vC = syntheticVector(300)
+
+    idx.upsertChunks([
+      {
+        id: 'a',
+        path: 'a.md',
+        title: 'alphabeta one',
+        summary: 'alphabeta primary',
+        content: 'alphabeta first body',
+        embedding: vA,
+      },
+      {
+        id: 'b',
+        path: 'b.md',
+        title: 'alphabeta two',
+        summary: 'alphabeta secondary',
+        content: 'alphabeta second body',
+        embedding: vB,
+      },
+      {
+        id: 'c',
+        path: 'c.md',
+        title: 'alphabeta three',
+        summary: 'alphabeta tertiary',
+        content: 'alphabeta third body',
+        embedding: vC,
+      },
+    ])
+
+    const reranker: Reranker = {
+      name: () => 'tie-reranker',
+      async rerank(req: RerankRequest): Promise<readonly RerankResult[]> {
+        return req.documents.map((document, index) => ({
+          id: document.id,
+          index,
+          score: 5,
+        }))
+      },
+    }
+
+    const retrieval = createRetrieval({
+      index: idx,
+      embedder: makeStubEmbedder(new Map([['alphabeta', vA]])),
+      reranker,
+    })
+
+    const results = await retrieval.search({
+      query: 'alphabeta',
+      topK: 3,
+      rerank: true,
+    })
+
+    expect(results.map((result) => result.id)).toEqual(['a', 'b', 'c'])
+  })
 })
 
 describe('createRetrieval retry ladder', () => {
-  it('falls through to the strongest-term rung when the initial query returns zero', async () => {
+  it('recovers on the initial fanout when a strongest token is enough', async () => {
     const idx = await fresh()
 
     idx.upsertChunks([
@@ -471,12 +915,9 @@ describe('createRetrieval retry ladder', () => {
 
     const retrieval = createRetrieval({ index: idx })
 
-    // Initial pass searches for the verbatim phrase which does not
-    // appear in any doc. Strongest-term rung then pulls "uniquewordxyz"
-    // (the longest non-stop-word token) and retries, which misses too.
-    // Rung 3 sanitises to "the uniqueword when" (punctuation stripped)
-    // -> but parseQuery still drops stop-words; the retry ladder's
-    // refreshed strongest rung picks "uniqueword" which matches doc a.
+    // The full phrase does not appear in any doc, but the initial
+    // fanout now includes strongest-token probes so "uniqueword"
+    // surfaces the relevant hit without entering the retry ladder.
     const { results, trace } = await retrieval.searchRaw({
       query: '"missing phrase uniqueword"',
     })
@@ -485,9 +926,7 @@ describe('createRetrieval retry ladder', () => {
     expect(results[0]!.id).toBe('a')
     const strategies = trace.attempts.map((a) => a.strategy)
     expect(strategies[0]).toBe('initial')
-    expect(strategies).toContain('strongest_term')
-    const strongest = trace.attempts.find((a) => a.strategy === 'strongest_term')
-    expect(strongest?.hits).toBeGreaterThan(0)
+    expect(strategies).not.toContain('strongest_term')
   })
 
   it('falls through to the trigram fuzzy rung on pure slug typos', async () => {

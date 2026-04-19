@@ -13,7 +13,7 @@ export type LMECacheKeyInput = {
   readonly datasetSha256: string
   readonly sampleSignature?: string
   readonly ingestMode: IngestMode
-  readonly retrievalMode: 'bm25' | 'semantic' | 'hybrid'
+  readonly retrievalMode: 'bm25' | 'semantic' | 'hybrid' | 'hybrid-rerank'
   readonly rerank: boolean
   readonly topK: number
   readonly candidateK: number

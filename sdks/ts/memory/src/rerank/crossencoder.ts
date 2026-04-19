@@ -8,6 +8,7 @@
  */
 
 import type { Reranker as TEIRerankerContract } from '../llm/types.js'
+import { runWithSharedRerankConcurrency } from './concurrency.js'
 import type { Reranker, RerankRequest, RerankResult } from './index.js'
 
 export type CrossEncoderRerankerConfig = {
@@ -15,26 +16,38 @@ export type CrossEncoderRerankerConfig = {
   client: TEIRerankerContract
   /** Optional label surfaced via name() for traces. */
   label?: string
+  /** Shared concurrency cap for outbound rerank requests. */
+  concurrencyCap?: number
 }
 
 export class CrossEncoderReranker implements Reranker {
   private readonly client: TEIRerankerContract
   private readonly label: string
+  private readonly concurrencyCap: number | undefined
 
   constructor(cfg: CrossEncoderRerankerConfig) {
     this.client = cfg.client
     this.label = cfg.label ?? 'cross-encoder'
+    this.concurrencyCap = cfg.concurrencyCap
   }
 
   name(): string {
     return this.label
   }
 
+  async isAvailable(signal?: AbortSignal): Promise<boolean> {
+    if (typeof this.client.isAvailable !== 'function') return true
+    return this.client.isAvailable(signal)
+  }
+
   async rerank(req: RerankRequest, signal?: AbortSignal): Promise<readonly RerankResult[]> {
     if (req.documents.length === 0) return []
 
     const texts = req.documents.map((d) => d.text)
-    const raw = await this.client.rerank(req.query, texts, signal)
+    const raw = await runWithSharedRerankConcurrency(
+      () => this.client.rerank(req.query, texts, signal),
+      this.concurrencyCap,
+    )
 
     // Seed every candidate so missing indices sink to the tail rather
     // than silently vanishing from the ranking. This mirrors the Go

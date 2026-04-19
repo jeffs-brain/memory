@@ -260,8 +260,8 @@ type SearchResult struct {
 	Path     string
 	Title    string
 	Summary  string
-	Snippet  string    // FTS5 snippet highlight
-	Score    float64   // BM25 rank (lower is better in FTS5)
+	Snippet  string  // FTS5 snippet highlight
+	Score    float64 // BM25 rank (lower is better in FTS5)
 	Scope    string
 	Modified time.Time // zero when no Modified frontmatter was parseable
 	// SessionDate is the ISO YYYY-MM-DD string carried in the
@@ -547,6 +547,7 @@ func extractModified(raw []byte, scope string) (time.Time, bool) {
 // carry a session or observation date. Scoped by the (?m) multiline
 // flag so a stray occurrence deeper in the body is ignored.
 var sessionDateKeyRe = regexp.MustCompile(`(?m)^(session_date|observed_on):\s*(\S.*?)\s*$`)
+var dateLiteralRe = regexp.MustCompile(`\b(\d{4})[/-](\d{2})[/-](\d{2})\b`)
 
 // extractSessionDate returns the ISO YYYY-MM-DD string stored into
 // the FTS session_date column. Precedence: frontmatter session_date,
@@ -572,6 +573,64 @@ func extractSessionDate(raw, scope string) string {
 		return mod.UTC().Format("2006-01-02")
 	}
 	return ""
+}
+
+func extractDateSearchTags(raw, scope string) []string {
+	var tokens []string
+	if closeIdx := frontmatterEnd(raw); closeIdx > 0 {
+		head := raw[:closeIdx]
+		for _, m := range sessionDateKeyRe.FindAllStringSubmatch(head, -1) {
+			tokens = append(tokens, dateSearchTokens(strings.Trim(m[2], `"'`))...)
+		}
+	}
+	if mod, ok := extractModified([]byte(raw), scope); ok {
+		tokens = append(tokens, dateSearchTokens(mod.UTC().Format("2006-01-02"))...)
+	}
+	return dedupeStringSlice(tokens)
+}
+
+func dateSearchTokens(value string) []string {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return nil
+	}
+	if parsed, ok := parseModifiedString(trimmed); ok {
+		utc := parsed.UTC()
+		return dedupeStringSlice([]string{
+			utc.Format("2006-01-02"),
+			utc.Format("2006/01/02"),
+			utc.Format("2006"),
+			utc.Weekday().String(),
+			utc.Month().String(),
+		})
+	}
+	match := dateLiteralRe.FindStringSubmatch(trimmed)
+	if len(match) != 4 {
+		return nil
+	}
+	year, month, day := match[1], match[2], match[3]
+	return dedupeStringSlice([]string{
+		year + "-" + month + "-" + day,
+		year + "/" + month + "/" + day,
+		year,
+	})
+}
+
+func dedupeStringSlice(values []string) []string {
+	if len(values) == 0 {
+		return nil
+	}
+	seen := make(map[string]bool, len(values))
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		trimmed := strings.TrimSpace(value)
+		if trimmed == "" || seen[trimmed] {
+			continue
+		}
+		seen[trimmed] = true
+		out = append(out, trimmed)
+	}
+	return out
 }
 
 // frontmatterEnd returns the byte offset of the closing `---` line
@@ -1271,6 +1330,7 @@ func (idx *Index) indexOneFile(ctx context.Context, tx *sql.Tx, f discoveredFile
 	raw := string(data)
 	title, summary, tags, body := parseFrontmatterGeneric(raw, f.scope)
 	sessionDate := extractSessionDate(raw, f.scope)
+	tags = dedupeStringSlice(append(tags, extractDateSearchTags(raw, f.scope)...))
 
 	pathStr := string(f.path)
 

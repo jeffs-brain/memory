@@ -183,6 +183,52 @@ def _surfaced_to_wire(m: SurfacedMemory) -> dict[str, Any]:
     }
 
 
+def _extract_session_summary(messages: list[MemMessage]) -> str:
+    for message in messages:
+        if message.role == Role.SYSTEM and message.content.strip():
+            return _truncate_one_line(message.content, 240)
+    for message in messages:
+        if message.role == Role.USER and message.content.strip():
+            return _truncate_one_line(message.content, 240)
+    return ""
+
+
+def _truncate_one_line(value: str, limit: int) -> str:
+    compact = " ".join(value.replace("\r\n", " ").replace("\n", " ").split())
+    if limit > 0 and len(compact) > limit:
+        return compact[:limit] + "..."
+    return compact
+
+
+async def _decorate_extracted_memories(
+    contextualiser,
+    messages: list[MemMessage],
+    session_id: str,
+    session_date: str,
+    extracted: list[ExtractedMemory],
+) -> list[ExtractedMemory]:
+    if not extracted:
+        return extracted
+    summary = _extract_session_summary(messages)
+    for memory in extracted:
+        if session_id and not memory.session_id:
+            memory.session_id = session_id
+        if session_date and not memory.session_date:
+            memory.session_date = session_date
+        if (
+            contextualiser is None
+            or memory.context_prefix
+            or not getattr(contextualiser, "enabled", lambda: False)()
+        ):
+            continue
+        prefix = await contextualiser.build_prefix_async(
+            session_id, summary, memory.content
+        )
+        if prefix:
+            memory.context_prefix = prefix
+    return extracted
+
+
 async def extract(request: Request) -> Response:
     br = await resolve_brain(request)
     if isinstance(br, Response):
@@ -195,6 +241,8 @@ async def extract(request: Request) -> Response:
         return validation_error("messages required")
     project = _project_from_body(body)
     model = str(body.get("model") or "")
+    session_id = str(body.get("sessionId") or "")
+    session_date = str(body.get("sessionDate") or "")
 
     messages = _wire_messages_to_memory(messages_raw)
 
@@ -210,6 +258,14 @@ async def extract(request: Request) -> Response:
         )
     except Exception as exc:  # noqa: BLE001
         return internal_error(str(exc))
+
+    results = await _decorate_extracted_memories(
+        daemon.contextualiser,
+        messages,
+        session_id,
+        session_date,
+        results,
+    )
 
     return ok_json(
         {

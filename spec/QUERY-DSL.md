@@ -172,19 +172,21 @@ All three tokens are stopword noise after the length-2 and stopword-list checks.
 
 Temporal expansion is an **optional augmentation** that runs before retrieval, not inside the parser. The reference implementation lives in `query/temporal.ts` and is used by callers who pass both a question and a `questionDate` anchor. Expansion does not modify the query AST; it produces a rewritten query string (and, separately, a set of date-search tokens) that the retrieval layer concatenates onto the user's input before parsing. The parser in `query/parser.ts` is temporally blind by design.
 
-The expander is **English-locale only**. Dutch and other languages are out of scope for v1.0: non-English phrases pass through unchanged and expansion is reported as `resolved: false`. Go and Python SDKs MUST mirror the three recognisers below bit-for-bit and MUST NOT introduce locale-specific variants without a spec update.
+The expander is **English-locale only**. Dutch and other languages are out of scope for v1.0: non-English phrases pass through unchanged and expansion is reported as `resolved: false`. Go and Python SDKs MUST mirror the recognisers below bit-for-bit and MUST NOT introduce locale-specific variants without a spec update.
 
 ### Recognised phrases
 
-Three independent recognisers, applied in order. All matching is case-insensitive.
+Five independent recognisers, applied in order. All matching is case-insensitive.
 
 | Recogniser | Pattern (surface form) | Behaviour |
 | --- | --- | --- |
 | Relative time | `<N> day[s] ago`, `<N> week[s] ago`, `<N> month[s] ago` | Replace with the original phrase suffixed by `(around <YYYY/MM/DD>)`. |
+| Relative day | `today`, `yesterday` | Replace with the original phrase suffixed by `(<YYYY/MM/DD>)`. |
+| Last week | `last week` | Replace with `last week (<YYYY/MM/DD> to <YYYY/MM/DD>)` for the prior rolling seven-day window and emit one hint per day in that window. |
 | Last weekday | `last monday` .. `last sunday` | Walk back at most 7 days from the anchor until weekday matches, suffix with `(<YYYY/MM/DD>)`. |
 | Ordering hint | case-insensitive substring match on `first`, `earlier`, `before`, `most recent`, `latest`, `last time` | Append either `[Note: look for the earliest dated event]` or `[Note: look for the most recently dated event]` to the query. |
 
-Phrases not matched by any recogniser (including `today`, `yesterday`, `this week`, `last month`, `this quarter`, month names, ISO dates, and natural-language constructions like `the week of 12 March`) are **not** expanded. The list above is exhaustive for v1.0. Additional recognisers are tracked as future work and MUST land in the spec before being shipped in any SDK.
+Phrases not matched by any recogniser (including `this week`, `last month`, `this quarter`, month names, ISO dates, and natural-language constructions like `the week of 12 March`) are **not** expanded. The list above is exhaustive for v1.0. Additional recognisers are tracked as future work and MUST land in the spec before being shipped in any SDK.
 
 ### Anchor handling
 
@@ -201,6 +203,8 @@ Phrases not matched by any recogniser (including `today`, `yesterday`, `this wee
 
 - `N months ago` uses `setUTCMonth(getUTCMonth() - N)`. This inherits JavaScript `Date` semantics: if the resulting month has fewer days than the anchor day, the date rolls forward into the next month. For example, anchor `2026-03-31`, `1 month ago` resolves to `2026-03-03`, not `2026-02-28`. SDK implementers MUST reproduce this behaviour even in languages with a stricter default (subtract N months, then let an overflow day roll forward).
 - `N weeks ago` and `N days ago` are simple UTC-day subtraction (`setUTCDate(getUTCDate() - N)` and `… - N * 7`). No weekend or working-day awareness.
+- `today` resolves to the UTC calendar date of the parsed anchor. `yesterday` resolves to the previous UTC calendar date.
+- `last week` is a rolling seven-day window ending the day before the anchor date. The emitted hint list contains every UTC day in that window in ascending order.
 - `last <weekday>` walks back exactly one UTC day at a time and returns as soon as `getUTCDay()` matches. The anchor day itself is never returned; "last monday" on a Monday resolves to seven days earlier.
 
 ### Emitted date formats

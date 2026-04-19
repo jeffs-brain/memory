@@ -452,6 +452,7 @@ class BrainManager:
         retriever = retrieval.Retriever(
             source=source,
             embedder=self._daemon.embedder,
+            reranker=self._daemon.reranker,
         )
 
         knowledge_index = _IndexForKnowledge(index, store)
@@ -517,6 +518,8 @@ class Daemon:
     llm: Provider | None = None
     embedder: Embedder | None = None
     embed_model: str = ""
+    reranker: retrieval.Reranker | None = None
+    contextualiser: memory.Contextualiser | None = None
     brains: BrainManager = field(init=False)
 
     def __post_init__(self) -> None:
@@ -530,6 +533,8 @@ class Daemon:
         auth_token: str | None = None,
         llm: Provider | None = None,
         embedder: Embedder | None = None,
+        contextualise: bool | None = None,
+        contextualise_cache_dir: str | None = None,
     ) -> "Daemon":
         resolved_root = Path(root) if root else Path.home() / ".jeffs-brain"
         resolved_root = resolved_root.resolve()
@@ -545,12 +550,20 @@ class Daemon:
             except Exception:  # noqa: BLE001
                 embedder = None
         embed_model = resolve_embed_model(embedder)
+        reranker = _build_reranker(llm)
+        contextualiser = _build_contextualiser(
+            llm,
+            enabled=contextualise,
+            cache_dir=contextualise_cache_dir,
+        )
         return cls(
             root=resolved_root,
             auth_token=auth_token,
             llm=llm,
             embedder=embedder,
             embed_model=embed_model,
+            reranker=reranker,
+            contextualiser=contextualiser,
         )
 
     async def close(self) -> None:
@@ -567,10 +580,100 @@ class Daemon:
             except Exception:  # noqa: BLE001
                 pass
             self.embedder = None
+        closer = getattr(self.reranker, "close", None)
+        if callable(closer):
+            try:
+                await closer()
+            except Exception:  # noqa: BLE001
+                pass
+        self.reranker = None
 
 
 def _utcnow() -> datetime:
     return datetime.now(tz=timezone.utc)
+
+
+def _env_enabled(raw: str | None) -> bool:
+    if raw is None:
+        return False
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _build_llm_reranker(provider: Provider | None) -> retrieval.Reranker | None:
+    if provider is None:
+        _log.warning("daemon: rerank requested but no llm provider configured")
+        return None
+    model = (
+        os.getenv("JB_RERANK_MODEL", "").strip()
+        or os.getenv("JB_LLM_MODEL", "").strip()
+    )
+    if model == "":
+        _log.warning("daemon: rerank requested but no rerank model configured")
+        return None
+    return retrieval.LLMReranker(provider=provider, model=model)
+
+
+def _build_reranker(provider: Provider | None) -> retrieval.Reranker | None:
+    raw = os.getenv("JB_RERANK_PROVIDER", "").strip().lower()
+    if raw == "":
+        return None
+    if raw not in {"llm", "auto", "http", "tei"}:
+        _log.warning("daemon: unsupported rerank provider %s", raw)
+        return None
+    if raw == "llm":
+        return _build_llm_reranker(provider)
+
+    url = os.getenv("JB_RERANK_URL", "").strip()
+    if raw in {"http", "tei"}:
+        if url == "":
+            _log.warning("daemon: http rerank requested but JB_RERANK_URL is unset")
+            return None
+        return retrieval.HTTPReranker(
+            endpoint=url,
+            api_key=os.getenv("JB_RERANK_API_KEY", "").strip(),
+            model=os.getenv("JB_RERANK_MODEL", "").strip(),
+        )
+
+    primary = None
+    if url != "":
+        primary = retrieval.HTTPReranker(
+            endpoint=url,
+            api_key=os.getenv("JB_RERANK_API_KEY", "").strip(),
+            model=os.getenv("JB_RERANK_MODEL", "").strip(),
+        )
+    fallback = _build_llm_reranker(provider)
+    if primary is not None and fallback is not None:
+        return retrieval.AutoReranker(primary=primary, fallback=fallback)
+    if primary is not None:
+        return primary
+    return fallback
+
+
+def _build_contextualiser(
+    provider: Provider | None,
+    *,
+    enabled: bool | None,
+    cache_dir: str | None,
+) -> memory.Contextualiser | None:
+    if provider is None:
+        return None
+    turned_on = (
+        enabled if enabled is not None else _env_enabled(os.getenv("JB_CONTEXTUALISE"))
+    )
+    if not turned_on:
+        return None
+    resolved_cache_dir = (
+        cache_dir
+        if cache_dir is not None
+        else os.getenv("JB_CONTEXTUALISE_CACHE_DIR", "").strip()
+    )
+    return memory.new_contextualiser(
+        memory.ContextualiserConfig(
+            provider=provider,
+            model=os.getenv("JB_CONTEXTUALISE_MODEL", "").strip(),
+            cache_dir=resolved_cache_dir or "",
+        )
+    )
 
 
 class _FsMemoryStore:
@@ -773,14 +876,18 @@ class _IndexForRetrieval:
         self._index = index
 
     async def search_bm25(
-        self, expr: str, k: int, scope: str, project: str
+        self, expr: str, k: int, filters: retrieval.Filters
     ) -> list[IndexedRow]:
-        filters: dict[str, Any] = {}
-        if scope:
-            filters["scope"] = scope
-        if project:
-            filters["project_slug"] = project
-        opts = search.SearchOpts(max_results=k if k > 0 else 20, filters=filters)
+        filter_map: dict[str, Any] = {}
+        if filters.scope:
+            filter_map["scope"] = filters.scope
+        if filters.project:
+            filter_map["project_slug"] = filters.project
+        if filters.path_prefix:
+            filter_map["path_prefix"] = filters.path_prefix
+        if filters.tags:
+            filter_map["tags"] = list(filters.tags)
+        opts = search.SearchOpts(max_results=k if k > 0 else 20, filters=filter_map)
         try:
             hits = self._index.search_bm25(expr, top_k=opts.max_results, opts=opts)
         except Exception as exc:  # noqa: BLE001
@@ -795,9 +902,16 @@ class _IndexForRetrieval:
                 IndexedRow(
                     path=h.path,
                     title=h.title,
-                    summary="",
-                    content="",
+                    summary=h.summary,
+                    content=h.content or h.snippet,
                     snippet=h.snippet,
+                    scope=str(h.metadata.get("scope") or ""),
+                    project_slug=str(h.metadata.get("project_slug") or ""),
+                    session_date=str(h.metadata.get("session_date") or ""),
+                    tags=" ".join(str(tag) for tag in h.metadata.get("tags", []))
+                    if isinstance(h.metadata.get("tags"), list)
+                    else str(h.metadata.get("tags") or ""),
+                    metadata=dict(h.metadata),
                     score=score,
                 )
             )
@@ -868,7 +982,11 @@ async def _rebuild_sync(index: search.Index, store: PassthroughStore) -> None:
         except Exception:  # noqa: BLE001
             continue
         from ..search.frontmatter import parse_memory_frontmatter, parse_wiki_frontmatter
-        from ..search.index import _classify_path  # type: ignore[attr-defined]
+        from ..search.index import (  # type: ignore[attr-defined]
+            _classify_path,
+            _indexed_text_for,
+            _session_date_from_fields,
+        )
 
         scope, project_slug = _classify_path(path)
         if not scope:
@@ -877,21 +995,35 @@ async def _rebuild_sync(index: search.Index, store: PassthroughStore) -> None:
         if scope == "wiki":
             wiki, body = parse_wiki_frontmatter(raw)
             title, summary, tags = wiki.title, wiki.summary, wiki.tags
+            session_id = wiki.session_id
+            session_date = _session_date_from_fields(
+                wiki.session_date,
+                wiki.observed_on,
+                wiki.modified,
+            )
         else:
             mem, body = parse_memory_frontmatter(raw)
             title, summary, tags = mem.name, mem.description, mem.tags
+            session_id = mem.session_id
+            session_date = _session_date_from_fields(
+                mem.session_date,
+                mem.observed_on,
+                mem.modified,
+            )
         chunks.append(
             search.Chunk(
                 id=f"{path}#0",
                 document_id=path,
                 path=path,
-                text=body,
+                text=_indexed_text_for(scope, raw, body),
                 metadata={
                     "title": title,
                     "summary": summary,
                     "tags": tags,
                     "scope": scope,
                     "project_slug": project_slug,
+                    "session_id": session_id,
+                    "session_date": session_date,
                 },
             )
         )
@@ -964,13 +1096,27 @@ class _IndexVectorStore:
         embedding: list[float],
         model: str,
         k: int,
+        filters: retrieval.Filters,
     ) -> list[IndexedRow]:
         if not embedding:
             return []
+        filter_map: dict[str, Any] = {}
+        if filters.scope:
+            filter_map["scope"] = filters.scope
+        if filters.project:
+            filter_map["project_slug"] = filters.project
+        if filters.path_prefix:
+            filter_map["path_prefix"] = filters.path_prefix
+        if filters.tags:
+            filter_map["tags"] = list(filters.tags)
         try:
             hits = self._index.search_vectors(
                 embedding,
                 top_k=k if k > 0 else 20,
+                opts=search.SearchOpts(
+                    max_results=k if k > 0 else 20,
+                    filters=filter_map,
+                ),
                 model=model,
             )
         except Exception as exc:  # noqa: BLE001
@@ -982,11 +1128,16 @@ class _IndexVectorStore:
                 IndexedRow(
                     path=h.path,
                     title=h.title,
-                    summary="",
-                    content="",
+                    summary=h.summary,
+                    content=h.content,
+                    scope=str(h.metadata.get("scope") or ""),
+                    project_slug=str(h.metadata.get("project_slug") or ""),
+                    session_date=str(h.metadata.get("session_date") or ""),
+                    tags=" ".join(str(tag) for tag in h.metadata.get("tags", []))
+                    if isinstance(h.metadata.get("tags"), list)
+                    else str(h.metadata.get("tags") or ""),
+                    metadata=dict(h.metadata),
                     score=float(h.score),
                 )
             )
         return rows
-
-

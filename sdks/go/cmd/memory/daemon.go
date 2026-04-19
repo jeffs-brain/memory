@@ -28,13 +28,14 @@ import (
 // via [BrainManager]. The LLM provider and embedder come from
 // environment configuration and are shared across brains.
 type Daemon struct {
-	Root       string
-	AuthToken  string
-	LLM        llm.Provider
-	Embedder   llm.Embedder
-	EmbedModel string
-	Logger     *slog.Logger
-	Brains     *BrainManager
+	Root           string
+	AuthToken      string
+	LLM            llm.Provider
+	Embedder       llm.Embedder
+	EmbedModel     string
+	Contextualiser *memory.Contextualiser
+	Logger         *slog.Logger
+	Brains         *BrainManager
 }
 
 // NewDaemon constructs a Daemon rooted at root. When provider is nil
@@ -73,12 +74,13 @@ func NewDaemon(ctx context.Context, root, authToken string, log *slog.Logger) (*
 	}
 	embedModel := resolveEmbedModel(llm.OSGetenv, embedder)
 	d := &Daemon{
-		Root:       abs,
-		AuthToken:  authToken,
-		LLM:        provider,
-		Embedder:   embedder,
-		EmbedModel: embedModel,
-		Logger:     log,
+		Root:           abs,
+		AuthToken:      authToken,
+		LLM:            provider,
+		Embedder:       embedder,
+		EmbedModel:     embedModel,
+		Contextualiser: buildContextualiser(provider, log),
+		Logger:         log,
 	}
 	d.Brains = NewBrainManager(d)
 	return d, nil
@@ -433,6 +435,8 @@ func buildSearchAndRetrieval(
 //   - "http": HTTPReranker pointing at JB_RERANK_URL. Optional
 //     JB_RERANK_API_KEY forwards a bearer token; JB_RERANK_MODEL is
 //     sent in the request body (defaults to bge-reranker-v2-m3).
+//   - "auto": prefers HTTP when JB_RERANK_URL is set, otherwise falls
+//     back to the daemon LLM provider when configured.
 //
 // Any other value (or an empty variable) leaves the reranker nil.
 func buildReranker(d *Daemon, log *slog.Logger) retrieval.Reranker {
@@ -441,32 +445,75 @@ func buildReranker(d *Daemon, log *slog.Logger) retrieval.Reranker {
 		return nil
 	}
 	switch provider {
+	case "auto":
+		primary := buildHTTPReranker(log)
+		fallback := buildLLMReranker(d, log)
+		switch {
+		case primary != nil && fallback != nil:
+			return retrieval.NewAutoReranker(primary, fallback)
+		case primary != nil:
+			return primary
+		default:
+			return fallback
+		}
 	case "llm":
-		if d == nil || d.LLM == nil {
-			log.Warn("daemon: rerank provider=llm but no llm provider configured")
-			return nil
-		}
-		model := strings.TrimSpace(os.Getenv("JB_RERANK_MODEL"))
-		return retrieval.NewLLMReranker(d.LLM, model)
-	case "http":
-		endpoint := strings.TrimSpace(os.Getenv("JB_RERANK_URL"))
-		if endpoint == "" {
-			log.Warn("daemon: rerank provider=http but JB_RERANK_URL is empty")
-			return nil
-		}
-		rr, err := retrieval.NewHTTPReranker(retrieval.HTTPRerankerConfig{
-			Endpoint: endpoint,
-			APIKey:   strings.TrimSpace(os.Getenv("JB_RERANK_API_KEY")),
-			Model:    strings.TrimSpace(os.Getenv("JB_RERANK_MODEL")),
-			Logger:   log,
-		})
-		if err != nil {
-			log.Warn("daemon: build http reranker", "err", err)
-			return nil
-		}
-		return rr
+		return buildLLMReranker(d, log)
+	case "http", "tei":
+		return buildHTTPReranker(log)
 	default:
 		log.Warn("daemon: unknown rerank provider", "provider", provider)
 		return nil
 	}
+}
+
+func buildContextualiser(provider llm.Provider, log *slog.Logger) *memory.Contextualiser {
+	if !envEnabled(os.Getenv(envContextualise)) {
+		return nil
+	}
+	if provider == nil {
+		log.Warn("daemon: contextualiser requested but no llm provider configured")
+		return nil
+	}
+	return memory.NewContextualiser(memory.ContextualiserConfig{
+		Provider: provider,
+		Model:    strings.TrimSpace(os.Getenv("JB_CONTEXTUALISE_MODEL")),
+		CacheDir: strings.TrimSpace(os.Getenv(envContextualiseCacheDir)),
+	})
+}
+
+func envEnabled(raw string) bool {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "1", "true", "yes", "on":
+		return true
+	default:
+		return false
+	}
+}
+
+func buildLLMReranker(d *Daemon, log *slog.Logger) retrieval.Reranker {
+	if d == nil || d.LLM == nil {
+		log.Warn("daemon: rerank provider=llm but no llm provider configured")
+		return nil
+	}
+	model := strings.TrimSpace(os.Getenv("JB_RERANK_MODEL"))
+	return retrieval.NewLLMReranker(d.LLM, model)
+}
+
+func buildHTTPReranker(log *slog.Logger) retrieval.Reranker {
+	endpoint := strings.TrimSpace(os.Getenv("JB_RERANK_URL"))
+	if endpoint == "" {
+		log.Warn("daemon: rerank provider=http but JB_RERANK_URL is empty")
+		return nil
+	}
+	rr, err := retrieval.NewHTTPReranker(retrieval.HTTPRerankerConfig{
+		Endpoint: endpoint,
+		APIKey:   strings.TrimSpace(os.Getenv("JB_RERANK_API_KEY")),
+		Model:    strings.TrimSpace(os.Getenv("JB_RERANK_MODEL")),
+		Logger:   log,
+	})
+	if err != nil {
+		log.Warn("daemon: build http reranker", "err", err)
+		return nil
+	}
+	return rr
 }

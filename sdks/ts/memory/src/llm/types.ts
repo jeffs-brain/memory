@@ -154,6 +154,7 @@ export type Embedder = {
 
 export type Reranker = {
   name(): string
+  isAvailable?(signal?: AbortSignal): Promise<boolean>
   rerank(
     query: string,
     documents: readonly string[],

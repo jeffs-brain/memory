@@ -13,10 +13,11 @@ import {
 import type { Reranker } from '../rerank/index.js'
 import { createSearchIndex, type Chunk as SearchChunk } from '../search/index.js'
 import { createFsStore } from '../store/index.js'
-import { lastSegment, pathUnder, toPath } from '../store/index.js'
+import { lastSegment, toPath } from '../store/index.js'
 import type { FileInfo, Path } from '../store/index.js'
 import {
   EXTRACTION_SYSTEM_PROMPT,
+  createContextualPrefixBuilder,
   createMemory,
   createStoreBackedCursorStore,
   mergeRecallHits,
@@ -87,7 +88,9 @@ export type StandaloneLMERunArgs = {
   readonly bundle: LMEUpstreamBundleName
   readonly split: LMEUpstreamDatasetName
   readonly ingestMode?: IngestMode
-  readonly retrievalMode?: 'bm25' | 'semantic' | 'hybrid'
+  readonly contextualise?: boolean
+  readonly contextualiseCacheDir?: string
+  readonly retrievalMode?: 'bm25' | 'semantic' | 'hybrid' | 'hybrid-rerank'
   readonly rerank?: boolean
   readonly topK?: number
   readonly candidateK?: number
@@ -178,6 +181,7 @@ export const runStandaloneLMEEval = async (
   const outDir = resolve(args.outDir ?? DEFAULT_OUT_DIR)
   const cacheDir = resolve(args.cacheDir ?? join(outDir, 'cache'))
   const ingestMode = args.ingestMode ?? 'replay'
+  const contextualise = args.contextualise ?? false
   const retrievalMode = args.retrievalMode ?? DEFAULT_RETRIEVAL_MODE
   const rerank = args.rerank ?? false
   const topK = args.topK ?? DEFAULT_TOP_K
@@ -263,6 +267,7 @@ export const runStandaloneLMEEval = async (
     ingestMode,
     actorId,
     extractModel: modelManifest.extractModel,
+    contextualise,
   }))
   const scratchRoot = join(cacheDir, 'scratch', runId)
   const storeRoot = ingestMode === 'bulk' ? scratchRoot : brainRoot
@@ -274,6 +279,7 @@ export const runStandaloneLMEEval = async (
     ingestMode,
     actorId,
     extractModel: modelManifest.extractModel,
+    contextualise,
   })
   const fingerprintPath = join(brainRoot, '.lme-brain.fingerprint')
   let brainCacheHit = false
@@ -303,6 +309,8 @@ export const runStandaloneLMEEval = async (
       store,
       provider: extractProvider,
       embedder: args.embedder,
+      contextualise,
+      contextualiseCacheDir: args.contextualiseCacheDir,
       logger,
     })
 
@@ -534,6 +542,8 @@ const ingestDataset = async (args: {
   readonly store: Awaited<ReturnType<typeof createFsStore>>
   readonly provider: Provider | undefined
   readonly embedder: Embedder | undefined
+  readonly contextualise: boolean
+  readonly contextualiseCacheDir: string | undefined
   readonly logger: Logger
 }): Promise<IngestOutcome> => {
   if (args.brainCacheHit) {
@@ -559,6 +569,16 @@ const ingestDataset = async (args: {
     )
   }
 
+  const contextualPrefixBuilder =
+    args.ingestMode === 'replay' && args.contextualise
+      ? createContextualPrefixBuilder({
+          provider: args.provider,
+          ...(args.contextualiseCacheDir !== undefined
+            ? { cacheDir: args.contextualiseCacheDir }
+            : {}),
+        })
+      : undefined
+
   const memory = createMemory({
     store: args.store,
     provider: args.provider,
@@ -567,6 +587,7 @@ const ingestDataset = async (args: {
     actorId: args.actorId,
     cursorStore: createStoreBackedCursorStore(args.store),
     ...(args.ingestMode === 'replay' ? { extractMinMessages: 2 } : {}),
+    ...(contextualPrefixBuilder !== undefined ? { contextualPrefixBuilder } : {}),
     logger: args.logger,
   })
   const runner = createLMERunner({
@@ -586,7 +607,7 @@ const ingestDataset = async (args: {
 const buildEvalRetrieval = async (args: {
   readonly store: Awaited<ReturnType<typeof createFsStore>>
   readonly corpus: 'raw' | 'memory'
-  readonly retrievalMode: 'bm25' | 'semantic' | 'hybrid'
+  readonly retrievalMode: 'bm25' | 'semantic' | 'hybrid' | 'hybrid-rerank'
   readonly rerank: boolean
   readonly topK: number
   readonly candidateK: number
@@ -608,9 +629,9 @@ const buildEvalRetrieval = async (args: {
 
   return {
     retrieval: async ({ question, questionDate }) => {
-      const query = augmentQueryWithTemporal(question, questionDate)
       const response = await search.retrieval.searchRaw({
-        query,
+        query: question,
+        ...(questionDate !== undefined ? { questionDate } : {}),
         topK: args.topK,
         candidateK: args.candidateK,
         mode: toHybridMode(args.retrievalMode),
@@ -623,14 +644,13 @@ const buildEvalRetrieval = async (args: {
           unknown
         >
         const date = extractDate(metadata)
+        const sessionId = metadataString(metadata, 'sessionId', 'session_id')
         return {
           path: result.path,
           score: result.score,
           body: result.content,
           ...(date !== undefined ? { date } : {}),
-          ...(typeof metadata['sessionId'] === 'string'
-            ? { sessionId: metadata['sessionId'] }
-            : {}),
+          ...(sessionId !== undefined ? { sessionId } : {}),
         }
       })
       const rendered = renderRetrievedPassages(passages, {
@@ -650,7 +670,7 @@ const buildReplayRecallRetrieval = async (args: {
   readonly store: Awaited<ReturnType<typeof createFsStore>>
   readonly provider: Provider | undefined
   readonly actorId: string
-  readonly retrievalMode: 'bm25' | 'semantic' | 'hybrid'
+  readonly retrievalMode: 'bm25' | 'semantic' | 'hybrid' | 'hybrid-rerank'
   readonly rerank: boolean
   readonly topK: number
   readonly candidateK: number
@@ -754,7 +774,7 @@ const buildReplayRecallRetrieval = async (args: {
 const buildEvalSearchPipeline = async (args: {
   readonly store: Awaited<ReturnType<typeof createFsStore>>
   readonly corpus: 'raw' | 'memory'
-  readonly retrievalMode: 'bm25' | 'semantic' | 'hybrid'
+  readonly retrievalMode: 'bm25' | 'semantic' | 'hybrid' | 'hybrid-rerank'
   readonly rerank: boolean
   readonly topK: number
   readonly candidateK: number
@@ -826,7 +846,7 @@ const buildEvalSearchPipeline = async (args: {
 const createRetrievalBackedSearchIndex = (args: {
   readonly retrieval: HybridRetrieval
   readonly actorId: string
-  readonly retrievalMode: 'bm25' | 'semantic' | 'hybrid'
+  readonly retrievalMode: 'bm25' | 'semantic' | 'hybrid' | 'hybrid-rerank'
   readonly rerank: boolean
   readonly candidateK: number
   readonly rerankTopN: number
@@ -840,6 +860,7 @@ const createRetrievalBackedSearchIndex = (args: {
     while (true) {
       const response = await args.retrieval.searchRaw({
         query,
+        filters: { pathPrefix: prefix },
         topK: limit,
         candidateK: Math.max(args.candidateK, limit),
         mode: toHybridMode(args.retrievalMode),
@@ -847,9 +868,7 @@ const createRetrievalBackedSearchIndex = (args: {
         rerankTopN: Math.max(args.rerankTopN, limit),
       })
       const hits = dedupeSearchHits(
-        response.results
-          .filter((result) => pathUnder(result.path, prefix, true))
-          .map((result) => ({ path: toPath(result.path), score: result.score })),
+        response.results.map((result) => ({ path: toPath(result.path), score: result.score })),
       )
       if (hits.length >= opts.k || response.results.length < limit || limit >= MAX_SCOPE_FILTER_FETCH) {
         return hits.slice(0, opts.k)
@@ -1083,7 +1102,7 @@ const collectEvalDocuments = async (
     const { frontmatter, body } = parseFrontmatter(raw)
     docs.push({
       path: entry.path,
-      title: frontmatter.name ?? lastSegment(entry.path),
+      title: frontmatter.name?.trim() ?? '',
       summary: frontmatter.description ?? '',
       tags: dedupeStrings([
         ...(frontmatter.tags ?? []),
@@ -1187,7 +1206,7 @@ const inferVectorDim = (
   return dim > 0 ? dim : 1024
 }
 
-const renderRetrievedPassages = (
+export const renderRetrievedPassages = (
   passages: readonly RetrievedPassage[],
   args?: { readonly question: string; readonly questionDate?: string },
 ): string => {
@@ -1205,14 +1224,15 @@ const renderRetrievedPassages = (
   parts.push(`Retrieved facts (${String(ordered.length)}):`)
   parts.push('')
   for (const [index, passage] of ordered.entries()) {
-    const labels = [`[${passage.date ?? 'unknown'}]`]
-    if (passage.sessionId !== undefined) {
-      labels.push(`[session=${passage.sessionId}]`)
+    const labels = [`[${passageDate(passage)}]`]
+    const sessionId = passageSessionId(passage)
+    if (sessionId !== '') {
+      labels.push(`[session=${sessionId}]`)
     }
     const source = sourceTagFromPath(passage.path)
     if (source !== '') labels.push(`[${source}]`)
     parts.push(`${String(index + 1).padStart(2, ' ')}. ${labels.join(' ')}`)
-    parts.push(passage.body.trim())
+    parts.push(passageDisplayBody(passage))
     parts.push('')
   }
   return parts.join('\n').trim()
@@ -1422,13 +1442,32 @@ const clusterPassagesBySession = (
   const order: string[] = []
   const groups = new Map<string, RetrievedPassage[]>()
   for (const [index, passage] of passages.entries()) {
-    const key = passage.sessionId ?? `__solo_${String(index)}__`
+    const key = passageSessionId(passage) || `__solo_${String(index)}__`
     if (!groups.has(key)) order.push(key)
     const group = groups.get(key) ?? []
     group.push(passage)
     groups.set(key, group)
   }
   return order.flatMap((key) => groups.get(key) ?? [])
+}
+
+const passageDate = (passage: RetrievedPassage): string => {
+  if (passage.date !== undefined && passage.date.trim() !== '') {
+    return passage.date.trim()
+  }
+  for (const key of ['session_date', 'observed_on', 'modified']) {
+    const value = firstFrontmatterValue(passage.body, key)
+    if (value !== '') return value
+  }
+  return 'unknown'
+}
+
+const passageSessionId = (passage: RetrievedPassage): string =>
+  passage.sessionId?.trim() || firstFrontmatterValue(passage.body, 'session_id')
+
+const passageDisplayBody = (passage: RetrievedPassage): string => {
+  const body = parseFrontmatter(passage.body).body
+  return body.trim()
 }
 
 const sourceTagFromPath = (value: string): string => {
@@ -1471,17 +1510,31 @@ const dedupeSearchHits = (
 const extractDate = (
   metadata: Readonly<Record<string, unknown>>,
 ): string | undefined => {
-  const sessionDate = metadata['sessionDate']
-  if (typeof sessionDate === 'string' && sessionDate !== '') return sessionDate
-  const observedOn = metadata['observedOn']
-  if (typeof observedOn === 'string' && observedOn !== '') return observedOn
-  const modified = metadata['modified']
-  if (typeof modified === 'string' && modified !== '') return modified
+  return metadataString(
+    metadata,
+    'sessionDate',
+    'session_date',
+    'observedOn',
+    'observed_on',
+    'modified',
+  )
+}
+
+const metadataString = (
+  metadata: Readonly<Record<string, unknown>>,
+  ...keys: readonly string[]
+): string | undefined => {
+  for (const key of keys) {
+    const value = metadata[key]
+    if (typeof value === 'string' && value.trim() !== '') {
+      return value.trim()
+    }
+  }
   return undefined
 }
 
 const toHybridMode = (
-  mode: 'bm25' | 'semantic' | 'hybrid',
+  mode: 'bm25' | 'semantic' | 'hybrid' | 'hybrid-rerank',
 ): HybridMode => {
   switch (mode) {
     case 'bm25':
@@ -1490,6 +1543,8 @@ const toHybridMode = (
       return 'semantic'
     case 'hybrid':
       return 'hybrid'
+    case 'hybrid-rerank':
+      return 'hybrid-rerank'
   }
 }
 
@@ -1499,6 +1554,7 @@ const createBrainFingerprint = (args: {
   readonly ingestMode: IngestMode
   readonly actorId: string
   readonly extractModel: string | undefined
+  readonly contextualise: boolean
 }): string =>
   createHash('sha256')
     .update(args.datasetSha256)
@@ -1511,6 +1567,8 @@ const createBrainFingerprint = (args: {
     .update('\x1f')
     .update(args.extractModel ?? '')
     .update('\x1f')
+    .update(args.contextualise ? 'contextualise=1' : 'contextualise=0')
+    .update('\x1f')
     .update(EXTRACTION_SYSTEM_PROMPT)
     .update('\x1f')
     .update(REPLAY_PIPELINE_VERSION)
@@ -1522,6 +1580,7 @@ const createBrainCacheKey = (args: {
   readonly ingestMode: IngestMode
   readonly actorId: string
   readonly extractModel: string | undefined
+  readonly contextualise: boolean
 }): string =>
   createBrainFingerprint(args).slice(0, 24)
 

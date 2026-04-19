@@ -20,6 +20,7 @@ import { extractJSON, runStructured, validateAgainstSchema } from './structured.
 import type {
   CompletionRequest,
   CompletionResponse,
+  Embedder,
   Logger,
   Message,
   Provider,
@@ -31,6 +32,8 @@ import type {
 import { noopLogger } from './types.js'
 
 const DEFAULT_BASE_URL = 'https://api.openai.com'
+const DEFAULT_EMBED_MODEL = 'text-embedding-3-small'
+const DEFAULT_EMBED_DIM = 1536
 
 export type OpenAIConfig = {
   apiKey: string
@@ -38,6 +41,15 @@ export type OpenAIConfig = {
   baseURL?: string
   defaultMaxTokens?: number
   streamIdleTimeoutMs?: number
+  logger?: Logger
+  http?: HttpClient
+}
+
+export type OpenAIEmbedderConfig = {
+  apiKey: string
+  model?: string
+  baseURL?: string
+  dimensions?: number
   logger?: Logger
   http?: HttpClient
 }
@@ -438,6 +450,95 @@ export class OpenAIProvider implements Provider {
       yield { type: 'tool_call_end', toolCall: { ...tc } }
     }
     yield { type: 'done', usage: { ...accUsage }, stopReason: normaliseFinish(finishReason) }
+  }
+}
+
+export class OpenAIEmbedder implements Embedder {
+  private readonly apiKey: string
+  private readonly modelNameValue: string
+  private readonly baseURL: string
+  private readonly logger: Logger
+  private readonly http: HttpClient
+  private dimensionValue: number
+
+  constructor(cfg: OpenAIEmbedderConfig) {
+    if (cfg.apiKey === '') throw new LLMError('openai: apiKey required')
+    this.apiKey = cfg.apiKey
+    this.modelNameValue = cfg.model ?? DEFAULT_EMBED_MODEL
+    this.baseURL = (cfg.baseURL ?? DEFAULT_BASE_URL).replace(/\/+$/, '')
+    this.logger = cfg.logger ?? noopLogger
+    this.http = cfg.http ?? defaultHttpClient
+    this.dimensionValue = cfg.dimensions ?? DEFAULT_EMBED_DIM
+  }
+
+  name(): string {
+    return 'openai'
+  }
+
+  model(): string {
+    return this.modelNameValue
+  }
+
+  dimension(): number {
+    return this.dimensionValue
+  }
+
+  async embed(texts: readonly string[], signal?: AbortSignal): Promise<number[][]> {
+    if (texts.length === 0) return []
+    const { response, text } = await postForText(
+      this.http,
+      `${this.baseURL}/v1/embeddings`,
+      {
+        input: texts,
+        model: this.modelNameValue,
+      },
+      {
+        headers: {
+          authorization: `Bearer ${this.apiKey}`,
+        },
+        ...(signal !== undefined ? { signal } : {}),
+      },
+    )
+    if (!response.ok) {
+      throw new ProviderError(
+        `openai: embed failed with status ${response.status}`,
+        response.status,
+        text,
+      )
+    }
+    let parsed: {
+      data?: Array<{ index?: number; embedding?: number[] }>
+      error?: { message?: string }
+    }
+    try {
+      parsed = JSON.parse(text) as typeof parsed
+    } catch (err) {
+      throw new ProviderError(
+        'openai: embed returned invalid JSON',
+        response.status,
+        text,
+        err,
+      )
+    }
+    if (parsed.error?.message !== undefined && parsed.error.message !== '') {
+      throw new LLMError(`openai: embed error: ${parsed.error.message}`)
+    }
+    const entries = Array.isArray(parsed.data) ? parsed.data : []
+    const out = Array.from({ length: texts.length }, () => [] as number[])
+    for (const entry of entries) {
+      const index = typeof entry.index === 'number' ? entry.index : 0
+      if (index < 0 || index >= out.length) continue
+      out[index] = Array.isArray(entry.embedding)
+        ? entry.embedding.map((value) => Number(value))
+        : []
+    }
+    const first = out.find((row) => row.length > 0)
+    if (first !== undefined) {
+      this.dimensionValue = first.length
+    } else {
+      this.logger.warn('openai: embed returned no vectors')
+    }
+    return out
   }
 }
 

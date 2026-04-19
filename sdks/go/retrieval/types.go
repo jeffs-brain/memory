@@ -33,10 +33,10 @@ const (
 // prefix. Tags are matched against the FTS tags column; every tag
 // must be present for a hit to survive.
 type Filters struct {
-	PathPrefix string
-	Tags       []string
-	Scope      string
-	Project    string
+	PathPrefix string   `json:"pathPrefix,omitempty"`
+	Tags       []string `json:"tags,omitempty"`
+	Scope      string   `json:"scope,omitempty"`
+	Project    string   `json:"project,omitempty"`
 }
 
 // HasAny reports whether any field carries a non-zero filter.
@@ -47,6 +47,7 @@ func (f Filters) HasAny() bool {
 // Request drives a single retrieval call.
 type Request struct {
 	Query           string
+	QuestionDate    string
 	TopK            int
 	Mode            Mode
 	BrainID         string
@@ -58,17 +59,17 @@ type Request struct {
 
 // RetrievedChunk is a single ranked hit.
 type RetrievedChunk struct {
-	ChunkID          string
-	DocumentID       string
-	Path             string
-	Score            float64
-	Text             string
-	Title            string
-	Summary          string
-	Metadata         map[string]any
-	BM25Rank         int
-	VectorSimilarity float64
-	RerankScore      float64
+	ChunkID          string         `json:"chunkId"`
+	DocumentID       string         `json:"documentId"`
+	Path             string         `json:"path"`
+	Score            float64        `json:"score"`
+	Text             string         `json:"text"`
+	Title            string         `json:"title"`
+	Summary          string         `json:"summary"`
+	Metadata         map[string]any `json:"metadata,omitempty"`
+	BM25Rank         int            `json:"bm25Rank,omitempty"`
+	VectorSimilarity float64        `json:"vectorSimilarity,omitempty"`
+	RerankScore      float64        `json:"rerankScore,omitempty"`
 }
 
 // Attempt records one rung of the retry ladder. The retrieval
@@ -76,42 +77,42 @@ type RetrievedChunk struct {
 // count it produced. Silently-skipped rungs are omitted so the
 // attempt log reflects what was tried.
 type Attempt struct {
-	Rung   int
-	Mode   Mode
-	TopK   int
-	Reason string
-	Chunks int
-	Query  string
+	Rung   int    `json:"rung"`
+	Mode   Mode   `json:"mode"`
+	TopK   int    `json:"topK"`
+	Reason string `json:"reason"`
+	Chunks int    `json:"chunks"`
+	Query  string `json:"query"`
 }
 
 // Trace records every decision the pipeline made. Consumers should
 // surface this to eval harnesses and --explain style reports.
 type Trace struct {
-	RequestedMode    Mode
-	EffectiveMode    Mode
-	Intent           string
-	UsedRetry        bool
-	RRFK             int
-	CandidateK       int
-	RerankTopN       int
-	FellBackToBM25   bool
-	EmbedderUsed     bool
-	Reranked         bool
-	RerankProvider   string
-	RerankSkipReason string
-	BM25Hits         int
-	VectorHits       int
-	FusedHits        int
-	Agreements       int
-	UnanimitySkipped bool
+	RequestedMode    Mode   `json:"requestedMode"`
+	EffectiveMode    Mode   `json:"effectiveMode"`
+	Intent           string `json:"intent"`
+	UsedRetry        bool   `json:"usedRetry"`
+	RRFK             int    `json:"rrfK"`
+	CandidateK       int    `json:"candidateK"`
+	RerankTopN       int    `json:"rerankTopN"`
+	FellBackToBM25   bool   `json:"fellBackToBM25"`
+	EmbedderUsed     bool   `json:"embedderUsed"`
+	Reranked         bool   `json:"reranked"`
+	RerankProvider   string `json:"rerankProvider,omitempty"`
+	RerankSkipReason string `json:"rerankSkipReason,omitempty"`
+	BM25Hits         int    `json:"bm25Hits"`
+	VectorHits       int    `json:"vectorHits"`
+	FusedHits        int    `json:"fusedHits"`
+	Agreements       int    `json:"agreements"`
+	UnanimitySkipped bool   `json:"unanimitySkipped"`
 }
 
 // Response bundles the ranked hits with the trace and attempt log.
 type Response struct {
-	Chunks   []RetrievedChunk
-	TookMs   int
-	Trace    Trace
-	Attempts []Attempt
+	Chunks   []RetrievedChunk `json:"chunks"`
+	TookMs   int              `json:"tookMs"`
+	Trace    Trace            `json:"trace"`
+	Attempts []Attempt        `json:"attempts,omitempty"`
 }
 
 // Retriever is the hybrid retrieval surface. Implementations are

@@ -263,6 +263,18 @@ export type PromptContext = {
   readonly systemReminder: string
 }
 
+export type ContextualPrefixRequest = {
+  readonly sessionId?: string
+  readonly sessionSummary: string
+  readonly factBody: string
+}
+
+export type ContextualPrefixBuilder = {
+  enabled(): boolean
+  modelName(): string
+  buildPrefix(args: ContextualPrefixRequest, signal?: AbortSignal): Promise<string>
+}
+
 /** Options passed to `createMemory`. No singletons — every tenant / request
  *  wires a fresh instance. */
 export type MemoryOpts = {
@@ -290,6 +302,8 @@ export type MemoryOpts = {
   readonly extractMinMessages?: number
   /** Cap on recent messages fed to the extractor. Defaults to 40. */
   readonly extractMaxRecent?: number
+  /** Optional live contextualiser for extracted facts. */
+  readonly contextualPrefixBuilder?: ContextualPrefixBuilder
 }
 
 /** Arguments accepted by `extract`. */

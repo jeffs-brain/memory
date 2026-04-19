@@ -11,10 +11,11 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
-import type { CompletionResponse, Embedder, Provider, StreamEvent } from '../llm/index.js'
+import type { CompletionRequest, CompletionResponse, Embedder, Provider, StreamEvent } from '../llm/index.js'
 import { createHashEmbedder } from '../llm/index.js'
 import { Daemon, createRouter } from './index.js'
 import { MEMORY_PACKAGE } from '../index.js'
+import { createContextualPrefixBuilder } from '../memory/index.js'
 
 const makeFakeProvider = (text: string): Provider => ({
   name: () => 'fake',
@@ -53,6 +54,44 @@ const makeStructuredProvider = (json: string, text = 'ok'): Provider => ({
   structured: async () => json,
 })
 
+const makeCapturingProvider = (capture: { prompts: string[] }, text = 'ok'): Provider => ({
+  name: () => 'fake-capturing',
+  modelName: () => 'fake-capturing-1',
+  async *stream(req: CompletionRequest) {
+    capture.prompts.push(req.messages.map((message) => message.content ?? '').join('\n\n'))
+    yield { type: 'text_delta', text } satisfies StreamEvent
+    yield { type: 'done', stopReason: 'end_turn' as const } satisfies StreamEvent
+  },
+  complete: async (): Promise<CompletionResponse> => ({
+    content: text,
+    toolCalls: [],
+    usage: { inputTokens: 0, outputTokens: 0 },
+    stopReason: 'end_turn',
+  }),
+  supportsStructuredDecoding: () => false,
+  structured: async () => text,
+})
+
+const makeQueuedProvider = (responses: readonly string[]): Provider => {
+  let index = 0
+  const next = (): string => responses[Math.min(index++, Math.max(0, responses.length - 1))] ?? ''
+  return {
+    name: () => 'fake-queued',
+    modelName: () => 'fake-queued-1',
+    async *stream() {
+      yield { type: 'done', stopReason: 'end_turn' as const } satisfies StreamEvent
+    },
+    complete: async (): Promise<CompletionResponse> => ({
+      content: next(),
+      toolCalls: [],
+      usage: { inputTokens: 0, outputTokens: 0 },
+      stopReason: 'end_turn',
+    }),
+    supportsStructuredDecoding: () => false,
+    structured: async () => next(),
+  }
+}
+
 type Fixture = {
   daemon: Daemon
   handler: (req: Request) => Promise<Response>
@@ -65,6 +104,8 @@ type MakeDaemonOpts = {
   authToken?: string
   provider?: Provider
   embedder?: Embedder
+  contextualise?: boolean
+  contextualiseCacheDir?: string
 }
 
 const makeDaemon = async (opts: MakeDaemonOpts = {}): Promise<Fixture> => {
@@ -74,6 +115,16 @@ const makeDaemon = async (opts: MakeDaemonOpts = {}): Promise<Fixture> => {
     provider: opts.provider ?? makeFakeProvider('The hedgehog lives in hedgerows.'),
     ...(opts.embedder !== undefined ? { embedder: opts.embedder } : {}),
     ...(opts.authToken !== undefined ? { authToken: opts.authToken } : {}),
+    ...(opts.contextualise
+      ? {
+          contextualPrefixBuilder: createContextualPrefixBuilder({
+            provider: opts.provider ?? makeFakeProvider('The hedgehog lives in hedgerows.'),
+            ...(opts.contextualiseCacheDir !== undefined
+              ? { cacheDir: opts.contextualiseCacheDir }
+              : {}),
+          }),
+        }
+      : {}),
   })
   await daemon.start()
   const router = createRouter(daemon)
@@ -116,6 +167,29 @@ const createBrain = async (handler: Fixture['handler'], brainId: string): Promis
     }),
   )
   expect(resp.status).toBe(201)
+}
+
+const sleep = async (ms: number): Promise<void> =>
+  await new Promise((resolve) => setTimeout(resolve, ms))
+
+const waitFor = async (
+  check: () => void,
+  opts: { timeoutMs?: number; intervalMs?: number } = {},
+): Promise<void> => {
+  const timeoutMs = opts.timeoutMs ?? 5_000
+  const intervalMs = opts.intervalMs ?? 25
+  const deadline = Date.now() + timeoutMs
+  let lastErr: unknown
+  while (Date.now() < deadline) {
+    try {
+      check()
+      return
+    } catch (err) {
+      lastErr = err
+      await sleep(intervalMs)
+    }
+  }
+  throw lastErr instanceof Error ? lastErr : new Error(`timed out after ${timeoutMs}ms`)
 }
 
 describe('memory daemon integration', () => {
@@ -234,6 +308,147 @@ describe('memory daemon integration', () => {
     expect(body.chunks.length).toBeGreaterThan(0)
   })
 
+  it('4a. leaves untitled raw transcripts untitled in the search index', async () => {
+    const fixture = await makeDaemon()
+    const { handler, daemon } = fixture
+    await createBrain(handler, 'titles')
+
+    const rawTranscript = [
+      '---',
+      'session_id: answer_sharegpt_example',
+      'session_date: 2023/05/30 (Tue) 17:19',
+      '---',
+      '',
+      '[user]: We finally named the Radiation Amplified zombie Fissionator.',
+      '',
+    ].join('\n')
+
+    const put = await handler(
+      makeRequest(
+        'PUT',
+        '/v1/brains/titles/documents?path=raw%2Flme%2Fanswer_sharegpt_example.md',
+        {
+          body: Buffer.from(rawTranscript, 'utf8'),
+          headers: { 'content-type': 'application/octet-stream' },
+        },
+      ),
+    )
+    expect(put.status).toBe(204)
+
+    const res = await daemon.brains.get('titles')
+    await res.refresh()
+    const chunk = res.index?.getChunk('raw/lme/answer_sharegpt_example.md')
+    expect(chunk).toBeDefined()
+    expect(chunk?.title).toBe('')
+    expect(chunk?.content).toContain('Fissionator')
+    expect(chunk?.content).not.toContain('session_id:')
+  })
+
+  it('4b. search forwards retrieval filters and returns trace data', async () => {
+    const { handler } = await makeDaemon()
+    await createBrain(handler, 'filters')
+
+    const globalWrite = await handler(
+      makeRequest(
+        'PUT',
+        '/v1/brains/filters/documents?path=memory%2Fglobal%2Fhedgehog.md',
+        {
+          body: Buffer.from('The global hedgehog lives in hedgerows.', 'utf8'),
+        },
+      ),
+    )
+    expect(globalWrite.status).toBe(204)
+
+    const projectWrite = await handler(
+      makeRequest(
+        'PUT',
+        '/v1/brains/filters/documents?path=memory%2Fproject%2Fdemo%2Fhedgehog.md',
+        {
+          body: Buffer.from('The project hedgehog lives in hedgerows.', 'utf8'),
+        },
+      ),
+    )
+    expect(projectWrite.status).toBe(204)
+
+    const search = await handler(
+      makeRequest('POST', '/v1/brains/filters/search', {
+        body: JSON.stringify({
+          query: 'hedgehog',
+          topK: 5,
+          filters: { scope: 'global' },
+        }),
+        headers: { 'content-type': 'application/json' },
+      }),
+    )
+    expect(search.status).toBe(200)
+
+    const body = (await search.json()) as {
+      chunks: Array<{ path: string }>
+      trace?: { filtersApplied?: boolean }
+      attempts?: unknown[]
+    }
+    expect(body.chunks).toHaveLength(1)
+    expect(body.chunks[0]?.path).toBe('memory/global/hedgehog.md')
+    expect(body.trace?.filtersApplied).toBe(true)
+    expect(Array.isArray(body.attempts)).toBe(true)
+  })
+
+  it('4c. search keeps global and matching project memory when scope is memory', async () => {
+    const { handler } = await makeDaemon()
+    await createBrain(handler, 'memory-scope-filters')
+
+    const writes = [
+      {
+        path: 'memory/global/hedgehog.md',
+        content: 'Global hedgehog facts for the eval memory track.',
+      },
+      {
+        path: 'memory/project/eval-lme/hedgehog.md',
+        content: 'Project hedgehog facts for eval-lme.',
+      },
+      {
+        path: 'memory/project/other/hedgehog.md',
+        content: 'Project hedgehog facts for another project.',
+      },
+      {
+        path: 'raw/eval-lme/hedgehog.md',
+        content: 'Raw hedgehog transcript for eval-lme.',
+      },
+    ] as const
+
+    for (const { path, content } of writes) {
+      const response = await handler(
+        makeRequest('PUT', `/v1/brains/memory-scope-filters/documents?path=${encodeURIComponent(path)}`, {
+          body: Buffer.from(content, 'utf8'),
+        }),
+      )
+      expect(response.status).toBe(204)
+    }
+
+    const search = await handler(
+      makeRequest('POST', '/v1/brains/memory-scope-filters/search', {
+        body: JSON.stringify({
+          query: 'hedgehog eval-lme',
+          topK: 10,
+          filters: { scope: 'memory', project: 'eval-lme' },
+        }),
+        headers: { 'content-type': 'application/json' },
+      }),
+    )
+    expect(search.status).toBe(200)
+
+    const body = (await search.json()) as {
+      chunks: Array<{ path: string }>
+      trace?: { filtersApplied?: boolean }
+    }
+    const paths = body.chunks.map((chunk) => chunk.path).sort()
+    expect(paths).toEqual([
+      'memory/global/hedgehog.md',
+      'memory/project/eval-lme/hedgehog.md',
+    ])
+    expect(body.trace?.filtersApplied).toBe(true)
+  })
+
   it('5. /ask streams retrieve → answer_delta → citation → done', async () => {
     const { handler } = await makeDaemon()
     await createBrain(handler, 'asksse')
@@ -258,6 +473,112 @@ describe('memory daemon integration', () => {
     expect(text).toContain('event: retrieve')
     expect(text).toContain('event: answer_delta')
     expect(text).toContain('event: done')
+  })
+
+  it('5a. augmented ask renders numbered session facts and strips frontmatter', async () => {
+    const capture = { prompts: [] as string[] }
+    const provider = makeCapturingProvider(capture)
+    const { handler } = await makeDaemon({ provider })
+    await createBrain(handler, 'askaugmented')
+
+    const docs = [
+      {
+        path: 'raw/lme/session-2.md',
+        content:
+          '---\nsession_id: s2\nsession_date: 2024-02-20\n---\n[user]: The bike is blue now.\n',
+      },
+      {
+        path: 'raw/lme/session-1-a.md',
+        content:
+          '---\nsession_id: s1\nsession_date: 2024-01-10\n---\n[user]: I bought a bike.\n',
+      },
+      {
+        path: 'raw/lme/session-1-b.md',
+        content:
+          '---\nsession_id: s1\nsession_date: 2024-01-10\n---\n[user]: The bike was red at first.\n',
+      },
+    ] as const
+
+    for (const doc of docs) {
+      const put = await handler(
+        makeRequest('PUT', `/v1/brains/askaugmented/documents?path=${encodeURIComponent(doc.path)}`, {
+          body: Buffer.from(doc.content, 'utf8'),
+          headers: { 'content-type': 'text/markdown' },
+        }),
+      )
+      expect(put.status).toBe(204)
+    }
+
+    const ask = await handler(
+      makeRequest('POST', '/v1/brains/askaugmented/ask', {
+        body: JSON.stringify({
+          question: 'What colour is the bike now?',
+          topK: 3,
+          mode: 'bm25',
+          readerMode: 'augmented',
+          questionDate: '2024-02-21',
+        }),
+        headers: { 'content-type': 'application/json' },
+      }),
+    )
+
+    expect(ask.status).toBe(200)
+    expect(capture.prompts).toHaveLength(1)
+    const prompt = capture.prompts[0] ?? ''
+    expect(prompt).toContain('Retrieved facts (3):')
+    expect(prompt).toContain('[session=s2]')
+    expect(prompt).toContain('[session=s1]')
+    expect(prompt).toContain('[2024-02-20]')
+    expect(prompt).toContain('[2024-01-10]')
+    expect(prompt).not.toContain('session_id:')
+    expect(prompt).not.toContain('session_date:')
+    const firstS1 = prompt.indexOf('[session=s1]')
+    const secondS1 = prompt.lastIndexOf('[session=s1]')
+    const s2 = prompt.indexOf('[session=s2]')
+    expect(s2).toBeGreaterThanOrEqual(0)
+    expect(firstS1).toBeGreaterThanOrEqual(0)
+    expect(secondS1).toBeGreaterThan(firstS1)
+  })
+
+  it('5b. /search forwards candidateK and rerankTopN to retrieval', async () => {
+    const { daemon, handler } = await makeDaemon({ embedder: createHashEmbedder() })
+    await createBrain(handler, 'searchknobs')
+    await handler(
+      makeRequest('PUT', '/v1/brains/searchknobs/documents?path=note.md', {
+        body: new Uint8Array(Buffer.from('apples and pears')),
+        headers: { 'content-type': 'text/plain' },
+      }),
+    )
+
+    const brain = await daemon.brains.get('searchknobs')
+    expect(brain.retrieval).toBeDefined()
+    const capture: { request?: Record<string, unknown> } = {}
+    const originalSearchRaw = brain.retrieval!.searchRaw.bind(brain.retrieval)
+    ;(
+      brain.retrieval as {
+        searchRaw: (request: Record<string, unknown>) => ReturnType<typeof originalSearchRaw>
+      }
+    ).searchRaw = async (request) => {
+      capture.request = request
+      return originalSearchRaw(request)
+    }
+
+    const search = await handler(
+      makeRequest('POST', '/v1/brains/searchknobs/search', {
+        body: JSON.stringify({
+          query: 'apples',
+          topK: 3,
+          candidateK: 80,
+          rerankTopN: 40,
+          mode: 'hybrid-rerank',
+        }),
+        headers: { 'content-type': 'application/json' },
+      }),
+    )
+
+    expect(search.status).toBe(200)
+    expect(capture.request?.candidateK).toBe(80)
+    expect(capture.request?.rerankTopN).toBe(40)
   })
 
   it('6. /events streams a ready frame then a change on mutation', async () => {
@@ -449,6 +770,40 @@ describe('memory daemon integration', () => {
     expect(text).toMatch(/"path":"raw\/documents\/[^"]*habitat/)
   })
 
+  it('11a. /search returns retrieval metadata for retrieve-only callers', async () => {
+    const { handler } = await makeDaemon()
+    await createBrain(handler, 'searchmetadata')
+
+    const put = await handler(
+      makeRequest('PUT', '/v1/brains/searchmetadata/documents?path=raw%2Flme%2Fsession-1.md', {
+        body: Buffer.from(
+          '---\nsession_id: s1\nsession_date: 2024-03-08\n---\n[user]: I bought apples.\n',
+          'utf8',
+        ),
+        headers: { 'content-type': 'text/markdown' },
+      }),
+    )
+    expect(put.status).toBe(204)
+
+    const search = await handler(
+      makeRequest('POST', '/v1/brains/searchmetadata/search', {
+        body: JSON.stringify({ query: 'apples', topK: 1, mode: 'bm25' }),
+        headers: { 'content-type': 'application/json' },
+      }),
+    )
+    expect(search.status).toBe(200)
+    const body = (await search.json()) as {
+      chunks: Array<{
+        path: string
+        metadata?: Record<string, unknown>
+      }>
+    }
+    expect(body.chunks).toHaveLength(1)
+    expect(body.chunks[0]?.path).toBe('raw/lme/session-1.md')
+    expect(body.chunks[0]?.metadata?.sessionId).toBe('s1')
+    expect(body.chunks[0]?.metadata?.sessionDate).toBe('2024-03-08')
+  })
+
   it('12. remember then recall round-trips through the real memory pipeline', async () => {
     const embedder = createHashEmbedder()
     const { handler } = await makeDaemon({ embedder })
@@ -540,6 +895,77 @@ describe('memory daemon integration', () => {
     expect(extracted).toBeDefined()
     expect(extracted!.content).toContain('pragmatic')
     expect(extracted!.scope).toBe('global')
+  })
+
+  it('13a. extract carries session metadata and contextual prefixes when enabled', async () => {
+    const provider = makeQueuedProvider([
+      JSON.stringify({
+        memories: [
+          {
+            action: 'create',
+            filename: 'bike-status',
+            name: 'Bike status',
+            description: 'The user confirmed the bike colour.',
+            type: 'project',
+            content: 'The bike is blue now.',
+            indexEntry: '- [[bike-status]]',
+            scope: 'project',
+          },
+        ],
+      }),
+      'The session happened on a February check-in about the bike, and this fact records the current colour after the latest update.',
+    ])
+    const { handler } = await makeDaemon({
+      provider,
+      embedder: createHashEmbedder(),
+      contextualise: true,
+      contextualiseCacheDir: join(tmpdir(), 'memory-contextual-prefix-test'),
+    })
+    await createBrain(handler, 'contextualised')
+
+    const extract = await handler(
+      makeRequest('POST', '/v1/brains/contextualised/extract', {
+        body: JSON.stringify({
+          messages: [
+            {
+              role: 'system',
+              content: 'Session on 2024-02-20 about the bike status.',
+            },
+            {
+              role: 'user',
+              content: 'The bike is blue now.',
+            },
+          ],
+          scope: 'project',
+          actorId: 'alex',
+          sessionId: 'session-42',
+          sessionDate: '2024/02/20 (Tue) 09:15',
+        }),
+        headers: { 'content-type': 'application/json' },
+      }),
+    )
+
+    expect(extract.status).toBe(200)
+    const body = (await extract.json()) as {
+      memories: Array<{
+        filename: string
+        scope: string
+        sessionId?: string
+        sessionDate?: string
+        contextPrefix?: string
+      }>
+    }
+    expect(body.memories[0]?.sessionId).toBe('session-42')
+    expect(body.memories[0]?.sessionDate).toBe('2024-02-20')
+    expect(body.memories[0]?.contextPrefix).toContain('bike')
+
+    const stored = await fixtures[fixtures.length - 1]!.daemon.brains
+      .get('contextualised')
+      .then((brain) => brain.store.read('memory/project/alex/bike-status.md'))
+      .then((buf) => buf.toString('utf8'))
+    expect(stored).toContain('session_id: session-42')
+    expect(stored).toContain('session_date: 2024-02-20')
+    expect(stored).toContain('Context: The session happened on a February check-in about the bike')
   })
 
   it('14. search surfaces files pre-seeded on disk before the daemon opens the brain', async () => {
@@ -637,10 +1063,216 @@ describe('memory daemon integration', () => {
     expect(br.index).toBeDefined()
     // Both markdown paths should end up with a vector tagged for the
     // active model once the backfill has drained.
-    const withVectors = br.index!.chunkIdsWithVectorForModel('hash-1024')
-    expect(withVectors.sort()).toEqual([
-      'memory/global/alpha.md',
-      'memory/global/beta.md',
-    ])
+    await waitFor(() => {
+      const withVectors = br.index!.chunkIdsWithVectorForModel('hash-1024')
+      expect(withVectors.sort()).toEqual([
+        'memory/global/alpha.md',
+        'memory/global/beta.md',
+      ])
+    })
+  })
+
+  it('15a. vector backfill honours the active embedder dimension', async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), 'memory-backfill-dim-'))
+    const brainId = 'backfill-dim'
+    const { mkdir, writeFile } = await import('node:fs/promises')
+    await mkdir(join(tempDir, 'brains', brainId, 'memory', 'global'), { recursive: true })
+    await writeFile(
+      join(tempDir, 'brains', brainId, 'memory', 'global', 'alpha.md'),
+      'Alpha lives in the hedgerows.',
+      'utf8',
+    )
+    await writeFile(
+      join(tempDir, 'brains', brainId, 'memory', 'global', 'beta.md'),
+      'Beta likes beetles.',
+      'utf8',
+    )
+
+    const embedder: Embedder = {
+      name: () => 'stub-1536',
+      model: () => 'stub-1536',
+      dimension: () => 1536,
+      async embed(texts) {
+        return texts.map((_text, offset) => {
+          const vec = new Array<number>(1536).fill(0)
+          vec[offset % 1536] = 1
+          return vec
+        })
+      },
+    }
+
+    const daemon = new Daemon({
+      root: tempDir,
+      provider: makeFakeProvider('ok'),
+      embedder,
+      embedModel: 'stub-1536',
+    })
+    await daemon.start()
+    const handler = async (req: Request): Promise<Response> =>
+      (await createRouter(daemon))(req)
+    fixtures.push({ daemon, handler, tempDir })
+
+    const search = await handler(
+      makeRequest('POST', `/v1/brains/${brainId}/search`, {
+        body: JSON.stringify({ query: 'hedgerows', topK: 3 }),
+        headers: { 'content-type': 'application/json' },
+      }),
+    )
+    expect(search.status).toBe(200)
+
+    const br = await daemon.brains.get(brainId)
+    expect(br.index).toBeDefined()
+    expect(br.index!.vectorDim).toBe(1536)
+    await waitFor(() => {
+      expect(br.index!.chunkIdsWithVectorForModel('stub-1536').sort()).toEqual([
+        'memory/global/alpha.md',
+        'memory/global/beta.md',
+      ])
+    })
+  })
+
+  it('15b. initial scan prunes stale index rows left behind by an older on-disk layout', async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), 'memory-stale-index-'))
+    const brainId = 'stale-index'
+    const { mkdir, writeFile, rm } = await import('node:fs/promises')
+    const flatPath = join(tempDir, 'brains', brainId, 'memory', 'project_sentiment_analysis.md')
+    await mkdir(join(tempDir, 'brains', brainId, 'memory'), { recursive: true })
+    await writeFile(
+      flatPath,
+      [
+        '---',
+        'name: Sentiment analysis',
+        'description: Flat replay path from an older layout.',
+        '---',
+        '',
+        'The user submitted the sentiment analysis paper in May 2023.',
+      ].join('\n'),
+      'utf8',
+    )
+
+    const firstDaemon = new Daemon({
+      root: tempDir,
+      provider: makeFakeProvider('ok'),
+      embedder: createHashEmbedder(),
+    })
+    await firstDaemon.start()
+    const firstHandler = createRouter(firstDaemon)
+    fixtures.push({ daemon: firstDaemon, handler: firstHandler, tempDir })
+
+    const firstSearch = await firstHandler(
+      makeRequest('POST', `/v1/brains/${brainId}/search`, {
+        body: JSON.stringify({ query: 'sentiment analysis', topK: 5 }),
+        headers: { 'content-type': 'application/json' },
+      }),
+    )
+    expect(firstSearch.status).toBe(200)
+    await firstDaemon.close()
+
+    const nestedPath = join(
+      tempDir,
+      'brains',
+      brainId,
+      'memory',
+      'project',
+      'eval-lme',
+      'project_sentiment_analysis.md',
+    )
+    await rm(flatPath)
+    await mkdir(join(tempDir, 'brains', brainId, 'memory', 'project', 'eval-lme'), {
+      recursive: true,
+    })
+    await writeFile(
+      nestedPath,
+      [
+        '---',
+        'name: Sentiment analysis',
+        'description: Canonical project replay path.',
+        '---',
+        '',
+        'The user submitted the sentiment analysis paper in May 2023.',
+      ].join('\n'),
+      'utf8',
+    )
+
+    const secondDaemon = new Daemon({
+      root: tempDir,
+      provider: makeFakeProvider('ok'),
+      embedder: createHashEmbedder(),
+    })
+    await secondDaemon.start()
+    const secondHandler = createRouter(secondDaemon)
+    fixtures.push({ daemon: secondDaemon, handler: secondHandler, tempDir })
+
+    const secondSearch = await secondHandler(
+      makeRequest('POST', `/v1/brains/${brainId}/search`, {
+        body: JSON.stringify({ query: 'sentiment analysis', topK: 5 }),
+        headers: { 'content-type': 'application/json' },
+      }),
+    )
+    expect(secondSearch.status).toBe(200)
+
+    const br = await secondDaemon.brains.get(brainId)
+    expect(br.index?.indexedPaths()).toContain('memory/project/eval-lme/project_sentiment_analysis.md')
+    expect(br.index?.indexedPaths()).not.toContain('memory/project_sentiment_analysis.md')
+  })
+
+  it('15c. first search does not wait for vector backfill to finish', async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), 'memory-nonblocking-backfill-'))
+    const brainId = 'nonblocking-backfill'
+    const { mkdir, writeFile } = await import('node:fs/promises')
+    await mkdir(join(tempDir, 'brains', brainId, 'memory', 'global'), { recursive: true })
+    await writeFile(
+      join(tempDir, 'brains', brainId, 'memory', 'global', 'alpha.md'),
+      'The hedgehog lives in hedgerows.',
+      'utf8',
+    )
+
+    let releaseEmbed: (() => void) | undefined
+    const embedGate = new Promise<void>((resolve) => {
+      releaseEmbed = resolve
+    })
+    const embedder: Embedder = {
+      name: () => 'gated-hash',
+      model: () => 'gated-hash',
+      dimension: () => 4,
+      async embed(texts) {
+        await embedGate
+        return texts.map((_text, index) => {
+          const vec = [0, 0, 0, 0]
+          vec[index % vec.length] = 1
+          return vec
+        })
+      },
+    }
+
+    const daemon = new Daemon({
+      root: tempDir,
+      provider: makeFakeProvider('ok'),
+      embedder,
+      embedModel: 'gated-hash',
+    })
+    await daemon.start()
+    const handler = async (req: Request): Promise<Response> =>
+      (await createRouter(daemon))(req)
+    fixtures.push({ daemon, handler, tempDir })
+
+    const searchPromise = handler(
+      makeRequest('POST', `/v1/brains/${brainId}/search`, {
+        body: JSON.stringify({ query: 'hedgehog hedgerows', topK: 5, mode: 'bm25' }),
+        headers: { 'content-type': 'application/json' },
+      }),
+    )
+
+    const timeoutResponse = new Promise<Response>((_resolve, reject) => {
+      setTimeout(() => reject(new Error('search waited on vector backfill')), 150)
+    })
+    const search = await Promise.race([searchPromise, timeoutResponse])
+    expect(search.status).toBe(200)
+
+    releaseEmbed?.()
+    const br = await daemon.brains.get(brainId)
+    await waitFor(() => {
+      expect(br.index!.chunkIdsWithVectorForModel('gated-hash')).toEqual(['memory/global/alpha.md'])
+    })
   })
 })

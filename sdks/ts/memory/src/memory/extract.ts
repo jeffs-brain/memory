@@ -10,6 +10,7 @@
  */
 
 import type { Logger, Message, Provider } from '../llm/index.js'
+import { expandTemporal } from '../query/temporal.js'
 import { lastSegment } from '../store/path.js'
 import type { Store } from '../store/index.js'
 import { CONTEXTUAL_PREFIX_MARKER } from './prompts.js'
@@ -19,6 +20,7 @@ import { parseFrontmatter } from './frontmatter.js'
 import { ensureMarkdown, scopeIndex, scopePrefix, scopeTopic } from './paths.js'
 import { fireExtractionEnd, fireExtractionStart } from './plugins.js'
 import type {
+  ContextualPrefixBuilder,
   CursorStore,
   ExtractArgs,
   ExtractedMemory,
@@ -40,6 +42,10 @@ const PROPER_NOUN_TAG_RE = /\b[A-Z][a-zA-Z]+\b/g
 const MONEY_TAG_RE = /[\$£€]\s?\d{1,3}(?:,\d{3})*(?:\.\d+)?/g
 const UNIT_QUANTITY_TAG_RE =
   /\b(\d{1,6}(?:\.\d+)?)\s+(minutes?|mins?|hours?|hrs?|seconds?|secs?|days?|weeks?|months?|years?|km|kilometres?|miles?|metres?|meters?|kg|kilograms?|pounds?|lbs?|grams?|percent|%)\b/gi
+const WORD_UNIT_QUANTITY_TAG_RE =
+  /\b(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\s+(minutes?|mins?|hours?|hrs?|seconds?|secs?|days?|weeks?|months?|years?)\b/gi
+const MONTH_NAME_DATE_RE =
+  /\b(January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2}(?:st|nd|rd|th)?(?:,?\s+\d{4})?\b/i
 const DATE_INPUT_RE =
   /^(\d{4})[/-](\d{2})[/-](\d{2})(?:\s+\([A-Za-z]{3}\))?(?:\s+(\d{2}):(\d{2})(?::(\d{2}))?)?$/
 const HEURISTIC_USER_FACT_LIMIT = 2
@@ -54,7 +60,7 @@ const HEURISTIC_MILESTONE_EVENT_RE =
 const HEURISTIC_MILESTONE_TIME_RE =
   /\b(?:today|yesterday|recently|just|last\s+(?:week|month|year|summer|spring|fall|autumn|winter))\b/i
 const HEURISTIC_MILESTONE_TOPIC_RE =
-  /\b(?:degree|thesis|dissertation|paper|research|conference|course|class|project|internship|job|role)\b/i
+  /\b(?:degree|thesis|dissertation|paper|research|conference|course|class|project|internship|job|role|group|club|community|network|forum|association|society|linkedin)\b/i
 const HEURISTIC_PREFERENCE_BESIDES_LIKE_RE =
   /\bbesides\s+([^.!?]+?),\s*i\s+(?:also\s+)?like\s+([^.!?]+?)(?:[.!?]|$)/i
 const HEURISTIC_PREFERENCE_LIKE_RE =
@@ -81,9 +87,11 @@ const HEURISTIC_APPOINTMENT_RE =
 const HEURISTIC_MEDICAL_ENTITY_RE =
   /\b(?:gp|doctor|dentist|dermatologist|orthodontist|hygienist|therapist|counsellor|counselor|psychiatrist|psychologist|physio(?:therapist)?|optometrist|ophthalmologist|paediatrician|pediatrician|gynaecologist|gynecologist|cardiologist|neurologist|oncologist|surgeon|vet|veterinarian)\b/i
 const HEURISTIC_EVENT_RE =
-  /\b(?:workshop|conference|concert|gig|show|screening|play|musical|exhibition|festival|meetup|class|course|webinar|lecture|seminar)\b/i
+  /\b(?:workshop|conference|concert|gig|show|screening|play|musical|exhibition|festival|meetup|class|course|webinar|lecture|seminar|service|mass|worship|prayer)\b/i
 const HEURISTIC_EVENT_ATTENDANCE_RE =
   /\b(?:attend(?:ed|ing)?|went to|go(?:ing)? to|joined|join(?:ing)?|participat(?:ed|ing)|volunteer(?:ed|ing)|present(?:ed|ing)|watch(?:ed|ing)|listen(?:ed|ing)\s+to|got back from|completed)\b/i
+const HEURISTIC_RELIGIOUS_SERVICE_RE =
+  /\battend(?:ed|ing)?\s+([^,.!?]+?\s+service(?:\s+at\s+[^,.!?]+)?)\b/i
 const HEURISTIC_EVENT_TITLE_RE =
   /\b([A-Z][A-Za-z0-9&'/-]*(?:\s+[A-Z][A-Za-z0-9&'/-]*){0,6}\s+(?:Workshop|Conference|Concert|Festival|Meetup|Show|Screening|Class|Course|Webinar|Lecture|Seminar))\b/
 const HEURISTIC_WITH_PERSON_RE = /\bwith\s+(Dr\.?\s+[A-Z][a-zA-Z'-]+)\b/
@@ -116,6 +124,20 @@ const EVENT_TAG_RE =
   /\b(?:workshop|conference|concert|gig|show|screening|play|musical|exhibition|festival|meetup|class|course|webinar|lecture|seminar)\b/gi
 const ENTERTAINMENT_TAG_RE =
   /\b(?:film|movie|show|series|book|novel|game|podcast|cinema)\b/gi
+const MONTH_NAME_VALUES = [
+  'January',
+  'February',
+  'March',
+  'April',
+  'May',
+  'June',
+  'July',
+  'August',
+  'September',
+  'October',
+  'November',
+  'December',
+] as const
 const HEURISTIC_STOPWORDS = new Set([
   'been',
   'city',
@@ -146,6 +168,7 @@ export type ExtractDeps = {
   readonly defaultActorId: string
   readonly minMessages: number
   readonly maxRecent: number
+  readonly contextualPrefixBuilder?: ContextualPrefixBuilder
 }
 
 type ExistingMemorySummary = {
@@ -210,7 +233,11 @@ export const createExtract = (deps: ExtractDeps) => {
     const normalised = parsed.map((m) =>
       normaliseExtracted(m, scope, args.sessionId, args.sessionDate),
     )
-    const extracted = postProcessSessionExtractions(
+    const extracted = await applyContextualPrefixes(
+      deps.contextualPrefixBuilder,
+      windowed,
+      args.sessionId,
+      postProcessSessionExtractions(
       [
         ...normalised,
         ...deriveHeuristicUserFacts(
@@ -246,6 +273,7 @@ export const createExtract = (deps: ExtractDeps) => {
       ],
       args.sessionId,
       args.sessionDate,
+      ),
     )
 
     if (extracted.length > 0) {
@@ -596,6 +624,7 @@ const deriveHeuristicUserFacts = (
       if (seenSentences.has(canonical)) continue
       const slug = heuristicFactSlug(sentence)
       if (slug === '') continue
+      const observedOn = resolveHeuristicObservedOn(sentence, sessionDate)
       out.push({
         action: 'create',
         filename: buildHeuristicUserFactFilename({
@@ -607,8 +636,9 @@ const deriveHeuristicUserFacts = (
         description: truncateOneLine(sentence, 140),
         type: 'user',
         scope: 'global',
-        content: sentence,
+        content: withObservedDatePrefix(sentence, observedOn),
         indexEntry: truncateOneLine(sentence, 140),
+        ...(observedOn !== '' ? { observedOn } : {}),
         ...(sessionId !== undefined && sessionId !== '' ? { sessionId } : {}),
         ...(sessionDate !== undefined && sessionDate !== '' ? { sessionDate } : {}),
       })
@@ -653,6 +683,7 @@ const deriveHeuristicMilestoneFacts = (
       if (seenSentences.has(canonical)) continue
       const slug = heuristicFactSlug(sentence)
       if (slug === '') continue
+      const observedOn = resolveHeuristicObservedOn(sentence, sessionDate)
       out.push({
         action: 'create',
         filename: buildHeuristicUserFactFilename({
@@ -664,8 +695,9 @@ const deriveHeuristicMilestoneFacts = (
         description: truncateOneLine(sentence, 140),
         type: 'user',
         scope: 'global',
-        content: sentence,
+        content: withObservedDatePrefix(sentence, observedOn),
         indexEntry: truncateOneLine(sentence, 140),
+        ...(observedOn !== '' ? { observedOn } : {}),
         ...(sessionId !== undefined && sessionId !== '' ? { sessionId } : {}),
         ...(sessionDate !== undefined && sessionDate !== '' ? { sessionDate } : {}),
       })
@@ -801,6 +833,7 @@ const deriveHeuristicEventFacts = (
       if (seen.has(canonical)) continue
       const slug = heuristicFactSlug(summary)
       if (slug === '') continue
+      const observedOn = resolveHeuristicObservedOn(sentence, sessionDate)
       out.push({
         action: 'create',
         filename: buildHeuristicUserFactFilename({
@@ -812,8 +845,9 @@ const deriveHeuristicEventFacts = (
         description: truncateOneLine(summary, 140),
         type: 'user',
         scope: 'global',
-        content: `${summary}\n\nEvidence: ${sentence}`,
+        content: withObservedDatePrefix(`${summary}\n\nEvidence: ${sentence}`, observedOn),
         indexEntry: truncateOneLine(summary, 140),
+        ...(observedOn !== '' ? { observedOn } : {}),
         ...(sessionId !== undefined && sessionId !== '' ? { sessionId } : {}),
         ...(sessionDate !== undefined && sessionDate !== '' ? { sessionDate } : {}),
       })
@@ -834,8 +868,12 @@ const splitIntoFactSentences = (content: string): readonly string[] =>
 const hasQuantifiedFact = (sentence: string): boolean => {
   UNIT_QUANTITY_TAG_RE.lastIndex = 0
   if (UNIT_QUANTITY_TAG_RE.test(sentence)) return true
+  WORD_UNIT_QUANTITY_TAG_RE.lastIndex = 0
+  if (WORD_UNIT_QUANTITY_TAG_RE.test(sentence)) return true
   DATE_TAG_RE.lastIndex = 0
   if (DATE_TAG_RE.test(sentence)) return true
+  MONTH_NAME_DATE_RE.lastIndex = 0
+  if (MONTH_NAME_DATE_RE.test(sentence)) return true
   if (HEURISTIC_DURATION_FACT_RE.test(sentence)) return true
   return /\b\d{1,4}\b/.test(sentence)
 }
@@ -1122,6 +1160,49 @@ const sanitiseHeuristicFileSegment = (value: string): string =>
 const truncateOneLine = (value: string, max: number): string =>
   value.length <= max ? value : `${value.slice(0, Math.max(1, max - 3)).trimEnd()}...`
 
+const extractSessionSummary = (messages: readonly Message[]): string => {
+  for (const message of messages) {
+    if (message.role === 'system' && (message.content ?? '').trim() !== '') {
+      return truncateOneLine(oneLine(message.content ?? ''), 240)
+    }
+  }
+  for (const message of messages) {
+    if (message.role === 'user' && (message.content ?? '').trim() !== '') {
+      return truncateOneLine(oneLine(message.content ?? ''), 240)
+    }
+  }
+  return ''
+}
+
+const oneLine = (value: string): string => value.replace(/\s+/g, ' ').trim()
+
+const applyContextualPrefixes = async (
+  builder: ContextualPrefixBuilder | undefined,
+  messages: readonly Message[],
+  sessionId: string | undefined,
+  extracted: readonly ExtractedMemory[],
+): Promise<readonly ExtractedMemory[]> => {
+  if (builder === undefined || !builder.enabled() || extracted.length === 0) {
+    return extracted
+  }
+  const sessionSummary = extractSessionSummary(messages)
+  return Promise.all(
+    extracted.map(async (memory) => {
+      if (memory.contextPrefix !== undefined && memory.contextPrefix.trim() !== '') {
+        return memory
+      }
+      const prefix = await builder
+        .buildPrefix({
+          sessionSummary,
+          factBody: memory.content,
+          ...(sessionId !== undefined ? { sessionId } : {}),
+        })
+        .catch(() => '')
+      return prefix.trim() !== '' ? { ...memory, contextPrefix: prefix.trim() } : memory
+    }),
+  )
+}
+
 const toTitleCase = (value: string): string =>
   value
     .split(/\s+/)
@@ -1310,6 +1391,63 @@ const parseDateInput = (value: string): Date | undefined => {
   }
   const parsed = new Date(value)
   return Number.isNaN(parsed.getTime()) ? undefined : parsed
+}
+
+const resolveHeuristicObservedOn = (
+  sentence: string,
+  sessionDate: string | undefined,
+): string => {
+  const anchor = parseDateInput(sessionDate?.trim() ?? '')
+  if (anchor === undefined) return ''
+
+  const explicitIso = captureWholeMatch(DATE_TAG_RE, sentence)
+  if (explicitIso !== undefined) {
+    const parsed = parseDateInput(explicitIso.replaceAll('-', '/'))
+    return parsed?.toISOString() ?? ''
+  }
+
+  const monthNameDate = parseMonthNameDate(sentence, anchor)
+  if (monthNameDate !== undefined) return monthNameDate.toISOString()
+
+  const expansion = expandTemporal(sentence, sessionDate)
+  const hint = expansion.dateHints[0]
+  if (hint === undefined) return ''
+  const parsed = parseDateInput(hint)
+  return parsed?.toISOString() ?? ''
+}
+
+const parseMonthNameDate = (text: string, anchor: Date): Date | undefined => {
+  const match = cloneRegex(MONTH_NAME_DATE_RE).exec(text)
+  if (match === null) return undefined
+
+  const monthName = match[1] ?? ''
+  const dayPart = match[0].replace(monthName, '').trim()
+  const dayMatch = /^(\d{1,2})(?:st|nd|rd|th)?(?:,?\s+(\d{4}))?$/i.exec(dayPart)
+  if (dayMatch === null) return undefined
+
+  const month = MONTH_NAME_VALUES.findIndex(
+    (candidate) => candidate.toLowerCase() === monthName.toLowerCase(),
+  )
+  if (month < 0) return undefined
+  const day = Number.parseInt(dayMatch[1] ?? '0', 10)
+  const year =
+    dayMatch[2] !== undefined && dayMatch[2] !== ''
+      ? Number.parseInt(dayMatch[2], 10)
+      : anchor.getUTCFullYear()
+  const resolved = new Date(Date.UTC(year, month, day))
+  if (Number.isNaN(resolved.getTime())) return undefined
+
+  if ((dayMatch[2] ?? '') === '' && resolved.getTime() > anchor.getTime() + 86_400_000) {
+    resolved.setUTCFullYear(resolved.getUTCFullYear() - 1)
+  }
+  return resolved
+}
+
+const withObservedDatePrefix = (content: string, observedOn: string): string => {
+  const trimmed = content.trim()
+  if (trimmed === '' || observedOn === '') return trimmed
+  const prefix = buildDateTokens(observedOn)
+  return prefix === '' ? trimmed : `${prefix}${trimmed}`
 }
 
 const parseRfc3339 = (value: string): Date | undefined => {
@@ -1501,6 +1639,9 @@ const inferAppointmentSummary = (text: string): string | undefined => {
 const inferEventSummary = (text: string): string | undefined => {
   const sentences = splitIntoFactSentences(text)
   for (const sentence of sentences) {
+    const religiousService = inferReligiousServiceSummary(sentence)
+    if (religiousService !== undefined) return religiousService
+
     if (!FIRST_PERSON_FACT_RE.test(sentence)) continue
     if (!HEURISTIC_EVENT_RE.test(sentence)) continue
     if (HEURISTIC_PENDING_ACTION_LEAD_RE.test(sentence)) continue
@@ -1520,6 +1661,16 @@ const inferEventSummary = (text: string): string | undefined => {
     return ensureTrailingFullStop(summary)
   }
   return undefined
+}
+
+const inferReligiousServiceSummary = (sentence: string): string | undefined => {
+  if (!FIRST_PERSON_FACT_RE.test(sentence)) return undefined
+  if (HEURISTIC_PENDING_ACTION_LEAD_RE.test(sentence)) return undefined
+  if (sentence.trim().endsWith('?')) return undefined
+
+  const service = captureGroup(HEURISTIC_RELIGIOUS_SERVICE_RE, sentence)
+  if (service === undefined) return undefined
+  return ensureTrailingFullStop(`The user attended ${prefixEventPhrase(service)}`)
 }
 
 const extractLooseEventPhrase = (sentence: string): string | undefined => {

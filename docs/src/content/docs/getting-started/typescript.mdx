@@ -39,6 +39,8 @@ memory search "where do hedgehogs live?" --brain ./my-brain
 
 `memory init` creates a git-backed brain directory. `memory ingest` chunks a file, writes it to the brain, and upserts the chunks into the SQLite search index. `memory search` runs a hybrid BM25 + vector query when an embedder is configured, or BM25 alone otherwise.
 
+Cross-SDK eval parity today is the shared daemon surface: `ask-basic`, `ask-augmented`, and `search-retrieve-only`. Native LongMemEval flows stay in the SDK-specific `memory eval lme` commands.
+
 See the [CLI reference](/reference/cli/) for every flag.
 
 ## Programmatic use

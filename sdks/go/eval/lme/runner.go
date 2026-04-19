@@ -20,6 +20,7 @@ import (
 	"github.com/jeffs-brain/memory/go/llm"
 	"github.com/jeffs-brain/memory/go/memory"
 	"github.com/jeffs-brain/memory/go/query"
+	"github.com/jeffs-brain/memory/go/retrieval"
 	"github.com/jeffs-brain/memory/go/store/mem"
 	"github.com/jeffs-brain/memory/go/store/pt"
 )
@@ -92,6 +93,19 @@ type RunConfig struct {
 	// session questions reference 2-6 sessions so top-5 BM25 rankings
 	// frequently miss the supporting evidence.
 	ActorTopK int
+
+	// ActorCandidateK widens the pre-fusion candidate slate per retriever
+	// leg on the daemon. Zero defers to the daemon default.
+	ActorCandidateK int
+
+	// ActorRerankTopN widens the post-fusion head sent through the
+	// reranker on the daemon. Zero defers to the daemon default.
+	ActorRerankTopN int
+
+	// ActorFilters narrows retrieve-only actor searches to a subset of
+	// the daemon corpus, for example the replay-extracted
+	// memory/project/<brain-id> facts used by the tri-SDK benchmark.
+	ActorFilters retrieval.Filters
 
 	// Reader configures the LLM reader that generates answers from
 	// retrieved content. When nil, raw session content is passed
@@ -298,9 +312,24 @@ func Run(ctx context.Context, cfg RunConfig) (*LMEResult, error) {
 		if topK <= 0 {
 			topK = 20
 		}
+		candidateK := cfg.ActorCandidateK
+		rerankTopN := cfg.ActorRerankTopN
 		switch style {
 		case "retrieve-only":
-			outcomes = runQuestionsActorRetrieveOnly(ctx, cfg.ActorEndpoint, brainID, questions, cfg.Reader, readerModel, costs, workers, topK)
+			outcomes = runQuestionsActorRetrieveOnly(
+				ctx,
+				cfg.ActorEndpoint,
+				brainID,
+				questions,
+				cfg.Reader,
+				readerModel,
+				costs,
+				workers,
+				topK,
+				candidateK,
+				rerankTopN,
+				cfg.ActorFilters,
+			)
 		case "full":
 			outcomes = runQuestionsActor(ctx, cfg.ActorEndpoint, brainID, questions, workers)
 		default:
@@ -651,6 +680,9 @@ func runQuestionsActorRetrieveOnly(
 	costs *CostAccumulator,
 	workers int,
 	topK int,
+	candidateK int,
+	rerankTopN int,
+	filters retrieval.Filters,
 ) []QuestionOutcome {
 	return runQuestionsConcurrent(ctx, questions, workers, func(ctx context.Context, _ int, q Question) QuestionOutcome {
 		if err := ctx.Err(); err != nil {
@@ -664,7 +696,17 @@ func runQuestionsActorRetrieveOnly(
 			}
 		}
 		qStart := time.Now()
-		content, searchErr := callActorRetrieve(ctx, endpoint, brainID, q.Question, topK)
+		content, searchErr := callActorRetrieve(
+			ctx,
+			endpoint,
+			brainID,
+			q.Question,
+			q.QuestionDate,
+			topK,
+			candidateK,
+			rerankTopN,
+			filters,
+		)
 		if searchErr != nil {
 			slog.Warn("lme actor retrieve: call failed", "question", q.ID, "err", searchErr)
 			return QuestionOutcome{
@@ -675,17 +717,6 @@ func runQuestionsActorRetrieveOnly(
 				GroundTruth:  q.Answer,
 				Error:        searchErr.Error(),
 				LatencyMs:    int(time.Since(qStart).Milliseconds()),
-			}
-		}
-
-		if content != "" {
-			content = processSessionContextForQuestion(content, q.Question)
-		}
-		if q.QuestionDate != "" && content != "" {
-			expansion := query.ExpandTemporal(q.Question, q.QuestionDate)
-			if expansion.Resolved && len(expansion.DateHints) > 0 {
-				dateHints := fmt.Sprintf("[Resolved temporal references: %s]", strings.Join(expansion.DateHints, ", "))
-				content = dateHints + "\n\n" + content
 			}
 		}
 
@@ -720,11 +751,16 @@ func runQuestionsActorRetrieveOnly(
 }
 
 // callActorRetrieve posts a single query to the actor daemon's /search
-// endpoint and returns the retrieved chunks concatenated into a reader
-// content string. Chunk text is joined with blank-line separators so
-// the downstream session-block parser can split them back out when a
-// session id header is present.
-func callActorRetrieve(ctx context.Context, endpoint, brainID, question string, topK int) (string, error) {
+// endpoint and renders the retrieved chunks into explicit evidence
+// blocks for the in-process reader.
+func callActorRetrieve(
+	ctx context.Context,
+	endpoint, brainID, question, questionDate string,
+	topK int,
+	candidateK int,
+	rerankTopN int,
+	filters retrieval.Filters,
+) (string, error) {
 	if endpoint == "" {
 		return "", fmt.Errorf("lme: actor endpoint is empty")
 	}
@@ -733,9 +769,19 @@ func callActorRetrieve(ctx context.Context, endpoint, brainID, question string, 
 	}
 	base := strings.TrimRight(endpoint, "/")
 	reqBody := map[string]any{
-		"query": question,
-		"topK":  topK,
-		"mode":  "hybrid",
+		"query":        question,
+		"questionDate": questionDate,
+		"topK":         topK,
+		"mode":         "hybrid-rerank",
+	}
+	if filters.HasAny() {
+		reqBody["filters"] = filters
+	}
+	if candidateK > 0 {
+		reqBody["candidateK"] = candidateK
+	}
+	if rerankTopN > 0 {
+		reqBody["rerankTopN"] = rerankTopN
 	}
 	body, err := json.Marshal(reqBody)
 	if err != nil {
@@ -760,11 +806,18 @@ func callActorRetrieve(ctx context.Context, endpoint, brainID, question string, 
 
 	var decoded struct {
 		Chunks []struct {
-			Path    string `json:"path"`
-			Text    string `json:"text"`
-			Title   string `json:"title"`
-			Summary string `json:"summary"`
-			Score   float64 `json:"score"`
+			Path           string         `json:"path"`
+			LegacyPath     string         `json:"Path"`
+			Text           string         `json:"text"`
+			LegacyText     string         `json:"Text"`
+			Title          string         `json:"title"`
+			LegacyTitle    string         `json:"Title"`
+			Summary        string         `json:"summary"`
+			LegacySummary  string         `json:"Summary"`
+			Score          float64        `json:"score"`
+			LegacyScore    float64        `json:"Score"`
+			Metadata       map[string]any `json:"metadata"`
+			LegacyMetadata map[string]any `json:"Metadata"`
 		} `json:"chunks"`
 	}
 	dec := json.NewDecoder(resp.Body)
@@ -775,18 +828,51 @@ func callActorRetrieve(ctx context.Context, endpoint, brainID, question string, 
 	if len(decoded.Chunks) == 0 {
 		return "", nil
 	}
-	var b strings.Builder
-	for i, c := range decoded.Chunks {
-		if i > 0 {
-			b.WriteString("\n\n")
+	passages := make([]RetrievedPassage, 0, len(decoded.Chunks))
+	for _, c := range decoded.Chunks {
+		path := c.Path
+		if path == "" {
+			path = c.LegacyPath
 		}
 		body := c.Text
 		if body == "" {
+			body = c.LegacyText
+		}
+		if body == "" {
 			body = c.Summary
 		}
-		b.WriteString(body)
+		if body == "" {
+			body = c.LegacySummary
+		}
+		score := c.Score
+		if score == 0 {
+			score = c.LegacyScore
+		}
+		meta := c.Metadata
+		if meta == nil {
+			meta = c.LegacyMetadata
+		}
+		passage := RetrievedPassage{
+			Path:  path,
+			Score: score,
+			Body:  body,
+		}
+		if meta != nil {
+			if sessionID, ok := meta["session_id"].(string); ok {
+				passage.SessionID = sessionID
+			} else if sessionID, ok := meta["sessionId"].(string); ok {
+				passage.SessionID = sessionID
+			}
+			for _, key := range []string{"session_date", "sessionDate", "observed_on", "observedOn", "modified"} {
+				if value, ok := meta[key].(string); ok && strings.TrimSpace(value) != "" {
+					passage.Date = value
+					break
+				}
+			}
+		}
+		passages = append(passages, passage)
 	}
-	return b.String(), nil
+	return RenderRetrievedPassages(passages, question, questionDate), nil
 }
 
 // callActorEndpoint posts a single question to an HTTP actor daemon and
@@ -805,7 +891,7 @@ func callActorEndpoint(ctx context.Context, endpoint, brainID, question, questio
 	reqBody := map[string]any{
 		"question":     question,
 		"topK":         5,
-		"mode":         "hybrid",
+		"mode":         "hybrid-rerank",
 		"readerMode":   "augmented",
 		"questionDate": questionDate,
 	}

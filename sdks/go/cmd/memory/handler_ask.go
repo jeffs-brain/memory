@@ -3,7 +3,6 @@
 package main
 
 import (
-	"fmt"
 	"net/http"
 	"strings"
 
@@ -11,7 +10,6 @@ import (
 	"github.com/jeffs-brain/memory/go/internal/httpd"
 	"github.com/jeffs-brain/memory/go/knowledge"
 	"github.com/jeffs-brain/memory/go/llm"
-	"github.com/jeffs-brain/memory/go/query"
 	"github.com/jeffs-brain/memory/go/retrieval"
 	"github.com/jeffs-brain/memory/go/search"
 )
@@ -29,6 +27,8 @@ const (
 type askRequest struct {
 	Question     string `json:"question"`
 	TopK         int    `json:"topK,omitempty"`
+	CandidateK   int    `json:"candidateK,omitempty"`
+	RerankTopN   int    `json:"rerankTopN,omitempty"`
 	Mode         string `json:"mode,omitempty"`
 	Model        string `json:"model,omitempty"`
 	ReaderMode   string `json:"readerMode,omitempty"`
@@ -126,20 +126,23 @@ func (d *Daemon) retrieveForAsk(r *http.Request, br *BrainResources, req askRequ
 			mode = retrieval.ModeAuto
 		}
 		resp, err := br.Retriever.Retrieve(r.Context(), retrieval.Request{
-			Query:   req.Question,
-			TopK:    req.TopK,
-			Mode:    mode,
-			BrainID: br.ID,
+			Query:        req.Question,
+			QuestionDate: req.QuestionDate,
+			TopK:         req.TopK,
+			CandidateK:   req.CandidateK,
+			RerankTopN:   req.RerankTopN,
+			Mode:         mode,
+			BrainID:      br.ID,
 		})
 		if err == nil {
 			chunks = resp.Chunks
 		}
 	}
 	if len(chunks) == 0 && br.Search != nil {
-		results, err := br.Search.Search(req.Question, search.SearchOpts{MaxResults: req.TopK})
+		results, err := br.Search.Search(augmentRetrievalQuery(req.Question, req.QuestionDate), search.SearchOpts{MaxResults: req.TopK})
 		if err == nil {
 			for _, h := range results {
-				chunks = append(chunks, retrieval.RetrievedChunk{
+				chunk := retrieval.RetrievedChunk{
 					ChunkID:    h.Path,
 					DocumentID: h.Path,
 					Path:       h.Path,
@@ -147,7 +150,8 @@ func (d *Daemon) retrieveForAsk(r *http.Request, br *BrainResources, req askRequ
 					Text:       h.Snippet,
 					Title:      h.Title,
 					Summary:    h.Summary,
-				})
+				}
+				chunks = append(chunks, hydrateFallbackChunk(r.Context(), br.Store, chunk, h.SessionDate))
 			}
 		}
 	}
@@ -155,7 +159,7 @@ func (d *Daemon) retrieveForAsk(r *http.Request, br *BrainResources, req askRequ
 		resp, err := br.Knowledge.Search(r.Context(), knowledge.SearchRequest{Query: req.Question, MaxResults: req.TopK})
 		if err == nil {
 			for _, h := range resp.Hits {
-				chunks = append(chunks, retrieval.RetrievedChunk{
+				chunk := retrieval.RetrievedChunk{
 					ChunkID:    string(h.Path),
 					DocumentID: string(h.Path),
 					Path:       string(h.Path),
@@ -163,7 +167,8 @@ func (d *Daemon) retrieveForAsk(r *http.Request, br *BrainResources, req askRequ
 					Text:       h.Snippet,
 					Title:      h.Title,
 					Summary:    h.Summary,
-				})
+				}
+				chunks = append(chunks, hydrateFallbackChunk(r.Context(), br.Store, chunk, ""))
 			}
 		}
 	}
@@ -213,17 +218,7 @@ func buildAskPrompt(question string, chunks []retrieval.RetrievedChunk) string {
 func buildAskCompleteRequest(req askRequest, chunks []retrieval.RetrievedChunk) llm.CompleteRequest {
 	mode := strings.ToLower(strings.TrimSpace(req.ReaderMode))
 	if mode == askReaderModeAugmented {
-		content := buildAugmentedAskContent(req.Question, chunks)
-		// Match the in-process runner: prefix the resolved date hints
-		// onto the content (not the question) so the reader sees them
-		// alongside the evidence it must reason over.
-		if req.QuestionDate != "" && content != "" {
-			expansion := query.ExpandTemporal(req.Question, req.QuestionDate)
-			if expansion.Resolved && len(expansion.DateHints) > 0 {
-				content = fmt.Sprintf("[Resolved temporal references: %s]\n\n%s",
-					strings.Join(expansion.DateHints, ", "), content)
-			}
-		}
+		content := buildAugmentedAskContent(req.Question, req.QuestionDate, chunks)
 		prompt := lme.BuildReaderPrompt(req.Question, req.QuestionDate, content)
 		return llm.CompleteRequest{
 			Model: req.Model,
@@ -247,50 +242,43 @@ func buildAskCompleteRequest(req askRequest, chunks []retrieval.RetrievedChunk) 
 	}
 }
 
-// buildAugmentedAskContent renders retrieved chunks in the shape the LME
-// reader consumes. When chunks carry session_id frontmatter we pipe them
-// through the lme session-block preprocessor so the reader sees
-// chronologically sorted, assistant-filtered turns. Otherwise we fall
-// back to the "### title (path)\n{body}" framing.
-func buildAugmentedAskContent(question string, chunks []retrieval.RetrievedChunk) string {
+// buildAugmentedAskContent renders retrieved chunks in the same
+// numbered/date-tagged shape used by the retrieve-only benchmark path.
+func buildAugmentedAskContent(question, questionDate string, chunks []retrieval.RetrievedChunk) string {
 	if len(chunks) == 0 {
 		return ""
 	}
-	var raw strings.Builder
-	sessionLike := false
-	for i, c := range chunks {
-		if i > 0 {
-			raw.WriteString("\n\n")
-		}
-		body := c.Text
+	passages := make([]lme.RetrievedPassage, 0, len(chunks))
+	for _, chunk := range chunks {
+		body := chunk.Text
 		if body == "" {
-			body = c.Summary
+			body = chunk.Summary
 		}
-		if strings.Contains(body, "session_id:") {
-			sessionLike = true
-		}
-		raw.WriteString(body)
+		passages = append(passages, lme.RetrievedPassage{
+			Path:      chunk.Path,
+			Score:     chunk.Score,
+			Body:      body,
+			Date:      metadataStringValue(chunk.Metadata, "session_date", "sessionDate", "observed_on", "observedOn", "modified"),
+			SessionID: metadataStringValue(chunk.Metadata, "session_id", "sessionId"),
+		})
 	}
-	if sessionLike {
-		return lme.ProcessSessionContextForQuestion(raw.String(), question)
-	}
-	var b strings.Builder
-	for _, c := range chunks {
-		b.WriteString("### ")
-		if c.Title != "" {
-			b.WriteString(c.Title)
-		} else {
-			b.WriteString(c.Path)
+	return lme.RenderRetrievedPassages(passages, question, questionDate)
+}
+
+func metadataStringValue(meta map[string]any, keys ...string) string {
+	for _, key := range keys {
+		value, ok := meta[key]
+		if !ok {
+			continue
 		}
-		b.WriteString(" (")
-		b.WriteString(c.Path)
-		b.WriteString(")\n")
-		body := c.Text
-		if body == "" {
-			body = c.Summary
+		text, ok := value.(string)
+		if !ok {
+			continue
 		}
-		b.WriteString(body)
-		b.WriteString("\n\n")
+		text = strings.TrimSpace(text)
+		if text != "" {
+			return text
+		}
 	}
-	return strings.TrimRight(b.String(), "\n")
+	return ""
 }
