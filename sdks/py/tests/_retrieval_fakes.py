@@ -48,7 +48,7 @@ def _tokenise_expr(expr: str) -> list[str]:
 
 
 def _matches_filter(chunk: FakeChunk, filters: Filters) -> bool:
-    if filters.path_prefix and not chunk.path.startswith(filters.path_prefix):
+    if not filters.matches_path(chunk.path):
         return False
     if filters.scope and chunk.scope != filters.scope:
         return False

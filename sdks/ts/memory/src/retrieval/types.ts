@@ -19,10 +19,12 @@ export type HybridMode = 'auto' | 'bm25' | 'semantic' | 'hybrid' | 'hybrid-reran
 
 /**
  * Filters narrow retrieval to a subset of the corpus. Empty fields are
- * treated as no filter. `pathPrefix` is inclusive of the exact prefix;
+ * treated as no filter. `paths` restricts results to the exact listed
+ * document paths, `pathPrefix` is inclusive of the exact prefix, and
  * `tags` require every listed tag to be present on the chunk.
  */
 export type RetrievalFilters = {
+  readonly paths?: readonly string[]
   readonly pathPrefix?: string
   readonly tags?: readonly string[]
   readonly scope?: string

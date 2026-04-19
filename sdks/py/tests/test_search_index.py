@@ -718,7 +718,7 @@ def test_rebuild_clears_existing_state(idx: Index) -> None:
     assert [h.path for h in hits] == ["wiki/y.md"]
 
 
-def test_rebuild_preserves_raw_lme_session_headers(idx: Index) -> None:
+def test_rebuild_indexes_raw_lme_body_without_frontmatter(idx: Index) -> None:
     files = {
         "raw/lme/session-1.md": (
             b"---\n"
@@ -731,7 +731,8 @@ def test_rebuild_preserves_raw_lme_session_headers(idx: Index) -> None:
     idx.rebuild(_FakeStore(files))
     hits = idx.search_bm25("apples")
     assert hits
-    assert "session_id: sess-1" in hits[0].content
+    assert hits[0].content == "[user]: I bought apples."
+    assert "session_id: sess-1" not in hits[0].content
     assert hits[0].metadata["session_id"] == "sess-1"
     assert hits[0].metadata["session_date"] == "2024-03-08"
 

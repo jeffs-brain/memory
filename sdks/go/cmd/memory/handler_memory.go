@@ -150,7 +150,16 @@ func (d *Daemon) handleExtract(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	memMsgs := wireMessagesToMemory(req.Messages)
-	results, err := memory.ExtractFromMessages(r.Context(), d.LLM, req.Model, br.Memory, req.Project, memMsgs)
+	results, err := memory.ExtractFromMessagesWithSession(
+		r.Context(),
+		d.LLM,
+		req.Model,
+		br.Memory,
+		req.Project,
+		memMsgs,
+		req.SessionID,
+		req.SessionDate,
+	)
 	if err != nil {
 		httpd.InternalError(w, err.Error())
 		return

@@ -1,8 +1,8 @@
 # datasets
 
-Eval datasets live here as JSONL. One question per line. The runner reads
-`datasets/<file>.jsonl` and drives each record through one explicit daemon
-scenario.
+The shared daemon runner reads JSONL datasets from this directory. Those
+files are one question per line and drive one explicit daemon scenario at a
+time.
 
 ## Scenario use
 
@@ -42,6 +42,9 @@ Scenario parity expects the same dataset row to work across all three SDKs. The 
   (SQLite FTS5, BM25, embeddings, RAG, vector search). Used for the
   broader `ask-augmented` and `search-retrieve-only` verification flow
   once an `eval` brain has been populated.
+- `longmemeval_s.json` - upstream LongMemEval-S JSON array. This is for the
+  native Go replay runner and the replay-backed tri-SDK script, not for the
+  shared JSONL daemon runner.
 
 ## Adding a new dataset
 
@@ -50,8 +53,10 @@ changes required.
 
 ## Corpus-grounded datasets
 
-The current `lme.jsonl` is provider-agnostic: questions are scored against
-the daemon answer or retrieval blob, depending on scenario. A later pass
-should add corpus-grounded fixtures that depend on a specific set of ingested
-documents; those will ship as their own `<name>.jsonl` plus a sibling
-`<name>.corpus/` directory and are out of scope here.
+`lme.jsonl` is already the shared corpus-grounded daemon dataset. It becomes
+meaningful once the target SDK has a populated `eval` brain, or once the
+replay-backed tri-SDK flow has extracted the shared brain cache first.
+
+`smoke.jsonl` is the provider-agnostic empty-brain dataset. `longmemeval_s.json`
+is the upstream 500-question replay dataset used by the native Go LME runner
+and the replay-backed tri-SDK script. It is a JSON array, not JSONL.

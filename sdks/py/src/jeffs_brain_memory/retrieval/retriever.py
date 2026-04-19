@@ -392,9 +392,12 @@ class Retriever:
         if tokens:
             idx = await self._ensure_trigram_index()
             if idx is not None:
-                fuzzy = idx.search(tokens, candidate_k)
+                trigram_limit = max(candidate_k * 10, 200)
+                fuzzy = idx.search(tokens, trigram_limit)
                 fuzzy_cands: list[RRFCandidate] = []
                 for i, h in enumerate(fuzzy):
+                    if not req.filters.matches_path(h.path):
+                        continue
                     fuzzy_cands.append(
                         RRFCandidate(
                             id=h.id,

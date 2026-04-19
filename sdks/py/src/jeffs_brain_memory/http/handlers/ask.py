@@ -12,11 +12,13 @@ from typing import Any, AsyncIterator
 from starlette.requests import Request
 from starlette.responses import Response, StreamingResponse
 
-from ... import retrieval, search as search_pkg
+from ... import retrieval
+from ...augmented_reader import resolve_deterministic_augmented_answer
 from ...llm.types import CompleteRequest, Message, Role
 from ...search.frontmatter import parse_memory_frontmatter
 from ..problem import validation_error
 from ._shared import decode_json_body, resolve_brain
+from .search import filters_from_body, path_matches_filters, search_opts
 
 _ASK_SSE_HEADERS = {
     "Cache-Control": "no-store",
@@ -54,6 +56,7 @@ _AUGMENTED_READER_TEMPLATE = (
     "changed\", \"no longer\".\n"
     "- Do not vote by frequency. One later correction outweighs any number "
     "of earlier mentions.\n"
+    "- Never use a fact dated after the current date.\n"
     "- When the question names a specific item, event, place, or "
     "descriptor, prefer the fact that matches that target most directly. "
     "Do not substitute a broader category match or a different example "
@@ -61,6 +64,9 @@ _AUGMENTED_READER_TEMPLATE = (
     "- A direct statement of the full usual value outranks a newer note "
     "about only one segment, leg, or example from that routine unless "
     "the newer note explicitly says the full value changed.\n"
+    "- For habit and routine questions (\"usually\", \"normally\", "
+    "\"every week\", \"on Saturdays\", \"on weekdays\"), prefer "
+    "explicit habitual statements over isolated single-day examples.\n"
     "- Do not let an example note about a narrower segment override the "
     "whole routine. For example, a \"30-minute morning commute\" note "
     "does not replace a direct statement of a \"45-minute daily "
@@ -80,6 +86,17 @@ _AUGMENTED_READER_TEMPLATE = (
     "list.\n"
     "- Add numeric values across sessions when the question asks for a "
     "total (hours, days, money, items). Show the arithmetic.\n"
+    "- When both atomic event facts and retrospective roll-up summaries "
+    "are present, prefer the atomic event facts and avoid double "
+    "counting the roll-up.\n"
+    "- Treat first-person past-tense purchases, gifts, sales, earnings, "
+    "completions, or submissions as confirmed historical events even "
+    "when they appear inside a planning or advice conversation. Exclude "
+    "only clearly hypothetical or planned amounts.\n"
+    "- If a spending or earnings question does not explicitly restrict "
+    "the timeframe (\"today\", \"this time\", \"most recent\", "
+    "\"current\"), include all confirmed historical amounts for the "
+    "same subject across sessions.\n"
     "- For totals over named items, sum only the facts that match those "
     "named items directly. Do not add alternative purchases, adjacent "
     "examples, or broader category summaries unless the note clearly "
@@ -108,6 +125,14 @@ _AUGMENTED_READER_TEMPLATE = (
     "- Avoid generic suggestions when the history already contains concrete "
     "tastes or recent examples. Reuse those specifics directly in the "
     "answer.\n"
+    "- Infer durable preferences from concrete desired features or liked "
+    "attributes even when the earlier example was tied to a different "
+    "city, venue, or product.\n"
+    "- When concrete amenities or features are present, prefer them over "
+    "generic travel style or budget signals.\n"
+    "- Ignore unrelated hostel, budget, or solo-travel examples when the "
+    "retrieved facts already contain a clearer accommodation-feature "
+    "preference and the question does not ask about price.\n"
     "- When the question asks for a specific or exact previously "
     "recommended item, answer with the narrowest directly supported set "
     "from the retrieved facts. Do not widen the answer with adjacent "
@@ -198,7 +223,9 @@ async def _retrieve(
     question_date: str,
     candidate_k: int,
     rerank_top_n: int,
+    filters: retrieval.Filters | None = None,
 ) -> list[retrieval.RetrievedChunk]:
+    filters = filters or retrieval.Filters()
     try:
         selected_mode = retrieval.Mode(mode) if mode else retrieval.Mode.AUTO
     except ValueError:
@@ -209,6 +236,7 @@ async def _retrieve(
         top_k=top_k,
         mode=selected_mode,
         brain_id=br.id,
+        filters=filters,
         candidate_k=candidate_k,
         rerank_top_n=rerank_top_n,
     )
@@ -216,7 +244,11 @@ async def _retrieve(
         resp = await br.retriever.retrieve(req)
     except Exception:  # noqa: BLE001
         resp = None
-    chunks: list[retrieval.RetrievedChunk] = list(resp.chunks) if resp else []
+    chunks = (
+        [chunk for chunk in resp.chunks if path_matches_filters(chunk.path, filters)]
+        if resp
+        else []
+    )
 
     # BM25 fallback for empty retrievals, mirroring the Go daemon.
     if not chunks:
@@ -224,11 +256,13 @@ async def _retrieve(
             hits = br.search_index.search_bm25(
                 retrieval.augment_query_with_temporal(question, question_date),
                 top_k=top_k,
-                opts=search_pkg.SearchOpts(max_results=top_k),
+                opts=search_opts(top_k, filters),
             )
         except Exception:  # noqa: BLE001
             hits = []
         for h in hits:
+            if not path_matches_filters(h.path, filters):
+                continue
             score = 1.0 / (1.0 + abs(h.score)) if h.score else 0.0
             chunks.append(
                 retrieval.RetrievedChunk(
@@ -386,6 +420,14 @@ def _build_augmented_prompt(
     Chats block so the template's structure stays stable for the model.
     """
     content = _format_augmented_chunks(question, chunks, question_date)
+    return _build_augmented_prompt_from_content(question, content, question_date)
+
+
+def _build_augmented_prompt_from_content(
+    question: str,
+    content: str,
+    question_date: str,
+) -> str:
     today_anchor = _reader_today_anchor(question_date)
     current_date = question_date.strip() or "unknown"
     return _AUGMENTED_READER_TEMPLATE.format(
@@ -439,6 +481,9 @@ async def ask(request: Request) -> Response:
     question_date = (
         str(question_date_raw) if isinstance(question_date_raw, str) else ""
     )
+    filters = filters_from_body(
+        body.get("filters") if isinstance(body.get("filters"), dict) else body
+    )
 
     # Run retrieval before opening the stream so retrieval-time errors
     # still surface as Problem+JSON. Once the headers flush, every
@@ -451,6 +496,7 @@ async def ask(request: Request) -> Response:
         question_date,
         candidate_k,
         rerank_top_n,
+        filters,
     )
     daemon = request.app.state.daemon  # type: ignore[attr-defined]
     provider = daemon.llm
@@ -464,7 +510,35 @@ async def ask(request: Request) -> Response:
         yield _format_event("retrieve", json.dumps(retrieve_payload))
 
         if reader_mode == "augmented":
-            prompt = _build_augmented_prompt(question, chunks, question_date)
+            rendered_evidence = _format_augmented_chunks(question, chunks, question_date)
+            deterministic_answer = resolve_deterministic_augmented_answer(
+                question, rendered_evidence
+            )
+            if deterministic_answer is not None:
+                yield _format_event(
+                    "answer_delta",
+                    json.dumps({"text": deterministic_answer}),
+                )
+                for chunk in chunks:
+                    yield _format_event(
+                        "citation",
+                        json.dumps(
+                            {
+                                "chunkId": chunk.chunk_id,
+                                "path": chunk.path,
+                                "title": chunk.title,
+                                "score": chunk.score,
+                            }
+                        ),
+                    )
+                yield _format_event("done", json.dumps({"ok": True}))
+                return
+
+            prompt = _build_augmented_prompt_from_content(
+                question,
+                rendered_evidence,
+                question_date,
+            )
             # Augmented prompt embeds its own system-style preamble; the
             # Go reader sends a single user turn, so we mirror that.
             messages = [Message(role=Role.USER, content=prompt)]

@@ -360,18 +360,28 @@ func (r *retriever) runBM25Leg(ctx context.Context, req Request, candidateK int)
 	if len(tokens) > 0 {
 		idx := r.ensureTrigramIndex(ctx)
 		if idx != nil {
-			fuzzy := idx.search(tokens, candidateK)
+			searchLimit := candidateK
+			if req.Filters.HasAny() {
+				searchLimit = max(searchLimit*10, 200)
+			}
+			fuzzy := idx.search(tokens, searchLimit)
 			candidates := make([]rrfCandidate, 0, len(fuzzy))
-			for i, h := range fuzzy {
+			for _, h := range fuzzy {
+				if !req.Filters.MatchesPath(h.Path) {
+					continue
+				}
 				candidates = append(candidates, rrfCandidate{
 					id:           h.ID,
 					path:         h.Path,
 					title:        h.Title,
 					summary:      h.Summary,
 					content:      h.Content,
-					bm25Rank:     i,
+					bm25Rank:     len(candidates),
 					haveBM25Rank: true,
 				})
+				if len(candidates) >= candidateK {
+					break
+				}
 			}
 			attempts = append(attempts, Attempt{
 				Rung:   5,
@@ -857,10 +867,13 @@ func buildBM25FanoutQueries(raw, questionDate string) []string {
 	}
 	priorityQueries := derivePrioritySubQueries(trimmed)
 	if shouldUsePriorityOnlyBM25(trimmed) && len(priorityQueries) >= 2 {
-		if len(priorityQueries) > maxBM25FanoutQueries {
-			return priorityQueries[:maxBM25FanoutQueries]
+		queries := append([]string{}, priorityQueries...)
+		queries = append(queries, filteredPhraseProbes(trimmed)...)
+		queries = dedupeTrimmedStrings(queries)
+		if len(queries) > maxBM25FanoutQueries {
+			return queries[:maxBM25FanoutQueries]
 		}
-		return priorityQueries
+		return queries
 	}
 	augmented := augmentQueryWithTemporal(trimmed, questionDate)
 	queries := append([]string{}, priorityQueries...)

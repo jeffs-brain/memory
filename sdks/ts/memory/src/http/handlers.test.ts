@@ -143,6 +143,39 @@ afterEach(async () => {
 })
 
 describe('handleAsk reader modes', () => {
+  it('search forwards exact path filters to retrieval', async () => {
+    const { daemon, handler } = await makeFixture()
+    await seedBrain(handler, 'lme')
+
+    const brain = await daemon.brains.get('lme')
+    expect(brain.retrieval).toBeDefined()
+    const capture: { request?: Record<string, unknown> } = {}
+    const originalSearchRaw = brain.retrieval!.searchRaw.bind(brain.retrieval)
+    ;(
+      brain.retrieval as {
+        searchRaw: (request: Record<string, unknown>) => ReturnType<typeof originalSearchRaw>
+      }
+    ).searchRaw = async (request) => {
+      capture.request = request
+      return originalSearchRaw(request)
+    }
+
+    const resp = await handler(
+      makeRequest('POST', '/v1/brains/lme/search', {
+        body: JSON.stringify({
+          query: 'hedgehog',
+          filters: {
+            documentPaths: ['hedgehog.md'],
+          },
+        }),
+        headers: { 'content-type': 'application/json' },
+      }),
+    )
+
+    expect(resp.status).toBe(200)
+    expect(capture.request?.filters).toEqual({ paths: ['hedgehog.md'] })
+  })
+
   it('basic mode keeps the existing prompt + params', async () => {
     const { handler, provider } = await makeFixture()
     await seedBrain(handler, 'lme')
@@ -231,6 +264,55 @@ describe('handleAsk reader modes', () => {
     expect(prompt).toContain('Current Date: unknown')
   })
 
+  it('augmented mode resolves anchored submission dates without calling the provider', async () => {
+    const { handler, provider } = await makeFixture()
+
+    const create = await handler(
+      makeRequest('POST', '/v1/brains', {
+        body: JSON.stringify({ brainId: 'lme' }),
+        headers: { 'content-type': 'application/json' },
+      }),
+    )
+    expect(create.status).toBe(201)
+
+    for (const file of [
+      {
+        path: 'paper.md',
+        title: 'Paper note',
+        body: '# Paper note\n\nI submitted my research paper on sentiment analysis to ACL.',
+      },
+      {
+        path: 'acl-date.md',
+        title: 'ACL date note',
+        body: "# ACL date note\n\nI'm reviewing for ACL, and their submission date was February 1st.",
+      },
+    ]) {
+      const ingest = await handler(
+        makeRequest('POST', '/v1/brains/lme/ingest/file', {
+          body: JSON.stringify({
+            path: file.path,
+            contentType: 'text/markdown',
+            title: file.title,
+            contentBase64: Buffer.from(file.body).toString('base64'),
+          }),
+          headers: { 'content-type': 'application/json' },
+        }),
+      )
+      expect(ingest.status).toBe(200)
+    }
+
+    const body = await drainAsk(handler, {
+      question: 'When did I submit my research paper on sentiment analysis?',
+      topK: 5,
+      readerMode: 'augmented',
+      mode: 'bm25',
+    })
+
+    expect(provider.calls.length).toBe(0)
+    expect(body).toContain('February 1st')
+    expect(body).toContain('citation')
+  })
+
   it('unknown readerMode value is rejected', async () => {
     const { handler, provider } = await makeFixture()
     await seedBrain(handler, 'lme')
@@ -252,7 +334,7 @@ describe('handleAsk reader modes', () => {
     expect(provider.calls.length).toBe(0)
   })
 
-  it('ask forwards candidateK and rerankTopN to retrieval', async () => {
+  it('ask forwards candidateK, rerankTopN, and filters to retrieval', async () => {
     const { daemon, handler } = await makeFixture()
     await seedBrain(handler, 'lme')
 
@@ -275,9 +357,13 @@ describe('handleAsk reader modes', () => {
       candidateK: 80,
       rerankTopN: 40,
       mode: 'hybrid-rerank',
+      filters: {
+        paths: ['hedgehog.md'],
+      },
     })
 
     expect(capture.request?.candidateK).toBe(80)
     expect(capture.request?.rerankTopN).toBe(40)
+    expect(capture.request?.filters).toEqual({ paths: ['hedgehog.md'] })
   })
 })

@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -49,8 +50,10 @@ func evalLmeRunCmd() *cobra.Command {
 		datasetPath        string
 		sampleSize         int
 		seed               int64
+		sampleIDsPath      string
 		concurrency        int
 		ingestMode         string
+		benchmarkMode      string
 		expectedSHA        string
 		maxCostUSD         float64
 		judgeModel         string
@@ -63,6 +66,8 @@ func evalLmeRunCmd() *cobra.Command {
 		manifestPath       string
 		slackWebhook       string
 		disableReader      bool
+		readerCacheDir     string
+		judgeCacheDir      string
 		judgeTimeout       time.Duration
 		extractOnly        bool
 		brainCache         string
@@ -71,6 +76,7 @@ func evalLmeRunCmd() *cobra.Command {
 		actorEndpoint      string
 		actorBrain         string
 		actorEndpointStyle string
+		actorRetrievalMode string
 		actorTopK          int
 		actorCandidateK    int
 		actorRerankTopN    int
@@ -125,6 +131,7 @@ func evalLmeRunCmd() *cobra.Command {
 				Seed:               seed,
 				Concurrency:        concurrency,
 				IngestMode:         normalIngest,
+				BenchmarkMode:      benchmarkMode,
 				ExpectedSHA:        expectedSHA,
 				MaxCostUSD:         maxCostUSD,
 				ReplayConcurrency:  replayConcurrency,
@@ -137,6 +144,7 @@ func evalLmeRunCmd() *cobra.Command {
 				ActorEndpoint:      actorEndpoint,
 				ActorBrainID:       actorBrain,
 				ActorEndpointStyle: actorEndpointStyle,
+				ActorRetrievalMode: retrieval.Mode(strings.TrimSpace(actorRetrievalMode)),
 				ActorTopK:          actorTopK,
 				ActorCandidateK:    actorCandidateK,
 				ActorRerankTopN:    actorRerankTopN,
@@ -145,6 +153,13 @@ func evalLmeRunCmd() *cobra.Command {
 					Project:    actorProject,
 					PathPrefix: actorPathPrefix,
 				},
+			}
+			if sampleIDsPath != "" {
+				ids, err := loadSampleIDs(sampleIDsPath)
+				if err != nil {
+					return fmt.Errorf("load sample ids: %w", err)
+				}
+				cfg.SampleIDs = ids
 			}
 
 			// Wire the judge unless the caller explicitly passed
@@ -161,6 +176,7 @@ func evalLmeRunCmd() *cobra.Command {
 					Provider:   p,
 					Model:      judgeModel,
 					MaxRetries: 3,
+					CacheDir:   judgeCacheDir,
 					Timeout:    judgeTimeout,
 				}
 			}
@@ -182,6 +198,7 @@ func evalLmeRunCmd() *cobra.Command {
 				cfg.Reader = &lme.ReaderConfig{
 					Provider: p,
 					Model:    actorModel,
+					CacheDir: readerCacheDir,
 				}
 			}
 
@@ -269,8 +286,10 @@ func evalLmeRunCmd() *cobra.Command {
 	cmd.Flags().StringVar(&datasetPath, "dataset", "", "Path to the LME dataset JSON (e.g. longmemeval_s.json)")
 	cmd.Flags().IntVar(&sampleSize, "sample-size", 0, "Stratified subsample size (0 = full dataset)")
 	cmd.Flags().Int64Var(&seed, "seed", 0, "Deterministic seed for sampling and bootstrap CI")
+	cmd.Flags().StringVar(&sampleIDsPath, "sample-ids-file", "", "Optional newline-delimited question-id list. When set, this exact sample is used instead of dataset-local sampling.")
 	cmd.Flags().IntVar(&concurrency, "concurrency", 16, "Parallel question workers (clamped to [1,64]). 16 is the local default for the tri-SDK orchestrator.")
 	cmd.Flags().StringVar(&ingestMode, "ingest-mode", "replay", "Ingest mode (bulk|replay|none|agentic). 'agentic' implies replay + agent loop. 'none' assumes the brain is already populated out-of-band.")
+	cmd.Flags().StringVar(&benchmarkMode, "benchmark-mode", "", "Benchmark mode (oracle|real-retrieval|full-context). Empty infers the dataset-backed mode for native runs, or real-retrieval for actor-backed runs.")
 	cmd.Flags().StringVar(&expectedSHA, "expected-sha", "", "Optional SHA256 of the dataset file")
 	cmd.Flags().Float64Var(&maxCostUSD, "max-cost-usd", 20.0, "Soft cap on total run cost")
 	cmd.Flags().StringVar(&judgeModel, "judge", "claude-haiku-4-5", "LLM judge model (override via JB_LME_JUDGE_MODEL)")
@@ -283,6 +302,8 @@ func evalLmeRunCmd() *cobra.Command {
 	cmd.Flags().StringVar(&manifestPath, "manifest", "", "Write a RunManifest alongside the result")
 	cmd.Flags().StringVar(&slackWebhook, "slack-webhook", "", "Slack Incoming Webhook URL to post the summary to")
 	cmd.Flags().BoolVar(&disableReader, "no-reader", false, "Skip the LLM reader/actor step and feed raw retrieval to the judge")
+	cmd.Flags().StringVar(&readerCacheDir, "reader-cache-dir", "", "Optional shared cache directory for reader answers keyed by the fully rendered prompt. Useful for tri-SDK retrieve-only runs so identical evidence reuses the same reader answer.")
+	cmd.Flags().StringVar(&judgeCacheDir, "judge-cache-dir", "", "Optional shared cache directory for judge verdicts keyed by the fully rendered judge prompt. Useful for stable reruns and tri-SDK retrieve-only comparisons.")
 	cmd.Flags().DurationVar(&judgeTimeout, "judge-timeout", 0, "Per-question judge timeout (0 = no cap)")
 	cmd.Flags().BoolVar(&extractOnly, "extract-only", false, "Run the extraction phase only (seed bulk + replay), write the manifest, then exit. Requires --brain-cache.")
 	cmd.Flags().StringVar(&brainCache, "brain-cache", "", "Persistent brain cache directory. Required when --extract-only is set. Shared by downstream daemons.")
@@ -291,6 +312,7 @@ func evalLmeRunCmd() *cobra.Command {
 	cmd.Flags().StringVar(&actorEndpoint, "actor-endpoint", "", "HTTP endpoint of a spec-compliant memory daemon. When set, the runner skips in-process retrieval and routes through the daemon. See --actor-endpoint-style for read vs retrieve-only mode.")
 	cmd.Flags().StringVar(&actorBrain, "actor-brain", "", "Brain id the actor endpoint should query (defaults to 'eval-lme').")
 	cmd.Flags().StringVar(&actorEndpointStyle, "actor-endpoint-style", "retrieve-only", "How to use --actor-endpoint: 'full' posts each question to /ask (daemon retrieves + reads), 'retrieve-only' posts to /search and runs the augmented CoT reader + judge in-process (recommended for apples-to-apples cross-SDK benchmarking).")
+	cmd.Flags().StringVar(&actorRetrievalMode, "retrieval-mode", string(retrieval.ModeHybridRerank), "Retrieval mode to request from the actor daemon during retrieve-only runs (auto|bm25|semantic|hybrid|hybrid-rerank).")
 	cmd.Flags().IntVar(&actorTopK, "actor-topk", 20, "Chunks to request from the actor daemon's /search endpoint per question (retrieve-only mode only). LongMemEval multi-session questions reference 2-6 sessions so top-5 BM25 frequently misses supporting evidence.")
 	cmd.Flags().IntVar(&actorCandidateK, "actor-candidatek", 0, "Per-leg candidate slate size to request from the actor daemon during retrieve-only runs. Zero defers to the daemon default.")
 	cmd.Flags().IntVar(&actorRerankTopN, "actor-rerank-topn", 0, "Post-fusion head width to rerank on the actor daemon during retrieve-only runs. Zero defers to the daemon default.")
@@ -299,6 +321,26 @@ func evalLmeRunCmd() *cobra.Command {
 	cmd.Flags().StringVar(&actorPathPrefix, "actor-path-prefix", "", "Optional retrieve-only daemon path prefix filter.")
 
 	return cmd
+}
+
+func loadSampleIDs(path string) ([]string, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	lines := strings.Split(string(data), "\n")
+	ids := make([]string, 0, len(lines))
+	for _, line := range lines {
+		id := strings.TrimSpace(line)
+		if id == "" || slices.Contains(ids, id) {
+			continue
+		}
+		ids = append(ids, id)
+	}
+	if len(ids) == 0 {
+		return nil, fmt.Errorf("%s contains no question ids", path)
+	}
+	return ids, nil
 }
 
 func defaultEvalContextualiseCacheDir() string {

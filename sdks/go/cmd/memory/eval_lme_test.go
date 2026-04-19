@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/jeffs-brain/memory/go/eval/lme"
+	"github.com/jeffs-brain/memory/go/retrieval"
 )
 
 // TestEvalLmeRunFlags_HelpAdvertisesNewFlags verifies the new flags show
@@ -28,19 +29,47 @@ func TestEvalLmeRunFlags_HelpAdvertisesNewFlags(t *testing.T) {
 	}
 	out := buf.String()
 	for _, flag := range []string{
+		"--benchmark-mode",
 		"--extract-only",
 		"--brain-cache",
 		"--actor-endpoint",
 		"--actor-brain",
+		"--retrieval-mode",
 		"--actor-scope",
 		"--actor-project",
 		"--actor-path-prefix",
 		"--replay-concurrency",
 		"--concurrency",
+		"--judge-cache-dir",
 	} {
 		if !strings.Contains(out, flag) {
 			t.Errorf("help output missing flag %q", flag)
 		}
+	}
+}
+
+func TestEvalLmeRunFlags_RealRetrievalRequiresActorEndpoint(t *testing.T) {
+	dir := t.TempDir()
+	dsPath := writeTinyDataset(t, filepath.Join(dir, "ds.json"))
+
+	cmd := rootCmd()
+	cmd.SetArgs([]string{
+		"eval", "lme", "run",
+		"--dataset", dsPath,
+		"--benchmark-mode", "real-retrieval",
+		"--ingest-mode", "none",
+		"--judge", "",
+		"--no-reader",
+	})
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("expected error when real-retrieval runs without an actor endpoint")
+	}
+	if !strings.Contains(err.Error(), "actor-endpoint") {
+		t.Fatalf("error should mention actor-endpoint, got: %v", err)
 	}
 }
 
@@ -143,6 +172,12 @@ func TestEvalLmeRunFlags_ExtractOnlyShortCircuits(t *testing.T) {
 	if got, _ := manifest["ingest_mode"].(string); got != "bulk" {
 		t.Fatalf("manifest ingest_mode = %q, want bulk", got)
 	}
+	if got, _ := manifest["benchmark_mode"].(string); got != lme.BenchmarkModeExtractPrep {
+		t.Fatalf("manifest benchmark_mode = %q, want %q", got, lme.BenchmarkModeExtractPrep)
+	}
+	if got, _ := manifest["context_source"].(string); got != lme.ContextSourceExtractPrep {
+		t.Fatalf("manifest context_source = %q, want %q", got, lme.ContextSourceExtractPrep)
+	}
 }
 
 // TestEvalLmeRunFlags_ActorEndpointFlag verifies --actor-endpoint is
@@ -219,6 +254,7 @@ func TestEvalLmeRunFlags_ActorSettingsPersistedInManifest(t *testing.T) {
 		"--actor-endpoint", "http://127.0.0.1:1",
 		"--actor-endpoint-style", "retrieve-only",
 		"--actor-brain", "eval-lme",
+		"--retrieval-mode", "bm25",
 		"--actor-topk", "40",
 		"--actor-candidatek", "120",
 		"--actor-rerank-topn", "80",
@@ -244,8 +280,17 @@ func TestEvalLmeRunFlags_ActorSettingsPersistedInManifest(t *testing.T) {
 	if manifest.ActorEndpointStyle != "retrieve-only" {
 		t.Fatalf("ActorEndpointStyle = %q, want retrieve-only", manifest.ActorEndpointStyle)
 	}
+	if manifest.BenchmarkMode != lme.BenchmarkModeRealRetrieval {
+		t.Fatalf("BenchmarkMode = %q, want %q", manifest.BenchmarkMode, lme.BenchmarkModeRealRetrieval)
+	}
+	if manifest.ContextSource != lme.ContextSourceActorRetrieve {
+		t.Fatalf("ContextSource = %q, want %q", manifest.ContextSource, lme.ContextSourceActorRetrieve)
+	}
 	if manifest.ActorBrain != "eval-lme" {
 		t.Fatalf("ActorBrain = %q, want eval-lme", manifest.ActorBrain)
+	}
+	if manifest.ActorRetrievalMode != string(retrieval.ModeBM25) {
+		t.Fatalf("ActorRetrievalMode = %q, want %q", manifest.ActorRetrievalMode, retrieval.ModeBM25)
 	}
 	if manifest.ActorTopK == nil || *manifest.ActorTopK != 40 {
 		t.Fatalf("ActorTopK = %v, want 40", manifest.ActorTopK)

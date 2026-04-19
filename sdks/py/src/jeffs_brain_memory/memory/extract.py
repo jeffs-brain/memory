@@ -43,10 +43,11 @@ if TYPE_CHECKING:
 
 EXTRACT_MAX_TOKENS = 4096
 EXTRACT_TEMPERATURE = 0
-EXTRACT_MIN_MESSAGES = 6
-EXTRACT_MAX_RECENT = 40
-EXISTING_MEMORY_LIMIT = 12
-EXISTING_MEMORY_PREVIEW_LIMIT = 220
+EXTRACT_MIN_MESSAGES = 2
+EXTRACT_MAX_RECENT = 80
+EXISTING_MEMORY_LIMIT = 24
+EXISTING_MEMORY_PREVIEW_LIMIT = 400
+TRAILING_COMMA_RE = re.compile(r",(\s*[}\]])")
 
 DATE_TAG_RE = re.compile(r"\b\d{4}[-/]\d{2}[-/]\d{2}\b")
 WEEKDAY_TAG_RE = re.compile(
@@ -58,7 +59,8 @@ MONEY_TAG_RE = re.compile(r"[\$£€]\s?\d{1,3}(?:,\d{3})*(?:\.\d+)?")
 UNIT_QUANTITY_TAG_RE = re.compile(
     r"\b(\d{1,6}(?:\.\d+)?)\s+"
     r"(minutes?|mins?|hours?|hrs?|seconds?|secs?|days?|weeks?|months?|years?|"
-    r"km|kilometres?|miles?|metres?|meters?|kg|kilograms?|pounds?|lbs?|grams?|percent|%)\b",
+    r"km|kilometres?|miles?|metres?|meters?|kg|kilograms?|pounds?|lbs?|grams?|"
+    r"percent|%|kbps|mbps|gbps|tbps|mb/s|gb/s|tb/s)\b",
     re.I,
 )
 WORD_UNIT_QUANTITY_TAG_RE = re.compile(
@@ -75,6 +77,9 @@ DATE_INPUT_RE = re.compile(
     r"(?:\s+\([A-Za-z]{3}\))?"
     r"(?:\s+(\d{2}):(\d{2})(?::(\d{2}))?)?$"
 )
+HEURISTIC_SESSION_DATE_RE = re.compile(
+    r"\b\d{4}[/-]\d{2}[/-]\d{2}(?:\s+\([A-Za-z]{3}\))?(?:\s+\d{2}:\d{2}(?::\d{2})?)?\b"
+)
 HEURISTIC_USER_FACT_LIMIT = 2
 HEURISTIC_MILESTONE_FACT_LIMIT = 2
 HEURISTIC_PREFERENCE_FACT_LIMIT = 2
@@ -84,6 +89,14 @@ FIRST_PERSON_FACT_RE = re.compile(
     r"\b(i|i'm|i’ve|i've|my|we|we're|we’ve|we've|our)\b", re.I
 )
 HEURISTIC_WORD_RE = re.compile(r"[A-Za-z][A-Za-z-]{2,}")
+HEURISTIC_ORDINAL_RE = re.compile(
+    r"\b(?:first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth)\b",
+    re.I,
+)
+HEURISTIC_ABBREVIATED_SENTENCE_END_RE = re.compile(
+    r"\b(?:dr|mr|mrs|ms|prof)\.$",
+    re.I,
+)
 HEURISTIC_MILESTONE_EVENT_RE = re.compile(
     r"\b(?:(?:just|recently)\s+)?"
     r"(?:completed|submitted|graduated|finished|started|joined|accepted|presented)\b",
@@ -186,6 +199,27 @@ HEURISTIC_DURATION_FACT_RE = re.compile(
     r"\b(?:\d{1,4}-day|[a-z]+-day|[a-z]+-week|[a-z]+-month|[a-z]+-year|week-long|month-long|year-long)\b",
     re.I,
 )
+HEURISTIC_CADENCE_FACT_RE = re.compile(
+    r"\b(?:"
+    r"(?:every|each)\s+(?:day|morning|afternoon|evening|night|weekday|weekend|week|month|year|"
+    r"other\s+week|two\s+weeks?|monday|tuesday|wednesday|thursday|friday|saturday|sunday)"
+    r"|(?:once|twice)\s+(?:a|per)\s+(?:day|week|month|year)"
+    r"|\d+\s+times?\s+(?:a|per)\s+(?:day|week|month|year)"
+    r"|daily|weekly|monthly|yearly|annually|usually|normally|bi-?weekly|fortnightly"
+    r")\b",
+    re.I,
+)
+HEURISTIC_LOCATION_STORAGE_FACT_RE = re.compile(
+    r"\b(?:i|i'm|i’ve|i've|i have)\s+(?:been\s+)?(?:keep(?:ing)?|kept|stor(?:e|ing|ed)|stash(?:ed|ing)?|leave|left|put|placed)\b[^.!?\n]*\b(?:under|inside|in|on|at|behind|beside|next to)\b",
+    re.I,
+)
+HEURISTIC_SESSION_ID_RE = re.compile(
+    r"(?im)\bsession[_ ]id\s*[:=]\s*([A-Za-z0-9._-]+)\b"
+)
+HEURISTIC_FILENAME_DATED_RE = re.compile(
+    r"^(user-(?:fact|preference))-(\d{4}-\d{2}-\d{2})-(.+)\.md$"
+)
+HEURISTIC_FILENAME_RE = re.compile(r"^(user-(?:fact|preference))-(.+)\.md$")
 HEURISTIC_RECOMMENDATION_REQUEST_RE = re.compile(
     r"\b(?:recommend|suggest|looking for|look for|what should i|which should i|"
     r"where should i stay|what to watch|what to read|what to serve)\b",
@@ -301,6 +335,8 @@ You MUST respond with ONLY a JSON object. Do NOT call tools, do NOT write prose.
 
 Both speakers contribute durable knowledge. Treat user turns and assistant turns as equally valid sources of facts. Capture everything the user stated AND everything the assistant provided: recommendations (restaurants, hotels, shops, books), specific named suggestions, recipes, itineraries, enumerated lists or rankings the assistant gave, answers the assistant produced, corrections the assistant issued, plans the assistant proposed, colours or attributes the assistant described, and any quantities or dates the assistant cited. If the assistant enumerated items (a list of jobs, options, steps, or candidates), save the full enumeration verbatim including positions where relevant. When in doubt, extract both sides.
 
+Preserve structured assistant outputs when they contain durable facts. If the assistant gives a roster, timetable, schedule, table, comparison, shortlist, or direct factual answer, keep the exact names, positions, shifts, prices, speeds, sizes, counts, and other concrete attributes rather than flattening them into a vague summary.
+
 Preserve concrete historical facts exactly when they matter. Keep explicit user experiences, measurements, comparisons, relatives, places, and time references in the memory content instead of flattening them into a vague preference or goal. Examples:
 - "My car was getting 30 miles per gallon in the city a few months ago." should preserve the 30 miles per gallon fact and timeframe.
 - "I went on a two-week trip to Europe with my parents and younger brother last month." should preserve the trip, relatives, destination, and timeframe.
@@ -328,12 +364,16 @@ Examples of assistant-turn facts that MUST be captured:
 - "I recommend Roscioli for romantic Italian in Rome." \u2192 create a reference memory naming the restaurant, cuisine, city.
 - "Here are seven work-from-home jobs for seniors: 1. Virtual Assistant, 2. ..., 7. Transcriptionist." \u2192 save the full numbered list so later recall can reconstruct any position.
 - "The Plesiosaur in the children's book had a blue scaly body." \u2192 save the attribute with its subject.
+- "Sunday roster: Admon, 8 am - 4 pm (Day Shift)." \u2192 save the person's name, shift, and exact hours.
+- "You upgraded your internet plan to 500 Mbps." \u2192 save the exact plan value, not a vague note about faster internet.
 
 Updates and quantitative facts that MUST be captured:
 - When the user gives a new count, total, amount, ratio, progress update, milestone, or outcome, save it even if an older memory on the same topic already exists.
 - Prefer an update with supersedes when the new statement revises prior state.
 - Stable personal facts like favourite ratios, purchase amounts, fundraising outcomes, reading progress, completed counts, and milestone dates are durable memory.
 - Do not discard a later update just because it seems small. A new number often replaces an older one.
+- When a later message changes a recurring cadence, schedule, count, price, bandwidth, screen size, or other exact attribute, preserve the new value explicitly and supersede the older one when appropriate.
+- Do not round away specific attributes such as 55-inch, 500 Mbps, 8 am - 4 pm, or edition counts. Keep the exact value in the memory content.
 
 Examples of user-turn updates that MUST be captured:
 - "I just finished my fifth issue of National Geographic." \u2192 update the reading-progress memory and supersede the older "finished three issues" state when applicable.
@@ -482,12 +522,14 @@ class Extractor:
             except Exception:
                 return
 
-            parsed = parse_extraction_result(
+            parsed, parse_ok = _parse_extraction_result_payload(
                 resp.text,
                 default_scope="project",
                 session_id=session_id,
                 session_date=session_date,
             )
+            if not parse_ok:
+                parsed = []
             result = _post_process_session_extractions(
                 recent,
                 parsed,
@@ -502,14 +544,16 @@ class Extractor:
             if self._ctx is not None and self._ctx.enabled():
                 summary = extract_session_summary(recent)
                 for em in result:
-                    prefix = self._ctx.build_prefix(session_id, summary, em.content)
+                    prefix = await self._ctx.build_prefix_async(
+                        session_id, summary, em.content
+                    )
                     if prefix:
                         em.context_prefix = prefix
 
             try:
                 apply_extractions(self._mem, slug, result)
             except Exception:
-                pass
+                return
 
             with self._lock:
                 self._last_cursor = len(messages)
@@ -531,6 +575,7 @@ async def extract_from_messages(
     if len(messages) < 2:
         return []
 
+    resolved_session_date = derive_session_date(messages, session_date)
     recent = messages
     if len(recent) > EXTRACT_MAX_RECENT:
         recent = recent[-EXTRACT_MAX_RECENT:]
@@ -553,17 +598,19 @@ async def extract_from_messages(
             temperature=EXTRACT_TEMPERATURE,
         )
     )
-    parsed = parse_extraction_result(
+    parsed, parse_ok = _parse_extraction_result_payload(
         resp.text,
         default_scope="project",
         session_id=session_id,
-        session_date=session_date,
+        session_date=resolved_session_date,
     )
+    if not parse_ok:
+        parsed = []
     return _post_process_session_extractions(
         recent,
         parsed,
         session_id=session_id,
-        session_date=session_date,
+        session_date=resolved_session_date,
     )
 
 
@@ -661,23 +708,27 @@ def parse_extraction_result(
     session_id: str = "",
     session_date: str = "",
 ) -> list[ExtractedMemory]:
-    content = content.strip()
-    start = content.find("{")
-    if start >= 0:
-        end = content.rfind("}")
-        if end > start:
-            content = content[start : end + 1]
-    try:
-        parsed = json.loads(content)
-    except json.JSONDecodeError:
-        return []
-    memories = parsed.get("memories", [])
-    if not isinstance(memories, list):
-        return []
+    memories, parse_ok = _parse_extraction_result_payload(
+        content,
+        default_scope=default_scope,
+        session_id=session_id,
+        session_date=session_date,
+    )
+    return memories if parse_ok else []
+
+
+def _parse_extraction_result_payload(
+    content: str,
+    *,
+    default_scope: str = "project",
+    session_id: str = "",
+    session_date: str = "",
+) -> tuple[list[ExtractedMemory], bool]:
+    raw_memories, parse_ok = _parse_raw_extraction_memories(content)
+    if not parse_ok:
+        return [], False
     out: list[ExtractedMemory] = []
-    for item in memories:
-        if not isinstance(item, dict):
-            continue
+    for item in raw_memories:
         out.append(
             normalise_extracted_memory(
                 item,
@@ -686,7 +737,93 @@ def parse_extraction_result(
                 session_date=session_date,
             )
         )
+    return out, True
+
+
+def _parse_raw_extraction_memories(content: str) -> tuple[list[dict[str, Any]], bool]:
+    for candidate in _extraction_json_candidates(content):
+        parsed = _decode_extraction_candidate(candidate)
+        if parsed[1]:
+            return parsed
+        repaired = _repair_extraction_json_candidate(candidate)
+        if repaired == candidate:
+            continue
+        repaired_parsed = _decode_extraction_candidate(repaired)
+        if repaired_parsed[1]:
+            return repaired_parsed
+    return [], False
+
+
+def _extraction_json_candidates(content: str) -> list[str]:
+    trimmed = content.strip()
+    if trimmed == "":
+        return []
+    out: list[str] = []
+    seen: set[str] = set()
+
+    def add(candidate: str) -> None:
+        value = candidate.strip()
+        if value == "" or value in seen:
+            return
+        seen.add(value)
+        out.append(value)
+
+    add(trimmed)
+    add(_bracket_slice(trimmed, "{", "}"))
+    add(_bracket_slice(trimmed, "[", "]"))
     return out
+
+
+def _bracket_slice(content: str, open_char: str, close_char: str) -> str:
+    start = content.find(open_char)
+    end = content.rfind(close_char)
+    if start < 0 or end <= start:
+        return ""
+    return content[start : end + 1]
+
+
+def _repair_extraction_json_candidate(content: str) -> str:
+    repaired = content
+    while True:
+        next_value = TRAILING_COMMA_RE.sub(r"\1", repaired)
+        if next_value == repaired:
+            return repaired
+        repaired = next_value
+
+
+def _decode_extraction_candidate(content: str) -> tuple[list[dict[str, Any]], bool]:
+    trimmed = content.strip()
+    if trimmed == "":
+        return [], False
+    try:
+        parsed = json.loads(trimmed)
+    except json.JSONDecodeError:
+        return [], False
+
+    if isinstance(parsed, list):
+        return [item for item in parsed if isinstance(item, dict)], True
+
+    if not isinstance(parsed, dict):
+        return [], False
+
+    memories = parsed.get("memories")
+    if isinstance(memories, list):
+        return [item for item in memories if isinstance(item, dict)], True
+
+    memory = parsed.get("memory")
+    if isinstance(memory, dict):
+        return [memory], True
+
+    if _looks_like_raw_extracted_memory(parsed):
+        return [parsed], True
+    return [], True
+
+
+def _looks_like_raw_extracted_memory(value: dict[str, Any]) -> bool:
+    for key in ("filename", "content", "name", "description", "indexEntry", "index_entry"):
+        if isinstance(value.get(key), str):
+            return True
+    return False
 
 
 def normalise_extracted_memory(
@@ -696,6 +833,11 @@ def normalise_extracted_memory(
     session_id: str,
     session_date: str,
 ) -> ExtractedMemory:
+    resolved_session_id = (
+        _string_field(raw, "sessionId")
+        or _string_field(raw, "session_id")
+        or session_id
+    ).strip()
     scope = _string_field(raw, "scope")
     if scope not in {"global", "project"}:
         scope = default_scope
@@ -713,7 +855,10 @@ def normalise_extracted_memory(
 
     return ExtractedMemory(
         action=action,
-        filename=_string_field(raw, "filename"),
+        filename=rewrite_heuristic_filename_for_session(
+            _string_field(raw, "filename"),
+            resolved_session_id,
+        ),
         name=_string_field(raw, "name"),
         description=_string_field(raw, "description"),
         type=memory_type,
@@ -722,9 +867,7 @@ def normalise_extracted_memory(
         scope=scope,
         supersedes=_string_field(raw, "supersedes"),
         tags=tags,
-        session_id=_string_field(raw, "sessionId")
-        or _string_field(raw, "session_id")
-        or session_id,
+        session_id=resolved_session_id,
         observed_on=_string_field(raw, "observedOn") or _string_field(raw, "observed_on"),
         session_date=_string_field(raw, "sessionDate")
         or _string_field(raw, "session_date")
@@ -767,6 +910,67 @@ def extract_session_summary(messages: list[Message]) -> str:
     return ""
 
 
+def derive_session_date(messages: list[Message], session_date: str) -> str:
+    if session_date.strip() != "" and parse_date_input(session_date.strip()) is not None:
+        return session_date
+    for message in messages:
+        if message.role != Role.SYSTEM:
+            continue
+        matched = HEURISTIC_SESSION_DATE_RE.search(message.content)
+        if matched is None:
+            continue
+        candidate = matched.group(0).strip()
+        if parse_date_input(candidate) is not None:
+            return candidate
+    return session_date
+
+
+def resolve_heuristic_session_id(
+    messages: list[Message],
+    extracted: list[ExtractedMemory],
+    session_id: str,
+) -> str:
+    direct = session_id.strip()
+    if direct != "":
+        return direct
+    for memory in extracted:
+        candidate = memory.session_id.strip()
+        if candidate != "":
+            return candidate
+    for message in messages:
+        if message.role != Role.SYSTEM:
+            continue
+        matched = HEURISTIC_SESSION_ID_RE.search(message.content)
+        if matched is None:
+            continue
+        candidate = matched.group(1).strip()
+        if candidate != "":
+            return candidate
+    return ""
+
+
+def resolve_heuristic_session_metadata(
+    messages: list[Message],
+    session_date: str,
+) -> tuple[str, str]:
+    direct = session_date.strip()
+    if direct != "":
+        parsed = parse_date_input(direct)
+        if parsed is not None:
+            return direct, parsed.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    for message in messages:
+        if message.role != Role.SYSTEM:
+            continue
+        matched = HEURISTIC_SESSION_DATE_RE.search(message.content)
+        if matched is None:
+            continue
+        candidate = matched.group(0).strip()
+        parsed = parse_date_input(candidate)
+        if parsed is not None:
+            return candidate, parsed.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return "", ""
+
+
 def _truncate_one_line(s: str, n: int) -> str:
     s = s.replace("\r\n", " ").replace("\n", " ")
     s = " ".join(s.split())
@@ -782,69 +986,86 @@ def _post_process_session_extractions(
     session_id: str = "",
     session_date: str = "",
 ) -> list[ExtractedMemory]:
+    resolved_session_id = resolve_heuristic_session_id(messages, extracted, session_id)
+    resolved_session_date, modified_override = resolve_heuristic_session_metadata(
+        messages,
+        session_date,
+    )
     combined = list(extracted)
     combined.extend(
         derive_heuristic_user_facts(
             messages,
             combined,
-            session_id=session_id,
-            session_date=session_date,
+            session_id=resolved_session_id,
+            session_date=resolved_session_date,
         )
     )
     combined.extend(
         derive_heuristic_preference_facts(
             messages,
             combined,
-            session_id=session_id,
-            session_date=session_date,
+            session_id=resolved_session_id,
+            session_date=resolved_session_date,
         )
     )
     combined.extend(
         derive_heuristic_pending_facts(
             messages,
             combined,
-            session_id=session_id,
-            session_date=session_date,
+            session_id=resolved_session_id,
+            session_date=resolved_session_date,
         )
     )
     combined.extend(
         derive_heuristic_event_facts(
             messages,
             combined,
-            session_id=session_id,
-            session_date=session_date,
+            session_id=resolved_session_id,
+            session_date=resolved_session_date,
         )
     )
     combined.extend(
         derive_heuristic_milestone_facts(
             messages,
             combined,
-            session_id=session_id,
-            session_date=session_date,
+            session_id=resolved_session_id,
+            session_date=resolved_session_date,
+        )
+    )
+    combined.extend(
+        derive_heuristic_assistant_table_facts(
+            messages,
+            combined,
+            session_id=resolved_session_id,
+            session_date=resolved_session_date,
         )
     )
     if not combined:
         return []
 
-    modified_override = parse_session_date_rfc3339(session_date)
     session_date_iso = short_iso_date(modified_override)
     date_tokens = build_date_tokens(modified_override)
 
     out: list[ExtractedMemory] = []
     for memory in combined:
         shaped = shape_extracted_memory(memory)
+        next_session_id = shaped.session_id.strip() or resolved_session_id
         content = shaped.content
-        if session_date and not content.startswith("[Date:"):
-            content = f"{date_tokens}[Observed on {session_date}]\n\n{content}"
+        if resolved_session_date and content.strip() and not content.startswith("[Date:"):
+            content = f"{date_tokens}[Observed on {resolved_session_date}]\n\n{content}"
         tags = merge_tags(shaped.tags, auto_fact_tags(content))
         out.append(
             replace(
                 shaped,
+                filename=rewrite_heuristic_filename_for_session(
+                    shaped.filename,
+                    next_session_id,
+                ),
                 content=content,
-                session_id=shaped.session_id or session_id,
+                session_id=next_session_id,
                 modified_override=shaped.modified_override or modified_override,
                 observed_on=shaped.observed_on or modified_override,
-                session_date=session_date_iso or shaped.session_date,
+                session_date=shaped.session_date or session_date_iso,
                 tags=tags,
             )
         )
@@ -1332,11 +1553,11 @@ def derive_heuristic_user_facts(
     for message in messages:
         if message.role != Role.USER:
             continue
-        for sentence in split_into_fact_sentences(message.content):
+        for sentence in heuristic_user_fact_candidates(message.content):
             canonical = sentence.lower()
             if (
                 not FIRST_PERSON_FACT_RE.search(sentence)
-                or not has_quantified_fact(sentence)
+                or not has_heuristic_user_fact(sentence)
                 or canonical in seen
             ):
                 continue
@@ -1347,7 +1568,7 @@ def derive_heuristic_user_facts(
             out.append(
                 ExtractedMemory(
                     action="create",
-                    filename=build_heuristic_filename(
+                    filename=build_heuristic_session_filename(
                         "user-fact",
                         iso,
                         session_id,
@@ -1393,7 +1614,7 @@ def derive_heuristic_milestone_facts(
             out.append(
                 ExtractedMemory(
                     action="create",
-                    filename=build_heuristic_filename(
+                    filename=build_heuristic_session_filename(
                         "user-fact",
                         iso,
                         session_id,
@@ -1439,7 +1660,7 @@ def derive_heuristic_pending_facts(
                 out.append(
                     ExtractedMemory(
                         action="create",
-                        filename=build_heuristic_filename(
+                        filename=build_heuristic_session_filename(
                             "user-fact",
                             iso,
                             session_id,
@@ -1487,7 +1708,7 @@ def derive_heuristic_event_facts(
             out.append(
                 ExtractedMemory(
                     action="create",
-                    filename=build_heuristic_filename(
+                    filename=build_heuristic_session_filename(
                         "user-fact",
                         iso,
                         session_id,
@@ -1539,7 +1760,7 @@ def derive_heuristic_preference_facts(
             out.append(
                 ExtractedMemory(
                     action="create",
-                    filename=build_heuristic_filename(
+                    filename=build_heuristic_session_filename(
                         "user-preference",
                         iso,
                         session_id,
@@ -1559,13 +1780,207 @@ def derive_heuristic_preference_facts(
     return out
 
 
+def derive_heuristic_assistant_table_facts(
+    messages: list[Message],
+    existing: list[ExtractedMemory],
+    *,
+    session_id: str = "",
+    session_date: str = "",
+) -> list[ExtractedMemory]:
+    out: list[ExtractedMemory] = []
+    seen = build_existing_memory_text_set(existing)
+    iso = short_iso_date(parse_session_date_rfc3339(session_date))
+    observed_on = parse_session_date_rfc3339(session_date)
+
+    for message in messages:
+        if message.role != Role.ASSISTANT:
+            continue
+        for table_lines in extract_markdown_table_blocks(message.content):
+            parsed = parse_markdown_table(table_lines)
+            if parsed is None:
+                continue
+            headers, rows = parsed
+            if not rows:
+                continue
+            for row in rows:
+                summary = build_weekday_table_row_summary(headers, row)
+                if summary == "":
+                    continue
+                canonical = normalise_memory_text(summary)
+                if canonical in seen:
+                    continue
+                slug = heuristic_fact_slug(summary)
+                if slug == "":
+                    continue
+                out.append(
+                    ExtractedMemory(
+                        action="create",
+                        filename=build_heuristic_filename("reference", iso, slug),
+                        name=f"Reference: {to_title_case(slug.replace('-', ' '))}",
+                        description=_truncate_one_line(summary, 140),
+                        type="reference",
+                        content=with_observed_date_prefix(summary, observed_on),
+                        index_entry=_truncate_one_line(summary, 140),
+                        scope="project",
+                        observed_on=observed_on,
+                    )
+                )
+                seen.add(canonical)
+    return out
+
+
+def extract_markdown_table_blocks(content: str) -> list[list[str]]:
+    blocks: list[list[str]] = []
+    current: list[str] = []
+    for line in content.replace("\r\n", "\n").replace("\r", "\n").split("\n"):
+        stripped = line.strip()
+        if stripped == "":
+            if current:
+                blocks.append(current)
+                current = []
+            continue
+        if "|" in stripped:
+            current.append(stripped)
+            continue
+        if current:
+            blocks.append(current)
+            current = []
+    if current:
+        blocks.append(current)
+    return [block for block in blocks if len(block) >= 3 and any(is_markdown_table_separator(line) for line in block)]
+
+
+def parse_markdown_table(lines: list[str]) -> tuple[list[str], list[list[str]]] | None:
+    for index in range(len(lines) - 1):
+        header = split_markdown_table_row(lines[index])
+        if len(header) < 2:
+            continue
+        if not is_markdown_table_separator(lines[index + 1]):
+            continue
+        rows = [split_markdown_table_row(line) for line in lines[index + 2 :]]
+        rows = [row for row in rows if row]
+        if not rows:
+            return None
+        width = max(len(header), max(len(row) for row in rows))
+        return (
+            pad_markdown_table_cells(header, width),
+            [pad_markdown_table_cells(row, width) for row in rows],
+        )
+    return None
+
+
+def split_markdown_table_row(line: str) -> list[str]:
+    stripped = line.strip()
+    if "|" not in stripped:
+        return []
+    if stripped.startswith("|"):
+        stripped = stripped[1:]
+    if stripped.endswith("|"):
+        stripped = stripped[:-1]
+    cells = [cell.strip() for cell in stripped.split("|")]
+    return cells if any(cell != "" for cell in cells) else []
+
+
+def pad_markdown_table_cells(cells: list[str], width: int) -> list[str]:
+    if len(cells) >= width:
+        return cells[:width]
+    return [*cells, *[""] * (width - len(cells))]
+
+
+def is_markdown_table_separator(line: str) -> bool:
+    cells = split_markdown_table_row(line)
+    if len(cells) < 2:
+        return False
+    return all(re.fullmatch(r":?-{3,}:?", cell) is not None for cell in cells)
+
+
+def build_weekday_table_row_summary(headers: list[str], row: list[str]) -> str:
+    weekday = canonical_weekday_label(row[0])
+    if weekday == "":
+        return ""
+    if not is_weekday_table_lead_header(headers[0]):
+        return ""
+
+    row_cells = row[1:]
+    header_cells = headers[1:]
+    if not row_cells:
+        return ""
+
+    labelled_cells: list[str] = []
+    for header, cell in zip(header_cells, row_cells):
+        formatted = format_weekday_table_cell(header, cell)
+        if formatted == "":
+            continue
+        labelled_cells.append(formatted)
+
+    if not labelled_cells:
+        return ""
+
+    return ensure_trailing_full_stop(f"{weekday} roster: {'; '.join(labelled_cells)}")
+
+
+def format_weekday_table_cell(header: str, value: str) -> str:
+    header_clean = " ".join(header.split()).strip()
+    value_clean = " ".join(value.split()).strip()
+    if value_clean in {"", "-"}:
+        return ""
+    if header_clean == "":
+        return value_clean
+    return f"{value_clean}, {header_clean}"
+
+
+def canonical_weekday_label(value: str) -> str:
+    cleaned = " ".join(value.split()).strip().lower().rstrip(".,")
+    mapping = {
+        "mon": "Monday",
+        "monday": "Monday",
+        "tue": "Tuesday",
+        "tues": "Tuesday",
+        "tuesday": "Tuesday",
+        "wed": "Wednesday",
+        "wednesday": "Wednesday",
+        "thu": "Thursday",
+        "thur": "Thursday",
+        "thurs": "Thursday",
+        "thursday": "Thursday",
+        "fri": "Friday",
+        "friday": "Friday",
+        "sat": "Saturday",
+        "saturday": "Saturday",
+        "sun": "Sunday",
+        "sunday": "Sunday",
+    }
+    return mapping.get(cleaned, "")
+
+
+def is_weekday_table_lead_header(value: str) -> bool:
+    cleaned = " ".join(value.split()).strip().lower().rstrip(".,")
+    return cleaned == "" or re.fullmatch(
+        r"(?:day(?:\s+of\s+week)?|weekday|week\s+day|schedule|roster|date)",
+        cleaned,
+    ) is not None
+
+
 def split_into_fact_sentences(content: str) -> list[str]:
     normalised = content.replace("\r\n", "\n").replace("\r", "\n")
-    return [
+    parts = [
         part.strip()
         for part in re.split(r"[\n]+|(?<=[.!?])\s+", normalised)
         if part.strip()
     ]
+    out: list[str] = []
+    index = 0
+    while index < len(parts):
+        sentence = parts[index]
+        while (
+            index + 1 < len(parts)
+            and HEURISTIC_ABBREVIATED_SENTENCE_END_RE.search(sentence) is not None
+        ):
+            index += 1
+            sentence = f"{sentence} {parts[index]}".strip()
+        out.append(sentence)
+        index += 1
+    return out
 
 
 def has_quantified_fact(sentence: str) -> bool:
@@ -1576,7 +1991,33 @@ def has_quantified_fact(sentence: str) -> bool:
         or MONTH_NAME_DATE_RE.search(sentence)
         or HEURISTIC_DURATION_FACT_RE.search(sentence)
         or QUANTITY_TAG_RE.search(sentence)
+        or HEURISTIC_ORDINAL_RE.search(sentence)
     )
+
+
+def has_heuristic_user_fact(sentence: str) -> bool:
+    return bool(
+        not sentence.strip().endswith("?")
+        and (
+            has_quantified_fact(sentence)
+            or HEURISTIC_CADENCE_FACT_RE.search(sentence)
+            or HEURISTIC_LOCATION_STORAGE_FACT_RE.search(sentence)
+        )
+    )
+
+
+def heuristic_user_fact_candidates(content: str) -> list[str]:
+    candidates = split_into_fact_sentences(content)
+    trimmed = content.strip()
+    if trimmed == "" or (
+        HEURISTIC_CADENCE_FACT_RE.search(trimmed) is None
+        and HEURISTIC_LOCATION_STORAGE_FACT_RE.search(trimmed) is None
+    ):
+        return candidates
+    canonical = trimmed.lower()
+    if any(candidate.strip().lower() == canonical for candidate in candidates):
+        return candidates
+    return [*candidates, trimmed]
 
 
 def has_milestone_fact(sentence: str) -> bool:
@@ -1597,14 +2038,24 @@ def heuristic_fact_slug(sentence: str) -> str:
     return "-".join(kept)
 
 
-def build_heuristic_filename(prefix: str, iso: str, session_id: str, slug: str) -> str:
+def build_heuristic_filename(prefix: str, iso: str, slug: str) -> str:
     parts = [prefix]
     if iso:
         parts.append(iso)
-    if session_id:
-        parts.append(sanitise_heuristic_file_segment(session_id))
     parts.append(slug)
     return "-".join(parts) + ".md"
+
+
+def build_heuristic_session_filename(
+    prefix: str,
+    iso: str,
+    session_id: str,
+    slug: str,
+) -> str:
+    return rewrite_heuristic_filename_for_session(
+        build_heuristic_filename(prefix, iso, slug),
+        session_id,
+    )
 
 
 def build_heuristic_preference_candidates(content: str) -> list[HeuristicPreferenceCandidate]:
@@ -1798,6 +2249,28 @@ def sanitise_heuristic_file_segment(value: str) -> str:
     return re.sub(r"-+", "-", re.sub(r"[^A-Za-z0-9._-]", "-", value)).strip("-")
 
 
+def rewrite_heuristic_filename_for_session(filename: str, session_id: str) -> str:
+    session_segment = sanitise_heuristic_file_segment(session_id)
+    if session_segment == "":
+        return filename
+
+    dated = HEURISTIC_FILENAME_DATED_RE.fullmatch(filename)
+    if dated is not None:
+        prefix, iso, rest = dated.groups()
+        if rest == session_segment or rest.startswith(f"{session_segment}-"):
+            return filename
+        return f"{prefix}-{iso}-{session_segment}-{rest}.md"
+
+    plain = HEURISTIC_FILENAME_RE.fullmatch(filename)
+    if plain is not None:
+        prefix, rest = plain.groups()
+        if rest == session_segment or rest.startswith(f"{session_segment}-"):
+            return filename
+        return f"{prefix}-{session_segment}-{rest}.md"
+
+    return filename
+
+
 def to_title_case(value: str) -> str:
     return " ".join(part[:1].upper() + part[1:] for part in value.split() if part)
 
@@ -1945,9 +2418,12 @@ def apply_extractions(
                 new_file += ".md"
             if em.scope == "global":
                 old_path = memory_global_topic(old_slug)
+                fallback_old_path = memory_project_topic(project_slug, old_slug)
             else:
                 old_path = memory_project_topic(project_slug, old_slug)
-            _stamp_superseded_by(b, old_path, new_file)
+                fallback_old_path = memory_global_topic(old_slug)
+            if not _stamp_superseded_by(b, old_path, new_file):
+                _stamp_superseded_by(b, fallback_old_path, new_file)
 
         if project_entries:
             _append_index_entries(b, memory_project_index(project_slug), project_entries)
@@ -1957,22 +2433,22 @@ def apply_extractions(
     mem.store.batch(_run)
 
 
-def _stamp_superseded_by(b, old_path: str, new_file: str) -> None:
+def _stamp_superseded_by(b, old_path: str, new_file: str) -> bool:
     try:
         raw = b.read(old_path)
     except NotFoundError:
-        return
+        return False
     content = raw.decode("utf-8")
     lines = content.split("\n")
     if len(lines) < 2 or lines[0].strip() != "---":
-        return
+        return False
     close_idx = -1
     for i in range(1, len(lines)):
         if lines[i].strip() == "---":
             close_idx = i
             break
     if close_idx < 0:
-        return
+        return False
 
     replaced = False
     for i in range(1, close_idx):
@@ -1984,6 +2460,7 @@ def _stamp_superseded_by(b, old_path: str, new_file: str) -> None:
         lines = lines[:close_idx] + [f"superseded_by: {new_file}"] + lines[close_idx:]
 
     b.write(old_path, "\n".join(lines).encode("utf-8"))
+    return True
 
 
 def _append_index_entries(b, index_path: str, entries: list[str]) -> None:

@@ -15,6 +15,8 @@ You MUST respond with ONLY a JSON object. Do NOT call tools, do NOT write prose.
 
 Both speakers contribute durable knowledge. Treat user turns and assistant turns as equally valid sources of facts. Capture everything the user stated AND everything the assistant provided: recommendations (restaurants, hotels, shops, books), specific named suggestions, recipes, itineraries, enumerated lists or rankings the assistant gave, answers the assistant produced, corrections the assistant issued, plans the assistant proposed, colours or attributes the assistant described, and any quantities or dates the assistant cited. If the assistant enumerated items (a list of jobs, options, steps, or candidates), save the full enumeration verbatim including positions where relevant. When in doubt, extract both sides.
 
+Preserve structured assistant outputs when they contain durable facts. If the assistant gives a roster, timetable, schedule, table, comparison, shortlist, or direct factual answer, keep the exact names, positions, shifts, prices, speeds, sizes, counts, and other concrete attributes rather than flattening them into a vague summary.
+
 Preserve concrete historical facts exactly when they matter. Keep explicit user experiences, measurements, comparisons, relatives, places, and time references in the memory content instead of flattening them into a vague preference or goal. Examples:
 - "My car was getting 30 miles per gallon in the city a few months ago." should preserve the 30 miles per gallon fact and timeframe.
 - "I went on a two-week trip to Europe with my parents and younger brother last month." should preserve the trip, relatives, destination, and timeframe.
@@ -42,12 +44,16 @@ Examples of assistant-turn facts that MUST be captured:
 - "I recommend Roscioli for romantic Italian in Rome." → create a reference memory naming the restaurant, cuisine, city.
 - "Here are seven work-from-home jobs for seniors: 1. Virtual Assistant, 2. ..., 7. Transcriptionist." → save the full numbered list so later recall can reconstruct any position.
 - "The Plesiosaur in the children's book had a blue scaly body." → save the attribute with its subject.
+- "Sunday roster: Admon, 8 am - 4 pm (Day Shift)." → save the person's name, shift, and exact hours.
+- "You upgraded your internet plan to 500 Mbps." → save the exact plan value, not a vague note about faster internet.
 
 Updates and quantitative facts that MUST be captured:
 - When the user gives a new count, total, amount, ratio, progress update, milestone, or outcome, save it even if an older memory on the same topic already exists.
 - Prefer an update with supersedes when the new statement revises prior state.
 - Stable personal facts like favourite ratios, purchase amounts, fundraising outcomes, reading progress, completed counts, and milestone dates are durable memory.
 - Do not discard a later update just because it seems small. A new number often replaces an older one.
+- When a later message changes a recurring cadence, schedule, count, price, bandwidth, screen size, or other exact attribute, preserve the new value explicitly and supersede the older one when appropriate.
+- Do not round away specific attributes such as 55-inch, 500 Mbps, 8 am - 4 pm, or edition counts. Keep the exact value in the memory content.
 
 Examples of user-turn updates that MUST be captured:
 - "I just finished my fifth issue of National Geographic." → update the reading-progress memory and supersede the older "finished three issues" state when applicable.

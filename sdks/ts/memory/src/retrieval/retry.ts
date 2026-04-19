@@ -154,6 +154,8 @@ export type TrigramHit = {
   title: string
   summary: string
   content: string
+  tags?: readonly string[] | string
+  metadata?: Readonly<Record<string, unknown>>
 }
 
 /**
@@ -171,6 +173,8 @@ export type TrigramSourceChunk = {
   title?: string
   summary?: string
   content?: string
+  tags?: readonly string[] | string
+  metadata?: Readonly<Record<string, unknown>>
 }
 
 export function buildTrigramIndex(chunks: readonly TrigramSourceChunk[]): TrigramIndex {
@@ -181,6 +185,8 @@ export function buildTrigramIndex(chunks: readonly TrigramSourceChunk[]): Trigra
     title: string
     summary: string
     content: string
+    tags?: readonly string[] | string
+    metadata?: Readonly<Record<string, unknown>>
   }
   const entries: Entry[] = []
   const byGram = new Map<string, Entry[]>()
@@ -197,6 +203,8 @@ export function buildTrigramIndex(chunks: readonly TrigramSourceChunk[]): Trigra
       title: c.title ?? '',
       summary: c.summary ?? '',
       content: c.content ?? '',
+      ...(c.tags !== undefined ? { tags: c.tags } : {}),
+      ...(c.metadata !== undefined ? { metadata: c.metadata } : {}),
     }
     entries.push(entry)
     for (const g of grams) {
@@ -242,6 +250,8 @@ export function buildTrigramIndex(chunks: readonly TrigramSourceChunk[]): Trigra
           title: entry.title,
           summary: entry.summary,
           content: entry.content,
+          ...(entry.tags !== undefined ? { tags: entry.tags } : {}),
+          ...(entry.metadata !== undefined ? { metadata: entry.metadata } : {}),
         })
       }
       hits.sort((a, b) => {

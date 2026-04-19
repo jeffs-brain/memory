@@ -108,7 +108,7 @@ async def test_rung0_initial_hit_no_retry() -> None:
     assert resp.attempts[0].reason == "initial"
 
 
-async def test_rung1_strongest_term_fires() -> None:
+async def test_initial_fanout_includes_strongest_term_probe() -> None:
     src = FakeSource(_retry_corpus())
 
     def override(expr: str) -> tuple[list[BM25Hit], bool]:
@@ -119,10 +119,10 @@ async def test_rung1_strongest_term_fires() -> None:
     src.bm25_override = override
     r = Retriever(source=src)
     resp = await r.retrieve(Request(query="xyz kubernetes", mode=Mode.BM25))
-    assert resp.trace.used_retry
-    strongest = [a for a in resp.attempts if a.reason == "strongest_term"]
-    assert strongest and strongest[0].rung == 1
-    assert strongest[0].chunks > 0
+    assert not resp.trace.used_retry
+    assert len(resp.attempts) == 1
+    assert resp.attempts[0].reason == "initial"
+    assert "kubernetes" in resp.attempts[0].query
 
 
 async def test_rung3_refreshed_sanitised_fires() -> None:

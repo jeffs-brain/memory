@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/jeffs-brain/memory/go/memory"
 	"github.com/jeffs-brain/memory/go/query"
@@ -17,13 +18,16 @@ import (
 type sessionBlock struct {
 	sessionID string
 	date      string
+	sortedAt  time.Time
+	hasTime   bool
+	relevance int
 	content   string
 	userOnly  string
 }
 
 var (
-	sessionDateRe = regexp.MustCompile(`session_date:\s*(\S+)`)
-	sessionIDRe   = regexp.MustCompile(`session_id:\s*(\S+)`)
+	sessionDateRe = regexp.MustCompile(`(?m)^session_date:\s*(.+?)\s*$`)
+	sessionIDRe   = regexp.MustCompile(`(?m)^session_id:\s*(\S+)\s*$`)
 )
 
 // processSessionContext takes raw retrieved content (multiple sessions
@@ -44,8 +48,17 @@ func processSessionContextForQuestion(raw, question string) string {
 		return raw
 	}
 
-	sort.Slice(blocks, func(i, j int) bool {
-		return blocks[i].date < blocks[j].date
+	sort.SliceStable(blocks, func(i, j int) bool {
+		if blocks[i].relevance != blocks[j].relevance {
+			return blocks[i].relevance > blocks[j].relevance
+		}
+		if blocks[i].hasTime && blocks[j].hasTime && !blocks[i].sortedAt.Equal(blocks[j].sortedAt) {
+			return blocks[i].sortedAt.After(blocks[j].sortedAt)
+		}
+		if blocks[i].date != blocks[j].date {
+			return blocks[i].date > blocks[j].date
+		}
+		return blocks[i].sessionID < blocks[j].sessionID
 	})
 
 	var b strings.Builder
@@ -77,6 +90,7 @@ func parseSessionBlocksForQuestion(content, question string) []sessionBlock {
 	if len(parts) == 0 {
 		return nil
 	}
+	tokens := questionTokens(question)
 
 	blocks := make([]sessionBlock, 0, len(parts))
 	for _, part := range parts {
@@ -88,13 +102,18 @@ func parseSessionBlocksForQuestion(content, question string) []sessionBlock {
 		block := sessionBlock{content: part}
 
 		if m := sessionDateRe.FindStringSubmatch(part); len(m) > 1 {
-			block.date = m[1]
+			block.date = strings.TrimSpace(m[1])
+			if parsed, ok := parseSessionTime(block.date); ok {
+				block.sortedAt = parsed
+				block.hasTime = true
+			}
 		}
 		if m := sessionIDRe.FindStringSubmatch(part); len(m) > 1 {
 			block.sessionID = m[1]
 		}
 
 		block.userOnly = filterAssistantTurnsForQuestion(part, question)
+		block.relevance = scoreChunkRelevance(block.userOnly, tokens)
 		blocks = append(blocks, block)
 	}
 
@@ -192,7 +211,7 @@ func filterAssistantTurnsForQuestion(content, question string) string {
 	var result strings.Builder
 	result.WriteString(strings.Join(userLines, "\n"))
 	if len(assistantChunks) > 0 {
-		result.WriteString("\n\n[Assistant context (summarised)]:\n")
+		result.WriteString("\n\n[Assistant context (suggestions only; not confirmed user facts unless the user later affirmed them)]:\n")
 		for _, chunk := range assistantChunks {
 			result.WriteString(strings.TrimSpace(chunk))
 			result.WriteByte('\n')
@@ -244,6 +263,26 @@ func scoreChunkRelevance(chunk string, tokens []string) int {
 		}
 	}
 	return score
+}
+
+func parseSessionTime(value string) (time.Time, bool) {
+	s := strings.TrimSpace(value)
+	if s == "" {
+		return time.Time{}, false
+	}
+	for _, layout := range []string{
+		"2006/01/02 (Mon) 15:04",
+		"2006/01/02 15:04",
+		"2006/01/02",
+		"2006-01-02 15:04",
+		"2006-01-02",
+		time.RFC3339,
+	} {
+		if parsed, err := time.Parse(layout, s); err == nil {
+			return parsed.UTC(), true
+		}
+	}
+	return time.Time{}, false
 }
 
 // RetrievedPassage is the retrieve-only rendering shape used by the

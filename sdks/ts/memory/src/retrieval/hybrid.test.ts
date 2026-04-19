@@ -168,6 +168,121 @@ describe('createRetrieval reusable request surface', () => {
     expect(trace.bm25Queries.length).toBeGreaterThan(1)
   })
 
+  it('keeps semantic and rerank queries unaugmented when questionDate is supplied', async () => {
+    const idx = await fresh()
+
+    const vFriday = syntheticVector(77)
+    idx.upsertChunks([
+      {
+        id: 'friday',
+        path: 'memory/global/friday.md',
+        title: 'Weekly note',
+        summary: 'Met the supplier',
+        tags: ['2024/03/08', 'Friday'],
+        content: 'Met the supplier and agreed the new timeline.',
+        embedding: vFriday,
+      },
+    ])
+
+    const embedInputs: string[] = []
+    let rerankQuery = ''
+    const embedder: Embedder = {
+      name: () => 'capturing-embedder',
+      model: () => 'capturing-v0',
+      dimension: () => DIM,
+      async embed(texts) {
+        embedInputs.push(...texts)
+        return texts.map((text) =>
+          text === 'What happened last Friday?'
+            ? Array.from(vFriday)
+            : Array.from(syntheticVector(78)),
+        )
+      },
+    }
+    const reranker: Reranker = {
+      name: () => 'capturing-reranker',
+      async rerank(req: RerankRequest): Promise<readonly RerankResult[]> {
+        rerankQuery = req.query
+        return req.documents.map((document, index) => ({
+          id: document.id,
+          index,
+          score: 1,
+        }))
+      },
+    }
+
+    const retrieval = createRetrieval({ index: idx, embedder, reranker })
+    const { trace } = await retrieval.searchRaw({
+      query: 'What happened last Friday?',
+      questionDate: '2024-03-15',
+      topK: 5,
+      mode: 'hybrid-rerank',
+    })
+
+    expect(trace.temporalAugmented).toBe(true)
+    expect(embedInputs).toEqual(['What happened last Friday?'])
+    expect(rerankQuery).toBe('What happened last Friday?')
+  })
+
+  it('hydrates candidate bodies from a body lookup when supplied', async () => {
+    const idx = await fresh()
+
+    idx.upsertChunks([
+      {
+        id: 'orchid',
+        path: 'memory/project/demo/orchid.md',
+        title: '',
+        summary: '',
+        content: 'orchid fertiliser placeholder snippet',
+      },
+    ])
+
+    let hydratedLookupCalls = 0
+    const reranker: Reranker = {
+      name: () => 'capturing-reranker',
+      async rerank(req: RerankRequest): Promise<readonly RerankResult[]> {
+        return req.documents.map((document, index) => ({
+          id: document.id,
+          index,
+          score: 1,
+        }))
+      },
+    }
+
+    const retrieval = createRetrieval({
+      index: idx,
+      reranker,
+      bodyLookup: async (paths) => {
+        hydratedLookupCalls += 1
+        return [
+          {
+          path: paths[0] ?? '',
+          title: 'Orchid fertiliser note',
+          summary: 'Precise feeding guidance',
+          content:
+            '---\nname: Orchid fertiliser note\ndescription: Precise feeding guidance\n---\n\nUse the 12-6-8 orchid fertiliser every second Saturday.',
+          metadata: {
+            sessionId: 'orchid-session',
+            sessionDate: '2024/03/02 (Sat) 10:00',
+          },
+          },
+        ]
+      },
+    })
+
+    const { results } = await retrieval.searchRaw({
+      query: 'placeholder',
+      topK: 5,
+      mode: 'hybrid-rerank',
+    })
+
+    expect(hydratedLookupCalls).toBe(1)
+    expect(results[0]?.content).toContain('Use the 12-6-8 orchid fertiliser every second Saturday.')
+    expect(results[0]?.title).toBe('Orchid fertiliser note')
+    expect(results[0]?.summary).toBe('Precise feeding guidance')
+    expect(results[0]?.metadata?.['sessionId']).toBe('orchid-session')
+  })
+
   it('boosts the most recent dated hit for recency questions', async () => {
     const idx = await fresh()
 
@@ -322,6 +437,44 @@ describe('createRetrieval reusable request surface', () => {
         (query) => query.includes('products') && (query.includes('high-end') || query.includes('highend')),
       ),
     ).toBe(true)
+    expect(
+      trace.bm25Queries.some((query) => query.includes('designer') && query.includes('handbag')),
+    ).toBe(true)
+  })
+
+  it('merges phrase-probe hits for compound total questions in BM25 mode', async () => {
+    const idx = await fresh()
+
+    idx.upsertChunks([
+      {
+        id: 'bag',
+        path: 'raw/lme/designer-handbag.md',
+        title: 'Designer handbag',
+        summary: 'High-value purchase',
+        content: 'I spent 1800 on the designer handbag.',
+      },
+      {
+        id: 'skincare',
+        path: 'raw/lme/skincare-products.md',
+        title: 'Skincare products',
+        summary: 'Beauty purchase',
+        content: 'I spent 320 on the high-end skincare products.',
+      },
+    ])
+
+    const retrieval = createRetrieval({ index: idx })
+    const { results } = await retrieval.searchRaw({
+      query:
+        'What is the total amount I spent on the designer handbag and high-end skincare products?',
+      mode: 'bm25',
+      skipRetryLadder: true,
+      rerank: false,
+      topK: 5,
+    })
+
+    const topPaths = new Set(results.slice(0, 2).map((result) => result.path))
+    expect(topPaths.has('raw/lme/designer-handbag.md')).toBe(true)
+    expect(topPaths.has('raw/lme/skincare-products.md')).toBe(true)
   })
 
   it('adds a focused recommendation probe for exact back-end language recalls', async () => {
@@ -431,6 +584,40 @@ describe('createRetrieval reusable request surface', () => {
     })
 
     expect(results.map((result) => result.id)).toEqual(['billing'])
+    expect(trace.filtersApplied).toBe(true)
+  })
+
+  it('applies exact path-list filters before fusion', async () => {
+    const idx = await fresh()
+
+    idx.upsertChunks([
+      {
+        id: 'billing',
+        path: 'memory/project/billing/invoice.md',
+        title: 'Invoice note',
+        summary: 'Customer invoice and payment date',
+        content: 'Invoice 42 has been paid.',
+      },
+      {
+        id: 'global',
+        path: 'memory/global/invoice.md',
+        title: 'Global invoice note',
+        summary: 'General invoice guidance',
+        content: 'Invoice guidance and VAT notes.',
+      },
+    ])
+
+    const retrieval = createRetrieval({ index: idx })
+    const { results, trace } = await retrieval.searchRaw({
+      query: 'invoice',
+      topK: 5,
+      rerank: false,
+      filters: {
+        paths: ['memory/global/invoice.md'],
+      },
+    })
+
+    expect(results.map((result) => result.id)).toEqual(['global'])
     expect(trace.filtersApplied).toBe(true)
   })
 })
@@ -682,6 +869,205 @@ describe('createRetrieval intent-aware reweighting', () => {
     })
 
     expect(results[0]!.id).toBe('routine')
+  })
+
+  it('treats first-person cadence lookups as concrete fact queries', async () => {
+    const idx = await fresh()
+
+    const vQuestion = syntheticVector(844)
+    const vReference = vQuestion
+    const vCadence = perturb(vQuestion, 0.03, 2)
+
+    idx.upsertChunks([
+      {
+        id: 'reference',
+        path: 'memory/project/eval-lme/doctor-visit-reference.md',
+        title: 'Doctor visit reference',
+        summary: 'Reference note about how often to schedule doctor visits with Dr. Smith',
+        content:
+          'Reference: ask how often to schedule doctor visits with Dr. Smith and what to discuss in follow-up appointments.',
+        metadata: {
+          type: 'reference',
+        },
+        embedding: vReference,
+      },
+      {
+        id: 'cadence',
+        path: 'memory/global/user-fact-dr-smith-weekly.md',
+        title: 'Weekly visit with Dr. Smith',
+        summary: 'Sees Dr. Smith every week',
+        content: 'I see Dr. Smith every week.',
+        metadata: {
+          type: 'user',
+        },
+        embedding: vCadence,
+      },
+    ])
+
+    const retrieval = createRetrieval({
+      index: idx,
+      embedder: makeStubEmbedder(new Map([['How often do I see Dr. Smith?', vQuestion]])),
+    })
+
+    const { results } = await retrieval.searchRaw({
+      query: 'How often do I see Dr. Smith?',
+      topK: 5,
+    })
+
+    expect(results[0]!.id).toBe('cadence')
+  })
+
+  it('prefers direct global transport facts over project reference notes', async () => {
+    const idx = await fresh()
+
+    const vQuestion = syntheticVector(846)
+    const vReference = vQuestion
+    const vDirect = perturb(vQuestion, 0.03, 7)
+
+    idx.upsertChunks([
+      {
+        id: 'reference',
+        path: 'memory/project/eval-lme/office-transport-reference.md',
+        title: 'Office transport reference',
+        summary: 'Reference note listing tram, bus, and cycle commute options',
+        content:
+          'Reference: possible office commute transport options include the tram, the bus, and cycling.',
+        metadata: {
+          type: 'reference',
+        },
+        embedding: vReference,
+      },
+      {
+        id: 'direct',
+        path: 'memory/global/user-fact-office-commute-tram.md',
+        title: 'Office commute transport',
+        summary: 'Usually takes the tram to the office',
+        content: 'I usually take the tram to the office for my commute.',
+        metadata: {
+          type: 'user',
+        },
+        embedding: vDirect,
+      },
+    ])
+
+    const retrieval = createRetrieval({
+      index: idx,
+      embedder: makeStubEmbedder(
+        new Map([['Which mode of transport did I use for my office commute?', vQuestion]]),
+      ),
+    })
+
+    const { results } = await retrieval.searchRaw({
+      query: 'Which mode of transport did I use for my office commute?',
+      topK: 5,
+    })
+
+    expect(results[0]!.id).toBe('direct')
+  })
+
+  it('diversifies first-person comparison lookups connected with or', async () => {
+    const idx = await fresh()
+
+    const vQuestion = syntheticVector(847)
+    const vGuide = vQuestion
+    const vWalk = perturb(vQuestion, 0.02, 8)
+    const vRun = perturb(vQuestion, 0.021, 9)
+
+    idx.upsertChunks([
+      {
+        id: 'guide',
+        path: 'memory/project/eval-lme/treadmill-mode-guide.md',
+        title: 'Treadmill mode guide',
+        summary: 'Comparison chart for walk and run mode speeds',
+        content: 'Guide: walk mode is 4 km/h and run mode is 10 km/h on the treadmill.',
+        metadata: {
+          type: 'reference',
+        },
+        embedding: vGuide,
+      },
+      {
+        id: 'walk',
+        path: 'memory/global/user-fact-treadmill-walk-mode.md',
+        title: 'Walk mode speed',
+        summary: 'Treadmill walk mode is 4 km/h',
+        content: 'My treadmill runs at 4 km/h in walk mode.',
+        metadata: {
+          type: 'user',
+        },
+        embedding: vWalk,
+      },
+      {
+        id: 'run',
+        path: 'memory/global/user-fact-treadmill-run-mode.md',
+        title: 'Run mode speed',
+        summary: 'Treadmill run mode is 10 km/h',
+        content: 'My treadmill runs at 10 km/h in run mode.',
+        metadata: {
+          type: 'user',
+        },
+        embedding: vRun,
+      },
+    ])
+
+    const retrieval = createRetrieval({
+      index: idx,
+      embedder: makeStubEmbedder(
+        new Map([['What speed is my treadmill in walk or run mode?', vQuestion]]),
+      ),
+    })
+
+    const { results } = await retrieval.searchRaw({
+      query: 'What speed is my treadmill in walk or run mode?',
+      topK: 5,
+    })
+
+    expect(results.slice(0, 2).map((result) => result.id).sort()).toEqual(['run', 'walk'])
+  })
+
+  it('demotes superseded notes when metadata marks them stale', async () => {
+    const idx = await fresh()
+
+    const vQuestion = syntheticVector(848)
+    const vStale = vQuestion
+    const vCurrent = perturb(vQuestion, 0.02, 10)
+
+    idx.upsertChunks([
+      {
+        id: 'stale',
+        path: 'memory/global/user-fact-passports-hall-drawer.md',
+        title: 'Old passport location',
+        summary: 'Passports were in the hall drawer',
+        content: 'I used to keep the passports in the hall drawer.',
+        metadata: {
+          type: 'user',
+          superseded_by: 'user-fact-passports-bedroom-safe.md',
+        },
+        embedding: vStale,
+      },
+      {
+        id: 'current',
+        path: 'memory/global/user-fact-passports-bedroom-safe.md',
+        title: 'Current passport location',
+        summary: 'Passports are in the bedroom safe',
+        content: 'I keep the passports in the bedroom safe.',
+        metadata: {
+          type: 'user',
+        },
+        embedding: vCurrent,
+      },
+    ])
+
+    const retrieval = createRetrieval({
+      index: idx,
+      embedder: makeStubEmbedder(new Map([['Where do I keep the passports?', vQuestion]])),
+    })
+
+    const { results } = await retrieval.searchRaw({
+      query: 'Where do I keep the passports?',
+      topK: 5,
+    })
+
+    expect(results[0]!.id).toBe('current')
   })
 
   it('diversifies composite total queries across the requested focuses', async () => {
@@ -1118,6 +1504,40 @@ describe('createRetrieval retry ladder', () => {
     const fuzzy = trace.attempts.find((a) => a.strategy === 'trigram_fuzzy')
     expect(fuzzy?.hits).toBeGreaterThan(0)
     expect(results[0]!.path).toBe('notes/photosynthesis.md')
+  })
+
+  it('applies exact path-list filters to the trigram fuzzy rung', async () => {
+    const idx = await fresh()
+
+    const retrieval = createRetrieval({
+      index: idx,
+      trigramChunks: [
+        {
+          id: 'allowed',
+          path: 'notes/photosynthesis.md',
+          title: 'Allowed note',
+          summary: 'allowed summary',
+          content: 'allowed content',
+        },
+        {
+          id: 'blocked',
+          path: 'notes/photosynthasis.md',
+          title: 'Blocked note',
+          summary: 'blocked summary',
+          content: 'blocked content',
+        },
+      ],
+    })
+
+    const { results, trace } = await retrieval.searchRaw({
+      query: 'photosynthasis',
+      filters: {
+        paths: ['notes/photosynthesis.md'],
+      },
+    })
+
+    expect(trace.attempts.map((attempt) => attempt.strategy)).toContain('trigram_fuzzy')
+    expect(results.map((result) => result.id)).toEqual(['allowed'])
   })
 
   it('leaves the ladder alone when skipRetryLadder is set', async () => {

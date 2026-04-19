@@ -255,6 +255,8 @@ async def extract(request: Request) -> Response:
             br.memory_manager,
             project,
             messages,
+            session_id=session_id,
+            session_date=session_date,
         )
     except Exception as exc:  # noqa: BLE001
         return internal_error(str(exc))

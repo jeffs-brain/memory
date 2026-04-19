@@ -71,6 +71,7 @@ type JudgeConfig struct {
 	Model       string
 	MaxRetries  int
 	Concurrency int
+	CacheDir    string
 
 	// Timeout caps a single judge call end-to-end. Zero disables the
 	// per-call timeout and the call honours only the parent context.
@@ -138,9 +139,10 @@ type JudgeTrace struct {
 	Error         string       `json:"error,omitempty"`
 }
 
-// ScoreWithJudge evaluates question outcomes using an LLM judge. Falls
-// back to exact-match on judge failure per question. The third return is
-// the aggregate token usage across every judge call so the caller can
+// ScoreWithJudge evaluates question outcomes using an LLM judge. Judge
+// failures are recorded as question errors so benchmark runs never
+// silently change scoring semantics mid-run. The third return is the
+// aggregate token usage across every judge call so the caller can
 // convert it into cost accounting.
 func ScoreWithJudge(ctx context.Context, cfg JudgeConfig, outcomes []QuestionOutcome) (*LMEResult, []JudgeTrace, Usage, error) {
 	if cfg.MaxRetries <= 0 {
@@ -287,6 +289,11 @@ func judgeQuestion(ctx context.Context, cfg JudgeConfig, o QuestionOutcome) (Jud
 	var usage Usage
 
 	isAbstention := strings.Contains(o.ID, "_abs")
+	if verdict, ok := deterministicJudgeOverride(o, isAbstention); ok {
+		trace.Verdict = verdict
+		trace.LatencyMs = time.Since(start).Milliseconds()
+		return verdict, trace, usage
+	}
 
 	budget := resolveJudgeContentBudget(cfg)
 	agentAnswer := truncateSmartly(o.AgentAnswer, budget)
@@ -302,21 +309,35 @@ func judgeQuestion(ctx context.Context, cfg JudgeConfig, o QuestionOutcome) (Jud
 		Temperature: judgeTemperature,
 	}
 
-	rawJSON, err := completeJudgeWithTransientRetry(
-		ctx,
-		cfg,
-		req,
-		judgeVerdictSchema,
-		func(u Usage) {
-			usage.InputTokens += u.InputTokens
-			usage.OutputTokens += u.OutputTokens
-			usage.CacheRead += u.CacheRead
-			usage.CacheCreate += u.CacheCreate
-			if cfg.Costs != nil {
-				cfg.Costs.AddJudge(EstimateUSD(cfg.Model, u))
-			}
-		},
+	complete := func() (json.RawMessage, Usage, error) {
+		var callUsage Usage
+		rawJSON, err := completeJudgeWithTransientRetry(
+			ctx,
+			cfg,
+			req,
+			judgeVerdictSchema,
+			func(u Usage) {
+				callUsage.InputTokens += u.InputTokens
+				callUsage.OutputTokens += u.OutputTokens
+				callUsage.CacheRead += u.CacheRead
+				callUsage.CacheCreate += u.CacheCreate
+				if cfg.Costs != nil {
+					cfg.Costs.AddJudge(EstimateUSD(cfg.Model, u))
+				}
+			},
+		)
+		return rawJSON, callUsage, err
+	}
+
+	var (
+		rawJSON json.RawMessage
+		err     error
 	)
+	if cacheDir := strings.TrimSpace(cfg.CacheDir); cacheDir != "" {
+		rawJSON, usage, err = readCachedJudgeResponse(ctx, cacheDir, cfg.Model, prompt, complete)
+	} else {
+		rawJSON, usage, err = complete()
+	}
 	if err == nil {
 		verdict, parseErr := parseStructuredVerdict(rawJSON, isAbstention)
 		if parseErr == nil {
@@ -337,14 +358,76 @@ func judgeQuestion(ctx context.Context, cfg JudgeConfig, o QuestionOutcome) (Jud
 		trace.RawResponse = string(schemaErr.RawPayload)
 	}
 
-	var verdict JudgeVerdict
-	if exactMatch(o.AgentAnswer, o.GroundTruth) {
-		verdict = JudgeVerdict{Verdict: "correct", Rationale: "exact-match fallback"}
-	} else {
-		verdict = JudgeVerdict{Verdict: "incorrect", Rationale: "exact-match fallback"}
+	verdict := JudgeVerdict{
+		Verdict:   "error",
+		Rationale: "judge failure",
 	}
 	trace.Verdict = verdict
 	return verdict, trace, usage
+}
+
+var abstentionSignals = []string{
+	"information provided is not enough",
+	"not enough information",
+	"insufficient information",
+	"cannot determine",
+	"cant determine",
+	"cannot answer",
+	"do not have enough information",
+	"dont have enough information",
+	"do not have that information",
+	"dont have that information",
+	"did not mention this information",
+	"was not mentioned",
+}
+
+func deterministicJudgeOverride(o QuestionOutcome, isAbstention bool) (JudgeVerdict, bool) {
+	answerAbstains := isLikelyAbstentionText(o.AgentAnswer)
+	truthAbstains := isLikelyAbstentionText(o.GroundTruth)
+
+	if truthAbstains {
+		verdict := "incorrect"
+		if isAbstention {
+			verdict = "abstain_incorrect"
+		}
+		if answerAbstains {
+			verdict = "correct"
+			if isAbstention {
+				verdict = "abstain_correct"
+			}
+		}
+		return JudgeVerdict{
+			Verdict:   verdict,
+			Rationale: "deterministic abstention scoring",
+		}, true
+	}
+
+	if answerAbstains {
+		verdict := "incorrect"
+		if isAbstention {
+			verdict = "abstain_incorrect"
+		}
+		return JudgeVerdict{
+			Verdict:   verdict,
+			Rationale: "deterministic abstention mismatch",
+		}, true
+	}
+
+	return JudgeVerdict{}, false
+}
+
+func isLikelyAbstentionText(s string) bool {
+	norm := normalise(s)
+	if norm == "" {
+		return false
+	}
+	compact := strings.ReplaceAll(norm, " ", "")
+	for _, signal := range abstentionSignals {
+		if strings.Contains(norm, signal) || strings.Contains(compact, strings.ReplaceAll(signal, " ", "")) {
+			return true
+		}
+	}
+	return false
 }
 
 // parseStructuredVerdict unmarshals the completeJSON payload and maps
@@ -442,15 +525,31 @@ func truncateSmartly(content string, budget int) string {
 
 func splitSessions(content string) []string {
 	parts := strings.Split(content, "\n\n---\nsession_id:")
-	if len(parts) <= 1 {
-		return []string{content}
+	if len(parts) > 1 {
+		result := make([]string, len(parts))
+		result[0] = parts[0]
+		for i := 1; i < len(parts); i++ {
+			result[i] = "---\nsession_id:" + parts[i]
+		}
+		return result
 	}
-	result := make([]string, len(parts))
-	result[0] = parts[0]
-	for i := 1; i < len(parts); i++ {
-		result[i] = "---\nsession_id:" + parts[i]
+
+	parts = strings.Split(content, "\n\n---\n\n")
+	if len(parts) > 1 {
+		return parts
 	}
-	return result
+
+	parts = strings.Split(content, "\n\n---\n")
+	if len(parts) > 1 {
+		result := make([]string, len(parts))
+		result[0] = parts[0]
+		for i := 1; i < len(parts); i++ {
+			result[i] = "---\n" + parts[i]
+		}
+		return result
+	}
+
+	return []string{content}
 }
 
 func maybeLogJudgeProgress(done, total int, start time.Time, retriesBaseline int64, qID, status string, latencyMs int64) {
@@ -468,7 +567,7 @@ func maybeLogJudgeProgress(done, total int, start time.Time, retriesBaseline int
 	eta := "n/a"
 	remaining := total - done
 	if rate > 0 && remaining > 0 {
-		eta = time.Duration(float64(remaining)/rate * float64(time.Second)).Truncate(time.Second).String()
+		eta = time.Duration(float64(remaining) / rate * float64(time.Second)).Truncate(time.Second).String()
 	}
 	retries := TransientRetriesTotal() - retriesBaseline
 	short := qID

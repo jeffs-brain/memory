@@ -839,7 +839,7 @@ describe('memory daemon integration', () => {
     expect(hit!.content).toContain('pragmatic')
   })
 
-  it('13. extract persists structured memories returned by the provider', async () => {
+  it('13. extract previews structured memories returned by the provider without persisting', async () => {
     const structured = JSON.stringify({
       memories: [
         {
@@ -857,7 +857,7 @@ describe('memory daemon integration', () => {
     })
     const provider = makeStructuredProvider(structured)
     const embedder = createHashEmbedder()
-    const { handler } = await makeDaemon({ provider, embedder })
+    const { daemon, handler } = await makeDaemon({ provider, embedder })
     await createBrain(handler, 'extracted')
 
     const extract = await handler(
@@ -895,6 +895,12 @@ describe('memory daemon integration', () => {
     expect(extracted).toBeDefined()
     expect(extracted!.content).toContain('pragmatic')
     expect(extracted!.scope).toBe('global')
+    const exists = await daemon.brains
+      .get('extracted')
+      .then((brain) =>
+        brain.store.exists('memory/global/alex/user-preference-commit-style.md'),
+      )
+    expect(exists).toBe(false)
   })
 
   it('13a. extract carries session metadata and contextual prefixes when enabled', async () => {
@@ -959,13 +965,10 @@ describe('memory daemon integration', () => {
     expect(body.memories[0]?.sessionDate).toBe('2024-02-20')
     expect(body.memories[0]?.contextPrefix).toContain('bike')
 
-    const stored = await fixtures[fixtures.length - 1]!.daemon.brains
+    const exists = await fixtures[fixtures.length - 1]!.daemon.brains
       .get('contextualised')
-      .then((brain) => brain.store.read('memory/project/alex/bike-status.md'))
-      .then((buf) => buf.toString('utf8'))
-    expect(stored).toContain('session_id: session-42')
-    expect(stored).toContain('session_date: 2024-02-20')
-    expect(stored).toContain('Context: The session happened on a February check-in about the bike')
+      .then((brain) => brain.store.exists('memory/project/alex/bike-status.md'))
+    expect(exists).toBe(false)
   })
 
   it('14. search surfaces files pre-seeded on disk before the daemon opens the brain', async () => {

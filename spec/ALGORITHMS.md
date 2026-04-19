@@ -94,6 +94,22 @@ function searchRaw(req):
 
 Defaults: `topK = 10`, `candidateK = 60`, `rerankTopN = 20`, `rerank = true`.
 
+### Initial BM25 fanout
+
+Before the retry ladder runs, the BM25 leg may issue up to four focused
+queries derived from the raw question.
+
+- Priority fanout: action-date questions and compound total questions start
+  with focused subqueries plus filtered phrase probes, then dedupe and
+  truncate to `maxBM25FanoutQueries = 4`.
+- General fanout: other questions start with any priority subqueries, then
+  add the raw query, the temporal-augmented raw query, and up to two derived
+  subqueries before dedupe and truncation.
+
+This means strongest-term style probes and phrase probes may already be part
+of the first BM25 pass. The retry ladder is only the fallback after the whole
+initial BM25 fanout still returns zero hits.
+
 ### Unanimity shortcut
 
 ```
@@ -127,7 +143,9 @@ Scoring is multiplicative; when both intents match, the multipliers compose.
 
 ## Retry ladder
 
-Runs only when the BM25 leg returns zero and `req.skipRetryLadder !== true`. Each rung returns as soon as it produces at least one hit.
+Runs only when the whole BM25 leg, including the initial fanout above,
+returns zero and `req.skipRetryLadder !== true`. Each rung returns as soon as
+it produces at least one hit.
 
 ```
 1. strongest_term        - longest non-stopword token of length ≥ 3 from the raw query.
@@ -231,7 +249,12 @@ Multipliers compose within the concrete-fact path too: a rollup note with a matc
 
 ## `forceRefreshIndex` retry ladder
 
-Runs only when the BM25 leg returns zero hits and the caller did not pass `skipRetryLadder: true`. Each rung re-runs BM25 against a rewritten query and returns as soon as at least one candidate is produced; the pipeline then moves on to fusion with whatever the vector leg found. Rungs are implemented in `retrieval/hybrid.ts` and `retrieval/retry.ts`.
+Runs only when the whole BM25 leg, including initial fanout, returns zero
+hits and the caller did not pass `skipRetryLadder: true`. Each rung re-runs
+BM25 against a rewritten query and returns as soon as at least one candidate
+is produced; the pipeline then moves on to fusion with whatever the vector
+leg found. Rungs are implemented in `retrieval/hybrid.ts` and
+`retrieval/retry.ts`.
 
 The five-rung shape is preserved verbatim from the Go reference (`apps/jeff/internal/knowledge/search.go:SearchWithOpts`) so attempt traces stay diffable across SDKs. `forceRefreshIndex` is retained as an explicit pass-through function so that attempt trace callers can see the boundary between rung 2 and rung 3 even on SQLite where no refresh is needed. SDK ports MUST keep all five rungs in order, even when a rung is a no-op, or the trace will drift.
 

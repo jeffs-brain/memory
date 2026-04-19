@@ -5,7 +5,9 @@ package main
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -30,13 +32,19 @@ func (c *captureRetriever) Retrieve(_ context.Context, req retrieval.Request) (r
 }
 
 func setupFallbackSearchBrain(t *testing.T, path string, content string) *BrainResources {
+	return setupFallbackSearchBrainDocs(t, map[string]string{path: content})
+}
+
+func setupFallbackSearchBrainDocs(t *testing.T, docs map[string]string) *BrainResources {
 	t.Helper()
 
 	ctx := context.Background()
 	store := mem.New()
 	t.Cleanup(func() { _ = store.Close() })
-	if err := store.Write(ctx, brain.Path(path), []byte(content)); err != nil {
-		t.Fatalf("store.Write: %v", err)
+	for path, content := range docs {
+		if err := store.Write(ctx, brain.Path(path), []byte(content)); err != nil {
+			t.Fatalf("store.Write(%s): %v", path, err)
+		}
 	}
 
 	db, err := sql.Open("sqlite", ":memory:")
@@ -60,6 +68,35 @@ func setupFallbackSearchBrain(t *testing.T, path string, content string) *BrainR
 	}
 }
 
+func TestSearchRequest_UnmarshalJSON_FilterAliases(t *testing.T) {
+	t.Parallel()
+
+	var req searchRequest
+	err := json.Unmarshal([]byte(`{
+		"query": "apples",
+		"question_date": "2024/03/13 (Wed) 10:00",
+		"candidate_k": 80,
+		"rerank_top_n": 40,
+		"document_paths": ["raw/documents/allowed.md", " raw/documents/allowed.md ", " raw/documents/other.md "]
+	}`), &req)
+	if err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	if req.QuestionDate != "2024/03/13 (Wed) 10:00" {
+		t.Fatalf("QuestionDate = %q, want 2024/03/13 (Wed) 10:00", req.QuestionDate)
+	}
+	if req.CandidateK != 80 {
+		t.Fatalf("CandidateK = %d, want 80", req.CandidateK)
+	}
+	if req.RerankTopN != 40 {
+		t.Fatalf("RerankTopN = %d, want 40", req.RerankTopN)
+	}
+	want := []string{"raw/documents/allowed.md", "raw/documents/other.md"}
+	if !reflect.DeepEqual(req.Filters.Paths, want) {
+		t.Fatalf("Filters.Paths = %v, want %v", req.Filters.Paths, want)
+	}
+}
+
 func TestRunSearchPipeline_PassesQuestionDateToRetriever(t *testing.T) {
 	t.Parallel()
 
@@ -76,6 +113,9 @@ func TestRunSearchPipeline_PassesQuestionDateToRetriever(t *testing.T) {
 		CandidateK:   80,
 		RerankTopN:   40,
 		Mode:         string(retrieval.ModeHybridRerank),
+		Filters: retrieval.Filters{
+			Paths: []string{"raw/lme/s1.md"},
+		},
 	}
 
 	chunks, _, _, _ := (&Daemon{}).runSearchPipeline(httptest.NewRequest("POST", "/search", nil), br, req)
@@ -94,6 +134,9 @@ func TestRunSearchPipeline_PassesQuestionDateToRetriever(t *testing.T) {
 	}
 	if retr.req.RerankTopN != req.RerankTopN {
 		t.Fatalf("RerankTopN = %d, want %d", retr.req.RerankTopN, req.RerankTopN)
+	}
+	if !reflect.DeepEqual(retr.req.Filters.Paths, req.Filters.Paths) {
+		t.Fatalf("Filters.Paths = %v, want %v", retr.req.Filters.Paths, req.Filters.Paths)
 	}
 }
 
@@ -172,5 +215,62 @@ func TestRunSearchPipeline_FallbackUsesTemporalDateHints(t *testing.T) {
 	}
 	if chunks[0].Path != "memory/global/weekly-note.md" {
 		t.Fatalf("top path = %q, want weekly note", chunks[0].Path)
+	}
+}
+
+func TestRunSearchPipeline_FallbackRespectsExactPathFilters(t *testing.T) {
+	t.Parallel()
+
+	br := setupFallbackSearchBrainDocs(t, map[string]string{
+		"raw/documents/allowed.md": "---\n---\nA note about apples.\n",
+		"raw/documents/blocked.md": "---\n---\nAnother note about apples.\n",
+	})
+
+	chunks, _, _, _ := (&Daemon{}).runSearchPipeline(
+		httptest.NewRequest("POST", "/search", nil),
+		br,
+		searchRequest{
+			Query: "apples",
+			TopK:  10,
+			Filters: retrieval.Filters{
+				Paths: []string{"raw/documents/allowed.md"},
+			},
+		},
+	)
+
+	if len(chunks) != 1 {
+		t.Fatalf("chunks = %d, want 1", len(chunks))
+	}
+	if chunks[0].Path != "raw/documents/allowed.md" {
+		t.Fatalf("Path = %q, want raw/documents/allowed.md", chunks[0].Path)
+	}
+}
+
+func TestRunSearchPipeline_FallbackRespectsRawLMEScope(t *testing.T) {
+	t.Parallel()
+
+	br := setupFallbackSearchBrainDocs(t, map[string]string{
+		"raw/lme/session.md":          "---\nsession_id: s1\n---\n[user]: apples\n",
+		"raw/documents/hedgehogs.md":  "---\n---\nApples in a raw document.\n",
+		"memory/global/remembered.md": "---\n---\nApples in memory.\n",
+	})
+
+	chunks, _, _, _ := (&Daemon{}).runSearchPipeline(
+		httptest.NewRequest("POST", "/search", nil),
+		br,
+		searchRequest{
+			Query: "apples",
+			TopK:  10,
+			Filters: retrieval.Filters{
+				Scope: "raw_lme",
+			},
+		},
+	)
+
+	if len(chunks) != 1 {
+		t.Fatalf("chunks = %d, want 1", len(chunks))
+	}
+	if chunks[0].Path != "raw/lme/session.md" {
+		t.Fatalf("Path = %q, want raw/lme/session.md", chunks[0].Path)
 	}
 }

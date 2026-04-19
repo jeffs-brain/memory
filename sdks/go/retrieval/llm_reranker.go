@@ -244,7 +244,7 @@ func (r *LLMReranker) callBatch(ctx context.Context, query string, batch []llmRe
 		Model:       r.Model,
 		Messages:    messages,
 		MaxTokens:   llmRerankMaxTokens,
-		Temperature: 0.1,
+		Temperature: 0.0,
 	}
 	resp, err := r.Provider.Complete(ctx, req)
 	if err == nil {

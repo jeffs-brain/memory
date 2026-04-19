@@ -671,7 +671,7 @@ def build_bm25_query_plan(question: str, question_date: str) -> BM25QueryPlan:
     seen: set[str] = set()
     priority_queries = _derive_priority_sub_queries(question)
     candidates = (
-        [*priority_queries]
+        [*priority_queries, *_filtered_phrase_probes(question)]
         if _should_use_priority_only_bm25(question) and len(priority_queries) >= 2
         else [*priority_queries, question, base, *derive_sub_queries(question)]
     )

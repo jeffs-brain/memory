@@ -2,7 +2,11 @@
 
 package retrieval
 
-import "context"
+import (
+	"context"
+	"encoding/json"
+	"strings"
+)
 
 // Mode selects which retrievers participate in a hybrid search. The
 // public constants mirror the spec's HybridMode enumeration so a Go
@@ -30,10 +34,11 @@ const (
 
 // Filters narrows retrieval to a subset of the corpus. Empty fields
 // are treated as no filter. PathPrefix is inclusive of the exact
-// prefix. Tags are matched against the FTS tags column; every tag
-// must be present for a hit to survive.
+// prefix. Paths is an exact allow-list. Tags are matched against the
+// FTS tags column; every tag must be present for a hit to survive.
 type Filters struct {
 	PathPrefix string   `json:"pathPrefix,omitempty"`
+	Paths      []string `json:"paths,omitempty"`
 	Tags       []string `json:"tags,omitempty"`
 	Scope      string   `json:"scope,omitempty"`
 	Project    string   `json:"project,omitempty"`
@@ -41,7 +46,99 @@ type Filters struct {
 
 // HasAny reports whether any field carries a non-zero filter.
 func (f Filters) HasAny() bool {
-	return f.PathPrefix != "" || len(f.Tags) > 0 || f.Scope != "" || f.Project != ""
+	return strings.TrimSpace(f.PathPrefix) != "" ||
+		len(normalisePathList(f.Paths)) > 0 ||
+		len(f.Tags) > 0 ||
+		strings.TrimSpace(f.Scope) != "" ||
+		strings.TrimSpace(f.Project) != ""
+}
+
+// MatchesPath reports whether path survives the exact-path and prefix
+// filters carried in f.
+func (f Filters) MatchesPath(path string) bool {
+	pathPrefix := strings.TrimSpace(f.PathPrefix)
+	if pathPrefix != "" && !strings.HasPrefix(path, pathPrefix) {
+		return false
+	}
+	paths := normalisePathList(f.Paths)
+	if len(paths) == 0 {
+		return true
+	}
+	for _, candidate := range paths {
+		if candidate == path {
+			return true
+		}
+	}
+	return false
+}
+
+// UnmarshalJSON accepts the canonical camelCase wire keys plus the
+// request aliases used by the other SDKs.
+func (f *Filters) UnmarshalJSON(data []byte) error {
+	if strings.TrimSpace(string(data)) == "" || strings.TrimSpace(string(data)) == "null" {
+		*f = Filters{}
+		return nil
+	}
+	type rawFilters struct {
+		PathPrefix       string   `json:"pathPrefix"`
+		PathPrefixSnake  string   `json:"path_prefix"`
+		Paths            []string `json:"paths"`
+		DocumentPaths    []string `json:"documentPaths"`
+		DocumentPathsAlt []string `json:"document_paths"`
+		Tags             []string `json:"tags"`
+		Scope            string   `json:"scope"`
+		Project          string   `json:"project"`
+	}
+	var raw rawFilters
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	*f = Filters{
+		PathPrefix: firstNonEmptyString(raw.PathPrefix, raw.PathPrefixSnake),
+		Paths:      firstNonEmptyPathList(raw.Paths, raw.DocumentPaths, raw.DocumentPathsAlt),
+		Tags:       raw.Tags,
+		Scope:      raw.Scope,
+		Project:    raw.Project,
+	}
+	return nil
+}
+
+func firstNonEmptyString(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func firstNonEmptyPathList(candidates ...[]string) []string {
+	for _, values := range candidates {
+		if paths := normalisePathList(values); len(paths) > 0 {
+			return paths
+		}
+	}
+	return nil
+}
+
+func normalisePathList(paths []string) []string {
+	if len(paths) == 0 {
+		return nil
+	}
+	seen := make(map[string]bool, len(paths))
+	out := make([]string, 0, len(paths))
+	for _, value := range paths {
+		trimmed := strings.TrimSpace(value)
+		if trimmed == "" || seen[trimmed] {
+			continue
+		}
+		seen[trimmed] = true
+		out = append(out, trimmed)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 // Request drives a single retrieval call.

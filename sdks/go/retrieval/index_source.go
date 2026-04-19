@@ -78,9 +78,9 @@ func NewIndexSource(index *search.Index, opts IndexSourceOptions) (*IndexSource,
 //   - Filters.Scope -> SearchOpts.Scope
 //   - Filters.Project -> SearchOpts.ProjectSlug
 //
-// Tag and PathPrefix filters are post-filtered in Go because the FTS5
-// schema does not expose tags as a separately searchable column in a
-// way we can compose with MATCH without rewriting the expression. The
+// Tag, exact-path, and path-prefix filters are post-filtered in Go
+// because the FTS5 schema does not expose them in a way we can
+// compose with MATCH without rewriting the expression. The
 // expectation matches the spec: filters narrow, never widen, the BM25
 // candidate set.
 func (s *IndexSource) SearchBM25(ctx context.Context, expr string, k int, filters Filters) ([]BM25Hit, error) {
@@ -273,6 +273,8 @@ func exactSearchScope(scope string) (string, bool) {
 		return "wiki", true
 	case "raw", "raw_document":
 		return "raw_document", true
+	case "raw_lme":
+		return "raw_lme", true
 	case "sources":
 		return "sources", true
 	default:
@@ -281,8 +283,7 @@ func exactSearchScope(scope string) (string, bool) {
 }
 
 func indexedRowPassesFilters(row search.IndexedRow, filters Filters) bool {
-	pathPrefix := strings.TrimSpace(filters.PathPrefix)
-	if pathPrefix != "" && !strings.HasPrefix(row.Path, pathPrefix) {
+	if !filters.MatchesPath(row.Path) {
 		return false
 	}
 	if !scopeMatchesFilter(row.Scope, filters.Scope) {
@@ -331,9 +332,13 @@ func scopeMatchesFilter(rowScope, want string) bool {
 		},
 		"raw": {
 			"raw_document": true,
+			"raw_lme":      true,
 		},
 		"raw_document": {
 			"raw_document": true,
+		},
+		"raw_lme": {
+			"raw_lme": true,
 		},
 		"wiki": {
 			"wiki": true,

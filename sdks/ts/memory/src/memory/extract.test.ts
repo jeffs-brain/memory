@@ -12,6 +12,7 @@ import type {
 import { createMemStore } from '../store/memstore.js'
 import { toPath } from '../store/path.js'
 import { createStoreBackedCursorStore } from './cursor.js'
+import { parseExtractionJson } from './extract.js'
 import { buildFrontmatter } from './frontmatter.js'
 import { createMemory } from './index.js'
 import { scopeTopic } from './paths.js'
@@ -154,6 +155,90 @@ describe('extract', () => {
     expect(called).toBe(false)
   })
 
+  it('extracts a default two-message turn', async () => {
+    const store = createMemStore()
+    const cursorStore = createStoreBackedCursorStore(store)
+    const mem = createMemory({
+      store,
+      provider: stubProvider(
+        '{"memories":[{"action":"create","filename":"facts.md","name":"Facts","description":"facts","type":"project","scope":"project","content":"A fact.","index_entry":"- facts"}]}',
+      ),
+      cursorStore,
+      scope: 'project',
+      actorId: 'tenant-a',
+    })
+
+    const extracted = await mem.extract({ messages: messages(2) })
+
+    expect(extracted).toHaveLength(1)
+    expect(
+      (await store.read(scopeTopic('project', 'tenant-a', 'facts.md'))).toString('utf8'),
+    ).toContain('A fact.')
+  })
+
+  it('stamps superseded_by across scopes when the old note only exists elsewhere', async () => {
+    const store = createMemStore()
+    const cursorStore = createStoreBackedCursorStore(store)
+    await store.write(
+      scopeTopic('global', 'tenant-a', 'passport-location.md'),
+      Buffer.from(
+        `${buildFrontmatter({
+          extra: {},
+          name: 'Passport location',
+          description: 'Old passport storage location',
+          type: 'user',
+          scope: 'global',
+          modified: '2026-04-18T10:00:00.000Z',
+        })}The passports are in the hall drawer.\n`,
+        'utf8',
+      ),
+    )
+
+    const mem = createMemory({
+      store,
+      provider: stubProvider(
+        JSON.stringify({
+          memories: [
+            {
+              action: 'create',
+              filename: 'passport-location-current.md',
+              name: 'Current passport location',
+              description: 'Updated passport storage location',
+              type: 'project',
+              scope: 'project',
+              content: 'The passports are now in the bedroom safe.',
+              index_entry: '- passport-location-current.md: bedroom safe',
+              supersedes: 'passport-location.md',
+            },
+          ],
+        }),
+      ),
+      cursorStore,
+      scope: 'project',
+      actorId: 'tenant-a',
+      extractMinMessages: 2,
+    })
+
+    await mem.extract({
+      messages: [
+        {
+          role: 'user',
+          content: 'Please record the updated passport location.',
+        },
+        {
+          role: 'assistant',
+          content: 'I have recorded it.',
+        },
+      ],
+    })
+
+    const superseded = (
+      await store.read(scopeTopic('global', 'tenant-a', 'passport-location.md'))
+    ).toString('utf8')
+
+    expect(superseded).toContain('superseded_by: passport-location-current.md')
+  })
+
   it('tracks extraction progress per session for the same actor', async () => {
     const store = createMemStore()
     const cursorStore = createStoreBackedCursorStore(store)
@@ -237,6 +322,16 @@ describe('extract', () => {
     expect(extracted).toHaveLength(1)
     expect(completeCalls).toBe(1)
     expect(structuredCalls).toBe(0)
+  })
+
+  it('repairs trailing commas in extraction JSON', () => {
+    expect(
+      parseExtractionJson('{"memories":[{"filename":"x.md","content":"hi",}]}'),
+    ).toHaveLength(1)
+  })
+
+  it('accepts a bare extraction array', () => {
+    expect(parseExtractionJson('[{"filename":"x.md","content":"hi"}]')).toHaveLength(1)
   })
 
   it('includes bounded existing memories in the extraction prompt for project scope', async () => {
@@ -414,6 +509,95 @@ describe('extract', () => {
     expect(content).toContain('[Date: 2023-09-30 Saturday September 2023]')
   })
 
+  it('rewrites heuristic filenames using provider session metadata', async () => {
+    const store = createMemStore()
+    const cursorStore = createStoreBackedCursorStore(store)
+    const mem = createMemory({
+      store,
+      provider: stubProvider(
+        JSON.stringify({
+          memories: [
+            {
+              action: 'create',
+              filename: 'project-note.md',
+              name: 'Project note',
+              description: 'Keep the plan handy',
+              type: 'project',
+              scope: 'project',
+              content: 'Keep the plan handy.',
+              index_entry: '- project-note.md: keep the plan handy',
+              sessionId: 'session-provider',
+            },
+          ],
+        }),
+      ),
+      cursorStore,
+      scope: 'project',
+      actorId: 'tenant-a',
+      extractMinMessages: 2,
+    })
+
+    const extracted = await mem.extract({
+      messages: [
+        {
+          role: 'system',
+          content: 'This conversation took place on 2023/07/15 (Sat) 22:42.',
+        },
+        {
+          role: 'user',
+          content:
+            "I've been reading about the Amazon rainforest and its indigenous communities in National Geographic, and I just finished my fifth issue.",
+        },
+        {
+          role: 'assistant',
+          content: 'That sounds fascinating.',
+        },
+      ],
+    })
+
+    const heuristic = extracted.find((memory) => memory.content.includes('fifth issue'))
+    expect(heuristic).toBeDefined()
+    expect(heuristic?.filename).toContain('session-provider')
+    expect(heuristic?.sessionId).toBe('session-provider')
+  })
+
+  it('rewrites heuristic filenames using the system session id when not passed explicitly', async () => {
+    const store = createMemStore()
+    const cursorStore = createStoreBackedCursorStore(store)
+    const mem = createMemory({
+      store,
+      provider: stubProvider('{"memories":[]}'),
+      cursorStore,
+      scope: 'project',
+      actorId: 'tenant-a',
+      extractMinMessages: 2,
+    })
+
+    const extracted = await mem.extract({
+      messages: [
+        {
+          role: 'system',
+          content:
+            'session_id: session-system\nThis conversation took place on 2023/07/15 (Sat) 22:42.',
+        },
+        {
+          role: 'user',
+          content:
+            "I've been reading about the Amazon rainforest and its indigenous communities in National Geographic, and I just finished my fifth issue.",
+        },
+        {
+          role: 'assistant',
+          content: 'That sounds fascinating.',
+        },
+      ],
+    })
+
+    const heuristic = extracted.find((memory) => memory.content.includes('fifth issue'))
+    expect(heuristic).toBeDefined()
+    expect(heuristic?.filename).toContain('session-system')
+    expect(heuristic?.sessionId).toBe('session-system')
+  })
+
   it('adds heuristic user fact notes for quantified user statements', async () => {
     const store = createMemStore()
     const cursorStore = createStoreBackedCursorStore(store)
@@ -450,6 +634,235 @@ describe('extract', () => {
     expect(heuristic?.type).toBe('user')
     expect(heuristic?.filename).toContain('2023-05-22')
     expect(heuristic?.filename).toContain('session-a')
+  })
+
+  it('adds heuristic user facts for cadence and storage statements', async () => {
+    const store = createMemStore()
+    const cursorStore = createStoreBackedCursorStore(store)
+    const mem = createMemory({
+      store,
+      provider: stubProvider('{"memories":[]}'),
+      cursorStore,
+      scope: 'project',
+      actorId: 'tenant-a',
+      extractMinMessages: 2,
+    })
+
+    const extracted = await mem.extract({
+      messages: [
+        {
+          role: 'user',
+          content:
+            "I see Dr. Smith every week. I've been keeping the spare blankets under my bed.",
+        },
+        {
+          role: 'assistant',
+          content: 'Noted.',
+        },
+      ],
+      sessionId: 'session-cadence',
+      sessionDate: '2023/08/14 (Mon) 09:30',
+    })
+
+    const cadence = extracted.find((memory) =>
+      memory.content.includes('I see Dr. Smith every week.'),
+    )
+    const storage = extracted.find((memory) =>
+      memory.content.includes("I've been keeping the spare blankets under my bed."),
+    )
+
+    expect(cadence).toBeDefined()
+    expect(cadence?.scope).toBe('global')
+    expect(cadence?.type).toBe('user')
+    expect(storage).toBeDefined()
+    expect(storage?.scope).toBe('global')
+    expect(storage?.type).toBe('user')
+  })
+
+  it('captures explicit bi-weekly cadence phrasing as a user fact', async () => {
+    const store = createMemStore()
+    const cursorStore = createStoreBackedCursorStore(store)
+    const mem = createMemory({
+      store,
+      provider: stubProvider('{"memories":[]}'),
+      cursorStore,
+      scope: 'project',
+      actorId: 'tenant-a',
+      extractMinMessages: 2,
+    })
+
+    const extracted = await mem.extract({
+      messages: [
+        {
+          role: 'user',
+          content: 'I meet with my coach bi-weekly to review my progress.',
+        },
+        {
+          role: 'assistant',
+          content: 'Noted.',
+        },
+      ],
+      sessionId: 'session-biweekly',
+      sessionDate: '2024/03/25 (Mon) 09:15',
+    })
+
+    const heuristic = extracted.find((memory) =>
+      memory.content.includes('bi-weekly'),
+    )
+    expect(heuristic).toBeDefined()
+    expect(heuristic?.scope).toBe('global')
+    expect(heuristic?.type).toBe('user')
+    expect(heuristic?.filename).toContain('session-biweekly')
+  })
+
+  it('captures bandwidth and transfer-rate units as quantified user facts', async () => {
+    const store = createMemStore()
+    const cursorStore = createStoreBackedCursorStore(store)
+    const mem = createMemory({
+      store,
+      provider: stubProvider('{"memories":[]}'),
+      cursorStore,
+      scope: 'project',
+      actorId: 'tenant-a',
+      extractMinMessages: 2,
+    })
+
+    const extracted = await mem.extract({
+      messages: [
+        {
+          role: 'user',
+          content:
+            "I've upgraded my line to 500 Mbps and the backup sync now runs at 1.5 GB/s.",
+        },
+        {
+          role: 'assistant',
+          content: 'That is a substantial increase.',
+        },
+      ],
+      sessionId: 'session-bandwidth',
+      sessionDate: '2023/08/14 (Mon) 09:30',
+    })
+
+    const bandwidth = extracted.find((memory) => memory.content.includes('500 Mbps'))
+
+    expect(bandwidth).toBeDefined()
+    expect(bandwidth?.scope).toBe('global')
+    expect(bandwidth?.type).toBe('user')
+    expect(bandwidth?.tags).toEqual(
+      expect.arrayContaining(['500 Mbps', '1.5 GB/s']),
+    )
+  })
+
+  it('creates assistant row memories from weekday markdown tables', async () => {
+    const store = createMemStore()
+    const cursorStore = createStoreBackedCursorStore(store)
+    const mem = createMemory({
+      store,
+      provider: stubProvider('{"memories":[]}'),
+      cursorStore,
+      scope: 'project',
+      actorId: 'tenant-a',
+      extractMinMessages: 2,
+    })
+
+    const extracted = await mem.extract({
+      messages: [
+        {
+          role: 'user',
+          content: 'Please record the Sunday rota.',
+        },
+        {
+          role: 'assistant',
+          content:
+            '| Day | 8 am - 4 pm | 4 pm - 12 am |\n| --- | --- | --- |\n| Sunday | Admon | Bex |\n| Monday | Carla | Dan |',
+        },
+      ],
+      sessionId: 'session-rota',
+      sessionDate: '2023/08/13 (Sun) 09:00',
+    })
+
+    const sunday = extracted.find((memory) =>
+      memory.content.includes('Sunday roster:'),
+    )
+
+    expect(sunday).toBeDefined()
+    expect(sunday?.scope).toBe('project')
+    expect(sunday?.type).toBe('reference')
+    expect(sunday?.name.startsWith('Reference:')).toBe(true)
+    expect(sunday?.content).toContain('Sunday roster: Admon, 8 am - 4 pm')
+    expect(sunday?.content).toContain('Bex, 4 pm - 12 am')
+    expect(sunday?.content).toContain('[Date: 2023-08-13')
+    expect(sunday?.filename).toContain('reference-2023-08-13')
+  })
+
+  it('treats ordinal progress updates as quantified user facts', async () => {
+    const store = createMemStore()
+    const cursorStore = createStoreBackedCursorStore(store)
+    const mem = createMemory({
+      store,
+      provider: stubProvider('{"memories":[]}'),
+      cursorStore,
+      scope: 'project',
+      actorId: 'tenant-a',
+      extractMinMessages: 2,
+    })
+
+    const extracted = await mem.extract({
+      messages: [
+        {
+          role: 'user',
+          content:
+            "I've been reading about the Amazon rainforest and its indigenous communities in National Geographic, and I just finished my fifth issue.",
+        },
+        {
+          role: 'assistant',
+          content: 'That sounds fascinating.',
+        },
+      ],
+      sessionId: 'session-ordinal',
+      sessionDate: '2023/07/15 (Sat) 22:42',
+    })
+
+    const heuristic = extracted.find((memory) =>
+      memory.content.includes('fifth issue'),
+    )
+    expect(heuristic).toBeDefined()
+    expect(heuristic?.filename).toContain('2023-07-15')
+  })
+
+  it('falls back to the system message for heuristic session dates', async () => {
+    const store = createMemStore()
+    const cursorStore = createStoreBackedCursorStore(store)
+    const mem = createMemory({
+      store,
+      provider: stubProvider('{"memories":[]}'),
+      cursorStore,
+      scope: 'project',
+      actorId: 'tenant-a',
+      extractMinMessages: 2,
+    })
+
+    const extracted = await mem.extract({
+      messages: [
+        {
+          role: 'system',
+          content: 'This conversation took place on 2023/07/15 (Sat) 22:42.',
+        },
+        {
+          role: 'user',
+          content:
+            "I've been reading about the Amazon rainforest and its indigenous communities in National Geographic, and I just finished my fifth issue.",
+        },
+      ],
+      sessionId: 'session-fallback',
+    })
+
+    const heuristic = extracted.find((memory) =>
+      memory.content.includes('fifth issue'),
+    )
+    expect(heuristic).toBeDefined()
+    expect(heuristic?.filename).toContain('2023-07-15')
+    expect(heuristic?.observedOn).toBe('2023-07-15T22:42:00.000Z')
   })
 
   it('adds searchable user facts for week-long and 10-day social-media breaks', async () => {

@@ -47,6 +47,16 @@ def test_detect_preference(query: str, want: bool) -> None:
         ("were I the one who ordered", True),
         ("did i travelled to bosch yesterday", True),
         ("How long is my daily commute to work?", True),
+        ("How often do I see Dr. Smith?", True),
+        ("What time do I leave for work?", True),
+        ("Where do I keep the spare blankets?", True),
+        ("What speed is my internet plan?", True),
+        (
+            "What percentage of the countryside property's price is the cost of the renovations I plan to do on my current house?",
+            True,
+        ),
+        ("What was the page count of the two novels I finished in January and March?", True),
+        ("Which mode of transport did I take to work?", True),
         ("When did I submit my research paper on sentiment analysis?", True),
         ("What specific languages did you recommend for learning back-end programming?", True),
         (
@@ -278,6 +288,66 @@ def test_reweight_first_person_duration_prefers_routine_user_fact_over_project_t
         results,
     )
     assert out[0].path == "memory/global/user-commute-time.md"
+
+
+def test_reweight_first_person_cadence_prefers_global_user_fact_over_project_noise() -> None:
+    results = [
+        RetrievedChunk(
+            path="memory/project/eval-lme/therapy-boundaries-guide.md",
+            score=1.0,
+            text="A guide with tips for weekly therapy check-ins and reflective routines.",
+        ),
+        RetrievedChunk(
+            path="memory/global/user-fact-therapy-cadence.md",
+            score=0.62,
+            text="I see Dr. Smith every week now.",
+        ),
+        RetrievedChunk(
+            path="memory/project/eval-lme/reference-therapy-options.md",
+            score=0.81,
+            text="Recommended therapists in the area include Dr. Smith and Dr. Patel.",
+        ),
+    ]
+    out = reweight_shared_memory_ranking("How often do I see Dr. Smith?", results)
+    assert out[0].path == "memory/global/user-fact-therapy-cadence.md"
+
+
+def test_reweight_first_person_location_prefers_global_storage_fact() -> None:
+    results = [
+        RetrievedChunk(
+            path="memory/project/eval-lme/decluttering-guide.md",
+            score=1.0,
+            text="Tips for storing spare bedding neatly under low platform beds.",
+        ),
+        RetrievedChunk(
+            path="memory/global/user-fact-storage.md",
+            score=0.58,
+            text="I've been keeping the spare blankets under my bed.",
+        ),
+    ]
+    out = reweight_shared_memory_ranking(
+        "Where do I keep the spare blankets?",
+        results,
+    )
+    assert out[0].path == "memory/global/user-fact-storage.md"
+
+
+def test_reweight_penalises_superseded_notes_from_metadata() -> None:
+    results = [
+        RetrievedChunk(
+            path="memory/global/user-fact-therapy-cadence-old.md",
+            score=1.0,
+            text="I see Dr. Smith every week.",
+            metadata={"superseded_by": "user-fact-therapy-cadence-new.md"},
+        ),
+        RetrievedChunk(
+            path="memory/global/user-fact-therapy-cadence-new.md",
+            score=0.55,
+            text="I see Dr. Smith every fortnight now.",
+        ),
+    ]
+    out = reweight_shared_memory_ranking("How often do I see Dr. Smith?", results)
+    assert out[0].path == "memory/global/user-fact-therapy-cadence-new.md"
 
 
 def test_reweight_composite_totals_diversify_across_focuses() -> None:

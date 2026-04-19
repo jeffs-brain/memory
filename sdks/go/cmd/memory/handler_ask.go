@@ -3,6 +3,7 @@
 package main
 
 import (
+	"encoding/json"
 	"net/http"
 	"strings"
 
@@ -11,7 +12,6 @@ import (
 	"github.com/jeffs-brain/memory/go/knowledge"
 	"github.com/jeffs-brain/memory/go/llm"
 	"github.com/jeffs-brain/memory/go/retrieval"
-	"github.com/jeffs-brain/memory/go/search"
 )
 
 // askReaderModeBasic is the default; preserves the original /ask prompt
@@ -25,14 +25,53 @@ const (
 )
 
 type askRequest struct {
-	Question     string `json:"question"`
-	TopK         int    `json:"topK,omitempty"`
-	CandidateK   int    `json:"candidateK,omitempty"`
-	RerankTopN   int    `json:"rerankTopN,omitempty"`
-	Mode         string `json:"mode,omitempty"`
-	Model        string `json:"model,omitempty"`
-	ReaderMode   string `json:"readerMode,omitempty"`
-	QuestionDate string `json:"questionDate,omitempty"`
+	Question     string            `json:"question"`
+	TopK         int               `json:"topK,omitempty"`
+	CandidateK   int               `json:"candidateK,omitempty"`
+	RerankTopN   int               `json:"rerankTopN,omitempty"`
+	Mode         string            `json:"mode,omitempty"`
+	Model        string            `json:"model,omitempty"`
+	ReaderMode   string            `json:"readerMode,omitempty"`
+	QuestionDate string            `json:"questionDate,omitempty"`
+	Filters      retrieval.Filters `json:"filters,omitempty"`
+}
+
+func (req *askRequest) UnmarshalJSON(data []byte) error {
+	type rawAskRequest struct {
+		Question        string          `json:"question"`
+		TopK            int             `json:"topK"`
+		CandidateK      int             `json:"candidateK"`
+		CandidateKAlt   int             `json:"candidate_k"`
+		RerankTopN      int             `json:"rerankTopN"`
+		RerankTopNAlt   int             `json:"rerank_top_n"`
+		Mode            string          `json:"mode"`
+		Model           string          `json:"model"`
+		ReaderMode      string          `json:"readerMode"`
+		ReaderModeAlt   string          `json:"reader_mode"`
+		QuestionDate    string          `json:"questionDate"`
+		QuestionDateAlt string          `json:"question_date"`
+		Filters         json.RawMessage `json:"filters"`
+	}
+	var raw rawAskRequest
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	filters, err := decodeRequestFilters(data, raw.Filters)
+	if err != nil {
+		return err
+	}
+	*req = askRequest{
+		Question:     raw.Question,
+		TopK:         raw.TopK,
+		CandidateK:   firstPositiveRequestValue(raw.CandidateK, raw.CandidateKAlt),
+		RerankTopN:   firstPositiveRequestValue(raw.RerankTopN, raw.RerankTopNAlt),
+		Mode:         raw.Mode,
+		Model:        raw.Model,
+		ReaderMode:   firstNonEmptyRequestValue(raw.ReaderMode, raw.ReaderModeAlt),
+		QuestionDate: firstNonEmptyRequestValue(raw.QuestionDate, raw.QuestionDateAlt),
+		Filters:      filters,
+	}
+	return nil
 }
 
 // handleAsk runs retrieval, then streams an LLM completion as SSE
@@ -80,6 +119,22 @@ func (d *Daemon) handleAsk(w http.ResponseWriter, r *http.Request) {
 		"topK":   req.TopK,
 		"mode":   req.Mode,
 	})
+
+	if req.ReaderMode == askReaderModeAugmented {
+		if answer, ok := resolveAugmentedAskAnswer(req.Question, req.QuestionDate, chunks); ok {
+			_ = stream.SendJSON("answer_delta", map[string]string{"text": answer})
+			for _, c := range chunks {
+				_ = stream.SendJSON("citation", map[string]any{
+					"chunkId": c.ChunkID,
+					"path":    c.Path,
+					"title":   c.Title,
+					"score":   c.Score,
+				})
+			}
+			_ = stream.SendJSON("done", map[string]any{"ok": true})
+			return
+		}
+	}
 
 	complete := buildAskCompleteRequest(req, chunks)
 
@@ -136,15 +191,19 @@ func (d *Daemon) retrieveForAsk(r *http.Request, br *BrainResources, req askRequ
 			RerankTopN:   req.RerankTopN,
 			Mode:         mode,
 			BrainID:      br.ID,
+			Filters:      req.Filters,
 		})
 		if err == nil {
-			chunks = resp.Chunks
+			chunks = filterRetrievedChunksByPath(resp.Chunks, req.Filters)
 		}
 	}
 	if len(chunks) == 0 && br.Search != nil {
-		results, err := br.Search.Search(augmentRetrievalQuery(req.Question, req.QuestionDate), search.SearchOpts{MaxResults: req.TopK})
+		results, err := br.Search.Search(augmentRetrievalQuery(req.Question, req.QuestionDate), fallbackSearchOpts(req.TopK, req.Filters))
 		if err == nil {
 			for _, h := range results {
+				if !req.Filters.MatchesPath(h.Path) {
+					continue
+				}
 				chunk := retrieval.RetrievedChunk{
 					ChunkID:    h.Path,
 					DocumentID: h.Path,
@@ -162,10 +221,14 @@ func (d *Daemon) retrieveForAsk(r *http.Request, br *BrainResources, req askRequ
 		resp, err := br.Knowledge.Search(r.Context(), knowledge.SearchRequest{Query: req.Question, MaxResults: req.TopK})
 		if err == nil {
 			for _, h := range resp.Hits {
+				path := string(h.Path)
+				if !req.Filters.MatchesPath(path) {
+					continue
+				}
 				chunk := retrieval.RetrievedChunk{
-					ChunkID:    string(h.Path),
-					DocumentID: string(h.Path),
-					Path:       string(h.Path),
+					ChunkID:    path,
+					DocumentID: path,
+					Path:       path,
 					Score:      h.Score,
 					Text:       h.Snippet,
 					Title:      h.Title,
@@ -277,6 +340,10 @@ func buildAugmentedAskContent(question, questionDate string, chunks []retrieval.
 		})
 	}
 	return lme.RenderRetrievedPassages(passages, question, questionDate)
+}
+
+func resolveAugmentedAskAnswer(question, questionDate string, chunks []retrieval.RetrievedChunk) (string, bool) {
+	return lme.ResolveDeterministicAnswer(question, buildAugmentedAskContent(question, questionDate, chunks))
 }
 
 func metadataStringValue(meta map[string]any, keys ...string) string {

@@ -404,6 +404,26 @@ func TestIndexSource_BM25_RespectsPathPrefix(t *testing.T) {
 	}
 }
 
+func TestIndexSource_BM25_RespectsExactPaths(t *testing.T) {
+	t.Parallel()
+	src, _, _, _ := setupIndexSource(t, indexSourceCorpus())
+
+	hits, err := src.SearchBM25(context.Background(), "invoice", 10, Filters{
+		Paths: []string{"wiki/order-processing.md", " wiki/order-processing.md ", "wiki/invoice-rollup.md"},
+	})
+	if err != nil {
+		t.Fatalf("SearchBM25 paths: %v", err)
+	}
+	if len(hits) == 0 {
+		t.Fatal("expected exact-path hit")
+	}
+	for _, h := range hits {
+		if h.Path != "wiki/order-processing.md" && h.Path != "wiki/invoice-rollup.md" {
+			t.Fatalf("path leak: %s", h.Path)
+		}
+	}
+}
+
 func TestIndexSource_Vectors_ReturnsTopSemanticHits(t *testing.T) {
 	t.Parallel()
 	src, _, _, _ := setupIndexSource(t, indexSourceCorpus())
@@ -436,6 +456,31 @@ func TestIndexSource_Vectors_ReturnsTopSemanticHits(t *testing.T) {
 	}
 	if !strings.Contains(hits[0].Content, "invoice") {
 		t.Errorf("vector hit content = %q, want hydrated article body", hits[0].Content)
+	}
+}
+
+func TestIndexSource_Vectors_RespectsExactPaths(t *testing.T) {
+	t.Parallel()
+	src, _, _, _ := setupIndexSource(t, indexSourceCorpus())
+
+	embedder := llm.NewFakeEmbedder(64)
+	vecs, err := embedder.Embed(context.Background(), []string{"invoice processing automation"})
+	if err != nil {
+		t.Fatalf("embed query: %v", err)
+	}
+	hits, err := src.SearchVector(context.Background(), vecs[0], 10, Filters{
+		Paths: []string{"wiki/order-processing.md"},
+	})
+	if err != nil {
+		t.Fatalf("SearchVector exact paths: %v", err)
+	}
+	if len(hits) == 0 {
+		t.Fatal("expected exact-path vector hit")
+	}
+	for _, h := range hits {
+		if h.Path != "wiki/order-processing.md" {
+			t.Fatalf("path leak: %s", h.Path)
+		}
 	}
 }
 
@@ -718,6 +763,49 @@ func TestIndexSource_EndToEnd_TrigramFallback(t *testing.T) {
 	// proof the pipeline ran end-to-end without error.
 	if len(resp.Attempts) == 0 {
 		t.Fatal("expected at least one attempt in trace")
+	}
+}
+
+func TestIndexSource_EndToEnd_TrigramFallback_RespectsExactPaths(t *testing.T) {
+	t.Parallel()
+	src, _, _, _ := setupIndexSource(t, []indexSourceArticle{
+		{
+			Path:    "wiki/photosynthesis.md",
+			Title:   "Photosynthesis",
+			Summary: "Leaf chemistry",
+			Body:    "Chlorophyll helps plants turn light into energy.",
+		},
+		{
+			Path:    "wiki/photosynthesis-log.md",
+			Title:   "Photosynthesis log",
+			Summary: "Experiment notes",
+			Body:    "Daily notes about plant growth experiments.",
+		},
+	})
+
+	r, err := New(Config{Source: src})
+	if err != nil {
+		t.Fatalf("New retriever: %v", err)
+	}
+
+	resp, err := r.Retrieve(context.Background(), Request{
+		Query: "photosynthasis",
+		Mode:  ModeBM25,
+		TopK:  3,
+		Filters: Filters{
+			Paths: []string{"wiki/photosynthesis-log.md"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Retrieve fallback: %v", err)
+	}
+	if len(resp.Chunks) == 0 {
+		t.Fatal("expected filtered trigram fallback hit")
+	}
+	for _, chunk := range resp.Chunks {
+		if chunk.Path != "wiki/photosynthesis-log.md" {
+			t.Fatalf("path leak: %s", chunk.Path)
+		}
 	}
 }
 

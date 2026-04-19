@@ -28,17 +28,29 @@ class Filters:
     """Narrows retrieval to a subset of the corpus.
 
     Empty fields are treated as no filter. ``path_prefix`` is inclusive
-    of the exact prefix; ``tags`` are matched such that every tag must
-    be present for a hit to survive.
+    of the exact prefix; ``paths`` is an exact allow-list; ``tags`` are
+    matched such that every tag must be present for a hit to survive.
     """
 
     path_prefix: str = ""
+    paths: list[str] = field(default_factory=list)
     tags: list[str] = field(default_factory=list)
     scope: str = ""
     project: str = ""
 
     def has_any(self) -> bool:
-        return bool(self.path_prefix or self.tags or self.scope or self.project)
+        return bool(
+            self.path_prefix or self.paths or self.tags or self.scope or self.project
+        )
+
+    def matches_path(self, path: str) -> bool:
+        prefix = self.path_prefix.strip()
+        if prefix and not path.startswith(prefix):
+            return False
+        wanted = {candidate.strip() for candidate in self.paths if candidate.strip()}
+        if wanted and path not in wanted:
+            return False
+        return True
 
 
 @dataclass(slots=True)

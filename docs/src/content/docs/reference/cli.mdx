@@ -5,7 +5,17 @@ sidebar:
   order: 1
 ---
 
-The `memory` CLI is the reference interface to a brain. It's shipped by every SDK and exposes the same subcommand surface across TypeScript, Go, and Python.
+The `memory` command name is shared across the SDKs, but the production-ready
+subcommand surface is not identical.
+
+| SDK | Production-ready commands today |
+| --- | --- |
+| TypeScript | `init`, `ingest`, `search`, `extract`, `reflect`, `consolidate`, `serve`, `eval`, `acl`, `git` |
+| Go | `version`, `serve`, `eval lme` |
+| Python | `serve` |
+
+The stable cross-SDK baseline assumed by the docs and eval harness is
+`memory serve` plus the shared HTTP protocol it exposes.
 
 Exit codes:
 
@@ -25,7 +35,7 @@ Exit codes:
 
 ## `memory init <path>`
 
-Create a new brain directory with git-backed storage.
+TypeScript today. Create a new brain directory with git-backed storage.
 
 ```bash
 memory init ./my-brain
@@ -35,7 +45,8 @@ Output: a JSON line `{"brain":"./my-brain","ok":true}`.
 
 ## `memory ingest <file>`
 
-Ingest a file into the brain. Chunks the content, writes it to the store, and upserts the chunks into the SQLite index.
+TypeScript today. Ingest a file into the brain. Chunks the content, writes it
+to the store, and upserts the chunks into the SQLite index.
 
 ```bash
 memory ingest ./docs/hedgehogs.md --brain ./my-brain
@@ -49,7 +60,7 @@ Output: a JSON line with `path`, `hash`, `bytes`, and `skipped` (null when new, 
 
 ## `memory search <query>`
 
-Run a hybrid BM25 + vector query against the brain.
+TypeScript today. Run a hybrid BM25 plus vector query against the brain.
 
 ```bash
 memory search "where do hedgehogs live?" --brain ./my-brain
@@ -66,31 +77,27 @@ Flags:
 
 ## `memory extract`
 
-Submit a transcript so the server can asynchronously derive memorable facts. Delegates to the same logic as the [`memory_extract`](/spec/mcp-tools/) MCP tool.
+TypeScript today. Submit a transcript so the server can asynchronously derive
+memorable facts. Delegates to the same logic as the
+[`memory_extract`](/spec/mcp-tools/) MCP tool.
 
 ## `memory reflect`
 
-Close a session and trigger reflection. Mirrors [`memory_reflect`](/spec/mcp-tools/).
+TypeScript today. Close a session and trigger reflection. Mirrors
+[`memory_reflect`](/spec/mcp-tools/).
 
 ## `memory consolidate`
 
-Trigger a compaction pass over `memory/` and `wiki/`. Mirrors [`memory_consolidate`](/spec/mcp-tools/). Reserved; today delegates to `brains.compile` where available.
+TypeScript today. Trigger a compaction pass over `memory/` and `wiki/`.
+Mirrors [`memory_consolidate`](/spec/mcp-tools/). Reserved; today delegates
+to `brains.compile` where available.
 
-## `memory remember` (Go only)
+## Protocol operations not in the shared CLI baseline
 
-Capture a single, atomic memory note.
-
-```bash
-memory remember "I prefer British English in code" --tags style,english
-```
-
-## `memory recall` (Go only)
-
-Recall memories for a query, optionally weighted by session context.
-
-```bash
-memory recall "style preferences" --limit 5
-```
+The protocol and MCP surface include `remember`, `recall`, `create-brain`,
+and `list-brains`, but those are not currently a shared production-ready
+local CLI surface across the SDKs. Use the HTTP daemon, MCP tools, or the SDK
+libraries directly when you need those operations.
 
 ## `memory serve`
 
@@ -123,12 +130,15 @@ Helpers for the git-backed store: sign a commit, push, fetch, check status. See 
 
 Run the SDK-native LongMemEval harness against the brain. The shared cross-SDK runner in [`eval/`](https://github.com/jeffs-brain/memory/tree/main/eval) only covers the daemon scenarios `ask-basic`, `ask-augmented`, and `search-retrieve-only`.
 
-## `memory create-brain` / `memory list-brains` (Go only)
-
-Create or list brains hosted at the configured endpoint. Mirror [`memory_create_brain`](/spec/mcp-tools/) and [`memory_list_brains`](/spec/mcp-tools/).
-
 ## Parity notes
 
-Cross-SDK parity today is narrower than full CLI parity. The shared benchmark and docs only assume three daemon scenarios exposed by `memory serve` on every SDK: `ask-basic`, `ask-augmented`, and `search-retrieve-only`.
+Cross-SDK parity today is library and daemon parity first, not full CLI
+parity. The shared benchmark and docs only assume three daemon scenarios
+exposed by `memory serve` on every SDK: `ask-basic`, `ask-augmented`, and
+`search-retrieve-only`.
 
-Full LongMemEval replay, replay ingest, and agentic loops are native-runner concerns rather than cross-SDK ones. Go provides the reference `memory eval lme run` flow; TypeScript keeps its own native `memory eval lme` commands; Python currently participates through the shared daemon scenarios.
+Full LongMemEval replay, replay ingest, and agentic loops are native-runner
+concerns rather than cross-SDK ones. Go provides the reference
+`memory eval lme run` flow, TypeScript keeps its own native `memory eval lme`
+commands, and Python currently participates through the shared daemon
+scenarios only.

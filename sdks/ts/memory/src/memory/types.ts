@@ -343,6 +343,7 @@ export type ContextualiseArgs = {
 /** Public surface returned by `createMemory`. */
 export type Memory = {
   extract(args: ExtractArgs): Promise<readonly ExtractedMemory[]>
+  previewExtract?(args: ExtractArgs): Promise<readonly ExtractedMemory[]>
   recall(opts: RecallOpts): Promise<readonly RecallHit[]>
   reflect(args: ReflectArgs): Promise<ReflectionResult | undefined>
   consolidate(args?: ConsolidateArgs): Promise<ConsolidationReport>

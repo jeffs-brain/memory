@@ -26,9 +26,9 @@ sidebar:
 | LLM provider: Ollama                                     | Yes                                   | Yes                               | Yes                               |
 | LLM provider: Fake                                       | No                                    | Yes                               | Yes                               |
 | Reranker: cross-encoder (in-process)                     | Yes                                   | No                                | Stub only                         |
-| Reranker: HTTP / TEI                                     | Yes                                   | Yes                               | No                                |
-| Reranker: LLM-based                                      | Yes                                   | Yes                               | No                                |
-| Reranker: Auto (primary + fallback)                      | Yes                                   | Yes                               | No                                |
+| Reranker: HTTP / TEI                                     | Yes                                   | Yes                               | Yes                               |
+| Reranker: LLM-based                                      | Yes                                   | Yes                               | Yes                               |
+| Reranker: Auto (primary + fallback)                      | Yes                                   | Yes                               | Yes                               |
 | Reranker: pluggable interface                            | Yes                                   | Yes                               | Yes                               |
 | Knowledge: ingest / compile / search                     | Yes                                   | Yes                               | Yes                               |
 | Memory stages: extract / reflect / recall / consolidate  | Yes (full + lifecycle wrapper)        | Yes (no lifecycle wrapper)        | Yes (no lifecycle wrapper)        |
@@ -40,10 +40,17 @@ sidebar:
 | HTTP daemon (`memory serve`)                             | Yes                                   | Yes                               | Yes                               |
 | MCP server                                               | Yes (`@jeffs-brain/memory-mcp`)       | Yes (`cmd/memory-mcp`)            | Yes (`jeffs-brain-memory-mcp` and the daemon) |
 | LongMemEval native runner                                | Yes                                   | Yes                               | No (use the daemon-only runner)   |
+| CLI coverage                                             | Broad local CLI                       | `version`, `serve`, `eval lme`    | `serve`                           |
 
 ## Postgres adapter is TypeScript-only
 
-`PostgresStore` lives in `@jeffs-brain/memory-postgres` and is not ported to Go or Python. If you need a Postgres-backed brain from a Go or Python process, run a TypeScript daemon (`memory serve`) on top of `PostgresStore` and point your Go or Python process at it through `HttpStore`. The wire protocol is the spec, so the calling SDK does not lose any features that work over HTTP.
+`PostgresStore` lives in `@jeffs-brain/memory-postgres` and is not ported to
+Go or Python. If you need a Postgres-backed brain from a Go or Python
+process, run a TypeScript daemon (`memory serve`) on top of `PostgresStore`
+and point your Go or Python process at it through `HttpStore`.
+
+That keeps you on the shared HTTP protocol surface only. It does not give Go
+or Python the TypeScript-only local store APIs or index-management helpers.
 
 ## Memory stages are uneven across SDKs
 
@@ -60,9 +67,20 @@ The reranker contract is identical across SDKs, but the bundled implementations 
 
 - TypeScript ships an in-process cross-encoder, an LLM reranker, an HTTP / TEI reranker, and an Auto reranker that prefers a primary and falls back to a secondary.
 - Go ships an HTTP / TEI reranker, an LLM reranker, and an Auto reranker. There is no in-process cross-encoder.
-- Python ships only the cross-encoder stub; the public reranker interface is in place so you can supply your own implementation.
+- Python ships an HTTP / TEI reranker, an LLM reranker, and an Auto reranker. There is no in-process cross-encoder.
 
 For Go and Python users who want a cross-encoder today, point the HTTP reranker at a `bge-reranker-v2-m3` served by `llama-server` or another TEI-compatible endpoint.
+
+## CLI parity is narrower
+
+Library parity and daemon parity are ahead of CLI parity.
+
+- TypeScript carries the broad local CLI surface.
+- Go's production-ready CLI commands today are `version`, `serve`, and `eval lme`.
+- Python's production-ready CLI command today is `serve`.
+
+For cross-SDK automation, target the HTTP daemon or MCP tools rather than the
+local CLI.
 
 ## See also
 

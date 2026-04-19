@@ -50,6 +50,22 @@ func TestParseExtractionResult_WrappedInMarkdown(t *testing.T) {
 	}
 }
 
+func TestParseExtractionResult_RepairsTrailingComma(t *testing.T) {
+	input := `{"memories":[{"filename":"x.md","content":"hi",}]}`
+	result := parseExtractionResult(input)
+	if len(result.Memories) != 1 {
+		t.Fatalf("expected 1 memory from repaired JSON, got %d", len(result.Memories))
+	}
+}
+
+func TestParseExtractionResult_AcceptsBareArray(t *testing.T) {
+	input := `[{"filename":"x.md","content":"hi"}]`
+	result := parseExtractionResult(input)
+	if len(result.Memories) != 1 {
+		t.Fatalf("expected 1 memory from bare array, got %d", len(result.Memories))
+	}
+}
+
 func TestParseExtractionResult_NormalisesFields(t *testing.T) {
 	input := `{"memories":[{"action":"unexpected","filename":"x.md","type":"unexpected","scope":"unexpected","content":"hello","indexEntry":"entry","observedOn":"2023-07-15T22:42:00Z","sessionDate":"2023-07-15","contextPrefix":"session context","modifiedOverride":"2023-07-15T22:42:00Z"}]}`
 
@@ -609,6 +625,46 @@ func TestApplyExtractions_MixedScopes(t *testing.T) {
 	}
 }
 
+func TestApplyExtractions_SupersedesAcrossScopes(t *testing.T) {
+	mem, store := newTestMemory(t)
+	projectPath := "/example/project"
+	slug := ProjectSlug(projectPath)
+
+	writeTopic(t, store, brain.MemoryProjectTopic(slug, "old_commute_fact"), strings.TrimSpace(`
+---
+name: Old commute fact
+type: project
+---
+
+The assistant previously guessed the commute took an hour each way.
+`))
+
+	memories := []ExtractedMemory{
+		{
+			Action:      "create",
+			Filename:    "new_commute_fact.md",
+			Name:        "New commute fact",
+			Description: "Corrected commute duration",
+			Type:        "user",
+			Scope:       "global",
+			Content:     "My commute actually takes 45 minutes each way.",
+			Supersedes:  "old_commute_fact.md",
+		},
+	}
+
+	if err := mem.ApplyExtractions(context.Background(), slug, memories); err != nil {
+		t.Fatalf("ApplyExtractions: %v", err)
+	}
+
+	data, err := store.Read(context.Background(), brain.MemoryProjectTopic(slug, "old_commute_fact"))
+	if err != nil {
+		t.Fatalf("project file not readable after supersession: %v", err)
+	}
+	if !strings.Contains(string(data), "superseded_by: new_commute_fact.md") {
+		t.Fatalf("project fact missing superseded_by marker: %s", string(data))
+	}
+}
+
 // TestExtractionPrompt_CoversAssistantTurns guards against drift that
 // would silently drop assistant-turn facts from extraction.
 func TestExtractionPrompt_CoversAssistantTurns(t *testing.T) {
@@ -707,6 +763,26 @@ The project uses OIDC.
 	}
 	if strings.Index(prompt, "### [project] project-auth.md") > strings.Index(prompt, "### [global] feedback-testing.md") {
 		t.Error("expected project memory with newer modified timestamp to appear first")
+	}
+}
+
+func TestExtractorMaybeExtract_DefaultsToTwoMessageTurn(t *testing.T) {
+	mem, store := newTestMemory(t)
+	extractor := NewExtractor(mem)
+	provider := &extractStubProvider{reply: `{"memories":[{"action":"create","filename":"facts.md","name":"Facts","description":"facts","type":"project","scope":"project","content":"A fact.","index_entry":"- facts"}]}`}
+
+	extractor.MaybeExtract(context.Background(), provider, "test-model", "/project", []Message{
+		{Role: RoleUser, Content: "tell me"},
+		{Role: RoleAssistant, Content: "here is info"},
+	})
+
+	slug := ProjectSlug("/project")
+	data, err := store.Read(context.Background(), brain.MemoryProjectTopic(slug, "facts"))
+	if err != nil {
+		t.Fatalf("expected extracted fact to be written: %v", err)
+	}
+	if !strings.Contains(string(data), "A fact.") {
+		t.Fatalf("expected extracted content in stored file, got:\n%s", data)
 	}
 }
 
@@ -814,6 +890,171 @@ func TestExtractFromMessages_AddsHeuristicUserFactForQuantifiedUpdate(t *testing
 	if !strings.Contains(found.Filename, "user-fact-2023-07-15") {
 		t.Fatalf("heuristic filename = %q, want dated user-fact prefix", found.Filename)
 	}
+}
+
+func TestExtractFromMessages_AddsHeuristicCadenceFact(t *testing.T) {
+	mem, _ := newTestMemory(t)
+	provider := &extractStubProvider{reply: `{"memories":[]}`}
+
+	out, err := ExtractFromMessages(context.Background(), provider, "test-model", mem, "/project", []Message{
+		{Role: RoleSystem, Content: "This conversation took place on 2023/11/03 (Fri) 18:00."},
+		{Role: RoleUser, Content: "I see Dr. Smith every week, and she's been helping me work on this stuff."},
+		{Role: RoleAssistant, Content: "That sounds useful."},
+	})
+	if err != nil {
+		t.Fatalf("ExtractFromMessages: %v", err)
+	}
+
+	for _, memory := range out {
+		if !strings.Contains(memory.Content, "every week") {
+			continue
+		}
+		if memory.Scope != "global" || memory.Type != "user" {
+			t.Fatalf("cadence heuristic scope/type = %q/%q, want global/user", memory.Scope, memory.Type)
+		}
+		return
+	}
+
+	t.Fatalf("expected cadence heuristic in %#v", out)
+}
+
+func TestExtractFromMessagesWithSession_HeuristicUsesExplicitSessionMetadata(t *testing.T) {
+	mem, _ := newTestMemory(t)
+	provider := &extractStubProvider{reply: `{"memories":[]}`}
+
+	out, err := ExtractFromMessagesWithSession(
+		context.Background(),
+		provider,
+		"test-model",
+		mem,
+		"/project",
+		[]Message{
+			{Role: RoleUser, Content: "My commute actually takes 45 minutes each way."},
+			{Role: RoleAssistant, Content: "That is worth remembering."},
+		},
+		"session-commute",
+		"2024/03/25 (Mon) 09:15",
+	)
+	if err != nil {
+		t.Fatalf("ExtractFromMessagesWithSession: %v", err)
+	}
+
+	for _, memory := range out {
+		if !strings.Contains(memory.Content, "45 minutes each way") {
+			continue
+		}
+		if memory.SessionID != "session-commute" {
+			t.Fatalf("sessionID = %q, want session-commute", memory.SessionID)
+		}
+		if memory.SessionDate != "2024-03-25" {
+			t.Fatalf("sessionDate = %q, want 2024-03-25", memory.SessionDate)
+		}
+		if !strings.Contains(memory.Filename, "user-fact-2024-03-25-session-commute") {
+			t.Fatalf("filename = %q, want explicit session-aware filename", memory.Filename)
+		}
+		return
+	}
+
+	t.Fatalf("expected explicit-session heuristic fact in %#v", out)
+}
+
+func TestExtractFromMessages_AddsHeuristicBandwidthFact(t *testing.T) {
+	mem, _ := newTestMemory(t)
+	provider := &extractStubProvider{reply: `{"memories":[]}`}
+
+	out, err := ExtractFromMessages(context.Background(), provider, "test-model", mem, "/project", []Message{
+		{Role: RoleSystem, Content: "This conversation took place on 2023/08/14 (Mon) 09:30."},
+		{Role: RoleUser, Content: "I've upgraded my line to 500 Mbps and the backup sync now runs at 1.5 GB/s."},
+		{Role: RoleAssistant, Content: "That is a substantial improvement."},
+	})
+	if err != nil {
+		t.Fatalf("ExtractFromMessages: %v", err)
+	}
+
+	for _, memory := range out {
+		if !strings.Contains(memory.Content, "500 Mbps") {
+			continue
+		}
+		if !strings.Contains(memory.Content, "1.5 GB/s") {
+			t.Fatalf("bandwidth heuristic content = %q, want both bandwidth facts", memory.Content)
+		}
+		return
+	}
+
+	t.Fatalf("expected bandwidth heuristic in %#v", out)
+}
+
+func TestExtractFromMessages_AddsAssistantTableRowFact(t *testing.T) {
+	mem, _ := newTestMemory(t)
+	provider := &extractStubProvider{reply: `{"memories":[]}`}
+
+	out, err := ExtractFromMessagesWithSession(
+		context.Background(),
+		provider,
+		"test-model",
+		mem,
+		"/project",
+		[]Message{
+			{Role: RoleUser, Content: "Can you put the rota into a table?"},
+			{
+				Role: RoleAssistant,
+				Content: strings.Join([]string{
+					"| Day | Day Shift | Evening Shift |",
+					"| --- | --- | --- |",
+					"| Sunday | Admon, 8 am - 4 pm | Bea, 4 pm - 12 am |",
+				}, "\n"),
+			},
+		},
+		"session-shift",
+		"2024/03/25 (Mon) 09:15",
+	)
+	if err != nil {
+		t.Fatalf("ExtractFromMessagesWithSession: %v", err)
+	}
+
+	for _, memory := range out {
+		if !strings.Contains(memory.Content, "Admon") {
+			continue
+		}
+		if memory.Scope != "project" || memory.Type != "project" {
+			t.Fatalf("assistant table scope/type = %q/%q, want project/project", memory.Scope, memory.Type)
+		}
+		if !strings.HasPrefix(memory.Filename, "assistant-table-2024-03-25-session-shift") {
+			t.Fatalf("assistant table filename = %q, want assistant-table-2024-03-25-session-shift...", memory.Filename)
+		}
+		if !strings.Contains(memory.Content, "Sunday roster: Admon, 8 am - 4 pm (Day Shift); Bea, 4 pm - 12 am (Evening Shift).") {
+			t.Fatalf("assistant table content = %q, want preserved shift roster", memory.Content)
+		}
+		return
+	}
+
+	t.Fatalf("expected assistant-table heuristic in %#v", out)
+}
+
+func TestExtractFromMessages_AddsHeuristicStorageLocationFact(t *testing.T) {
+	mem, _ := newTestMemory(t)
+	provider := &extractStubProvider{reply: `{"memories":[]}`}
+
+	out, err := ExtractFromMessages(context.Background(), provider, "test-model", mem, "/project", []Message{
+		{Role: RoleSystem, Content: "This conversation took place on 2023/08/12 (Sat) 09:15."},
+		{Role: RoleUser, Content: "I've been keeping my old sneakers under my bed for storage."},
+		{Role: RoleAssistant, Content: "That should keep them out of the way."},
+	})
+	if err != nil {
+		t.Fatalf("ExtractFromMessages: %v", err)
+	}
+
+	for _, memory := range out {
+		if !strings.Contains(memory.Content, "under my bed") {
+			continue
+		}
+		if memory.Scope != "global" || memory.Type != "user" {
+			t.Fatalf("location heuristic scope/type = %q/%q, want global/user", memory.Scope, memory.Type)
+		}
+		return
+	}
+
+	t.Fatalf("expected storage-location heuristic in %#v", out)
 }
 
 func TestExtractFromMessages_AddsHeuristicMilestoneFact(t *testing.T) {

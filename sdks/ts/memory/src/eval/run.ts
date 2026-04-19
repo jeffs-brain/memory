@@ -1245,7 +1245,18 @@ const processSessionContextForQuestion = (
   const blocks = parseSessionBlocksForQuestion(raw, question)
   if (blocks.length === 0) return raw
 
-  blocks.sort((left, right) => left.date.localeCompare(right.date))
+  blocks.sort((left, right) => {
+    if (left.relevance !== right.relevance) {
+      return right.relevance - left.relevance
+    }
+    if (left.parsedAt !== undefined && right.parsedAt !== undefined) {
+      return right.parsedAt.getTime() - left.parsedAt.getTime()
+    }
+    if (left.date !== right.date) {
+      return right.date.localeCompare(left.date)
+    }
+    return left.sessionId.localeCompare(right.sessionId)
+  })
 
   const parts: string[] = []
   for (const block of blocks) {
@@ -1261,20 +1272,33 @@ const processSessionContextForQuestion = (
 
 type SessionBlock = {
   readonly date: string
+  readonly parsedAt?: Date
+  readonly relevance: number
+  readonly sessionId: string
   readonly filtered: string
 }
 
 const parseSessionBlocksForQuestion = (
   content: string,
   question: string,
-): SessionBlock[] =>
-  splitOnSessionBoundary(content)
+): SessionBlock[] => {
+  const tokens = questionTokens(question)
+  return splitOnSessionBoundary(content)
     .map((part) => part.trim())
     .filter((part) => part !== '')
-    .map((part) => ({
-      date: firstFrontmatterValue(part, 'session_date'),
-      filtered: filterAssistantTurnsForQuestion(part, question),
-    }))
+    .map((part) => {
+      const date = firstFrontmatterValue(part, 'session_date')
+      const filtered = filterAssistantTurnsForQuestion(part, question)
+      const parsedAt = parseSessionTime(date)
+      return {
+        date,
+        ...(parsedAt !== undefined ? { parsedAt } : {}),
+        relevance: scoreChunkRelevance(filtered, tokens),
+        sessionId: firstFrontmatterValue(part, 'session_id'),
+        filtered,
+      }
+    })
+}
 
 const splitOnSessionBoundary = (content: string): readonly string[] => {
   const bySessionId = content.split('\n\n---\nsession_id:')
@@ -1364,12 +1388,22 @@ const filterAssistantTurnsForQuestion = (
   if (keptAssistantChunks.length > 0) {
     parts.push(
       [
-        '[Assistant context (summarised)]:',
+        '[Assistant context (suggestions only; not confirmed user facts unless the user later affirmed them)]:',
         ...keptAssistantChunks.map((chunk) => chunk.trim()),
       ].join('\n'),
     )
   }
   return parts.filter((part) => part !== '').join('\n\n')
+}
+
+const parseSessionTime = (value: string): Date | undefined => {
+  const trimmed = value.trim()
+  if (trimmed === '') return undefined
+  const normalised = trimmed
+    .replace(/^(\d{4}\/\d{2}\/\d{2}) \([A-Za-z]{3}\) (\d{2}:\d{2})$/, '$1 $2')
+    .replace(/\//g, '-')
+  const parsed = new Date(normalised)
+  return Number.isNaN(parsed.getTime()) ? undefined : parsed
 }
 
 const questionTokens = (question: string): readonly string[] => {

@@ -23,26 +23,34 @@ import (
 const (
 	extractMaxTokens             = 4096
 	extractTemperature           = 0
-	extractMinMessages           = 6
-	extractMaxRecent             = 40
-	existingMemoryLimit          = 12
-	existingMemoryPreviewLimit   = 220
+	extractMinMessages           = 2
+	extractMaxRecent             = 80
+	existingMemoryLimit          = 24
+	existingMemoryPreviewLimit   = 400
 	heuristicUserFactLimit       = 2
 	heuristicMilestoneFactLimit  = 2
 	heuristicPreferenceFactLimit = 2
 	heuristicPendingFactLimit    = 3
+	heuristicAssistantFactLimit  = 8
 )
 
 var (
 	heuristicDateTagRe                  = regexp.MustCompile(`\b\d{4}[-/]\d{2}[-/]\d{2}\b`)
 	heuristicMonthNameDateRe            = regexp.MustCompile(`(?i)\b(january|february|march|april|may|june|july|august|september|october|november|december)\s+\d{1,2}(?:st|nd|rd|th)?(?:,?\s+\d{4})?\b`)
 	heuristicQuantityRe                 = regexp.MustCompile(`\b\d{1,6}(?:\.\d+)?\b`)
-	heuristicUnitQuantityRe             = regexp.MustCompile(`(?i)\b(\d{1,6}(?:\.\d+)?)\s+(minutes?|mins?|hours?|hrs?|seconds?|secs?|days?|weeks?|months?|years?|km|kilometres?|miles?|metres?|meters?|kg|kilograms?|pounds?|lbs?|grams?|percent|%)\b`)
+	heuristicUnitQuantityRe             = regexp.MustCompile(`(?i)\b(\d{1,6}(?:\.\d+)?)\s+(minutes?|mins?|hours?|hrs?|seconds?|secs?|days?|weeks?|months?|years?|km|kilometres?|miles?|metres?|meters?|kg|kilograms?|pounds?|lbs?|grams?|percent|%|kbps|mbps|gbps|tbps|kb/s|mb/s|gb/s|tb/s)\b`)
 	heuristicWordUnitQuantityRe         = regexp.MustCompile(`(?i)\b(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\s+(minutes?|mins?|hours?|hrs?|seconds?|secs?|days?|weeks?|months?|years?)\b`)
 	heuristicDurationFactRe             = regexp.MustCompile(`(?i)\b(?:\d{1,4}-day|[a-z]+-day|[a-z]+-week|[a-z]+-month|[a-z]+-year|week-long|month-long|year-long)\b`)
 	heuristicOrdinalRe                  = regexp.MustCompile(`(?i)\b(?:first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth)\b`)
+	heuristicCadenceFactRe              = regexp.MustCompile(`(?i)\b(?:(?:every|each)\s+(?:other\s+)?(?:day|morning|afternoon|evening|night|weekday|weekend|week|month|year|monday|tuesday|wednesday|thursday|friday|saturday|sunday)|(?:biweekly|fortnightly|usually|normally|annually|yearly)|(?:once|twice)\s+(?:a|per)\s+(?:day|week|month|year)|\d+\s+times?\s+(?:a|per)\s+(?:day|week|month|year))\b`)
+	heuristicAssistantShiftHeaderRe     = regexp.MustCompile(`(?i)\b(?:shift|morning|evening|night|day|on-?call|coverage|rotation|roster)\b`)
+	heuristicAssistantShiftValueRe      = regexp.MustCompile(`(?i)\b\d{1,2}(?::\d{2})?\s?(?:am|pm)\b|\b\d{1,2}:\d{2}\b`)
+	heuristicStorageLocationFactRe      = regexp.MustCompile(`(?i)\b(?:i|i'm|i’ve|i've|i have)\s+(?:been\s+)?(?:keep(?:ing)?|kept|stor(?:e|ing|ed)|stash(?:ed|ing)?|leave|left|put|placed)\b[^.!?\n]*\b(?:under|inside|in|on|at|behind|beside|next to)\b`)
 	heuristicSessionDateRe              = regexp.MustCompile(`\b\d{4}[/-]\d{2}[/-]\d{2}(?:\s+\([A-Za-z]{3}\))?(?:\s+\d{2}:\d{2}(?::\d{2})?)?\b`)
 	heuristicSessionIDRe                = regexp.MustCompile(`(?im)\bsession[_ ]id\s*[:=]\s*([A-Za-z0-9._-]+)\b`)
+	heuristicMarkdownTableLineRe        = regexp.MustCompile(`^\s*\|.*\|\s*$`)
+	heuristicMarkdownSeparatorCellRe    = regexp.MustCompile(`^\s*:?-{3,}:?\s*$`)
+	heuristicWeekdayCellRe              = regexp.MustCompile(`(?i)^(monday|tuesday|wednesday|thursday|friday|saturday|sunday)$`)
 	firstPersonFactRe                   = regexp.MustCompile(`(?i)\b(i|i'm|i’ve|i've|my|we|we're|we’ve|we've|our)\b`)
 	heuristicWordRe                     = regexp.MustCompile(`[A-Za-z][A-Za-z-]{2,}`)
 	heuristicMilestoneEventRe           = regexp.MustCompile(`(?i)\b(?:(?:just|recently)\s+)?(?:completed|submitted|graduated|finished|started|joined|accepted|presented)\b`)
@@ -90,7 +98,22 @@ var (
 	autoTagEventRe                      = regexp.MustCompile(`(?i)\b(?:workshop|conference|concert|gig|show|screening|play|musical|exhibition|festival|meetup|class|course|webinar|lecture|seminar)\b`)
 	autoTagEntertainmentRe              = regexp.MustCompile(`(?i)\b(?:film|movie|show|series|book|novel|game|podcast|cinema)\b`)
 	autoTagExtraMedicalEntityRe         = regexp.MustCompile(`(?i)\b(?:clinic|hospital|prescription)\b`)
+	extractionTrailingCommaRe           = regexp.MustCompile(`,(\s*[}\]])`)
 )
+
+type sentenceSplitProtection struct {
+	pattern     *regexp.Regexp
+	placeholder string
+	original    string
+}
+
+var heuristicSentenceSplitProtections = []sentenceSplitProtection{
+	{pattern: regexp.MustCompile(`\bDr\.`), placeholder: `Dr__DOT__`, original: `Dr.`},
+	{pattern: regexp.MustCompile(`\bMr\.`), placeholder: `Mr__DOT__`, original: `Mr.`},
+	{pattern: regexp.MustCompile(`\bMrs\.`), placeholder: `Mrs__DOT__`, original: `Mrs.`},
+	{pattern: regexp.MustCompile(`\bMs\.`), placeholder: `Ms__DOT__`, original: `Ms.`},
+	{pattern: regexp.MustCompile(`\bProf\.`), placeholder: `Prof__DOT__`, original: `Prof.`},
+}
 
 var heuristicStopwords = map[string]bool{
 	"been":       true,
@@ -188,6 +211,8 @@ You MUST respond with ONLY a JSON object. Do NOT call tools, do NOT write prose.
 
 Both speakers contribute durable knowledge. Treat user turns and assistant turns as equally valid sources of facts. Capture everything the user stated AND everything the assistant provided: recommendations (restaurants, hotels, shops, books), specific named suggestions, recipes, itineraries, enumerated lists or rankings the assistant gave, answers the assistant produced, corrections the assistant issued, plans the assistant proposed, colours or attributes the assistant described, and any quantities or dates the assistant cited. If the assistant enumerated items (a list of jobs, options, steps, or candidates), save the full enumeration verbatim including positions where relevant. When in doubt, extract both sides.
 
+Preserve structured assistant outputs when they contain durable facts. If the assistant gives a roster, timetable, schedule, table, comparison, shortlist, or direct factual answer, keep the exact names, positions, shifts, prices, speeds, sizes, counts, and other concrete attributes rather than flattening them into a vague summary.
+
 Preserve concrete historical facts exactly when they matter. Keep explicit user experiences, measurements, comparisons, relatives, places, and time references in the memory content instead of flattening them into a vague preference or goal. Examples:
 - "My car was getting 30 miles per gallon in the city a few months ago." should preserve the 30 miles per gallon fact and timeframe.
 - "I went on a two-week trip to Europe with my parents and younger brother last month." should preserve the trip, relatives, destination, and timeframe.
@@ -215,12 +240,16 @@ Examples of assistant-turn facts that MUST be captured:
 - "I recommend Roscioli for romantic Italian in Rome." → create a reference memory naming the restaurant, cuisine, city.
 - "Here are seven work-from-home jobs for seniors: 1. Virtual Assistant, 2. ..., 7. Transcriptionist." → save the full numbered list so later recall can reconstruct any position.
 - "The Plesiosaur in the children's book had a blue scaly body." → save the attribute with its subject.
+- "Sunday roster: Admon, 8 am - 4 pm (Day Shift)." → save the person's name, shift, and exact hours.
+- "You upgraded your internet plan to 500 Mbps." → save the exact plan value, not a vague note about faster internet.
 
 Updates and quantitative facts that MUST be captured:
 - When the user gives a new count, total, amount, ratio, progress update, milestone, or outcome, save it even if an older memory on the same topic already exists.
 - Prefer an update with supersedes when the new statement revises prior state.
 - Stable personal facts like favourite ratios, purchase amounts, fundraising outcomes, reading progress, completed counts, and milestone dates are durable memory.
 - Do not discard a later update just because it seems small. A new number often replaces an older one.
+- When a later message changes a recurring cadence, schedule, count, price, bandwidth, screen size, or other exact attribute, preserve the new value explicitly and supersede the older one when appropriate.
+- Do not round away specific attributes such as 55-inch, 500 Mbps, 8 am - 4 pm, or edition counts. Keep the exact value in the memory content.
 
 Examples of user-turn updates that MUST be captured:
 - "I just finished my fifth issue of National Geographic." → update the reading-progress memory and supersede the older "finished three issues" state when applicable.
@@ -312,6 +341,7 @@ func extractUserPrompt(messages []Message, existingMemories []existingMemorySumm
 // extractionResult represents a parsed extraction response.
 type extractionResult struct {
 	Memories []ExtractedMemory `json:"memories"`
+	Parsed   bool              `json:"-"`
 }
 
 type rawExtractionResult struct {
@@ -442,7 +472,15 @@ func (e *Extractor) MaybeExtract(
 	}
 
 	result := parseExtractionResult(resp.Text)
-	result.Memories = postProcessSessionExtractions(recent, appendHeuristicExtractions(recent, result.Memories))
+	if !result.Parsed {
+		slog.Warn("memory: extract response parse failed")
+	}
+	result.Memories = postProcessSessionExtractions(
+		recent,
+		appendHeuristicExtractions(recent, result.Memories, "", ""),
+		"",
+		"",
+	)
 	if len(result.Memories) == 0 {
 		e.mu.Lock()
 		e.lastCursor = len(messages)
@@ -462,6 +500,7 @@ func (e *Extractor) MaybeExtract(
 
 	if err := e.mem.ApplyExtractions(ctx, slug, result.Memories); err != nil {
 		slog.Warn("memory: apply extractions failed", "err", err)
+		return
 	}
 
 	e.mu.Lock()
@@ -487,6 +526,22 @@ func ExtractFromMessages(
 	mem *Memory,
 	projectPath string,
 	messages []Message,
+) ([]ExtractedMemory, error) {
+	return ExtractFromMessagesWithSession(ctx, provider, model, mem, projectPath, messages, "", "")
+}
+
+// ExtractFromMessagesWithSession runs the extraction LLM call and
+// threads explicit session metadata through normalisation so preview
+// handlers get the same observed/date shaping as persisted extraction.
+func ExtractFromMessagesWithSession(
+	ctx context.Context,
+	provider llm.Provider,
+	model string,
+	mem *Memory,
+	projectPath string,
+	messages []Message,
+	sessionID string,
+	sessionDate string,
 ) ([]ExtractedMemory, error) {
 	if len(messages) < 2 {
 		return nil, nil
@@ -514,7 +569,23 @@ func ExtractFromMessages(
 	}
 
 	result := parseExtractionResult(resp.Text)
-	return postProcessSessionExtractions(recent, appendHeuristicExtractions(recent, result.Memories)), nil
+	if !result.Parsed {
+		result = extractionResult{}
+	}
+	for i := range result.Memories {
+		if strings.TrimSpace(sessionID) != "" && result.Memories[i].SessionID == "" {
+			result.Memories[i].SessionID = strings.TrimSpace(sessionID)
+		}
+		if strings.TrimSpace(sessionDate) != "" && result.Memories[i].SessionDate == "" {
+			result.Memories[i].SessionDate = strings.TrimSpace(sessionDate)
+		}
+	}
+	return postProcessSessionExtractions(
+		recent,
+		appendHeuristicExtractions(recent, result.Memories, sessionID, sessionDate),
+		sessionID,
+		sessionDate,
+	), nil
 }
 
 func listExistingMemories(ctx context.Context, mem *Memory, projectPath string) ([]existingMemorySummary, error) {
@@ -612,13 +683,13 @@ func truncateOneLine(s string, n int) string {
 	return s
 }
 
-func postProcessSessionExtractions(messages []Message, extracted []ExtractedMemory) []ExtractedMemory {
+func postProcessSessionExtractions(messages []Message, extracted []ExtractedMemory, sessionID, sessionDate string) []ExtractedMemory {
 	if len(extracted) == 0 {
 		return extracted
 	}
 
-	sessionRaw, anchor, hasAnchor := deriveHeuristicSessionMetadata(messages)
-	sessionID := deriveHeuristicSessionID(messages, extracted)
+	sessionRaw, anchor, hasAnchor := resolveHeuristicSessionMetadata(messages, sessionDate)
+	sessionID = resolveHeuristicSessionID(messages, extracted, sessionID)
 	modifiedOverride := ""
 	sessionDateISO := ""
 	datePrefix := ""
@@ -642,7 +713,7 @@ func postProcessSessionExtractions(messages []Message, extracted []ExtractedMemo
 		if shaped.ObservedOn == "" {
 			shaped.ObservedOn = modifiedOverride
 		}
-		if shaped.SessionDate == "" {
+		if sessionDateISO != "" {
 			shaped.SessionDate = sessionDateISO
 		}
 		if shaped.SessionID == "" {
@@ -856,30 +927,31 @@ func autoFactTags(content string) []string {
 	return out
 }
 
-func appendHeuristicExtractions(messages []Message, extracted []ExtractedMemory) []ExtractedMemory {
-	out := make([]ExtractedMemory, 0, len(extracted)+6)
+func appendHeuristicExtractions(messages []Message, extracted []ExtractedMemory, sessionID, sessionDate string) []ExtractedMemory {
+	out := make([]ExtractedMemory, 0, len(extracted)+8)
 	out = append(out, extracted...)
-	out = append(out, deriveHeuristicUserFacts(messages, out)...)
-	out = append(out, deriveHeuristicMilestoneFacts(messages, out)...)
-	out = append(out, deriveHeuristicPendingFacts(messages, out)...)
-	out = append(out, deriveHeuristicEventFacts(messages, out)...)
-	out = append(out, deriveHeuristicPreferenceFacts(messages, out)...)
+	out = append(out, deriveHeuristicUserFacts(messages, out, sessionID, sessionDate)...)
+	out = append(out, deriveHeuristicMilestoneFacts(messages, out, sessionID, sessionDate)...)
+	out = append(out, deriveHeuristicPendingFacts(messages, out, sessionID, sessionDate)...)
+	out = append(out, deriveHeuristicEventFacts(messages, out, sessionID, sessionDate)...)
+	out = append(out, deriveHeuristicAssistantTableFacts(messages, out, sessionID, sessionDate)...)
+	out = append(out, deriveHeuristicPreferenceFacts(messages, out, sessionID, sessionDate)...)
 	return out
 }
 
-func deriveHeuristicUserFacts(messages []Message, existing []ExtractedMemory) []ExtractedMemory {
+func deriveHeuristicUserFacts(messages []Message, existing []ExtractedMemory, sessionID, sessionDate string) []ExtractedMemory {
 	seen := buildExistingMemoryTextSet(existing)
-	iso := deriveHeuristicISODate(messages)
-	anchor, hasAnchor := deriveHeuristicSessionAnchor(messages)
+	iso := deriveHeuristicISODate(messages, sessionDate)
+	anchor, hasAnchor := deriveHeuristicSessionAnchor(messages, sessionDate)
 	out := make([]ExtractedMemory, 0, heuristicUserFactLimit)
 
 	for _, message := range messages {
 		if message.Role != RoleUser {
 			continue
 		}
-		for _, sentence := range splitIntoFactSentences(message.Content) {
+		for _, sentence := range heuristicUserFactCandidates(message.Content) {
 			canonical := strings.ToLower(strings.TrimSpace(sentence))
-			if canonical == "" || !firstPersonFactRe.MatchString(sentence) || !hasQuantifiedFact(sentence) || seen[canonical] {
+			if canonical == "" || !firstPersonFactRe.MatchString(sentence) || !hasHeuristicUserFactSignal(sentence) || seen[canonical] {
 				continue
 			}
 			slug := heuristicFactSlug(sentence)
@@ -895,7 +967,7 @@ func deriveHeuristicUserFacts(messages []Message, existing []ExtractedMemory) []
 			}
 			out = append(out, ExtractedMemory{
 				Action:      "create",
-				Filename:    buildHeuristicFilename("user-fact", iso, slug),
+				Filename:    buildHeuristicSessionFilename("user-fact", iso, sessionID, slug),
 				Name:        "User Fact: " + toTitleCase(strings.ReplaceAll(slug, "-", " ")),
 				Description: truncateOneLine(sentence, 140),
 				Type:        "user",
@@ -903,6 +975,8 @@ func deriveHeuristicUserFacts(messages []Message, existing []ExtractedMemory) []
 				Content:     withObservedDatePrefix(sentence, observedOn),
 				IndexEntry:  truncateOneLine(sentence, 140),
 				ObservedOn:  observedOn,
+				SessionID:   strings.TrimSpace(sessionID),
+				SessionDate: strings.TrimSpace(sessionDate),
 			})
 			seen[canonical] = true
 			if len(out) >= heuristicUserFactLimit {
@@ -914,10 +988,10 @@ func deriveHeuristicUserFacts(messages []Message, existing []ExtractedMemory) []
 	return out
 }
 
-func deriveHeuristicMilestoneFacts(messages []Message, existing []ExtractedMemory) []ExtractedMemory {
+func deriveHeuristicMilestoneFacts(messages []Message, existing []ExtractedMemory, sessionID, sessionDate string) []ExtractedMemory {
 	seen := buildExistingMemoryTextSet(existing)
-	iso := deriveHeuristicISODate(messages)
-	anchor, hasAnchor := deriveHeuristicSessionAnchor(messages)
+	iso := deriveHeuristicISODate(messages, sessionDate)
+	anchor, hasAnchor := deriveHeuristicSessionAnchor(messages, sessionDate)
 	out := make([]ExtractedMemory, 0, heuristicMilestoneFactLimit)
 
 	for _, message := range messages {
@@ -942,7 +1016,7 @@ func deriveHeuristicMilestoneFacts(messages []Message, existing []ExtractedMemor
 			}
 			out = append(out, ExtractedMemory{
 				Action:      "create",
-				Filename:    buildHeuristicFilename("user-fact", iso, "milestone-"+slug),
+				Filename:    buildHeuristicSessionFilename("user-fact", iso, sessionID, "milestone-"+slug),
 				Name:        "User Fact: " + toTitleCase(strings.ReplaceAll(slug, "-", " ")),
 				Description: truncateOneLine(sentence, 140),
 				Type:        "user",
@@ -950,6 +1024,8 @@ func deriveHeuristicMilestoneFacts(messages []Message, existing []ExtractedMemor
 				Content:     withObservedDatePrefix(sentence, observedOn),
 				IndexEntry:  truncateOneLine(sentence, 140),
 				ObservedOn:  observedOn,
+				SessionID:   strings.TrimSpace(sessionID),
+				SessionDate: strings.TrimSpace(sessionDate),
 			})
 			seen[canonical] = true
 			if len(out) >= heuristicMilestoneFactLimit {
@@ -961,10 +1037,10 @@ func deriveHeuristicMilestoneFacts(messages []Message, existing []ExtractedMemor
 	return out
 }
 
-func deriveHeuristicEventFacts(messages []Message, existing []ExtractedMemory) []ExtractedMemory {
+func deriveHeuristicEventFacts(messages []Message, existing []ExtractedMemory, sessionID, sessionDate string) []ExtractedMemory {
 	seen := buildExistingMemoryTextSet(existing)
-	iso := deriveHeuristicISODate(messages)
-	anchor, hasAnchor := deriveHeuristicSessionAnchor(messages)
+	iso := deriveHeuristicISODate(messages, sessionDate)
+	anchor, hasAnchor := deriveHeuristicSessionAnchor(messages, sessionDate)
 	out := make([]ExtractedMemory, 0, 2)
 
 	for _, message := range messages {
@@ -996,7 +1072,7 @@ func deriveHeuristicEventFacts(messages []Message, existing []ExtractedMemory) [
 			}
 			out = append(out, ExtractedMemory{
 				Action:      "create",
-				Filename:    buildHeuristicFilename("user-fact", iso, "event-"+slug),
+				Filename:    buildHeuristicSessionFilename("user-fact", iso, sessionID, "event-"+slug),
 				Name:        "User Event: " + toTitleCase(strings.ReplaceAll(slug, "-", " ")),
 				Description: truncateOneLine(summary, 140),
 				Type:        "user",
@@ -1004,6 +1080,8 @@ func deriveHeuristicEventFacts(messages []Message, existing []ExtractedMemory) [
 				Content:     withObservedDatePrefix(summary+"\n\nEvidence: "+sentence, observedOn),
 				IndexEntry:  truncateOneLine(summary, 140),
 				ObservedOn:  observedOn,
+				SessionID:   strings.TrimSpace(sessionID),
+				SessionDate: strings.TrimSpace(sessionDate),
 			})
 			seen[canonical] = true
 			if len(out) >= 2 {
@@ -1020,7 +1098,7 @@ type heuristicPreferenceCandidate struct {
 	evidence string
 }
 
-func deriveHeuristicPreferenceFacts(messages []Message, existing []ExtractedMemory) []ExtractedMemory {
+func deriveHeuristicPreferenceFacts(messages []Message, existing []ExtractedMemory, sessionID, sessionDate string) []ExtractedMemory {
 	seen := buildExistingMemoryTextSet(existing)
 	for _, memory := range existing {
 		if !isHeuristicPreferenceFact(memory) {
@@ -1031,7 +1109,7 @@ func deriveHeuristicPreferenceFacts(messages []Message, existing []ExtractedMemo
 			seen[summary] = true
 		}
 	}
-	iso := deriveHeuristicISODate(messages)
+	iso := deriveHeuristicISODate(messages, sessionDate)
 	out := make([]ExtractedMemory, 0, heuristicPreferenceFactLimit)
 
 	for _, message := range messages {
@@ -1049,13 +1127,15 @@ func deriveHeuristicPreferenceFacts(messages []Message, existing []ExtractedMemo
 			}
 			out = append(out, ExtractedMemory{
 				Action:      "create",
-				Filename:    buildHeuristicFilename("user-preference", iso, slug),
+				Filename:    buildHeuristicSessionFilename("user-preference", iso, sessionID, slug),
 				Name:        "User Preference: " + toTitleCase(strings.ReplaceAll(slug, "-", " ")),
 				Description: truncateOneLine(candidate.summary, 140),
 				Type:        "user",
 				Scope:       "global",
 				Content:     buildHeuristicPreferenceContent(candidate),
 				IndexEntry:  truncateOneLine(candidate.summary, 140),
+				SessionID:   strings.TrimSpace(sessionID),
+				SessionDate: strings.TrimSpace(sessionDate),
 			})
 			seen[canonical] = true
 			if len(out) >= heuristicPreferenceFactLimit {
@@ -1067,9 +1147,9 @@ func deriveHeuristicPreferenceFacts(messages []Message, existing []ExtractedMemo
 	return out
 }
 
-func deriveHeuristicPendingFacts(messages []Message, existing []ExtractedMemory) []ExtractedMemory {
+func deriveHeuristicPendingFacts(messages []Message, existing []ExtractedMemory, sessionID, sessionDate string) []ExtractedMemory {
 	seen := buildExistingMemoryTextSet(existing)
-	iso := deriveHeuristicISODate(messages)
+	iso := deriveHeuristicISODate(messages, sessionDate)
 	out := make([]ExtractedMemory, 0, heuristicPendingFactLimit)
 
 	for _, message := range messages {
@@ -1089,13 +1169,15 @@ func deriveHeuristicPendingFacts(messages []Message, existing []ExtractedMemory)
 				}
 				out = append(out, ExtractedMemory{
 					Action:      "create",
-					Filename:    buildHeuristicFilename("user-fact", iso, "task-"+slug),
+					Filename:    buildHeuristicSessionFilename("user-fact", iso, sessionID, "task-"+slug),
 					Name:        "User Task: " + toTitleCase(action),
 					Description: truncateOneLine(summary, 140),
 					Type:        "user",
 					Scope:       "global",
 					Content:     summary + "\n\nEvidence: " + sentence,
 					IndexEntry:  truncateOneLine(summary, 140),
+					SessionID:   strings.TrimSpace(sessionID),
+					SessionDate: strings.TrimSpace(sessionDate),
 				})
 				seen[canonical] = true
 				if len(out) >= heuristicPendingFactLimit {
@@ -1108,9 +1190,195 @@ func deriveHeuristicPendingFacts(messages []Message, existing []ExtractedMemory)
 	return out
 }
 
+type heuristicAssistantTableCandidate struct {
+	summary string
+}
+
+func deriveHeuristicAssistantTableFacts(messages []Message, existing []ExtractedMemory, sessionID, sessionDate string) []ExtractedMemory {
+	seen := buildExistingMemoryTextSet(existing)
+	iso := deriveHeuristicISODate(messages, sessionDate)
+	anchor, hasAnchor := deriveHeuristicSessionAnchor(messages, sessionDate)
+	out := make([]ExtractedMemory, 0, heuristicAssistantFactLimit)
+
+	for _, message := range messages {
+		if message.Role != RoleAssistant {
+			continue
+		}
+		for _, candidate := range buildHeuristicAssistantTableCandidates(message.Content) {
+			canonical := normaliseMemoryText(candidate.summary)
+			if canonical == "" || seen[canonical] {
+				continue
+			}
+			slug := heuristicFactSlug(candidate.summary)
+			if slug == "" {
+				continue
+			}
+			observedOn := ""
+			if hasAnchor {
+				observedOn = anchor.UTC().Format(time.RFC3339)
+			}
+			out = append(out, ExtractedMemory{
+				Action:      "create",
+				Filename:    buildHeuristicSessionFilename("assistant-table", iso, sessionID, slug),
+				Name:        "Assistant Table Row: " + strings.TrimSpace(strings.SplitN(candidate.summary, " ", 2)[0]),
+				Description: truncateOneLine(candidate.summary, 140),
+				Type:        "project",
+				Scope:       "project",
+				Content:     withObservedDatePrefix(candidate.summary, observedOn),
+				IndexEntry:  truncateOneLine(candidate.summary, 140),
+				ObservedOn:  observedOn,
+				SessionID:   strings.TrimSpace(sessionID),
+				SessionDate: strings.TrimSpace(sessionDate),
+			})
+			seen[canonical] = true
+			if len(out) >= heuristicAssistantFactLimit {
+				return out
+			}
+		}
+	}
+
+	return out
+}
+
+func buildHeuristicAssistantTableCandidates(content string) []heuristicAssistantTableCandidate {
+	lines := strings.Split(strings.ReplaceAll(content, "\r\n", "\n"), "\n")
+	out := make([]heuristicAssistantTableCandidate, 0)
+	for start := 0; start < len(lines); {
+		if !heuristicMarkdownTableLineRe.MatchString(lines[start]) {
+			start++
+			continue
+		}
+		end := start
+		for end < len(lines) && heuristicMarkdownTableLineRe.MatchString(lines[end]) {
+			end++
+		}
+		out = append(out, parseHeuristicMarkdownTableBlock(lines[start:end])...)
+		start = end
+	}
+	return out
+}
+
+func parseHeuristicMarkdownTableBlock(lines []string) []heuristicAssistantTableCandidate {
+	if len(lines) < 3 {
+		return nil
+	}
+	headers := parseHeuristicMarkdownTableCells(lines[0])
+	separator := parseHeuristicMarkdownTableCells(lines[1])
+	if len(headers) < 2 || len(headers) != len(separator) || !isHeuristicMarkdownSeparatorRow(separator) {
+		return nil
+	}
+
+	out := make([]heuristicAssistantTableCandidate, 0, len(lines)-2)
+	for _, line := range lines[2:] {
+		cells := parseHeuristicMarkdownTableCells(line)
+		if len(cells) == 0 {
+			continue
+		}
+		if len(cells) < len(headers) {
+			padded := make([]string, len(headers))
+			copy(padded, cells)
+			cells = padded
+		}
+		rowLabel := strings.TrimSpace(cells[0])
+		if !heuristicWeekdayCellRe.MatchString(rowLabel) {
+			continue
+		}
+		summary := buildHeuristicAssistantTableSummary(rowLabel, headers, cells)
+		if summary == "" {
+			continue
+		}
+		out = append(out, heuristicAssistantTableCandidate{
+			summary: summary,
+		})
+	}
+	return out
+}
+
+func parseHeuristicMarkdownTableCells(line string) []string {
+	trimmed := strings.TrimSpace(line)
+	if trimmed == "" {
+		return nil
+	}
+	trimmed = strings.TrimPrefix(trimmed, "|")
+	trimmed = strings.TrimSuffix(trimmed, "|")
+	parts := strings.Split(trimmed, "|")
+	out := make([]string, 0, len(parts))
+	for _, part := range parts {
+		out = append(out, strings.TrimSpace(part))
+	}
+	return out
+}
+
+func isHeuristicMarkdownSeparatorRow(cells []string) bool {
+	if len(cells) < 2 {
+		return false
+	}
+	found := false
+	for _, cell := range cells {
+		trimmed := strings.TrimSpace(cell)
+		if trimmed == "" {
+			continue
+		}
+		if !heuristicMarkdownSeparatorCellRe.MatchString(trimmed) {
+			return false
+		}
+		found = true
+	}
+	return found
+}
+
+func buildHeuristicAssistantTableSummary(weekday string, headers, cells []string) string {
+	if strings.TrimSpace(weekday) == "" {
+		return ""
+	}
+
+	assignments := make([]string, 0, len(headers)-1)
+	hasShiftLabel := false
+	for idx := 1; idx < len(headers) && idx < len(cells); idx++ {
+		header := strings.Join(strings.Fields(strings.TrimSpace(headers[idx])), " ")
+		value := strings.Join(strings.Fields(strings.TrimSpace(cells[idx])), " ")
+		if value == "" || value == "-" {
+			continue
+		}
+		formatted := formatHeuristicAssistantTableCell(header, value)
+		if formatted == "" {
+			continue
+		}
+		if heuristicAssistantShiftHeaderRe.MatchString(header) || heuristicAssistantShiftValueRe.MatchString(value) {
+			hasShiftLabel = true
+		}
+		assignments = append(assignments, formatted)
+	}
+	if len(assignments) == 0 {
+		return ""
+	}
+
+	noun := "row"
+	if hasShiftLabel {
+		noun = "roster"
+	}
+	return fmt.Sprintf("%s %s: %s.", toTitleCase(strings.ToLower(strings.TrimSpace(weekday))), noun, strings.Join(assignments, "; "))
+}
+
+func formatHeuristicAssistantTableCell(header, value string) string {
+	header = strings.TrimSpace(header)
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	if header == "" {
+		return value
+	}
+	if heuristicAssistantShiftHeaderRe.MatchString(header) {
+		return fmt.Sprintf("%s (%s)", value, header)
+	}
+	return fmt.Sprintf("%s: %s", header, value)
+}
+
 func splitIntoFactSentences(content string) []string {
 	content = strings.ReplaceAll(content, "\r\n", "\n")
 	content = strings.ReplaceAll(content, "\r", "\n")
+	content = protectSentenceSplitAbbreviations(content)
 
 	var (
 		out     []string
@@ -1119,7 +1387,7 @@ func splitIntoFactSentences(content string) []string {
 	flush := func() {
 		part := strings.TrimSpace(current.String())
 		if part != "" {
-			out = append(out, part)
+			out = append(out, restoreSentenceSplitAbbreviations(part))
 		}
 		current.Reset()
 	}
@@ -1150,6 +1418,22 @@ func splitIntoFactSentences(content string) []string {
 	return out
 }
 
+func protectSentenceSplitAbbreviations(content string) string {
+	protected := content
+	for _, replacement := range heuristicSentenceSplitProtections {
+		protected = replacement.pattern.ReplaceAllString(protected, replacement.placeholder)
+	}
+	return protected
+}
+
+func restoreSentenceSplitAbbreviations(content string) string {
+	restored := content
+	for _, replacement := range heuristicSentenceSplitProtections {
+		restored = strings.ReplaceAll(restored, replacement.placeholder, replacement.original)
+	}
+	return restored
+}
+
 func hasQuantifiedFact(sentence string) bool {
 	return heuristicUnitQuantityRe.MatchString(sentence) ||
 		heuristicWordUnitQuantityRe.MatchString(sentence) ||
@@ -1158,6 +1442,27 @@ func hasQuantifiedFact(sentence string) bool {
 		heuristicDurationFactRe.MatchString(sentence) ||
 		heuristicQuantityRe.MatchString(sentence) ||
 		heuristicOrdinalRe.MatchString(sentence)
+}
+
+func hasHeuristicUserFactSignal(sentence string) bool {
+	return hasQuantifiedFact(sentence) ||
+		heuristicCadenceFactRe.MatchString(sentence) ||
+		heuristicStorageLocationFactRe.MatchString(sentence)
+}
+
+func heuristicUserFactCandidates(content string) []string {
+	candidates := splitIntoFactSentences(content)
+	trimmed := strings.TrimSpace(content)
+	if trimmed == "" || (!heuristicCadenceFactRe.MatchString(trimmed) && !heuristicStorageLocationFactRe.MatchString(trimmed)) {
+		return candidates
+	}
+	canonical := strings.ToLower(trimmed)
+	for _, candidate := range candidates {
+		if strings.ToLower(strings.TrimSpace(candidate)) == canonical {
+			return candidates
+		}
+	}
+	return append(candidates, trimmed)
 }
 
 func hasMilestoneFact(sentence string) bool {
@@ -1186,6 +1491,18 @@ func buildHeuristicFilename(prefix, iso, slug string) string {
 	parts := []string{prefix}
 	if iso != "" {
 		parts = append(parts, iso)
+	}
+	parts = append(parts, slug)
+	return strings.Join(parts, "-") + ".md"
+}
+
+func buildHeuristicSessionFilename(prefix, iso, sessionID, slug string) string {
+	parts := []string{prefix}
+	if strings.TrimSpace(iso) != "" {
+		parts = append(parts, strings.TrimSpace(iso))
+	}
+	if sessionSegment := sanitiseHeuristicFileSegment(sessionID); sessionSegment != "" {
+		parts = append(parts, sessionSegment)
 	}
 	parts = append(parts, slug)
 	return strings.Join(parts, "-") + ".md"
@@ -1230,19 +1547,22 @@ func sanitiseHeuristicFileSegment(value string) string {
 	return strings.Trim(trimmed, "-")
 }
 
-func deriveHeuristicISODate(messages []Message) string {
-	if anchor, ok := deriveHeuristicSessionAnchor(messages); ok {
+func deriveHeuristicISODate(messages []Message, sessionDate string) string {
+	if anchor, ok := deriveHeuristicSessionAnchor(messages, sessionDate); ok {
 		return anchor.UTC().Format("2006-01-02")
 	}
 	return ""
 }
 
-func deriveHeuristicSessionAnchor(messages []Message) (time.Time, bool) {
-	_, parsed, ok := deriveHeuristicSessionMetadata(messages)
+func deriveHeuristicSessionAnchor(messages []Message, sessionDate string) (time.Time, bool) {
+	_, parsed, ok := resolveHeuristicSessionMetadata(messages, sessionDate)
 	return parsed, ok
 }
 
-func deriveHeuristicSessionID(messages []Message, extracted []ExtractedMemory) string {
+func resolveHeuristicSessionID(messages []Message, extracted []ExtractedMemory, sessionID string) string {
+	if strings.TrimSpace(sessionID) != "" {
+		return strings.TrimSpace(sessionID)
+	}
 	for _, memory := range extracted {
 		sessionID := strings.TrimSpace(memory.SessionID)
 		if sessionID != "" {
@@ -1263,6 +1583,16 @@ func deriveHeuristicSessionID(messages []Message, extracted []ExtractedMemory) s
 		}
 	}
 	return ""
+}
+
+func resolveHeuristicSessionMetadata(messages []Message, sessionDate string) (string, time.Time, bool) {
+	trimmed := strings.TrimSpace(sessionDate)
+	if trimmed != "" {
+		if parsed, ok := parseDateInput(trimmed); ok {
+			return trimmed, parsed.UTC(), true
+		}
+	}
+	return deriveHeuristicSessionMetadata(messages)
 }
 
 func deriveHeuristicSessionMetadata(messages []Message) (string, time.Time, bool) {
@@ -1917,25 +2247,123 @@ func hasMemoryWrites(messages []Message, memDirs ...string) bool {
 // parseExtractionResult extracts memories from the model's JSON
 // response.
 func parseExtractionResult(content string) extractionResult {
-	content = strings.TrimSpace(content)
+	memories, ok := parseRawExtractionMemories(content)
+	if !ok {
+		return extractionResult{}
+	}
+	out := make([]ExtractedMemory, 0, len(memories))
+	for _, memory := range memories {
+		out = append(out, normaliseExtractedMemory(memory))
+	}
+	return extractionResult{Memories: out, Parsed: true}
+}
 
-	if idx := strings.Index(content, "{"); idx >= 0 {
-		if end := strings.LastIndex(content, "}"); end > idx {
-			content = content[idx : end+1]
+func parseRawExtractionMemories(content string) ([]rawExtractedMemory, bool) {
+	for _, candidate := range extractionJSONCandidates(content) {
+		if memories, ok := decodeRawExtractionCandidate(candidate); ok {
+			return memories, true
+		}
+		repaired := repairExtractionJSONCandidate(candidate)
+		if repaired == candidate {
+			continue
+		}
+		if memories, ok := decodeRawExtractionCandidate(repaired); ok {
+			return memories, true
+		}
+	}
+	return nil, false
+}
+
+func extractionJSONCandidates(content string) []string {
+	trimmed := strings.TrimSpace(content)
+	if trimmed == "" {
+		return nil
+	}
+	out := make([]string, 0, 3)
+	seen := map[string]bool{}
+	add := func(candidate string) {
+		candidate = strings.TrimSpace(candidate)
+		if candidate == "" || seen[candidate] {
+			return
+		}
+		seen[candidate] = true
+		out = append(out, candidate)
+	}
+	add(trimmed)
+	add(bracketSlice(trimmed, '{', '}'))
+	add(bracketSlice(trimmed, '[', ']'))
+	return out
+}
+
+func bracketSlice(content string, open, close byte) string {
+	start := strings.IndexByte(content, open)
+	if start < 0 {
+		return ""
+	}
+	end := strings.LastIndexByte(content, close)
+	if end <= start {
+		return ""
+	}
+	return content[start : end+1]
+}
+
+func repairExtractionJSONCandidate(content string) string {
+	repaired := content
+	for {
+		next := extractionTrailingCommaRe.ReplaceAllString(repaired, "$1")
+		if next == repaired {
+			return repaired
+		}
+		repaired = next
+	}
+}
+
+func decodeRawExtractionCandidate(content string) ([]rawExtractedMemory, bool) {
+	trimmed := strings.TrimSpace(content)
+	if trimmed == "" {
+		return nil, false
+	}
+	if strings.HasPrefix(trimmed, "[") {
+		var list []rawExtractedMemory
+		if err := json.Unmarshal([]byte(trimmed), &list); err != nil {
+			return nil, false
+		}
+		return list, true
+	}
+	if !strings.HasPrefix(trimmed, "{") {
+		return nil, false
+	}
+
+	var envelope struct {
+		Memories []rawExtractedMemory `json:"memories"`
+		Memory   rawExtractedMemory   `json:"memory"`
+	}
+	if err := json.Unmarshal([]byte(trimmed), &envelope); err == nil {
+		if len(envelope.Memories) > 0 {
+			return envelope.Memories, true
+		}
+		if looksLikeRawExtractedMemory(envelope.Memory) {
+			return []rawExtractedMemory{envelope.Memory}, true
 		}
 	}
 
-	var raw rawExtractionResult
-	if err := json.Unmarshal([]byte(content), &raw); err != nil {
-		return extractionResult{}
+	var single rawExtractedMemory
+	if err := json.Unmarshal([]byte(trimmed), &single); err != nil {
+		return nil, false
 	}
-
-	memories := make([]ExtractedMemory, 0, len(raw.Memories))
-	for _, memory := range raw.Memories {
-		memories = append(memories, normaliseExtractedMemory(memory))
+	if !looksLikeRawExtractedMemory(single) {
+		return nil, false
 	}
+	return []rawExtractedMemory{single}, true
+}
 
-	return extractionResult{Memories: memories}
+func looksLikeRawExtractedMemory(raw rawExtractedMemory) bool {
+	return strings.TrimSpace(raw.Filename) != "" ||
+		strings.TrimSpace(raw.Content) != "" ||
+		strings.TrimSpace(raw.Name) != "" ||
+		strings.TrimSpace(raw.Description) != "" ||
+		strings.TrimSpace(raw.IndexEntry) != "" ||
+		strings.TrimSpace(raw.IndexEntrySnake) != ""
 }
 
 func normaliseExtractedMemory(raw rawExtractedMemory) ExtractedMemory {
@@ -2083,8 +2511,14 @@ func (m *Memory) ApplyExtractions(ctx context.Context, projectSlug string, memor
 			} else {
 				oldPath = brain.MemoryProjectTopic(projectSlug, oldSlug)
 			}
-			if err := stampSupersededBy(ctx, b, oldPath, newFile); err != nil {
-				return err
+			for _, candidatePath := range supersededCandidatePaths(projectSlug, em.Scope, oldSlug, oldPath) {
+				stamped, err := stampSupersededBy(ctx, b, candidatePath, newFile)
+				if err != nil {
+					return err
+				}
+				if stamped {
+					break
+				}
 			}
 		}
 		if len(projectEntries) > 0 {
@@ -2101,17 +2535,29 @@ func (m *Memory) ApplyExtractions(ctx context.Context, projectSlug string, memor
 	})
 }
 
+func supersededCandidatePaths(projectSlug, scope, oldSlug string, primary brain.Path) []brain.Path {
+	paths := []brain.Path{primary}
+	switch scope {
+	case "global":
+		paths = append(paths, brain.MemoryProjectTopic(projectSlug, oldSlug))
+	default:
+		paths = append(paths, brain.MemoryGlobalTopic(oldSlug))
+	}
+	return paths
+}
+
 // stampSupersededBy rewrites an existing memory file's frontmatter with
-// a superseded_by pointer to the new file.
-func stampSupersededBy(ctx context.Context, b brain.Batch, oldPath brain.Path, newFile string) error {
+// a superseded_by pointer to the new file. It reports whether the
+// target file existed and was updated.
+func stampSupersededBy(ctx context.Context, b brain.Batch, oldPath brain.Path, newFile string) (bool, error) {
 	raw, err := b.Read(ctx, oldPath)
 	if err != nil {
-		return nil
+		return false, nil
 	}
 	content := string(raw)
 	lines := strings.Split(content, "\n")
 	if len(lines) < 2 || strings.TrimSpace(lines[0]) != "---" {
-		return nil
+		return false, nil
 	}
 	closeIdx := -1
 	for i := 1; i < len(lines); i++ {
@@ -2121,7 +2567,7 @@ func stampSupersededBy(ctx context.Context, b brain.Batch, oldPath brain.Path, n
 		}
 	}
 	if closeIdx < 0 {
-		return nil
+		return false, nil
 	}
 
 	replaced := false
@@ -2139,7 +2585,10 @@ func stampSupersededBy(ctx context.Context, b brain.Batch, oldPath brain.Path, n
 		inserted = append(inserted, lines[closeIdx:]...)
 		lines = inserted
 	}
-	return b.Write(ctx, oldPath, []byte(strings.Join(lines, "\n")))
+	if err := b.Write(ctx, oldPath, []byte(strings.Join(lines, "\n"))); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 // sanitiseFilename strips path traversal from an LLM-supplied filename.
