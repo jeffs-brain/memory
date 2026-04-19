@@ -23,6 +23,11 @@ type namedEntity struct {
 	Tokens []string
 }
 
+type comparisonEntity struct {
+	Display string
+	Tokens  []string
+}
+
 var (
 	retrievedFactHeaderRe = regexp.MustCompile(`^\s*\d+\.\s+((?:\[[^\]]+\]\s*)+)\s*$`)
 	labelRe               = regexp.MustCompile(`\[(.*?)\]`)
@@ -30,6 +35,7 @@ var (
 	anchorPhraseRe        = regexp.MustCompile(`(?i)\b(?:submit(?:ted)?|apply|applied|book(?:ed)?|join(?:ed)?|start(?:ed)?|attend(?:ed)?)\s+(?:to|for|at|with|on)?\s*([A-Z][A-Za-z0-9&-]+(?: [A-Z][A-Za-z0-9&-]+){0,3})`)
 	acronymRe             = regexp.MustCompile(`\b[A-Z][A-Z0-9&-]{1,}\b`)
 	moneyRe               = regexp.MustCompile(`\$\s*([0-9]+(?:\.[0-9]{1,2})?)`)
+	percentRe             = regexp.MustCompile(`([0-9]+(?:\.[0-9]+)?)\s*%`)
 	monthDayRe            = regexp.MustCompile(`(?i)\b(January|February|March|April|May|June|July|August|September|October|November|December)\s+([0-9]{1,2})(?:st|nd|rd|th)?\b`)
 	isoDateRe             = regexp.MustCompile(`\b([0-9]{4})[-/]([0-9]{2})[-/]([0-9]{2})\b`)
 	datePrefixRe          = regexp.MustCompile(`\[Date:\s*([0-9]{4}-[0-9]{2}-[0-9]{2})`)
@@ -59,6 +65,12 @@ func ResolveDeterministicAnswer(question, retrievedContent string) (string, bool
 		return answer, true
 	}
 	if answer, ok := resolveNamedSpendTotal(question, facts); ok {
+		return answer, true
+	}
+	if answer, ok := resolveCashbackAmount(question, facts); ok {
+		return answer, true
+	}
+	if answer, ok := resolveFirstComparison(question, facts); ok {
 		return answer, true
 	}
 	if answer, ok := resolveBackendRecommendation(question, facts); ok {
@@ -246,6 +258,67 @@ func resolveBackendRecommendation(question string, facts []retrievedFact) (strin
 		return "", false
 	}
 	return fmt.Sprintf("I recommended learning %s as a back-end programming language.", joinWithOr(options)), true
+}
+
+func resolveCashbackAmount(question string, facts []retrievedFact) (string, bool) {
+	lowerQuestion := strings.ToLower(question)
+	if !strings.Contains(lowerQuestion, "cashback") || !strings.Contains(lowerQuestion, "earn") {
+		return "", false
+	}
+
+	entity, ok := cashbackEntityFromQuestion(question)
+	if !ok {
+		return "", false
+	}
+	amount, ok := bestAmountForEntity(entity, question, facts)
+	if !ok {
+		return "", false
+	}
+	rate, ok := bestCashbackRate(entity, facts)
+	if !ok {
+		return "", false
+	}
+	return formatCurrency(amount * rate / 100.0), true
+}
+
+func resolveFirstComparison(question string, facts []retrievedFact) (string, bool) {
+	lowerQuestion := strings.ToLower(strings.TrimSpace(question))
+	if !strings.Contains(lowerQuestion, "which") ||
+		!strings.Contains(lowerQuestion, " first") ||
+		!strings.Contains(lowerQuestion, " or ") ||
+		(!strings.Contains(lowerQuestion, "set up") &&
+			!strings.Contains(lowerQuestion, "setup") &&
+			!strings.Contains(lowerQuestion, "installed") &&
+			!strings.Contains(lowerQuestion, "upgraded")) {
+		return "", false
+	}
+
+	entities := parseComparisonEntities(question)
+	if len(entities) != 2 {
+		return "", false
+	}
+	type datedChoice struct {
+		Display string
+		Time    time.Time
+	}
+	var choices []datedChoice
+	for _, entity := range entities {
+		t, ok := earliestDateForComparisonEntity(entity, facts)
+		if !ok {
+			return "", false
+		}
+		choices = append(choices, datedChoice{
+			Display: entity.Display,
+			Time:    t,
+		})
+	}
+	sort.Slice(choices, func(i, j int) bool {
+		return choices[i].Time.Before(choices[j].Time)
+	})
+	if choices[0].Time.Equal(choices[1].Time) {
+		return "", false
+	}
+	return choices[0].Display, true
 }
 
 func canonicalAction(raw string) string {
@@ -481,6 +554,74 @@ func bestAmountForEntity(entity namedEntity, question string, facts []retrievedF
 	return best[0].Value, true
 }
 
+func bestCashbackRate(entity namedEntity, facts []retrievedFact) (float64, bool) {
+	candidates := map[string]int{}
+	for _, fact := range facts {
+		lower := strings.ToLower(fact.Body)
+		if !containsAny(lower, []string{"cashback", "cash back"}) {
+			continue
+		}
+		matches := percentRe.FindAllStringSubmatch(fact.Body, -1)
+		for _, match := range matches {
+			if len(match) < 2 {
+				continue
+			}
+			value, err := strconv.ParseFloat(match[1], 64)
+			if err != nil {
+				continue
+			}
+			score := 0
+			if containsEntity(lower, entity) {
+				score += 4
+			}
+			if containsAny(lower, []string{"all purchases", "all purchase", "every purchase"}) {
+				score += 5
+			}
+			if containsAny(lower, []string{"membership there", "member there", "membership", "member"}) {
+				score += 3
+			}
+			if strings.Contains(lower, " there ") {
+				score += 2
+			}
+			if containsAny(lower, []string{"online", "overall", "already earned", "gift card", "tracker", "tracking"}) {
+				score -= 4
+			}
+			if containsAny(lower, []string{"walmart+", "ibotta", "fetch rewards"}) {
+				score -= 2
+			}
+			if score < 2 {
+				continue
+			}
+			key := fmt.Sprintf("%.2f", value)
+			if current, ok := candidates[key]; !ok || score > current {
+				candidates[key] = score
+			}
+		}
+	}
+	if len(candidates) == 0 {
+		return 0, false
+	}
+	type scoredRate struct {
+		Value float64
+		Score int
+	}
+	best := make([]scoredRate, 0, len(candidates))
+	for raw, score := range candidates {
+		value, _ := strconv.ParseFloat(raw, 64)
+		best = append(best, scoredRate{Value: value, Score: score})
+	}
+	sort.Slice(best, func(i, j int) bool {
+		if best[i].Score != best[j].Score {
+			return best[i].Score > best[j].Score
+		}
+		return best[i].Value < best[j].Value
+	})
+	if len(best) > 1 && best[0].Score == best[1].Score && best[0].Value != best[1].Value {
+		return 0, false
+	}
+	return best[0].Value, true
+}
+
 func containsEntity(text string, entity namedEntity) bool {
 	if strings.Contains(text, entity.Key) {
 		return true
@@ -491,6 +632,139 @@ func containsEntity(text string, entity namedEntity) bool {
 		}
 	}
 	return false
+}
+
+func cashbackEntityFromQuestion(question string) (namedEntity, bool) {
+	lower := strings.ToLower(question)
+	idx := strings.Index(lower, " at ")
+	if idx < 0 {
+		return namedEntity{}, false
+	}
+	tail := strings.TrimSpace(question[idx+4:])
+	if tail == "" {
+		return namedEntity{}, false
+	}
+	for _, stop := range []string{" last ", " on ", " during ", " this ", " yesterday", " today", " tonight", " tomorrow"} {
+		if pos := strings.Index(strings.ToLower(tail), stop); pos >= 0 {
+			tail = strings.TrimSpace(tail[:pos])
+			break
+		}
+	}
+	tail = strings.TrimSpace(strings.Trim(tail, " ?.,"))
+	tail = trimLeadingArticle(tail)
+	tokens := significantTokens(tail)
+	if len(tokens) == 0 {
+		return namedEntity{}, false
+	}
+	return namedEntity{
+		Key:    tokens[len(tokens)-1],
+		Tokens: tokens,
+	}, true
+}
+
+func parseComparisonEntities(question string) []comparisonEntity {
+	tail := strings.TrimSpace(strings.TrimSuffix(question, "?"))
+	if idx := strings.LastIndex(tail, ","); idx >= 0 && idx < len(tail)-1 {
+		tail = strings.TrimSpace(tail[idx+1:])
+	}
+	parts := strings.Split(tail, " or ")
+	if len(parts) != 2 {
+		return nil
+	}
+	out := make([]comparisonEntity, 0, len(parts))
+	for _, part := range parts {
+		display := trimLeadingArticle(strings.TrimSpace(strings.Trim(part, " .,:;!?")))
+		tokens := significantTokens(display)
+		if display == "" || len(tokens) == 0 {
+			return nil
+		}
+		out = append(out, comparisonEntity{
+			Display: display,
+			Tokens:  tokens,
+		})
+	}
+	return out
+}
+
+func earliestDateForComparisonEntity(entity comparisonEntity, facts []retrievedFact) (time.Time, bool) {
+	minOverlap := 1
+	if len(entity.Tokens) >= 3 {
+		minOverlap = 2
+	}
+	var (
+		best  time.Time
+		found bool
+	)
+	for _, fact := range facts {
+		lower := strings.ToLower(fact.Body)
+		if tokenOverlap(lower, entity.Tokens) < minOverlap {
+			continue
+		}
+		t, ok := comparisonFactTime(fact)
+		if !ok {
+			continue
+		}
+		if !found || t.Before(best) {
+			best = t
+			found = true
+		}
+	}
+	return best, found
+}
+
+func comparisonFactTime(fact retrievedFact) (time.Time, bool) {
+	if parsed, ok := parseResolverDateFromBody(fact.Body); ok {
+		return parsed, true
+	}
+	return parseResolverDate(fact.Date)
+}
+
+func parseResolverDateFromBody(body string) (time.Time, bool) {
+	if matches := datePrefixRe.FindStringSubmatch(body); len(matches) == 2 {
+		if parsed, err := time.Parse("2006-01-02", matches[1]); err == nil {
+			return parsed.UTC(), true
+		}
+	}
+	if matches := isoDateRe.FindStringSubmatch(body); len(matches) == 4 {
+		year, _ := strconv.Atoi(matches[1])
+		month, _ := strconv.Atoi(matches[2])
+		day, _ := strconv.Atoi(matches[3])
+		parsed := time.Date(year, time.Month(month), day, 0, 0, 0, 0, time.UTC)
+		if parsed.Year() == year {
+			return parsed, true
+		}
+	}
+	return time.Time{}, false
+}
+
+func parseResolverDate(value string) (time.Time, bool) {
+	s := strings.TrimSpace(value)
+	if s == "" {
+		return time.Time{}, false
+	}
+	for _, layout := range []string{
+		"2006-01-02",
+		"2006/01/02",
+		"2006-01-02 15:04",
+		"2006/01/02 15:04",
+		"2006/01/02 (Mon) 15:04",
+		time.RFC3339,
+	} {
+		if parsed, err := time.Parse(layout, s); err == nil {
+			return parsed.UTC(), true
+		}
+	}
+	return time.Time{}, false
+}
+
+func trimLeadingArticle(value string) string {
+	trimmed := strings.TrimSpace(value)
+	for _, prefix := range []string{"the ", "a ", "an ", "my ", "our "} {
+		if strings.HasPrefix(strings.ToLower(trimmed), prefix) {
+			return strings.TrimSpace(trimmed[len(prefix):])
+		}
+	}
+	return trimmed
 }
 
 func extractBackendLanguages(body string) []string {

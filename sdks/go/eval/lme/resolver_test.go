@@ -94,3 +94,68 @@ Recommended resources and courses include NodeSchool, Python, SQL, Flask, and Dj
 		t.Fatalf("got %q", got)
 	}
 }
+
+func TestResolveDeterministicAnswer_CashbackAmount(t *testing.T) {
+	content := `Retrieved facts (4):
+
+ 1. [2023-05-25] [loyalty-tracker]
+[Date: 2023-05-25 Thursday May 2023]
+
+Maintain an up-to-date record of the user's loyalty programs, balances, redemptions, and savings so future assistance can reference exact amounts and history.
+
+ 2. [2023-05-18] [savemart]
+[Date: 2023-05-18 Thursday May 2023]
+
+I spent $75 on groceries at SaveMart last Thursday.
+
+ 3. [2023-05-22] [membership]
+[Date: 2023-05-22 Monday May 2023]
+
+I have a membership there and can earn 1% cashback on all purchases.
+
+ 4. [2023-05-26] [walmart-plus]
+[Date: 2023-05-26 Friday May 2023]
+
+Do you think it's worth it to pay the monthly fee for Walmart+ just for the 2% cashback on online grocery purchases?`
+
+	got, ok := ResolveDeterministicAnswer(
+		"How much cashback did I earn at SaveMart last Thursday?",
+		content,
+	)
+	if !ok {
+		t.Fatal("expected deterministic cashback answer")
+	}
+	if got != "$0.75" {
+		t.Fatalf("got %q, want $0.75", got)
+	}
+}
+
+func TestResolveDeterministicAnswer_FirstComparison(t *testing.T) {
+	content := `Retrieved facts (3):
+
+ 1. [2023-05-25] [smart-thermostat]
+[Date: 2023-04-25 Tuesday April 2023]
+
+Also, since I set up my smart thermostat a month ago, I've noticed that it's been learning my schedule and preferences.
+
+ 2. [2023-05-25] [mesh-network]
+[Date: 2023-05-25 Thursday May 2023]
+
+Since I recently upgraded my home Wi-Fi router to a new mesh network system, which has significantly improved my internet connection, I'm thinking maybe it's time to upgrade my computer too.
+
+ 3. [2023-05-25] [mesh-network-follow-up]
+[Date: 2023-05-25 Thursday May 2023]
+
+I'm not really sure about the specific components yet, but I do know that I want to make sure it can handle my internet connection well, since I just upgraded to a mesh network system.`
+
+	got, ok := ResolveDeterministicAnswer(
+		"Which device did I set up first, the smart thermostat or the mesh network system?",
+		content,
+	)
+	if !ok {
+		t.Fatal("expected deterministic comparison answer")
+	}
+	if got != "smart thermostat" {
+		t.Fatalf("got %q, want smart thermostat", got)
+	}
+}

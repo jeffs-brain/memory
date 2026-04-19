@@ -23,6 +23,7 @@ import (
 // incoming request so tests can assert the extraction model wiring.
 type replayFakeProvider struct {
 	mu        sync.Mutex
+	errors    []error
 	responses []string
 	calls     int
 	models    []string
@@ -32,11 +33,15 @@ func (f *replayFakeProvider) Complete(_ context.Context, req llm.CompleteRequest
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.models = append(f.models, req.Model)
-	if f.calls >= len(f.responses) {
+	callIndex := f.calls
+	f.calls++
+	if callIndex < len(f.errors) && f.errors[callIndex] != nil {
+		return llm.CompleteResponse{}, f.errors[callIndex]
+	}
+	if callIndex >= len(f.responses) {
 		return llm.CompleteResponse{Text: `{"memories": []}`}, nil
 	}
-	resp := f.responses[f.calls]
-	f.calls++
+	resp := f.responses[callIndex]
 	return llm.CompleteResponse{Text: resp}, nil
 }
 
@@ -514,6 +519,112 @@ func TestIngestReplay_KeepsHeuristicFactPathsDistinctPerSession(t *testing.T) {
 	joined := strings.Join(factPaths, "\n")
 	if !strings.Contains(joined, "sess-A") || !strings.Contains(joined, "sess-B") {
 		t.Fatalf("heuristic fact paths should include both session ids, got:\n%s", joined)
+	}
+}
+
+func TestIngestReplay_PassesSessionMetadataIntoAssistantTableHeuristics(t *testing.T) {
+	store := mem.New()
+	ds := &Dataset{Questions: []Question{{
+		ID:            "q1",
+		Category:      "single-session",
+		Question:      "Who is on Sunday day shift?",
+		Answer:        "Admon",
+		SessionIDs:    []string{"sess-shift"},
+		HaystackDates: []string{"2024/03/25 (Mon) 09:15"},
+		HaystackSessions: [][]SessionMessage{{
+			{Role: "user", Content: "Can you put the rota into a table?"},
+			{Role: "assistant", Content: strings.Join([]string{
+				"| Day | Day Shift | Evening Shift |",
+				"| --- | --- | --- |",
+				"| Sunday | Admon, 8 am - 4 pm | Bea, 4 pm - 12 am |",
+			}, "\n")},
+		}},
+	}}}
+
+	provider := &replayFakeProvider{responses: []string{`{"memories":[]}`}}
+
+	_, err := IngestReplay(context.Background(), store, ds, provider, ReplayOpts{Concurrency: 1})
+	if err != nil {
+		t.Fatalf("IngestReplay: %v", err)
+	}
+
+	slug := memory.ProjectSlug("/eval/lme")
+	files, err := store.List(context.Background(), brain.MemoryProjectPrefix(slug), brain.ListOpts{
+		Recursive:        true,
+		IncludeGenerated: true,
+	})
+	if err != nil {
+		t.Fatalf("list project memories: %v", err)
+	}
+
+	for _, f := range files {
+		if f.IsDir || strings.HasSuffix(string(f.Path), "MEMORY.md") {
+			continue
+		}
+		path := string(f.Path)
+		if !strings.Contains(path, "assistant-table-2024-03-25-sess-shift") {
+			continue
+		}
+		data, err := store.Read(context.Background(), f.Path)
+		if err != nil {
+			t.Fatalf("read assistant-table fact: %v", err)
+		}
+		body := string(data)
+		if !strings.Contains(body, "session_id: sess-shift") {
+			t.Fatalf("assistant-table fact should carry session_id, got:\n%s", body)
+		}
+		if !strings.Contains(body, "Sunday roster: Admon, 8 am - 4 pm (Day Shift); Bea, 4 pm - 12 am (Evening Shift).") {
+			t.Fatalf("assistant-table fact should preserve roster detail, got:\n%s", body)
+		}
+		return
+	}
+
+	t.Fatal("expected assistant-table heuristic file with session-aware filename")
+}
+
+func TestIngestReplay_RetriesTransientExtractionErrors(t *testing.T) {
+	ResetTransientRetries()
+	t.Cleanup(ResetTransientRetries)
+
+	store := mem.New()
+	ds := &Dataset{Questions: []Question{{
+		ID:            "q1",
+		Category:      "single-session",
+		Question:      "How long is my commute?",
+		Answer:        "45 minutes",
+		SessionIDs:    []string{"sess-001"},
+		HaystackDates: []string{"2024/03/25 (Mon) 09:15"},
+		HaystackSessions: [][]SessionMessage{{
+			{Role: "user", Content: "My commute takes 45 minutes each way."},
+			{Role: "assistant", Content: "That is worth remembering."},
+		}},
+	}}}
+
+	provider := &replayFakeProvider{
+		errors: []error{
+			fmt.Errorf("llm: openai 502: error code: 502"),
+		},
+		responses: []string{
+			``,
+			`{"memories":[]}`,
+		},
+	}
+
+	result, err := IngestReplay(context.Background(), store, ds, provider, ReplayOpts{Concurrency: 1})
+	if err != nil {
+		t.Fatalf("IngestReplay: %v", err)
+	}
+	if result.SessionsProcessed != 1 {
+		t.Fatalf("SessionsProcessed = %d, want 1", result.SessionsProcessed)
+	}
+	if provider.callCount() != 2 {
+		t.Fatalf("provider.calls = %d, want 2 after one transient retry", provider.callCount())
+	}
+	if got := TransientRetriesTotal(); got != 1 {
+		t.Fatalf("TransientRetriesTotal() = %d, want 1", got)
+	}
+	if len(result.Warnings) != 0 {
+		t.Fatalf("unexpected warnings after transient retry: %v", result.Warnings)
 	}
 }
 

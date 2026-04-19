@@ -1370,9 +1370,10 @@ function filteredPhraseProbes(query: string): readonly string[] {
 }
 
 function shouldUsePriorityOnlyBM25(query: string): boolean {
+  const lowered = query.trim().toLowerCase()
   return (
     deriveActionDateContextProbes(query).length > 0 ||
-    (filteredPhraseProbes(query).length >= 2 && isCompositeConcreteQuery(query))
+    (filteredPhraseProbes(query).length >= 2 && lowered.includes(' and '))
   )
 }
 
@@ -1549,11 +1550,11 @@ function searchBM25WithFilters(
   filters: RetrievalFilters | undefined,
 ) {
   if (!hasRetrievalFilters(filters)) {
-    return index.searchBM25(compiledQuery, limit)
+    return index.searchBM25Compiled(compiledQuery, limit)
   }
 
   const fetchLimit = Math.max(limit * 10, 200)
-  const hits = index.searchBM25(compiledQuery, fetchLimit)
+  const hits = index.searchBM25Compiled(compiledQuery, fetchLimit)
   return hits
     .filter((hit) => matchesRetrievalFilters(hit.chunk, filters))
     .slice(0, limit)
@@ -1723,13 +1724,10 @@ function concreteFactIntentMultiplier(
   text: string,
 ): number {
   const path = result.path.toLowerCase()
-  const isRollUp = ROLLUP_NOTE_RE.test(text)
+  const isRollUp = isRollUpNote(text)
   const isQuestionLikeNote =
     QUESTION_LIKE_NOTE_RE.test(text) && GENERIC_NOTE_RE.test(text)
-  const isConcreteFact =
-    path.includes('user-fact-') ||
-    path.includes('milestone-') ||
-    (!isRollUp && (DATE_TAG_RE.test(text) || ATOMIC_EVENT_NOTE_RE.test(text)))
+  const isConcreteFact = isConcreteFactLike(path, text)
 
   let multiplier = 1
   if (isConcreteFact) multiplier *= 2.2
@@ -1780,39 +1778,43 @@ function firstPersonConcreteFactMultiplier(
   }
 
   const path = result.path.toLowerCase()
-  const metadataType = retrievalMetadataString(result.metadata, ['type'])
   const isGlobal = path.includes('memory/global/')
-  const isProjectOrAgent =
-    path.includes('memory/project/') || path.includes('memory/agent/')
-  const isDirectUserFactPath =
-    path.includes('user-fact-') ||
-    path.includes('milestone-') ||
-    path.includes('/user-')
-  const isDirectGlobalUserFact =
-    isGlobal &&
-    (isDirectUserFactPath ||
-      metadataType === 'user' ||
-      DATE_TAG_RE.test(text) ||
-      ATOMIC_EVENT_NOTE_RE.test(text))
+  const isDirectFact = isConcreteFactLike(path, text)
 
   let multiplier = 1
-  if (isGlobal) multiplier *= 1.28
-  if (isProjectOrAgent) multiplier *= 0.58
-  if (isDirectGlobalUserFact) multiplier *= 1.45
-  if (metadataType === 'project') multiplier *= 0.82
-  if (metadataType === 'reference') multiplier *= 0.68
-  if (GENERIC_NOTE_RE.test(text) && isProjectOrAgent) multiplier *= 0.68
-  if (QUESTION_LIKE_NOTE_RE.test(text)) multiplier *= 0.55
-  if (ROLLUP_NOTE_RE.test(text)) multiplier *= 0.7
+  if (isGlobal && isDirectFact) {
+    multiplier *= 1.35
+  } else if (isGlobal) {
+    multiplier *= 1.22
+  } else if (isDirectFact) {
+    multiplier *= 0.88
+  } else {
+    multiplier *= 0.58
+  }
+  if (!isGlobal && GENERIC_NOTE_RE.test(text)) multiplier *= 0.82
   if (DURATION_QUERY_RE.test(normalisedQuery) && ROUTINE_SCOPE_QUERY_RE.test(normalisedQuery)) {
     if (ROUTINE_SCOPE_NOTE_RE.test(text)) {
-      multiplier *= 1.2
+      multiplier *= 1.25
     }
     if (SEGMENT_QUALIFIER_NOTE_RE.test(text) && !ROUTINE_SCOPE_NOTE_RE.test(text)) {
-      multiplier *= 0.2
+      multiplier *= 0.15
     }
   }
   return multiplier
+}
+
+function isConcreteFactLike(path: string, text: string): boolean {
+  if (path.includes('user-fact-') || path.includes('milestone-')) {
+    return true
+  }
+  if (isRollUpNote(text)) {
+    return false
+  }
+  return DATE_TAG_RE.test(text) || ATOMIC_EVENT_NOTE_RE.test(text)
+}
+
+function isRollUpNote(text: string): boolean {
+  return ROLLUP_NOTE_RE.test(text)
 }
 
 type CompositeFocusMatch = {

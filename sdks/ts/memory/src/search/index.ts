@@ -16,7 +16,7 @@
 
 import { openDatabase } from './driver.js'
 import type { DriverKind, SqlDb } from './driver.js'
-import { getChunk, searchBM25, searchVector } from './reader.js'
+import { getChunk, searchBM25, searchBM25Compiled, searchVector } from './reader.js'
 import type { BM25Result, VectorResult } from './reader.js'
 import { applyDDL } from './schema.js'
 import { chunkIdsWithVectorForModel } from './vector.js'
@@ -72,6 +72,7 @@ export type SearchIndex = {
   deleteByPath(path: string): void
 
   searchBM25(query: string, limit: number): BM25Result[]
+  searchBM25Compiled(expr: string, limit: number): BM25Result[]
   searchVector(embedding: Float32Array | number[], limit: number): VectorResult[]
   getChunk(id: string): Chunk | undefined
 
@@ -151,6 +152,7 @@ export async function createSearchIndex(opts: CreateSearchIndexOptions = {}): Pr
     deleteChunk: (id) => deleteChunk(db, id),
     deleteByPath: (path) => deleteByPath(db, path),
     searchBM25: (query, limit) => searchBM25(db, query, limit),
+    searchBM25Compiled: (expr, limit) => searchBM25Compiled(db, expr, limit),
     searchVector: (embedding, limit) => searchVector(db, embedding, limit),
     getChunk: (id) => getChunk(db, id),
     indexedPaths: () => {
