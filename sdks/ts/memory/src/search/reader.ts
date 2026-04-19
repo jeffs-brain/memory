@@ -94,8 +94,7 @@ function hydrateMany(db: SqlDb, ids: readonly string[]): Map<string, Chunk> {
  * raw rank is exposed as `score` so downstream rerankers / fusion can
  * consume it without re-querying.
  */
-export function searchBM25(db: SqlDb, query: string, limit: number): BM25Result[] {
-  const expr = compileFts5Query(query)
+export function searchBM25Compiled(db: SqlDb, expr: string, limit: number): BM25Result[] {
   if (expr === '' || limit <= 0) return []
   const rows = runBm25(db, expr, limit)
   if (rows.length === 0) return []
@@ -110,6 +109,11 @@ export function searchBM25(db: SqlDb, query: string, limit: number): BM25Result[
     out.push({ chunk, score: r.rank })
   }
   return out
+}
+
+export function searchBM25(db: SqlDb, query: string, limit: number): BM25Result[] {
+  const expr = compileFts5Query(query)
+  return searchBM25Compiled(db, expr, limit)
 }
 
 /**

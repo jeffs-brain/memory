@@ -32,6 +32,12 @@ const defaultReplayConcurrency = 32
 // trip upstream rate limits regardless of how fast the workers are.
 const maxReplayConcurrency = 512
 
+// replayExtractRetryMax caps retries for transient extraction failures
+// during replay ingest. One missed session can poison a sampled
+// question, so benchmark work should retry provider 5xxs before
+// accepting a hole in the rebuilt brain.
+const replayExtractRetryMax = 3
+
 // ReplayOpts configures the replay ingest pipeline.
 type ReplayOpts struct {
 	// ProjectPath is passed through to the extraction pipeline so the
@@ -163,7 +169,16 @@ func IngestReplay(
 					continue
 				}
 				callStart := time.Now()
-				extracted, err := memory.ExtractFromMessages(ctx, provider, extractModel, mem, projectPath, messages)
+				extracted, err := extractReplaySessionWithRetry(
+					ctx,
+					provider,
+					extractModel,
+					mem,
+					projectPath,
+					messages,
+					sess.id,
+					sess.date,
+				)
 				n := done.Add(1)
 				// Throttle logs at higher concurrency settings so stderr
 				// does not flood.
@@ -324,6 +339,48 @@ func deduplicateSessions(questions []Question) []sessionData {
 		}
 	}
 	return out
+}
+
+func extractReplaySessionWithRetry(
+	ctx context.Context,
+	provider llm.Provider,
+	extractModel string,
+	mem *memory.Memory,
+	projectPath string,
+	messages []memory.Message,
+	sessionID string,
+	sessionDate string,
+) ([]memory.ExtractedMemory, error) {
+	var lastErr error
+	for attempt := 1; attempt <= replayExtractRetryMax; attempt++ {
+		extracted, err := memory.ExtractFromMessagesWithSession(
+			ctx,
+			provider,
+			extractModel,
+			mem,
+			projectPath,
+			messages,
+			sessionID,
+			sessionDate,
+		)
+		if err == nil {
+			return extracted, nil
+		}
+		lastErr = err
+		if !isTransientErr(err) || attempt == replayExtractRetryMax {
+			break
+		}
+		IncTransientRetry()
+		backoff := time.Duration(attempt) * 500 * time.Millisecond
+		timer := time.NewTimer(backoff)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return nil, ctx.Err()
+		case <-timer.C:
+		}
+	}
+	return nil, lastErr
 }
 
 // postProcessSessionFacts applies temporal metadata, session ids, and

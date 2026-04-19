@@ -965,6 +965,49 @@ describe('createRetrieval intent-aware reweighting', () => {
     expect(results[0]!.id).toBe('direct')
   })
 
+  it('prefers direct project facts over generic project guides for first-person location lookups', async () => {
+    const idx = await fresh()
+
+    const vQuestion = syntheticVector(851)
+    const vGuide = vQuestion
+    const vDirect = perturb(vQuestion, 0.04, 12)
+
+    idx.upsertChunks([
+      {
+        id: 'guide',
+        path: 'memory/project/eval-lme/blanket-storage-guide.md',
+        title: 'Blanket storage guide',
+        summary: 'Tips for storing spare blankets under the bed',
+        content:
+          'Tips and ideas for storing spare blankets under the bed or in hallway cupboards.',
+        embedding: vGuide,
+      },
+      {
+        id: 'direct',
+        path: 'memory/project/eval-lme/blanket-storage-note.md',
+        title: 'Blanket storage note',
+        summary: 'Keeps spare blankets under the bed',
+        content: 'I keep the spare blankets under the bed. [observed on: 2024-01-12]',
+        metadata: {
+          type: 'reference',
+        },
+        embedding: vDirect,
+      },
+    ])
+
+    const retrieval = createRetrieval({
+      index: idx,
+      embedder: makeStubEmbedder(new Map([['Where do I keep the spare blankets?', vQuestion]])),
+    })
+
+    const { results } = await retrieval.searchRaw({
+      query: 'Where do I keep the spare blankets?',
+      topK: 5,
+    })
+
+    expect(results[0]!.id).toBe('direct')
+  })
+
   it('diversifies first-person comparison lookups connected with or', async () => {
     const idx = await fresh()
 
@@ -1016,12 +1059,15 @@ describe('createRetrieval intent-aware reweighting', () => {
       ),
     })
 
-    const { results } = await retrieval.searchRaw({
+    const { results, trace } = await retrieval.searchRaw({
       query: 'What speed is my treadmill in walk or run mode?',
       topK: 5,
     })
 
     expect(results.slice(0, 2).map((result) => result.id).sort()).toEqual(['run', 'walk'])
+    expect(
+      trace.bm25Queries.some((query) => query.includes('walk') && query.includes('run')),
+    ).toBe(true)
   })
 
   it('demotes superseded notes when metadata marks them stale', async () => {

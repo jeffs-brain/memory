@@ -67,7 +67,7 @@ const HEURISTIC_STORAGE_LOCATION_FACT_RE =
 const HEURISTIC_QUESTION_LEAD_RE =
   /^\s*(?:what|when|where|why|how|which|who|can|could|should|would|do|did|does|is|are|am|have|has|had)\b/i
 const SYSTEM_SESSION_ID_RE =
-  /(?im)\bsession[_ ]id\s*[:=]\s*([A-Za-z0-9._-]+)\b/
+  /\bsession[_ ]id\s*[:=]\s*([A-Za-z0-9._-]+)\b/im
 const SENTENCE_SPLIT_PROTECTED_ABBREVIATIONS: ReadonlyArray<readonly [RegExp, string]> = [
   [/\bDr\./g, 'Dr__DOT__'],
   [/\bMr\./g, 'Mr__DOT__'],
@@ -1642,10 +1642,7 @@ const postProcessSessionExtractions = (
       (shaped.observedOn === undefined || shaped.observedOn === '')
         ? { observedOn: modifiedOverride }
         : {}),
-      ...(sessionDateIso !== '' &&
-      (shaped.sessionDate === undefined || shaped.sessionDate === '')
-        ? { sessionDate: sessionDateIso }
-        : {}),
+      ...(sessionDateIso !== '' ? { sessionDate: sessionDateIso } : {}),
       ...(tags.length > 0 ? { tags } : {}),
     }
   })

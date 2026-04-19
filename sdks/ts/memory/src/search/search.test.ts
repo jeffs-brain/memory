@@ -129,6 +129,32 @@ describe('BM25 weight ordering', () => {
     const firstMatching = results.find((r) => r.chunk.id === 'title-hit' || r.chunk.id === 'content-hit')
     expect(firstMatching?.chunk.id).toBe('title-hit')
   })
+
+  it('preserves compiled FTS expressions for column-scoped queries', async () => {
+    const idx = await fresh()
+
+    idx.upsertChunks([
+      {
+        id: 'path-hit',
+        path: 'project/gift-note.md',
+        title: 'Tracking note',
+        summary: 'Project note',
+        content: 'This note is about totals.',
+      },
+      {
+        id: 'content-hit',
+        path: 'project/other-note.md',
+        title: 'Other note',
+        summary: 'Gift details live in the body',
+        content: 'gift content only',
+      },
+    ])
+
+    const results = idx.searchBM25Compiled('path:gift', 10)
+    expect(results.length).toBeGreaterThanOrEqual(1)
+    expect(results[0]?.chunk.id).toBe('path-hit')
+    expect(results.some((result) => result.chunk.id === 'path-hit')).toBe(true)
+  })
 })
 
 describe('vector search', () => {
