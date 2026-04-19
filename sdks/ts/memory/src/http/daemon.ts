@@ -41,6 +41,7 @@ import {
   createFsStore,
   joinPath,
 } from '../store/index.js'
+import { backfillVectors, resolveEmbedModel } from './daemon-vectors.js'
 
 export type DaemonConfig = {
   readonly root: string
@@ -48,6 +49,14 @@ export type DaemonConfig = {
   readonly provider?: Provider
   readonly embedder?: Embedder
   readonly logger?: Logger
+  /**
+   * Embedding model identifier pinned alongside every stored vector so
+   * the backfill can detect coverage gaps after a model switch. When
+   * omitted we resolve it from process env via {@link resolveEmbedModel}
+   * at construction time; callers that manage the embedder themselves
+   * can override explicitly.
+   */
+  readonly embedModel?: string
 }
 
 export type BrainResources = {
@@ -90,6 +99,7 @@ export class Daemon {
   readonly authToken: string | undefined
   readonly provider: Provider | undefined
   readonly embedder: Embedder | undefined
+  readonly embedModel: string
   readonly logger: Logger
   readonly brains: BrainManager
 
@@ -98,6 +108,9 @@ export class Daemon {
     this.authToken = config.authToken
     this.provider = config.provider
     this.embedder = config.embedder
+    this.embedModel =
+      config.embedModel ??
+      resolveEmbedModel(process.env as Readonly<Record<string, string | undefined>>, this.embedder)
     this.logger = config.logger ?? noopLogger
     this.brains = new BrainManager(this)
   }
@@ -275,7 +288,7 @@ export class BrainManager {
     const refresh = async (): Promise<void> => {
       if (index === undefined || disposed) return
       if (initialScan === undefined) {
-        initialScan = this.scanBrain(index, store).catch(() => undefined)
+        initialScan = this.scanBrain(index, store, brainId).catch(() => undefined)
       }
       await initialScan
     }
@@ -353,9 +366,16 @@ export class BrainManager {
 
   /**
    * Full-brain scan used on open + on manual refresh so a brain that
-   * already has content surfaces it on the first search.
+   * already has content surfaces it on the first search. When an
+   * embedder is configured the BM25 pass is chained into an async
+   * vector backfill so `/search` returns hybrid (BM25 + vector) hits
+   * once the embeds complete, mirroring the Go daemon.
    */
-  private async scanBrain(index: SqliteSearchIndex, store: Store): Promise<void> {
+  private async scanBrain(
+    index: SqliteSearchIndex,
+    store: Store,
+    brainId: string,
+  ): Promise<void> {
     let entries
     try {
       entries = await store.list('', { recursive: true, includeGenerated: true })
@@ -379,6 +399,24 @@ export class BrainManager {
         index.upsertChunk(chunk)
       } catch {
         /* ignore unreadable files */
+      }
+    }
+
+    if (this.daemon.embedder !== undefined && this.daemon.embedModel !== '') {
+      try {
+        await backfillVectors({
+          brainId,
+          store,
+          index,
+          embedder: this.daemon.embedder,
+          model: this.daemon.embedModel,
+          logger: this.daemon.logger,
+        })
+      } catch (err) {
+        this.daemon.logger.debug('vectors: backfill crashed', {
+          brain: brainId,
+          err: err instanceof Error ? err.message : String(err),
+        })
       }
     }
   }

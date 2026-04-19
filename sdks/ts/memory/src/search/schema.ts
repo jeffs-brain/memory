@@ -105,12 +105,19 @@ CREATE VIRTUAL TABLE IF NOT EXISTS knowledge_fts USING fts5(
 
 /**
  * Vector virtual table via sqlite-vec. The `rowid` is populated from a
- * monotonically increasing integer keyed off knowledge_chunks — we store
+ * monotonically increasing integer keyed off knowledge_chunks; we store
  * that integer in a mapping table (knowledge_vec_map) so callers using
  * text ids can round-trip.
  *
- * Dimension is 1024 to suit bge-m3 / voyage-large-2; callers supplying a
- * different dim should pass `vectorDim` to {@link createSearchIndex}.
+ * The `model` column on `knowledge_vec_map` pins the embedding model
+ * name alongside each vector so switching models cleanly invalidates
+ * stale vectors. Parity with the Go VectorIndex `Model` column in
+ * `sdks/go/search/vectors.go`. Added via ALTER TABLE so existing
+ * deployments migrate in-place; rows without a model stay NULL and are
+ * treated as belonging to no model for backfill probing purposes.
+ *
+ * Dimension is 1024 to suit bge-m3 / voyage-large-2; callers supplying
+ * a different dim should pass `vectorDim` to {@link createSearchIndex}.
  */
 export function buildVectorSchema(vectorDim: number): string {
   if (!Number.isInteger(vectorDim) || vectorDim <= 0) {
@@ -123,8 +130,11 @@ CREATE VIRTUAL TABLE IF NOT EXISTS knowledge_vectors USING vec0(
 
 CREATE TABLE IF NOT EXISTS knowledge_vec_map (
     chunk_id  TEXT PRIMARY KEY,
-    vec_rowid INTEGER NOT NULL UNIQUE
+    vec_rowid INTEGER NOT NULL UNIQUE,
+    model     TEXT
 );
+
+CREATE INDEX IF NOT EXISTS idx_knowledge_vec_map_model ON knowledge_vec_map(model);
 `
 }
 
@@ -143,6 +153,17 @@ export const applyDDL = (
   exec(CHUNK_SCHEMA)
   exec(FTS_SCHEMA)
   exec(buildVectorSchema(vectorDim))
+  // Idempotent migration for databases created before the `model`
+  // column existed on knowledge_vec_map. SQLite raises "duplicate
+  // column name" when the column already exists, which we swallow so
+  // subsequent boots remain a no-op.
+  try {
+    exec('ALTER TABLE knowledge_vec_map ADD COLUMN model TEXT')
+  } catch (err) {
+    const msg = err instanceof Error ? err.message.toLowerCase() : String(err).toLowerCase()
+    if (!msg.includes('duplicate column name')) throw err
+  }
+  exec('CREATE INDEX IF NOT EXISTS idx_knowledge_vec_map_model ON knowledge_vec_map(model)')
   exec(
     `INSERT INTO knowledge_fts(knowledge_fts, rank) VALUES('rank', ${buildRankExpr()})`,
   )

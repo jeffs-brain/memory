@@ -11,6 +11,7 @@ from .daemon import (
     Daemon,
     PassthroughStore,
 )
+from .daemon_vectors import backfill_vectors
 from .server import create_app
 
 __all__ = [
@@ -20,5 +21,6 @@ __all__ = [
     "BrainResources",
     "Daemon",
     "PassthroughStore",
+    "backfill_vectors",
     "create_app",
 ]

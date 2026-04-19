@@ -113,10 +113,58 @@ def embedder_from_env(env: Mapping[str, str] | None = None) -> Embedder:
         raise LLMError("llm: anthropic does not expose an embedding endpoint")
     if provider:
         raise LLMError(f"llm: unknown {ENV_EMBED_PROVIDER}={provider!r}")
+    # Auto-detect mirrors provider_from_env: a user who set an OpenAI
+    # API key wants embeddings from OpenAI, not whatever happens to be
+    # listening on 127.0.0.1:11434.
+    openai_key = (env.get(ENV_OPENAI_API_KEY) or "").strip()
+    if openai_key:
+        return OpenAIEmbedder(
+            api_key=openai_key,
+            base_url=env.get(ENV_OPENAI_BASE_URL) or None,
+            model=model or None,
+        )
     host = ollama_host_from_env(env)
     if ollama_reachable(host):
         return OllamaEmbedder(base_url=host)
     return FakeEmbedder(OLLAMA_DEFAULT_EMBED_DIMS)
+
+
+_OPENAI_DEFAULT_EMBED_MODEL = "text-embedding-3-small"
+_OLLAMA_DEFAULT_EMBED_MODEL = "bge-m3"
+
+
+def resolve_embed_model(
+    embedder: Embedder | None,
+    env: Mapping[str, str] | None = None,
+) -> str:
+    """Return the effective embedding model name.
+
+    Mirrors the Go helper ``resolveEmbedModel`` in
+    ``sdks/go/cmd/memory/daemon_vectors.go``. The resolved string pins
+    the active model so persisted vectors can be tagged alongside each
+    row and a model swap cannot mix dimensions at query time.
+
+    Precedence: ``JB_EMBED_MODEL`` > provider default > auto-detect by
+    which cloud key is present. Returns an empty string when no
+    embedder is configured, which downstream code treats as "vector
+    indexing disabled".
+    """
+    if embedder is None:
+        return ""
+    env = env if env is not None else os.environ
+    explicit = (env.get(ENV_EMBED_MODEL) or "").strip()
+    if explicit:
+        return explicit
+    provider = (env.get(ENV_EMBED_PROVIDER) or "").strip().lower()
+    if not provider:
+        provider = (env.get(ENV_PROVIDER) or "").strip().lower()
+    if provider == "openai":
+        return _OPENAI_DEFAULT_EMBED_MODEL
+    if provider == "ollama":
+        return _OLLAMA_DEFAULT_EMBED_MODEL
+    if (env.get(ENV_OPENAI_API_KEY) or "").strip():
+        return _OPENAI_DEFAULT_EMBED_MODEL
+    return _OLLAMA_DEFAULT_EMBED_MODEL
 
 
 def ollama_host_from_env(env: Mapping[str, str]) -> str:

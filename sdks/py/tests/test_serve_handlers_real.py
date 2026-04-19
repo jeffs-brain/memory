@@ -24,7 +24,7 @@ import pytest
 import uvicorn
 
 from jeffs_brain_memory.http import Daemon, create_app
-from jeffs_brain_memory.llm import FakeProvider
+from jeffs_brain_memory.llm import FakeEmbedder, FakeProvider
 
 
 def _free_port() -> int:
@@ -355,6 +355,111 @@ def test_serve_consolidate_quick_empty_body(tmp_path) -> None:
 
 
 # -- 8. Ingest + search path survives a brain close / reopen ---------------
+
+
+def test_serve_vector_backfill_populates_embeddings(tmp_path) -> None:
+    """The daemon kicks off a vector backfill after the initial FTS
+    scan; /search in hybrid mode should surface vector hits once the
+    backfill lands.
+
+    Mirrors the Go reference ``daemon_vectors.go``: the backfill runs
+    once after the initial scan, so the brain cache is pre-seeded on
+    disk rather than ingested post-open.
+
+    Uses :class:`FakeEmbedder` so no network is touched and the ranking
+    is deterministic (unit-vector outputs seeded by SHA-256 of each
+    input). The search handler is driven in ``hybrid`` mode so the
+    vector leg is exercised regardless of the auto-resolve heuristics.
+    """
+
+    # Pre-seed the brain on disk so the initial scan has something to
+    # feed into the backfill. The daemon builds lazily on the first
+    # request.
+    seeded = tmp_path / "brains" / "vectors" / "memory" / "global" / "owl.md"
+    seeded.parent.mkdir(parents=True, exist_ok=True)
+    seeded.write_text(
+        "---\n"
+        "name: Owl\n"
+        "description: Nocturnal raptor.\n"
+        "---\n"
+        "\n"
+        "Owls hunt at night in the forest.\n",
+        encoding="utf-8",
+    )
+
+    async def build() -> Daemon:
+        return await Daemon.create(
+            root=tmp_path,
+            llm=FakeProvider(["ok"]),
+            embedder=FakeEmbedder(16),
+        )
+
+    daemon = asyncio.run(build())
+    # Pin the model so the backfill stamps rows with a known value.
+    daemon.embed_model = "fake-embed-16"
+    app = create_app(daemon=daemon)
+
+    with _run_app(app) as base_url:
+        with httpx.Client(base_url=base_url, timeout=5.0) as client:
+            # First search request triggers lazy brain open + scan +
+            # backfill task. The pre-seeded document is already on disk
+            # so the backfill populates knowledge_embeddings before the
+            # next poll cycle.
+            warmup = client.post(
+                "/v1/brains/vectors/search",
+                json={"query": "owl", "topK": 3, "mode": "bm25"},
+            )
+            assert warmup.status_code == 200, warmup.text
+
+            # Probe the SQLite file directly: the search.Index
+            # connection is thread-bound and lives on the uvicorn
+            # worker, so reading vector_count from this thread would
+            # raise sqlite3.ProgrammingError. WAL mode lets an
+            # independent reader co-exist with the backfill writer.
+            import sqlite3 as _sqlite3
+
+            db_path = tmp_path / "indices" / "vectors" / "search.sqlite"
+
+            def _vector_rows() -> int:
+                if not db_path.exists():
+                    return 0
+                conn = _sqlite3.connect(str(db_path))
+                try:
+                    row = conn.execute(
+                        "SELECT count(*) FROM knowledge_embeddings "
+                        "WHERE model = ?",
+                        (daemon.embed_model,),
+                    ).fetchone()
+                    return int((row and row[0]) or 0)
+                finally:
+                    conn.close()
+
+            deadline = time.monotonic() + 5.0
+            vector_count = 0
+            while time.monotonic() < deadline:
+                vector_count = _vector_rows()
+                if vector_count > 0:
+                    break
+                time.sleep(0.05)
+
+            assert vector_count > 0, "expected backfill to persist vectors"
+
+            resp = client.post(
+                "/v1/brains/vectors/search",
+                json={"query": "owl", "topK": 5, "mode": "hybrid"},
+            )
+            assert resp.status_code == 200, resp.text
+            payload = resp.json()
+            chunks = payload.get("chunks", [])
+            assert chunks, "hybrid search returned no chunks"
+            trace = payload.get("trace") or {}
+            assert trace.get("embedder_used") is True, (
+                f"expected embedder to have run, trace={trace}"
+            )
+            assert trace.get("vector_hits", 0) > 0, (
+                f"expected vector leg to return hits, trace={trace}"
+            )
+    asyncio.run(daemon.close())
 
 
 def test_serve_ingest_search_warm_restart(tmp_path) -> None:

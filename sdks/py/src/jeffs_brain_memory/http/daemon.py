@@ -28,13 +28,19 @@ from typing import Any, Awaitable, Callable
 
 from .. import knowledge, memory, retrieval, search
 from ..knowledge import Options as KnowledgeOptions
-from ..llm import FakeProvider, provider_from_env, embedder_from_env
+from ..llm import (
+    FakeProvider,
+    embedder_from_env,
+    provider_from_env,
+    resolve_embed_model,
+)
 from ..llm.provider import Embedder, Provider
 from ..memory._memstore import FileInfo as MemFileInfo
 from ..memory._memstore import ListOpts as MemListOpts
 from ..memory._memstore import NotFoundError as MemNotFound
-from ..path import is_generated, validate_path
+from ..path import validate_path
 from ..retrieval.index_source import IndexedRow
+from .daemon_vectors import backfill_vectors
 
 _log = logging.getLogger(__name__)
 
@@ -323,7 +329,9 @@ class BrainResources:
     search_index: search.Index
     retriever: retrieval.Retriever
     knowledge_base: knowledge.Base
+    embed_model: str = ""
     _unsubscribe: Callable[[], None] | None = None
+    _backfill_task: asyncio.Task[None] | None = None
 
     async def close(self) -> None:
         if self._unsubscribe is not None:
@@ -332,6 +340,13 @@ class BrainResources:
             except Exception:  # noqa: BLE001
                 pass
             self._unsubscribe = None
+        if self._backfill_task is not None and not self._backfill_task.done():
+            self._backfill_task.cancel()
+            try:
+                await self._backfill_task
+            except (asyncio.CancelledError, Exception):  # noqa: BLE001
+                pass
+        self._backfill_task = None
         try:
             await self.knowledge_base.close()
         except Exception:  # noqa: BLE001
@@ -423,10 +438,16 @@ class BrainManager:
         db_path.parent.mkdir(parents=True, exist_ok=True)
         index = search.Index(str(db_path))
 
+        embed_model = self._daemon.embed_model
         retrieval_adapter = _IndexForRetrieval(index)
+        vector_adapter: _IndexVectorStore | None = None
+        if self._daemon.embedder is not None and embed_model:
+            vector_adapter = _IndexVectorStore(index)
         source = retrieval.IndexSource(
             search_index=retrieval_adapter,
             embedder=self._daemon.embedder,
+            vectors=vector_adapter,
+            model=embed_model,
         )
         retriever = retrieval.Retriever(
             source=source,
@@ -454,6 +475,24 @@ class BrainManager:
 
         unsubscribe = await _subscribe_reindex(store, index)
 
+        # Vector backfill runs detached so the first /search request is
+        # served immediately via BM25 while remote embed batches populate
+        # the vector index in the background. Matches the Go daemon's
+        # goroutine in daemon.go:build().
+        backfill_task: asyncio.Task[None] | None = None
+        if vector_adapter is not None and self._daemon.embedder is not None:
+            backfill_task = asyncio.create_task(
+                backfill_vectors(
+                    brain_id=brain_id,
+                    store=store,
+                    index=index,
+                    embedder=self._daemon.embedder,
+                    model=embed_model,
+                    logger=_log,
+                ),
+                name=f"jb-backfill-{brain_id}",
+            )
+
         return BrainResources(
             id=brain_id,
             root=root,
@@ -463,7 +502,9 @@ class BrainManager:
             search_index=index,
             retriever=retriever,
             knowledge_base=kb,
+            embed_model=embed_model,
             _unsubscribe=unsubscribe,
+            _backfill_task=backfill_task,
         )
 
 
@@ -475,6 +516,7 @@ class Daemon:
     auth_token: str | None = None
     llm: Provider | None = None
     embedder: Embedder | None = None
+    embed_model: str = ""
     brains: BrainManager = field(init=False)
 
     def __post_init__(self) -> None:
@@ -502,7 +544,14 @@ class Daemon:
                 embedder = embedder_from_env()
             except Exception:  # noqa: BLE001
                 embedder = None
-        return cls(root=resolved_root, auth_token=auth_token, llm=llm, embedder=embedder)
+        embed_model = resolve_embed_model(embedder)
+        return cls(
+            root=resolved_root,
+            auth_token=auth_token,
+            llm=llm,
+            embedder=embedder,
+            embed_model=embed_model,
+        )
 
     async def close(self) -> None:
         await self.brains.close()
@@ -846,14 +895,31 @@ async def _rebuild_sync(index: search.Index, store: PassthroughStore) -> None:
                 },
             )
         )
-    # Clear then upsert atomically. Use the private connection because
-    # upsert_chunks opens its own transaction and we want the delete
-    # coordinated.
+    # Targeted diff so existing embeddings survive a rebuild: only
+    # drop chunks that have disappeared from the new set. The FTS
+    # virtual table has no stable identity we can diff on across
+    # rebuilds, so it is still wiped wholesale; it has no dependents.
+    new_ids = {c.id for c in chunks}
     try:
         with index._conn:  # type: ignore[attr-defined]
-            index._conn.execute("DELETE FROM knowledge_fts")  # type: ignore[attr-defined]
-            index._conn.execute("DELETE FROM knowledge_chunks")  # type: ignore[attr-defined]
-            index._conn.execute("DELETE FROM knowledge_embeddings")  # type: ignore[attr-defined]
+            conn = index._conn  # type: ignore[attr-defined]
+            existing_rows = conn.execute(
+                "SELECT chunk_id FROM knowledge_chunks"
+            ).fetchall()
+            existing_ids = {row["chunk_id"] for row in existing_rows}
+            to_drop = existing_ids - new_ids
+            if to_drop:
+                placeholders = ",".join("?" * len(to_drop))
+                ids_list = list(to_drop)
+                conn.execute(
+                    f"DELETE FROM knowledge_chunks WHERE chunk_id IN ({placeholders})",
+                    ids_list,
+                )
+                conn.execute(
+                    f"DELETE FROM knowledge_embeddings WHERE chunk_id IN ({placeholders})",
+                    ids_list,
+                )
+            conn.execute("DELETE FROM knowledge_fts")
         if chunks:
             index.upsert_chunks(chunks)
     except Exception as exc:  # noqa: BLE001
@@ -878,3 +944,49 @@ async def _subscribe_reindex(
             _log.debug("reindex on %s failed: %s", event.kind, exc)
 
     return await store.subscribe(sink)
+
+
+class _IndexVectorStore:
+    """Adapter bridging :class:`search.Index` to the retrieval
+    :class:`VectorStore` protocol.
+
+    The retrieval layer calls :meth:`search` with the query embedding
+    and the active model; we forward to ``Index.search_vectors`` with
+    the model filter so vectors written under a different embedder
+    never poison the ranking.
+    """
+
+    def __init__(self, index: search.Index) -> None:
+        self._index = index
+
+    async def search(
+        self,
+        embedding: list[float],
+        model: str,
+        k: int,
+    ) -> list[IndexedRow]:
+        if not embedding:
+            return []
+        try:
+            hits = self._index.search_vectors(
+                embedding,
+                top_k=k if k > 0 else 20,
+                model=model,
+            )
+        except Exception as exc:  # noqa: BLE001
+            _log.debug("search_vectors failed: %s", exc)
+            return []
+        rows: list[IndexedRow] = []
+        for h in hits:
+            rows.append(
+                IndexedRow(
+                    path=h.path,
+                    title=h.title,
+                    summary="",
+                    content="",
+                    score=float(h.score),
+                )
+            )
+        return rows
+
+
