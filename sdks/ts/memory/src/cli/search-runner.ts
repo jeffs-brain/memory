@@ -14,15 +14,16 @@
  */
 
 import type { Embedder } from '../llm/index.js'
+import type { Reranker } from '../rerank/index.js'
 import { createRetrieval } from '../retrieval/index.js'
 import type { HybridMode } from '../retrieval/types.js'
 import { createSearchIndex, type Chunk } from '../search/index.js'
 import type { Store } from '../store/index.js'
 
-export type SearchMode = 'hybrid' | 'bm25' | 'semantic'
+export type SearchMode = 'hybrid' | 'hybrid-rerank' | 'bm25' | 'semantic'
 
 export const isSearchMode = (v: string): v is SearchMode =>
-  v === 'hybrid' || v === 'bm25' || v === 'semantic'
+  v === 'hybrid' || v === 'hybrid-rerank' || v === 'bm25' || v === 'semantic'
 
 export type SearchHit = {
   readonly id: string
@@ -37,12 +38,15 @@ const INDEXABLE_EXT = /\.(md|txt|markdown)$/i
 type SearchDeps = {
   readonly store: Store
   readonly embedder?: Embedder
+  readonly reranker?: Reranker
   readonly limit: number
   readonly mode: SearchMode
+  readonly rerank?: boolean
 }
 
 const TO_HYBRID_MODE: Record<SearchMode, HybridMode> = {
   hybrid: 'hybrid',
+  'hybrid-rerank': 'hybrid-rerank',
   bm25: 'bm25',
   semantic: 'semantic',
 }
@@ -83,15 +87,14 @@ export const runSearch = async (
     const retrieval = createRetrieval({
       index,
       ...(deps.embedder !== undefined ? { embedder: deps.embedder } : {}),
+      ...(deps.reranker !== undefined ? { reranker: deps.reranker } : {}),
     })
 
     const results = await retrieval.search({
       query,
       topK: deps.limit,
       mode: TO_HYBRID_MODE[deps.mode],
-      // Rerank is a no-op without a reranker configured; keep it off to
-      // avoid the skip-reason bookkeeping.
-      rerank: false,
+      rerank: deps.rerank ?? deps.mode === 'hybrid-rerank',
     })
 
     return results.map((r) => ({

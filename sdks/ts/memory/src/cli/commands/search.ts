@@ -3,9 +3,13 @@
 import { defineCommand } from 'citty'
 import { openBrain } from '../brain.js'
 import {
+  buildProvider,
+  buildReranker,
   CliUsageError,
   buildEmbedder,
   embedderFromEnv,
+  providerFromEnvOptional,
+  rerankerFromEnv,
   resolveBrainDir,
 } from '../config.js'
 import { isSearchMode, runSearch } from '../search-runner.js'
@@ -29,12 +33,12 @@ export const searchCommand = defineCommand({
     },
     mode: {
       type: 'string',
-      description: 'Search mode: hybrid|bm25|semantic',
+      description: 'Search mode: hybrid|hybrid-rerank|bm25|semantic',
       default: 'hybrid',
     },
     rerank: {
       type: 'boolean',
-      description: 'Apply reranking (reserved; currently a no-op)',
+      description: 'Request reranking for the selected mode when configured',
       default: false,
     },
     json: {
@@ -56,24 +60,36 @@ export const searchCommand = defineCommand({
     const modeRaw = typeof args.mode === 'string' ? args.mode : 'hybrid'
     if (!isSearchMode(modeRaw)) {
       throw new CliUsageError(
-        `search: invalid --mode '${modeRaw}'; expected hybrid|bm25|semantic`,
+        `search: invalid --mode '${modeRaw}'; expected hybrid|hybrid-rerank|bm25|semantic`,
       )
     }
     const limit = parseLimit(args.limit)
     const brainDir = resolveBrainDir(
       typeof args.brain === 'string' ? args.brain : undefined,
     )
+    const rerankerSettings = rerankerFromEnv()
+    const providerSettings =
+      rerankerSettings !== undefined ? providerFromEnvOptional() : undefined
+    const provider =
+      providerSettings !== undefined ? buildProvider(providerSettings) : undefined
     const embedderSettings = embedderFromEnv()
     const embedder =
       embedderSettings !== undefined ? buildEmbedder(embedderSettings) : undefined
+    const reranker =
+      rerankerSettings !== undefined
+        ? buildReranker(rerankerSettings, { ...(provider !== undefined ? { provider } : {}) })
+        : undefined
+    const rerankRequested = args.rerank === true || modeRaw === 'hybrid-rerank'
 
     const store = await openBrain(brainDir)
     try {
       const hits = await runSearch(query, {
         store,
         ...(embedder !== undefined ? { embedder } : {}),
+        ...(reranker !== undefined ? { reranker } : {}),
         limit,
         mode: modeRaw,
+        ...(rerankRequested ? { rerank: true } : {}),
       })
       if (args.json === true) {
         process.stdout.write(`${JSON.stringify({ query, mode: modeRaw, hits })}\n`)

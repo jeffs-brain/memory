@@ -168,6 +168,9 @@ func TestReaderPrompt_EnumerationClause(t *testing.T) {
 	for _, snippet := range []string{
 		"choose the single best-matching fact for that singular item",
 		"do not combine multiple different handbags",
+		"if any named part is missing or lacks an amount, do not return a partial total",
+		"count it once",
+		"prefer direct transactional facts over plans, budgets, broad summaries",
 	} {
 		if !strings.Contains(lower, snippet) {
 			t.Errorf("readerUserTemplate should include named-item total guidance %q", snippet)

@@ -42,6 +42,7 @@ var (
 	heuristicDurationFactRe             = regexp.MustCompile(`(?i)\b(?:\d{1,4}-day|[a-z]+-day|[a-z]+-week|[a-z]+-month|[a-z]+-year|week-long|month-long|year-long)\b`)
 	heuristicOrdinalRe                  = regexp.MustCompile(`(?i)\b(?:first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth)\b`)
 	heuristicSessionDateRe              = regexp.MustCompile(`\b\d{4}[/-]\d{2}[/-]\d{2}(?:\s+\([A-Za-z]{3}\))?(?:\s+\d{2}:\d{2}(?::\d{2})?)?\b`)
+	heuristicSessionIDRe                = regexp.MustCompile(`(?im)\bsession[_ ]id\s*[:=]\s*([A-Za-z0-9._-]+)\b`)
 	firstPersonFactRe                   = regexp.MustCompile(`(?i)\b(i|i'm|i’ve|i've|my|we|we're|we’ve|we've|our)\b`)
 	heuristicWordRe                     = regexp.MustCompile(`[A-Za-z][A-Za-z-]{2,}`)
 	heuristicMilestoneEventRe           = regexp.MustCompile(`(?i)\b(?:(?:just|recently)\s+)?(?:completed|submitted|graduated|finished|started|joined|accepted|presented)\b`)
@@ -617,6 +618,7 @@ func postProcessSessionExtractions(messages []Message, extracted []ExtractedMemo
 	}
 
 	sessionRaw, anchor, hasAnchor := deriveHeuristicSessionMetadata(messages)
+	sessionID := deriveHeuristicSessionID(messages, extracted)
 	modifiedOverride := ""
 	sessionDateISO := ""
 	datePrefix := ""
@@ -643,6 +645,10 @@ func postProcessSessionExtractions(messages []Message, extracted []ExtractedMemo
 		if shaped.SessionDate == "" {
 			shaped.SessionDate = sessionDateISO
 		}
+		if shaped.SessionID == "" {
+			shaped.SessionID = sessionID
+		}
+		shaped.Filename = RewriteHeuristicFilenameForSession(shaped.Filename, shaped.SessionID)
 		shaped.Tags = mergeTags(shaped.Tags, autoFactTags(shaped.Content))
 		out = append(out, shaped)
 	}
@@ -1234,6 +1240,29 @@ func deriveHeuristicISODate(messages []Message) string {
 func deriveHeuristicSessionAnchor(messages []Message) (time.Time, bool) {
 	_, parsed, ok := deriveHeuristicSessionMetadata(messages)
 	return parsed, ok
+}
+
+func deriveHeuristicSessionID(messages []Message, extracted []ExtractedMemory) string {
+	for _, memory := range extracted {
+		sessionID := strings.TrimSpace(memory.SessionID)
+		if sessionID != "" {
+			return sessionID
+		}
+	}
+	for _, message := range messages {
+		if message.Role != RoleSystem {
+			continue
+		}
+		match := heuristicSessionIDRe.FindStringSubmatch(message.Content)
+		if len(match) != 2 {
+			continue
+		}
+		sessionID := strings.TrimSpace(match[1])
+		if sessionID != "" {
+			return sessionID
+		}
+	}
+	return ""
 }
 
 func deriveHeuristicSessionMetadata(messages []Message) (string, time.Time, bool) {
@@ -1964,10 +1993,11 @@ func normaliseExtractedMemory(raw rawExtractedMemory) ExtractedMemory {
 	if strings.TrimSpace(raw.ModifiedOverride) != "" {
 		modifiedOverride = raw.ModifiedOverride
 	}
+	filename := RewriteHeuristicFilenameForSession(raw.Filename, sessionID)
 
 	return ExtractedMemory{
 		Action:           action,
-		Filename:         raw.Filename,
+		Filename:         filename,
 		Name:             raw.Name,
 		Description:      raw.Description,
 		Type:             memoryType,

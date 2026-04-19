@@ -192,10 +192,19 @@ describe('handleAsk reader modes', () => {
     // Enumeration guidance
     expect(prompt).toContain('When the question asks to list, count, enumerate, or total')
     expect(prompt).toContain('one per line')
+    expect(prompt).toContain('If any named part is missing or lacks an amount')
+    expect(prompt).toContain('count it once')
+    expect(prompt).toContain('prefer direct transactional facts over plans, budgets')
 
     // Temporal anchor
     expect(prompt).toContain('Today is 2024-05-26 (Sunday)')
     expect(prompt).toContain('Current Date: 2024-05-26')
+
+    // Conflict resolution and abstention guidance
+    expect(prompt).toContain('30-minute morning commute')
+    expect(prompt).toContain('combine them if the connection is explicit')
+    expect(prompt).toContain('state that clearly in the first sentence')
+    expect(prompt).toContain('the information provided is not enough to answer the question')
 
     // Evidence uses the numbered retrieve-only rendering.
     expect(prompt).toContain('Retrieved facts')
@@ -222,20 +231,25 @@ describe('handleAsk reader modes', () => {
     expect(prompt).toContain('Current Date: unknown')
   })
 
-  it('unknown readerMode value falls back to basic', async () => {
+  it('unknown readerMode value is rejected', async () => {
     const { handler, provider } = await makeFixture()
     await seedBrain(handler, 'lme')
 
-    await drainAsk(handler, {
-      question: 'where does the hedgehog live',
-      topK: 1,
-      readerMode: 'mystery',
-    })
+    const res = await handler(
+      new Request('http://local/v1/brains/lme/ask', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          question: 'where does the hedgehog live',
+          topK: 1,
+          readerMode: 'mystery',
+        }),
+      }),
+    )
 
-    const call = provider.calls[0]!
-    expect(call.request.maxTokens).toBe(1024)
-    expect(call.request.temperature).toBe(0.2)
-    expect(call.request.messages.length).toBe(2)
+    expect(res.status).toBe(400)
+    await expect(res.text()).resolves.toContain('readerMode')
+    expect(provider.calls.length).toBe(0)
   })
 
   it('ask forwards candidateK and rerankTopN to retrieval', async () => {

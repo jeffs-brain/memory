@@ -4,6 +4,7 @@ package main
 
 import (
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/jeffs-brain/memory/go/internal/httpd"
@@ -67,13 +68,23 @@ func (d *Daemon) handleSearch(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func normaliseRetrievalMode(raw string) retrieval.Mode {
+	switch mode := retrieval.Mode(strings.ToLower(strings.TrimSpace(raw))); mode {
+	case retrieval.ModeAuto,
+		retrieval.ModeBM25,
+		retrieval.ModeSemantic,
+		retrieval.ModeHybrid,
+		retrieval.ModeHybridRerank:
+		return mode
+	default:
+		return retrieval.ModeAuto
+	}
+}
+
 func (d *Daemon) runSearchPipeline(r *http.Request, br *BrainResources, req searchRequest) ([]retrieval.RetrievedChunk, *retrieval.Trace, []retrieval.Attempt, int64) {
 	if br.Retriever != nil {
 		started := time.Now()
-		mode := retrieval.Mode(req.Mode)
-		if mode == "" {
-			mode = retrieval.ModeAuto
-		}
+		mode := normaliseRetrievalMode(req.Mode)
 		resp, err := br.Retriever.Retrieve(r.Context(), retrieval.Request{
 			Query:        req.Query,
 			QuestionDate: req.QuestionDate,
