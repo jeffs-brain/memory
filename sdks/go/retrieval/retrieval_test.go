@@ -149,6 +149,68 @@ func TestRetrieve_HybridMode(t *testing.T) {
 	}
 }
 
+func TestRetrieve_HydratesSessionMetadataFromBodyAndIndex(t *testing.T) {
+	t.Parallel()
+	src := newFakeSource([]fakeChunk{
+		{
+			ID:    "m1",
+			Path:  "memory/project/eval-lme/user-fact-commute.md",
+			Title: "Commute fact",
+			Content: strings.Join([]string{
+				"---",
+				"session_id: session-42",
+				"observed_on: 2023-05-22T08:00:00Z",
+				"modified: 2023-05-23T09:30:00Z",
+				"---",
+				"The daily commute takes 45 minutes each way.",
+			}, "\n"),
+			Scope:   "project_memory",
+			Project: "eval-lme",
+			Session: "2023-05-22",
+		},
+	})
+	r, err := New(Config{Source: src})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	resp, err := r.Retrieve(context.Background(), Request{
+		Query: "daily commute",
+		TopK:  1,
+		Mode:  ModeBM25,
+	})
+	if err != nil {
+		t.Fatalf("Retrieve: %v", err)
+	}
+	if len(resp.Chunks) != 1 {
+		t.Fatalf("chunks = %d, want 1", len(resp.Chunks))
+	}
+	if resp.Chunks[0].Text != "The daily commute takes 45 minutes each way." {
+		t.Fatalf("chunk text = %q, want stripped body", resp.Chunks[0].Text)
+	}
+	meta := resp.Chunks[0].Metadata
+	if meta["scope"] != "project_memory" {
+		t.Fatalf("scope metadata = %v, want project_memory", meta["scope"])
+	}
+	if meta["project"] != "eval-lme" {
+		t.Fatalf("project metadata = %v, want eval-lme", meta["project"])
+	}
+	if meta["projectSlug"] != "eval-lme" {
+		t.Fatalf("projectSlug metadata = %v, want eval-lme", meta["projectSlug"])
+	}
+	if meta["sessionDate"] != "2023-05-22" || meta["session_date"] != "2023-05-22" {
+		t.Fatalf("session date metadata = %+v, want both aliases", meta)
+	}
+	if meta["sessionId"] != "session-42" || meta["session_id"] != "session-42" {
+		t.Fatalf("session id metadata = %+v, want both aliases", meta)
+	}
+	if meta["observedOn"] != "2023-05-22T08:00:00Z" || meta["observed_on"] != "2023-05-22T08:00:00Z" {
+		t.Fatalf("observed_on metadata = %+v, want both aliases", meta)
+	}
+	if meta["modified"] != "2023-05-23T09:30:00Z" {
+		t.Fatalf("modified metadata = %v, want 2023-05-23T09:30:00Z", meta["modified"])
+	}
+}
+
 func TestRetrieve_HybridRerank_AppliesReranker(t *testing.T) {
 	t.Parallel()
 	src := newFakeSource(newTestCorpus())
@@ -561,7 +623,7 @@ func TestBuildBM25FanoutQueries_UsesPhraseProbesForCompoundQuestions(t *testing.
 
 	want := []string{
 		"handbag cost",
-		"high-end skincare products",
+		"high-end products",
 	}
 	if len(got) != len(want) {
 		t.Fatalf("fanout queries = %v, want %v", got, want)

@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from jeffs_brain_memory.llm.fake import FakeProvider
-from jeffs_brain_memory.llm.types import Role
+from jeffs_brain_memory.llm.types import CompleteRequest, CompleteResponse, Role, StopReason
 from jeffs_brain_memory.memory import (
     EXTRACTION_PROMPT,
     ExtractedMemory,
@@ -30,6 +30,30 @@ from jeffs_brain_memory.memory import (
     sanitise_filename,
     set_slug_map_for_test,
 )
+
+
+class CapturingProvider:
+    def __init__(self, responses: list[str]) -> None:
+        self._responses = responses
+        self._idx = 0
+        self.requests: list[CompleteRequest] = []
+
+    async def complete(self, req: CompleteRequest) -> CompleteResponse:
+        self.requests.append(req)
+        text = self._responses[self._idx] if self._idx < len(self._responses) else ""
+        self._idx += 1
+        return CompleteResponse(
+            text=text,
+            stop=StopReason.END_TURN,
+            tokens_in=0,
+            tokens_out=len(text),
+        )
+
+    async def complete_stream(self, req: CompleteRequest):  # pragma: no cover
+        raise NotImplementedError
+
+    async def close(self) -> None:
+        return None
 
 
 @pytest.fixture
@@ -58,6 +82,44 @@ def test_parse_extraction_result_invalid():
 def test_parse_extraction_result_wrapped():
     raw = '```json\n{"memories": [{"filename": "x.md", "content": "hi"}]}\n```'
     assert len(parse_extraction_result(raw)) == 1
+
+
+def test_parse_extraction_result_normalises_fields():
+    raw = """
+    {
+      "memories": [
+        {
+          "action": "rewrite",
+          "filename": "test.md",
+          "name": "Test",
+          "description": "A test",
+          "type": "unknown",
+          "scope": "elsewhere",
+          "content": "hello",
+          "indexEntry": "- test",
+          "tags": ["one", 2],
+          "contextPrefix": "Session context",
+          "modified_override": "2024-03-08T10:00:00Z"
+        }
+      ]
+    }
+    """
+    result = parse_extraction_result(
+        raw,
+        default_scope="project",
+        session_id="session-a",
+        session_date="2024/03/08 (Fri) 10:00",
+    )
+    assert len(result) == 1
+    assert result[0].action == "create"
+    assert result[0].type == "project"
+    assert result[0].scope == "project"
+    assert result[0].index_entry == "- test"
+    assert result[0].tags == ["one"]
+    assert result[0].session_id == "session-a"
+    assert result[0].session_date == "2024/03/08 (Fri) 10:00"
+    assert result[0].context_prefix == "Session context"
+    assert result[0].modified_override == "2024-03-08T10:00:00Z"
 
 
 def test_has_memory_writes_none():
@@ -255,10 +317,72 @@ async def test_extract_from_messages_returns_parsed(iso):
     assert out[0].content == "x"
 
 
+@pytest.mark.asyncio
+async def test_extract_from_messages_includes_existing_memory_summaries_and_zero_temperature(
+    iso,
+):
+    store = MemStore()
+    mem = MemoryManager(store)
+    slug = project_slug("/p")
+    long_body = "Use OIDC with a stable issuer URL and PKCE for browser flows. " * 8
+    preview = " ".join(long_body.split())[:220] + "..."
+    store.write(
+        memory_global_topic("feedback-testing"),
+        (
+            "---\n"
+            "name: Testing feedback\n"
+            "description: Prefer integration tests\n"
+            "type: feedback\n"
+            "modified: 2026-04-18T10:00:00Z\n"
+            "---\n\n"
+            "Prefer integration tests over snapshots.\n"
+        ).encode("utf-8"),
+    )
+    store.write(
+        memory_project_topic(slug, "project-auth"),
+        (
+            "---\n"
+            "name: Auth choice\n"
+            "description: Use OIDC for auth\n"
+            "type: project\n"
+            "modified: 2026-04-18T11:00:00Z\n"
+            "---\n\n"
+            f"{long_body}\n"
+        ).encode("utf-8"),
+    )
+    store.write(memory_project_index(slug), b"- ignore generated index\n")
+    provider = CapturingProvider(['{"memories": []}'])
+
+    await extract_from_messages(
+        provider,
+        "m",
+        mem,
+        "/p",
+        [
+            Message(role=Role.USER, content="a"),
+            Message(role=Role.ASSISTANT, content="b"),
+        ],
+    )
+
+    assert len(provider.requests) == 1
+    req = provider.requests[0]
+    assert req.temperature == 0
+    prompt = req.messages[1].content
+    assert "## Existing memories" in prompt
+    assert "### [project] project-auth.md" in prompt
+    assert "### [global] feedback-testing.md" in prompt
+    assert "Prefer integration tests over snapshots." in prompt
+    assert f"content: {preview}" in prompt
+    assert "MEMORY.md" not in prompt
+    assert "Memory directory:" not in prompt
+
+
 def test_extraction_prompt_includes_scope_rules():
     # Basic sanity that the verbatim prompt is preserved.
     assert "Memory types:" in EXTRACTION_PROMPT
     assert "You MUST respond with ONLY a JSON object." in EXTRACTION_PROMPT
+    assert "Preserve concrete historical facts exactly when they matter." in EXTRACTION_PROMPT
+    assert "for user and reference memories: direct factual prose" in EXTRACTION_PROMPT
 
 
 @pytest.mark.asyncio
@@ -275,23 +399,26 @@ async def test_extract_from_messages_adds_heuristic_user_fact_for_quantified_upd
         [
             Message(
                 role=Role.SYSTEM,
-                content="This conversation took place on 2023/07/15 (Sat) 22:42.",
+                content="This conversation took place on 2023/05/22 (Mon) 19:18.",
             ),
             Message(
                 role=Role.USER,
-                content="I've been reading about the Amazon rainforest and its indigenous communities in National Geographic, and I just finished my fifth issue.",
+                content="I'm thinking of getting a tune-up. My car was getting 30 miles per gallon in the city a few months ago.",
             ),
             Message(role=Role.ASSISTANT, content="That sounds fascinating."),
         ],
         session_id="session-a",
-        session_date="2023/07/15 (Sat) 22:42",
+        session_date="2023/05/22 (Mon) 19:18",
     )
 
-    heuristic = next((memory for memory in out if "fifth issue" in memory.content), None)
+    heuristic = next(
+        (memory for memory in out if "30 miles per gallon" in memory.content),
+        None,
+    )
     assert heuristic is not None
     assert heuristic.scope == "global"
     assert heuristic.type == "user"
-    assert "user-fact-2023-07-15-session-a" in heuristic.filename
+    assert "user-fact-2023-05-22-session-a" in heuristic.filename
 
 
 @pytest.mark.asyncio
@@ -505,6 +632,39 @@ async def test_extract_from_messages_adds_pending_task_fact_without_event_drift(
 
 
 @pytest.mark.asyncio
+async def test_extract_from_messages_does_not_infer_pending_task_from_generic_advice_question(
+    iso,
+):
+    store = MemStore()
+    mem = MemoryManager(store)
+    provider = FakeProvider(['{"memories": []}'])
+
+    out = await extract_from_messages(
+        provider,
+        "m",
+        mem,
+        "/p",
+        [
+            Message(
+                role=Role.USER,
+                content="Can you tell me what are some things I should consider before making an offer?",
+            ),
+            Message(
+                role=Role.ASSISTANT,
+                content="I can walk you through the main factors to check.",
+            ),
+        ],
+        session_id="session-offer",
+        session_date="2022/03/02 (Wed) 04:59",
+    )
+
+    assert not any(
+        "still needs to consider before making an offer" in memory.content
+        for memory in out
+    )
+
+
+@pytest.mark.asyncio
 async def test_extract_from_messages_adds_heuristic_preference_fact(iso):
     store = MemStore()
     mem = MemoryManager(store)
@@ -537,13 +697,21 @@ async def test_extract_from_messages_adds_heuristic_preference_fact(iso):
         (
             memory
             for memory in out
-            if "user-preference-2023-07-14-session-c" in memory.filename
+            if "The user prefers films with these constraints" in memory.content
         ),
         None,
     )
     assert heuristic is not None
+    assert heuristic.description
+    assert "family-friendly" in heuristic.description
+    assert "light-hearted" in heuristic.description
+    assert "under 100 minutes" in heuristic.description
     assert "family-friendly" in heuristic.content
     assert "without gore" in heuristic.content
+    assert "recommendation" in heuristic.tags
+    assert "entertainment" in heuristic.tags
+    assert "film" in heuristic.tags
+    assert "tonight" in heuristic.tags
 
 
 @pytest.mark.asyncio

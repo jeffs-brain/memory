@@ -11,7 +11,7 @@ import re
 import threading
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from ..llm.provider import Provider
 from ..llm.types import CompleteRequest
@@ -35,16 +35,18 @@ from .paths import (
     project_slug as _project_slug,
 )
 from .store import parse_frontmatter
-from .types import Message, TopicFile, messages_as_llm
+from .types import Message, TopicFile
 
 if TYPE_CHECKING:
     from .contextualise import Contextualiser
     from .manager import MemoryManager
 
 EXTRACT_MAX_TOKENS = 4096
-EXTRACT_TEMPERATURE = 0.2
+EXTRACT_TEMPERATURE = 0
 EXTRACT_MIN_MESSAGES = 6
 EXTRACT_MAX_RECENT = 40
+EXISTING_MEMORY_LIMIT = 12
+EXISTING_MEMORY_PREVIEW_LIMIT = 220
 
 DATE_TAG_RE = re.compile(r"\b\d{4}[-/]\d{2}[-/]\d{2}\b")
 WEEKDAY_TAG_RE = re.compile(
@@ -299,6 +301,14 @@ You MUST respond with ONLY a JSON object. Do NOT call tools, do NOT write prose.
 
 Both speakers contribute durable knowledge. Treat user turns and assistant turns as equally valid sources of facts. Capture everything the user stated AND everything the assistant provided: recommendations (restaurants, hotels, shops, books), specific named suggestions, recipes, itineraries, enumerated lists or rankings the assistant gave, answers the assistant produced, corrections the assistant issued, plans the assistant proposed, colours or attributes the assistant described, and any quantities or dates the assistant cited. If the assistant enumerated items (a list of jobs, options, steps, or candidates), save the full enumeration verbatim including positions where relevant. When in doubt, extract both sides.
 
+Preserve concrete historical facts exactly when they matter. Keep explicit user experiences, measurements, comparisons, relatives, places, and time references in the memory content instead of flattening them into a vague preference or goal. Examples:
+- "My car was getting 30 miles per gallon in the city a few months ago." should preserve the 30 miles per gallon fact and timeframe.
+- "I went on a two-week trip to Europe with my parents and younger brother last month." should preserve the trip, relatives, destination, and timeframe.
+- "I've been sticking to my daily tidying routine for 4 weeks." should preserve the duration as a concrete user fact.
+- If the conversation also reveals a broader preference, keep the concrete event as well rather than replacing it.
+
+When a user states a concrete personal measurement, duration, past event, or status update, create a separate user memory for that fact even if the rest of the session is mostly recommendations, troubleshooting, or planning.
+
 Memory types:
 - user: User's role, preferences, knowledge level, working style
 - feedback: Corrections or confirmations about approach (what to avoid or keep doing)
@@ -345,7 +355,9 @@ For each memory worth saving, output:
 - description: one-line description (used for future recall)
 - type: user | feedback | project | reference
 - scope: "global" or "project" (default to "project" if unsure)
-- content: the memory content (structured with Why: and How to apply: lines for feedback/project types)
+- content:
+  - for user and reference memories: direct factual prose that preserves the exact people, places, dates, relative time phrases, quantities, and historical events from the conversation. Prefer concrete statements over generic advice.
+  - for feedback and project memories: structured with Why: and How to apply: lines
 - index_entry: one-line entry for MEMORY.md (under 150 chars)
 - supersedes (optional): when the user has corrected, updated, or contradicted an earlier stated fact for the same topic, set this to the filename of the earlier memory so it is retired. Only fill when you are confident the new fact replaces a specific older one; prefer leaving empty when unsure.
 
@@ -379,6 +391,17 @@ class ExtractedMemory:
 class HeuristicPreferenceCandidate:
     summary: str
     evidence: str
+
+
+@dataclass(slots=True)
+class ExistingMemorySummary:
+    path: str
+    scope: str
+    name: str
+    description: str
+    type: str
+    modified: str = ""
+    content: str = ""
 
 
 class Extractor:
@@ -437,14 +460,12 @@ class Extractor:
             if len(recent) > EXTRACT_MAX_RECENT:
                 recent = recent[-EXTRACT_MAX_RECENT:]
 
-            project_topics = self._mem.list_project_topics(project_path)
-            global_topics = self._mem.list_global_topics()
-            manifest = build_manifests(project_topics, global_topics)
+            try:
+                existing_memories = list_existing_memories(self._mem, slug)
+            except Exception:
+                existing_memories = []
 
-            mem_dir_display = memory_project_prefix(slug)
-            if phys_hints:
-                mem_dir_display = phys_hints[-1]
-            user_prompt = extract_user_prompt(recent, manifest, mem_dir_display)
+            user_prompt = extract_user_prompt(recent, existing_memories)
 
             try:
                 resp = await provider.complete(
@@ -461,7 +482,12 @@ class Extractor:
             except Exception:
                 return
 
-            parsed = parse_extraction_result(resp.text)
+            parsed = parse_extraction_result(
+                resp.text,
+                default_scope="project",
+                session_id=session_id,
+                session_date=session_date,
+            )
             result = _post_process_session_extractions(
                 recent,
                 parsed,
@@ -509,13 +535,12 @@ async def extract_from_messages(
     if len(recent) > EXTRACT_MAX_RECENT:
         recent = recent[-EXTRACT_MAX_RECENT:]
 
-    project_topics = mem.list_project_topics(project_path)
-    global_topics = mem.list_global_topics()
-    manifest = build_manifests(project_topics, global_topics)
-
     slug = _project_slug(project_path)
-    mem_dir_display = memory_project_prefix(slug)
-    user_prompt = extract_user_prompt(recent, manifest, mem_dir_display)
+    try:
+        existing_memories = list_existing_memories(mem, slug)
+    except Exception:
+        existing_memories = []
+    user_prompt = extract_user_prompt(recent, existing_memories)
 
     resp = await provider.complete(
         CompleteRequest(
@@ -528,7 +553,12 @@ async def extract_from_messages(
             temperature=EXTRACT_TEMPERATURE,
         )
     )
-    parsed = parse_extraction_result(resp.text)
+    parsed = parse_extraction_result(
+        resp.text,
+        default_scope="project",
+        session_id=session_id,
+        session_date=session_date,
+    )
     return _post_process_session_extractions(
         recent,
         parsed,
@@ -538,16 +568,26 @@ async def extract_from_messages(
 
 
 def extract_user_prompt(
-    messages: list[Message], existing_manifest: str, mem_dir_display: str
+    messages: list[Message],
+    existing_memories: list[ExistingMemorySummary],
 ) -> str:
     parts: list[str] = []
-    if existing_manifest:
-        parts.append("## Existing memory files\n\n" + existing_manifest)
-        parts.append(
-            "Check this list before writing \u2014 update an existing file rather than creating a duplicate.\n"
-        )
+    if existing_memories:
+        parts.extend(["## Existing memories", ""])
+        for memory in existing_memories:
+            parts.append(f"### [{memory.scope}] {base_name(memory.path)}")
+            if memory.name != "":
+                parts.append(f"name: {memory.name}")
+            if memory.description != "":
+                parts.append(f"description: {memory.description}")
+            if memory.type != "":
+                parts.append(f"type: {memory.type}")
+            if memory.modified != "":
+                parts.append(f"modified: {memory.modified}")
+            if memory.content != "":
+                parts.append(f"content: {memory.content}")
+            parts.append("")
     parts.append("## Recent conversation\n")
-    lines: list[str] = []
     for m in messages:
         role = _role_value(m.role)
         content = m.content
@@ -556,15 +596,71 @@ def extract_user_prompt(
         if m.role == Role.TOOL:
             if len(content) > 300:
                 content = content[:300] + "..."
-            lines.append(f"[{role} ({m.name})]: {content}\n")
+            parts.append(f"[{role} ({m.name})]: {content}\n")
             continue
-        lines.append(f"[{role}]: {content}\n")
-    parts.append("\n".join(lines))
-    parts.append(f"\nMemory directory: {mem_dir_display}\n")
+        parts.append(f"[{role}]: {content}\n")
     return "\n".join(parts)
 
 
-def parse_extraction_result(content: str) -> list[ExtractedMemory]:
+def list_existing_memories(
+    mem: "MemoryManager",
+    project_slug: str,
+) -> list[ExistingMemorySummary]:
+    summaries: list[ExistingMemorySummary] = []
+    for scope, prefix in (
+        ("global", memory_global_prefix()),
+        ("project", memory_project_prefix(project_slug)),
+    ):
+        for entry in mem.store.list(prefix, ListOpts(recursive=True)):
+            if entry.is_dir:
+                continue
+            filename = base_name(entry.path)
+            if not filename.endswith(".md") or filename == "MEMORY.md":
+                continue
+            try:
+                raw = mem.store.read(entry.path)
+            except NotFoundError:
+                continue
+            frontmatter, body = parse_frontmatter(raw.decode("utf-8"))
+            summaries.append(
+                ExistingMemorySummary(
+                    path=entry.path,
+                    scope=scope,
+                    name=frontmatter.name.strip(),
+                    description=frontmatter.description.strip(),
+                    type=frontmatter.type.strip(),
+                    modified=frontmatter.modified.strip(),
+                    content=truncate_prompt_content(body),
+                )
+            )
+    summaries.sort(
+        key=lambda summary: (
+            -memory_summary_timestamp(summary.modified),
+            summary.path,
+        )
+    )
+    return summaries[:EXISTING_MEMORY_LIMIT]
+
+
+def truncate_prompt_content(content: str) -> str:
+    collapsed = " ".join(content.split())
+    if len(collapsed) <= EXISTING_MEMORY_PREVIEW_LIMIT:
+        return collapsed
+    return f"{collapsed[:EXISTING_MEMORY_PREVIEW_LIMIT]}..."
+
+
+def memory_summary_timestamp(value: str) -> float:
+    parsed = parse_rfc3339(value)
+    return parsed.timestamp() if parsed is not None else 0.0
+
+
+def parse_extraction_result(
+    content: str,
+    *,
+    default_scope: str = "project",
+    session_id: str = "",
+    session_date: str = "",
+) -> list[ExtractedMemory]:
     content = content.strip()
     start = content.find("{")
     if start >= 0:
@@ -583,33 +679,66 @@ def parse_extraction_result(content: str) -> list[ExtractedMemory]:
         if not isinstance(item, dict):
             continue
         out.append(
-            ExtractedMemory(
-                action=str(item.get("action", "")),
-                filename=str(item.get("filename", "")),
-                name=str(item.get("name", "")),
-                description=str(item.get("description", "")),
-                type=str(item.get("type", "")),
-                content=str(item.get("content", "")),
-                index_entry=str(item.get("indexEntry") or item.get("index_entry", "")),
-                scope=str(item.get("scope", "")),
-                supersedes=str(item.get("supersedes", "")),
-                tags=(
-                    [str(t) for t in item.get("tags", [])]
-                    if isinstance(item.get("tags", []), list)
-                    else []
-                ),
-                session_id=str(item.get("sessionId") or item.get("session_id", "")),
-                observed_on=str(item.get("observedOn") or item.get("observed_on", "")),
-                session_date=str(item.get("sessionDate") or item.get("session_date", "")),
-                context_prefix=str(
-                    item.get("contextPrefix") or item.get("context_prefix", "")
-                ),
-                modified_override=str(
-                    item.get("modifiedOverride") or item.get("modified_override", "")
-                ),
+            normalise_extracted_memory(
+                item,
+                default_scope=default_scope,
+                session_id=session_id,
+                session_date=session_date,
             )
         )
     return out
+
+
+def normalise_extracted_memory(
+    raw: dict[str, Any],
+    *,
+    default_scope: str,
+    session_id: str,
+    session_date: str,
+) -> ExtractedMemory:
+    scope = _string_field(raw, "scope")
+    if scope not in {"global", "project"}:
+        scope = default_scope
+
+    action = _string_field(raw, "action")
+    if action not in {"create", "update"}:
+        action = "create"
+
+    memory_type = _string_field(raw, "type")
+    if memory_type not in {"user", "feedback", "project", "reference"}:
+        memory_type = "project"
+
+    tags_value = raw.get("tags", [])
+    tags = [tag for tag in tags_value if isinstance(tag, str)] if isinstance(tags_value, list) else []
+
+    return ExtractedMemory(
+        action=action,
+        filename=_string_field(raw, "filename"),
+        name=_string_field(raw, "name"),
+        description=_string_field(raw, "description"),
+        type=memory_type,
+        content=_string_field(raw, "content"),
+        index_entry=_string_field(raw, "indexEntry") or _string_field(raw, "index_entry"),
+        scope=scope,
+        supersedes=_string_field(raw, "supersedes"),
+        tags=tags,
+        session_id=_string_field(raw, "sessionId")
+        or _string_field(raw, "session_id")
+        or session_id,
+        observed_on=_string_field(raw, "observedOn") or _string_field(raw, "observed_on"),
+        session_date=_string_field(raw, "sessionDate")
+        or _string_field(raw, "session_date")
+        or session_date,
+        context_prefix=_string_field(raw, "contextPrefix")
+        or _string_field(raw, "context_prefix"),
+        modified_override=_string_field(raw, "modifiedOverride")
+        or _string_field(raw, "modified_override"),
+    )
+
+
+def _string_field(raw: dict[str, Any], key: str) -> str:
+    value = raw.get(key)
+    return value if isinstance(value, str) else ""
 
 
 def has_memory_writes(messages: list[Message], *mem_dirs: str) -> bool:
@@ -663,6 +792,14 @@ def _post_process_session_extractions(
         )
     )
     combined.extend(
+        derive_heuristic_preference_facts(
+            messages,
+            combined,
+            session_id=session_id,
+            session_date=session_date,
+        )
+    )
+    combined.extend(
         derive_heuristic_pending_facts(
             messages,
             combined,
@@ -680,14 +817,6 @@ def _post_process_session_extractions(
     )
     combined.extend(
         derive_heuristic_milestone_facts(
-            messages,
-            combined,
-            session_id=session_id,
-            session_date=session_date,
-        )
-    )
-    combined.extend(
-        derive_heuristic_preference_facts(
             messages,
             combined,
             session_id=session_id,
@@ -845,16 +974,25 @@ def parse_date_input(value: str) -> datetime | None:
             return datetime.strptime(value, fmt).replace(tzinfo=timezone.utc)
         except ValueError:
             continue
-    return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
 
 
 def parse_rfc3339(value: str) -> datetime | None:
     if value.strip() == "":
         return None
     try:
-        return datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
     except ValueError:
         return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
 
 
 def resolve_heuristic_observed_on(
@@ -935,11 +1073,14 @@ def auto_fact_tags(content: str) -> list[str]:
         return []
     body = content[:4096]
     seen: set[str] = set()
+    out: list[str] = []
 
     def add(value: str) -> None:
         tag = value.strip()
-        if tag:
-            seen.add(tag)
+        if tag == "" or tag in seen:
+            return
+        seen.add(tag)
+        out.append(tag)
 
     for match in DATE_TAG_RE.findall(body):
         add(match)
@@ -948,7 +1089,11 @@ def auto_fact_tags(content: str) -> list[str]:
             add(weekday_name(parsed))
             add(month_name(parsed))
     for match in WEEKDAY_TAG_RE.findall(body):
-        add(match.capitalize())
+        add(match[:1].upper() + match[1:].lower())
+    for match in RELATIVE_TEMPORAL_TAG_RE.findall(body):
+        add(match.lower())
+    for match in CLOCK_TIME_TAG_RE.findall(body):
+        add(match.lower())
     for match in MONEY_TAG_RE.findall(body):
         add(match)
     for quantity, unit in UNIT_QUANTITY_TAG_RE.findall(body):
@@ -958,7 +1103,40 @@ def auto_fact_tags(content: str) -> list[str]:
     for match in PROPER_NOUN_TAG_RE.findall(body):
         if len(match) >= 3 and match.lower() not in AUTO_TAG_STOP_NOUNS:
             add(match)
-    return list(seen)
+    for match in PENDING_ACTION_TAG_RE.findall(body):
+        add(match.lower())
+    for match in MEDICAL_TAG_RE.findall(body):
+        add(match.lower())
+    for match in EVENT_TAG_RE.findall(body):
+        add(match.lower())
+    for match in ENTERTAINMENT_TAG_RE.findall(body):
+        add(match.lower())
+    if HEURISTIC_PENDING_ACTION_LEAD_RE.search(body) or re.search(
+        r"\b(?:pick\s+up|drop\s+off|return|exchange|collect|book|schedule|renew|cancel|follow\s+up)\b",
+        body,
+        re.I,
+    ):
+        add("pending")
+        add("task")
+    if HEURISTIC_APPOINTMENT_RE.search(body):
+        add("appointment")
+    if HEURISTIC_MEDICAL_ENTITY_RE.search(body) or re.search(
+        r"\b(?:clinic|hospital|prescription)\b",
+        body,
+        re.I,
+    ):
+        add("medical")
+    if HEURISTIC_EVENT_RE.search(body):
+        add("event")
+    if HEURISTIC_RECOMMENDATION_REQUEST_RE.search(body):
+        add("recommendation")
+    if re.search(
+        r"\b(?:film|movie|show|series|book|novel|game|podcast|cinema)\b",
+        body,
+        re.I,
+    ):
+        add("entertainment")
+    return out
 
 
 def build_existing_memory_text_set(existing: list[ExtractedMemory]) -> set[str]:
@@ -1149,7 +1327,7 @@ def derive_heuristic_user_facts(
 ) -> list[ExtractedMemory]:
     out: list[ExtractedMemory] = []
     seen = build_existing_memory_text_set(existing)
-    iso = short_iso_date(parse_session_date_rfc3339(session_date)) or derive_heuristic_iso_date(messages)
+    iso = short_iso_date(parse_session_date_rfc3339(session_date))
     anchor = parse_date_input(session_date)
     for message in messages:
         if message.role != Role.USER:
@@ -1199,7 +1377,7 @@ def derive_heuristic_milestone_facts(
 ) -> list[ExtractedMemory]:
     out: list[ExtractedMemory] = []
     seen = build_existing_memory_text_set(existing)
-    iso = short_iso_date(parse_session_date_rfc3339(session_date)) or derive_heuristic_iso_date(messages)
+    iso = short_iso_date(parse_session_date_rfc3339(session_date))
     anchor = parse_date_input(session_date)
     for message in messages:
         if message.role != Role.USER:
@@ -1245,7 +1423,7 @@ def derive_heuristic_pending_facts(
 ) -> list[ExtractedMemory]:
     out: list[ExtractedMemory] = []
     seen = build_existing_memory_text_set(existing)
-    iso = short_iso_date(parse_session_date_rfc3339(session_date)) or derive_heuristic_iso_date(messages)
+    iso = short_iso_date(parse_session_date_rfc3339(session_date))
     for message in messages:
         if message.role != Role.USER:
             continue
@@ -1290,7 +1468,7 @@ def derive_heuristic_event_facts(
 ) -> list[ExtractedMemory]:
     out: list[ExtractedMemory] = []
     seen = build_existing_memory_text_set(existing)
-    iso = short_iso_date(parse_session_date_rfc3339(session_date)) or derive_heuristic_iso_date(messages)
+    iso = short_iso_date(parse_session_date_rfc3339(session_date))
     anchor = parse_date_input(session_date)
     for message in messages:
         if message.role != Role.USER:
@@ -1347,7 +1525,7 @@ def derive_heuristic_preference_facts(
             summary = heuristic_preference_summary(memory.content).lower()
             if summary:
                 seen.add(summary)
-    iso = short_iso_date(parse_session_date_rfc3339(session_date)) or derive_heuristic_iso_date(messages)
+    iso = short_iso_date(parse_session_date_rfc3339(session_date))
     for message in messages:
         if message.role != Role.USER:
             continue
@@ -1382,7 +1560,12 @@ def derive_heuristic_preference_facts(
 
 
 def split_into_fact_sentences(content: str) -> list[str]:
-    return [part.strip() for part in re.split(r"[\n\r.!?]+", content) if part.strip()]
+    normalised = content.replace("\r\n", "\n").replace("\r", "\n")
+    return [
+        part.strip()
+        for part in re.split(r"[\n]+|(?<=[.!?])\s+", normalised)
+        if part.strip()
+    ]
 
 
 def has_quantified_fact(sentence: str) -> bool:
@@ -1393,7 +1576,6 @@ def has_quantified_fact(sentence: str) -> bool:
         or MONTH_NAME_DATE_RE.search(sentence)
         or HEURISTIC_DURATION_FACT_RE.search(sentence)
         or QUANTITY_TAG_RE.search(sentence)
-        or re.search(r"\b(first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth)\b", sentence, re.I)
     )
 
 
@@ -1423,19 +1605,6 @@ def build_heuristic_filename(prefix: str, iso: str, session_id: str, slug: str) 
         parts.append(sanitise_heuristic_file_segment(session_id))
     parts.append(slug)
     return "-".join(parts) + ".md"
-
-
-def derive_heuristic_iso_date(messages: list[Message]) -> str:
-    for message in messages:
-        if message.role != Role.SYSTEM:
-            continue
-        matched = HEURISTIC_SESSION_DATE_RE.search(message.content)
-        if matched is None:
-            continue
-        parsed = parse_date_input(matched.group(0))
-        if parsed is not None:
-            return parsed.strftime("%Y-%m-%d")
-    return ""
 
 
 def build_heuristic_preference_candidates(content: str) -> list[HeuristicPreferenceCandidate]:

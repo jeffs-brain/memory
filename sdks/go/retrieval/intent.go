@@ -18,22 +18,26 @@ import (
 // TS surface behaviour for every curated pattern.
 
 var (
-	preferenceQueryRe         = regexp.MustCompile(`(?i)\b(?:recommend|suggest|recommendation|suggestion|tips?|advice|ideas?|what should i|which should i)\b`)
-	enumerationOrTotalQueryRe = regexp.MustCompile(`(?i)\b(?:how many|count|total|in total|sum|add up|list|what are all)\b`)
-	propertyLookupQueryRe     = regexp.MustCompile(`(?i)\b(?:how long is my|what specific|which specific|what exact|which exact)\b`)
+	preferenceQueryRe             = regexp.MustCompile(`(?i)\b(?:recommend|suggest|recommendation|suggestion|tips?|advice|ideas?|what should i|which should i)\b`)
+	enumerationOrTotalQueryRe     = regexp.MustCompile(`(?i)\b(?:how many|count|total|in total|sum|add up|list|what are all)\b`)
+	propertyLookupQueryRe         = regexp.MustCompile(`(?i)\b(?:how long is my|what specific|which specific|what exact|which exact)\b`)
 	specificRecommendationQueryRe = regexp.MustCompile(`(?i)\b(?:specific|exact)\b`)
-	firstPersonFactLookupRe   = regexp.MustCompile(`(?i)\b(?:did i|have i|was i|were i)\b`)
-	factLookupVerbRe          = regexp.MustCompile(`(?i)\b(?:pick(?:ed)? up|bought|ordered|spent|earned|sold|drove|travelled|traveled|watched|visited|completed|finished|submitted|booked)\b`)
-	moneyEventQueryRe         = regexp.MustCompile(`(?i)\b(?:spent|spend|cost|costed|paid|pay)\b`)
-	preferenceNoteRe          = regexp.MustCompile(`(?i)\b(?:prefer(?:s|red)?|like(?:s|d)?|love(?:s|d)?|want(?:s|ed)?|need(?:s|ed)?|avoid(?:s|ed)?|dislike(?:s|d)?|hate(?:s|d)?|enjoy(?:s|ed)?|interested in|looking for)\b`)
-	genericNoteRe             = regexp.MustCompile(`(?i)\b(?:tips?|advice|suggest(?:ion|ed)?s?|recommend(?:ation|ed)?s?|ideas?|options?|guide|tracking|tracker|checklist)\b`)
-	rollupNoteRe              = regexp.MustCompile(`(?i)\b(?:roll-?up|summary|recap|overview|aggregate|combined|overall|in total|totalled?|totalling)\b`)
-	atomicEventNoteRe         = regexp.MustCompile(`(?i)\b(?:i|we)\s+(?:picked up|bought|ordered|spent|earned|sold|drove|travelled|traveled|went|watched|visited|completed|finished|started|booked|got|took|submitted)\b`)
-	dateTagRe                 = regexp.MustCompile(`(?i)\[(?:date|observed on):`)
-	questionLikeNoteRe        = regexp.MustCompile(`(?i)(?:^|\n)(?:what\s+(?:are|is|should|could)|which\s+(?:should|would)|how\s+(?:can|should|could|long)|can\s+you|could\s+you|should\s+i|would\s+you|when\s+did|where\s+(?:can|should)|why\s+(?:is|does|did))\b`)
-	durationQueryRe           = regexp.MustCompile(`(?i)\bhow long\b`)
-	bodyAbsoluteDateRe        = regexp.MustCompile(`(?i)\b(?:january|february|march|april|may|june|july|august|september|october|november|december)\s+\d{1,2}(?:st|nd|rd|th)?\b`)
-	measurementValueRe        = regexp.MustCompile(`(?i)\b\d+(?:\.\d+)?(?:\s*-\s*\d+(?:\.\d+)?)?(?:\s+|-)(?:minutes?|hours?|days?|weeks?|months?|years?)\b`)
+	firstPersonFactLookupRe       = regexp.MustCompile(`(?i)\b(?:did i|have i|was i|were i)\b`)
+	firstPersonConcreteQueryRe    = regexp.MustCompile(`(?i)\b(?:my|me|i)\b`)
+	factLookupVerbRe              = regexp.MustCompile(`(?i)\b(?:pick(?:ed)? up|bought|ordered|spent|earned|sold|drove|travelled|traveled|watched|visited|completed|finished|submitted|booked)\b`)
+	moneyEventQueryRe             = regexp.MustCompile(`(?i)\b(?:spent|spend|cost|costed|paid|pay)\b`)
+	preferenceNoteRe              = regexp.MustCompile(`(?i)\b(?:prefer(?:s|red)?|like(?:s|d)?|love(?:s|d)?|want(?:s|ed)?|need(?:s|ed)?|avoid(?:s|ed)?|dislike(?:s|d)?|hate(?:s|d)?|enjoy(?:s|ed)?|interested in|looking for)\b`)
+	genericNoteRe                 = regexp.MustCompile(`(?i)\b(?:tips?|advice|suggest(?:ion|ed)?s?|recommend(?:ation|ed)?s?|ideas?|options?|guide|tracking|tracker|checklist)\b`)
+	rollupNoteRe                  = regexp.MustCompile(`(?i)\b(?:roll-?up|summary|recap|overview|aggregate|combined|overall|in total|totalled?|totalling)\b`)
+	atomicEventNoteRe             = regexp.MustCompile(`(?i)\b(?:i|we)\s+(?:picked up|bought|ordered|spent|earned|sold|drove|travelled|traveled|went|watched|visited|completed|finished|started|booked|got|took|submitted)\b`)
+	dateTagRe                     = regexp.MustCompile(`(?i)\[(?:date|observed on):`)
+	questionLikeNoteRe            = regexp.MustCompile(`(?i)(?:^|\n)(?:what\s+(?:are|is|should|could)|which\s+(?:should|would)|how\s+(?:can|should|could|long)|can\s+you|could\s+you|should\s+i|would\s+you|when\s+did|where\s+(?:can|should)|why\s+(?:is|does|did))\b`)
+	durationQueryRe               = regexp.MustCompile(`(?i)\bhow long\b`)
+	bodyAbsoluteDateRe            = regexp.MustCompile(`(?i)\b(?:january|february|march|april|may|june|july|august|september|october|november|december)\s+\d{1,2}(?:st|nd|rd|th)?\b`)
+	measurementValueRe            = regexp.MustCompile(`(?i)\b\d+(?:\.\d+)?(?:\s*-\s*\d+(?:\.\d+)?)?(?:\s+|-)(?:minutes?|hours?|days?|weeks?|months?|years?)\b`)
+	routineScopeQueryRe           = regexp.MustCompile(`(?i)\b(?:daily|every|weekday|each way)\b`)
+	routineScopeNoteRe            = regexp.MustCompile(`(?i)\b(?:daily commute|every day|every weekday|weekday|weekdays|each way)\b`)
+	segmentQualifierNoteRe        = regexp.MustCompile(`(?i)\b(?:morning commute|often|some days?|sometimes|around)\b`)
 )
 
 // retrievalIntent captures the outcome of the regex-driven intent
@@ -66,8 +70,20 @@ func detectRetrievalIntent(query string) retrievalIntent {
 		preferenceQuery: preferenceQueryRe.MatchString(normalised),
 		concreteFactQuery: enumerationOrTotalQueryRe.MatchString(normalised) ||
 			propertyLookupQueryRe.MatchString(normalised) ||
+			len(deriveActionDateProbes(query)) > 0 ||
+			hasSpecificRecallCue(normalised) ||
 			(firstPersonFactLookupRe.MatchString(normalised) && factLookupVerbRe.MatchString(normalised)),
 	}
+}
+
+func hasSpecificRecallCue(normalisedQuery string) bool {
+	if normalisedQuery == "" {
+		return false
+	}
+	if !strings.Contains(normalisedQuery, "remind me") && !strings.Contains(normalisedQuery, "remember") {
+		return false
+	}
+	return strings.Contains(normalisedQuery, "the specific") || strings.Contains(normalisedQuery, "the exact")
 }
 
 // reweightSharedMemoryRanking applies multiplicative score adjustments
@@ -105,7 +121,7 @@ func reweightSharedMemoryRanking(query string, results []RetrievedChunk) []Retri
 	for i, c := range copied {
 		out[i] = c.chunk
 	}
-	return out
+	return diversifyCompositeConcreteRanking(query, out)
 }
 
 func retrievalIntentMultiplier(intent retrievalIntent, query string, r RetrievedChunk) float64 {
@@ -116,6 +132,8 @@ func retrievalIntentMultiplier(intent retrievalIntent, query string, r Retrieved
 	}
 	if intent.concreteFactQuery {
 		multiplier *= concreteFactIntentMultiplier(query, r, text)
+		multiplier *= focusAlignedConcreteFactMultiplier(query, text)
+		multiplier *= firstPersonConcreteFactMultiplier(query, r, text)
 	}
 	return multiplier
 }
@@ -151,8 +169,12 @@ func concreteFactIntentMultiplier(query string, r RetrievedChunk, text string) f
 	if isConcreteFact {
 		multiplier *= 2.2
 	}
-	if len(deriveActionDateProbes(query)) > 0 && bodyAbsoluteDateRe.MatchString(text) {
-		multiplier *= 1.45
+	if len(deriveActionDateProbes(query)) > 0 {
+		if bodyAbsoluteDateRe.MatchString(text) {
+			multiplier *= 1.45
+		} else {
+			multiplier *= 0.78
+		}
 	}
 	if durationQueryRe.MatchString(query) {
 		if measurementValueRe.MatchString(text) {
@@ -171,6 +193,175 @@ func concreteFactIntentMultiplier(query string, r RetrievedChunk, text string) f
 		multiplier *= 0.75
 	}
 	return multiplier
+}
+
+func focusAlignedConcreteFactMultiplier(query, text string) float64 {
+	phrases := derivePrioritySubQueries(query)
+	if len(phrases) == 0 {
+		phrases = filteredPhraseProbes(query)
+	}
+	if len(phrases) == 0 {
+		return 1.0
+	}
+
+	loweredText := normaliseFocusAlignmentText(text)
+	best := 0.0
+	for _, phrase := range phrases {
+		if score := focusAlignmentScore(loweredText, phrase); score > best {
+			best = score
+		}
+	}
+
+	switch {
+	case best >= 0.99:
+		return 1.6
+	case best >= 0.66:
+		return 1.25
+	default:
+		return 1.0
+	}
+}
+
+func firstPersonConcreteFactMultiplier(query string, r RetrievedChunk, text string) float64 {
+	normalisedQuery := strings.ToLower(strings.TrimSpace(query))
+	if normalisedQuery == "" {
+		return 1.0
+	}
+	if !firstPersonConcreteQueryRe.MatchString(normalisedQuery) && !firstPersonFactLookupRe.MatchString(normalisedQuery) {
+		return 1.0
+	}
+
+	path := strings.ToLower(r.Path)
+	multiplier := 1.0
+	if strings.Contains(path, "memory/global/") {
+		multiplier *= 1.18
+	} else {
+		multiplier *= 0.7
+	}
+	if durationQueryRe.MatchString(normalisedQuery) && routineScopeQueryRe.MatchString(normalisedQuery) {
+		if routineScopeNoteRe.MatchString(text) {
+			multiplier *= 1.2
+		}
+		if segmentQualifierNoteRe.MatchString(text) && !routineScopeNoteRe.MatchString(text) {
+			multiplier *= 0.2
+		}
+	}
+	return multiplier
+}
+
+type compositeFocusMatch struct {
+	index int
+	score float64
+}
+
+func diversifyCompositeConcreteRanking(query string, results []RetrievedChunk) []RetrievedChunk {
+	focuses := filteredPhraseProbes(query)
+	if len(results) < 3 || len(focuses) < 2 || !isCompositeConcreteQuery(query) {
+		return results
+	}
+
+	primary := make([]RetrievedChunk, 0, len(focuses))
+	secondary := make([]RetrievedChunk, 0, len(results))
+	nearMisses := make([]RetrievedChunk, 0, len(results))
+	duplicates := make([]RetrievedChunk, 0, len(results))
+	covered := make(map[int]bool, len(focuses))
+	for _, result := range results {
+		match := bestCompositeFocusMatch(retrievalResultText(result), focuses)
+		if match.index >= 0 && match.score >= 0.5 {
+			if !covered[match.index] {
+				primary = append(primary, result)
+				covered[match.index] = true
+				continue
+			}
+			duplicates = append(duplicates, result)
+			continue
+		}
+		if match.index >= 0 && match.score >= 0.25 {
+			nearMisses = append(nearMisses, result)
+			continue
+		}
+		secondary = append(secondary, result)
+	}
+	out := append(primary, secondary...)
+	out = append(out, nearMisses...)
+	out = append(out, duplicates...)
+	return out
+}
+
+func isCompositeConcreteQuery(query string) bool {
+	lowered := strings.ToLower(strings.TrimSpace(query))
+	if !enumerationOrTotalQueryRe.MatchString(lowered) {
+		return false
+	}
+	return strings.Contains(lowered, " and ") || strings.Contains(lowered, " plus ") || strings.Contains(lowered, " or ")
+}
+
+func bestCompositeFocusMatch(text string, focuses []string) compositeFocusMatch {
+	best := compositeFocusMatch{index: -1, score: 0}
+	loweredText := normaliseFocusAlignmentText(text)
+	for i, focus := range focuses {
+		score := focusAlignmentScore(loweredText, focus)
+		if score > best.score {
+			best = compositeFocusMatch{index: i, score: score}
+		}
+	}
+	return best
+}
+
+func focusAlignmentScore(loweredText, phrase string) float64 {
+	loweredPhrase := normaliseFocusAlignmentText(phrase)
+	if loweredPhrase == "" {
+		return 0
+	}
+	if strings.Contains(loweredText, loweredPhrase) {
+		return 1.0
+	}
+
+	textTokens := tokenSet(strings.Fields(loweredText))
+	phraseTokens := strings.Fields(loweredPhrase)
+	if len(phraseTokens) == 0 {
+		return 0
+	}
+
+	matched := 0
+	for _, token := range phraseTokens {
+		if textTokens[token] {
+			matched++
+		}
+	}
+	return float64(matched) / float64(len(phraseTokens))
+}
+
+func normaliseFocusAlignmentText(raw string) string {
+	if raw == "" {
+		return ""
+	}
+	replacer := strings.NewReplacer(
+		"-", " ",
+		"/", " ",
+		"(", " ",
+		")", " ",
+		"[", " ",
+		"]", " ",
+		",", " ",
+		".", " ",
+		":", " ",
+		";", " ",
+		"?", " ",
+		"!", " ",
+	)
+	return strings.Join(strings.Fields(strings.ToLower(replacer.Replace(raw))), " ")
+}
+
+func tokenSet(tokens []string) map[string]bool {
+	out := make(map[string]bool, len(tokens))
+	for _, token := range tokens {
+		if token == "" {
+			continue
+		}
+		out[token] = true
+	}
+	return out
 }
 
 func retrievalResultText(r RetrievedChunk) string {

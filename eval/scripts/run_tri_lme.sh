@@ -56,6 +56,18 @@ fi
 
 mkdir -p "$OUTPUT_ROOT"
 
+run_logged_step() {
+  local log_path=$1
+  local label=$2
+  shift 2
+
+  if ! "$@" >"$log_path" 2>&1; then
+    echo "ERROR: $label failed. See $log_path" >&2
+    tail -n 40 "$log_path" >&2 || true
+    exit 1
+  fi
+}
+
 infer_llm_provider() {
   if [[ -n "${JB_LLM_PROVIDER:-}" ]]; then
     printf '%s\n' "$JB_LLM_PROVIDER"
@@ -104,7 +116,10 @@ fi
 MEMORY_GO="${MEMORY_GO:-/tmp/memory-go}"
 # Always rebuild so benchmark runs never accidentally reuse a stale Go
 # daemon / runner binary from a previous iteration.
-(cd "$HOME/code/jeffs-brain/memory/sdks/go" && go build -o "$MEMORY_GO" ./cmd/memory)
+run_logged_step \
+  "$OUTPUT_ROOT/build-go.log" \
+  "Go CLI build before extract" \
+  bash -lc "cd \"$HOME/code/jeffs-brain/memory/sdks/go\" && go build -o \"$MEMORY_GO\" ./cmd/memory"
 
 echo "== Phase 1: extract-only (shared brain at $JB_HOME) =="
 rm -rf "$JB_HOME"
@@ -136,7 +151,10 @@ TS_JB_LLM_API_KEY="${JB_LLM_API_KEY:-${ANTHROPIC_API_KEY:-${OPENAI_API_KEY:-}}}"
 TS_JB_LLM_BASE_URL="${JB_LLM_BASE_URL:-${ANTHROPIC_BASE_URL:-${OPENAI_BASE_URL:-}}}"
 
 # Keep the TS dist fresh so `node dist/cli.js serve` picks up latest code.
-(cd "$HOME/code/jeffs-brain/memory/sdks/ts/memory" && bun run build > /dev/null)
+run_logged_step \
+  "$OUTPUT_ROOT/build-ts.log" \
+  "TypeScript CLI build before daemon spawn" \
+  bash -lc "cd \"$HOME/code/jeffs-brain/memory/sdks/ts/memory\" && bun run build"
 
 for sdk in ts go py; do
   port="${PORTS[$sdk]}"
@@ -298,23 +316,49 @@ for sdk in ts go py; do
 done
 wait
 
-# Stamp SDK and scenario onto each per-SDK manifest so the tri-run
-# artefacts remain self-describing on disk.
+# Stamp SDK, scenario, and retrieve-only provenance onto each per-SDK
+# manifest so the tri-run artefacts remain self-describing on disk.
 for sdk in ts go py; do
   manifest="$OUTPUT_ROOT/manifest-$sdk.json"
   if [[ -f "$manifest" ]]; then
-    python3 - "$manifest" "$sdk" <<'PY'
+    python3 - \
+      "$manifest" \
+      "$sdk" \
+      "$BRAIN_ID" \
+      "$TOP_K" \
+      "$CANDIDATE_K" \
+      "$RERANK_TOP_N" \
+      "$ACTOR_SCOPE" \
+      "$ACTOR_PROJECT" \
+      "$ACTOR_PATH_PREFIX" \
+      <<'PY'
 import json
 import sys
 from pathlib import Path
 
-path, sdk = sys.argv[1:]
+path, sdk, actor_brain, actor_topk, actor_candidatek, actor_rerank_topn, actor_scope, actor_project, actor_path_prefix = sys.argv[1:]
 manifest_path = Path(path)
 data = json.loads(manifest_path.read_text(encoding="utf-8"))
+
+
+def blank_to_none(value):
+    return value if value != "" else None
+
+
 data.update(
     {
         "sdk": sdk,
         "scenario": "search-retrieve-only",
+        "actor_endpoint_style": "retrieve-only",
+        "actor_brain": actor_brain,
+        "actor_topk": int(actor_topk),
+        "actor_candidatek": int(actor_candidatek),
+        "actor_rerank_topn": int(actor_rerank_topn),
+        "actor_scope": blank_to_none(actor_scope),
+        "actor_project": blank_to_none(actor_project),
+        "actor_path_prefix": blank_to_none(actor_path_prefix),
+        "shared_extract_output": "extract.json",
+        "shared_extract_manifest": "manifest.json",
     }
 )
 manifest_path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
@@ -332,7 +376,7 @@ echo "== Phase 5: summary =="
   echo "- Actor model: $ACTOR_MODEL"
   echo "- Judge model: $JUDGE_MODEL"
   echo "- Extract model: $EXTRACT_MODEL"
-  echo "- Scenario: search-retrieve-only (actor-endpoint-style=retrieve-only)"
+  echo "- Scenario: search-retrieve-only via actor-endpoint-style=retrieve-only"
   echo "- Contextualise replay: $CONTEXTUALISE"
   echo "- Concurrency: questions=$CONCURRENCY replay=$REPLAY_CONCURRENCY"
   echo "- Retrieval knobs: topK=$TOP_K candidateK=$CANDIDATE_K rerankTopN=$RERANK_TOP_N"
@@ -340,8 +384,11 @@ echo "== Phase 5: summary =="
   echo ""
   echo "## Artefacts"
   echo ""
-  echo "- extract.json / manifest.json: shared extract-only replay output"
-  echo "- result-<sdk>.json / manifest-<sdk>.json: per-SDK scored retrieve-only runs"
+  echo "- extract.json: shared extract-only replay result"
+  echo "- manifest.json: shared extract-only replay manifest"
+  echo "- result-<sdk>.json: per-SDK scored retrieve-only benchmark result"
+  echo "- manifest-<sdk>.json: per-SDK retrieve-only benchmark manifest with sdk, scenario, actor endpoint style, retrieval knobs, actor filters, and shared extract references"
+  echo "- build-go.log / build-ts.log: pre-daemon build logs"
   echo "- daemon-<sdk>.log / runner-<sdk>.log: daemon and runner logs"
   echo ""
   echo "## Results"

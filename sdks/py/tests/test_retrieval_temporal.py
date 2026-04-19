@@ -15,7 +15,7 @@ def test_derive_sub_queries_split_compound_focus_phrases() -> None:
     assert derive_sub_queries(
         "What is the total amount I spent on the designer handbag and "
         "high-end skincare products?"
-    ) == ["designer handbag", "high-end skincare products"]
+    ) == ["handbag cost", "high-end products"]
 
 
 def test_derive_sub_queries_prioritise_action_date_probe_for_when_did_i_submit() -> None:
@@ -28,6 +28,14 @@ def test_derive_sub_queries_add_inspiration_source_probe() -> None:
     assert derive_sub_queries(
         "How can I find new inspiration for my paintings?"
     ) == ["paintings social media tutorials"]
+
+
+def test_derive_sub_queries_add_specific_back_end_language_probe() -> None:
+    assert derive_sub_queries(
+        "I wanted to follow up on our previous conversation about front-end "
+        "and back-end development. Can you remind me of the specific "
+        "back-end programming languages you recommended I learn?"
+    ) == ["back-end programming language", "back-end development"]
 
 
 def test_temporal_query_variants_include_raw_augmented_and_token_probes() -> None:

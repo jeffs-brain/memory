@@ -50,6 +50,84 @@ func TestParseExtractionResult_WrappedInMarkdown(t *testing.T) {
 	}
 }
 
+func TestParseExtractionResult_NormalisesFields(t *testing.T) {
+	input := `{"memories":[{"action":"unexpected","filename":"x.md","type":"unexpected","scope":"unexpected","content":"hello","indexEntry":"entry","observedOn":"2023-07-15T22:42:00Z","sessionDate":"2023-07-15","contextPrefix":"session context","modifiedOverride":"2023-07-15T22:42:00Z"}]}`
+
+	result := parseExtractionResult(input)
+	if len(result.Memories) != 1 {
+		t.Fatalf("expected 1 memory, got %d", len(result.Memories))
+	}
+
+	got := result.Memories[0]
+	if got.Action != "create" {
+		t.Fatalf("action = %q, want create", got.Action)
+	}
+	if got.Type != "project" {
+		t.Fatalf("type = %q, want project", got.Type)
+	}
+	if got.Scope != "project" {
+		t.Fatalf("scope = %q, want project", got.Scope)
+	}
+	if got.IndexEntry != "entry" {
+		t.Fatalf("indexEntry = %q, want entry", got.IndexEntry)
+	}
+	if got.ObservedOn != "2023-07-15T22:42:00Z" {
+		t.Fatalf("observedOn = %q, want propagated value", got.ObservedOn)
+	}
+	if got.SessionDate != "2023-07-15" {
+		t.Fatalf("sessionDate = %q, want propagated value", got.SessionDate)
+	}
+	if got.ContextPrefix != "session context" {
+		t.Fatalf("contextPrefix = %q, want propagated value", got.ContextPrefix)
+	}
+	if got.ModifiedOverride != "2023-07-15T22:42:00Z" {
+		t.Fatalf("modifiedOverride = %q, want propagated value", got.ModifiedOverride)
+	}
+}
+
+func TestRewriteHeuristicFilenameForSession(t *testing.T) {
+	cases := []struct {
+		name      string
+		filename  string
+		sessionID string
+		want      string
+	}{
+		{
+			name:      "dated user fact",
+			filename:  "user-fact-2024-03-25-commute-takes-minutes-each.md",
+			sessionID: "sess-001",
+			want:      "user-fact-2024-03-25-sess-001-commute-takes-minutes-each.md",
+		},
+		{
+			name:      "dated preference sanitises session id",
+			filename:  "user-preference-2024-03-25-films-family-friendly.md",
+			sessionID: "sess 001",
+			want:      "user-preference-2024-03-25-sess-001-films-family-friendly.md",
+		},
+		{
+			name:      "already rewritten stays stable",
+			filename:  "user-fact-2024-03-25-sess-001-commute-takes-minutes-each.md",
+			sessionID: "sess-001",
+			want:      "user-fact-2024-03-25-sess-001-commute-takes-minutes-each.md",
+		},
+		{
+			name:      "non heuristic file unchanged",
+			filename:  "project-note.md",
+			sessionID: "sess-001",
+			want:      "project-note.md",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := RewriteHeuristicFilenameForSession(tc.filename, tc.sessionID)
+			if got != tc.want {
+				t.Fatalf("RewriteHeuristicFilenameForSession(%q, %q) = %q, want %q", tc.filename, tc.sessionID, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestHasMemoryWrites_NoWrites(t *testing.T) {
 	msgs := []Message{
 		{Role: RoleUser, Content: "hello"},
@@ -259,29 +337,48 @@ func TestApplyExtractions_NoDuplicateIndexEntries(t *testing.T) {
 	}
 }
 
-func TestExtractUserPrompt_IncludesManifest(t *testing.T) {
+func TestExtractUserPrompt_IncludesExistingMemorySummaries(t *testing.T) {
 	msgs := []Message{
 		{Role: RoleUser, Content: "hello"},
 		{Role: RoleAssistant, Content: "hi"},
 	}
 
-	result := extractUserPrompt(msgs, "- [project] auth.md: auth notes", "/tmp/mem")
-	if !strings.Contains(result, "Existing memory files") {
-		t.Error("expected existing manifest header")
+	result := extractUserPrompt(msgs, []existingMemorySummary{
+		{
+			Path:        "memory/project/example/project-auth.md",
+			Scope:       "project",
+			Name:        "Project auth",
+			Description: "Use OIDC for auth",
+			Type:        "project",
+			Modified:    "2026-04-18T11:00:00Z",
+			Content:     "The project uses OIDC.",
+		},
+	})
+	if !strings.Contains(result, "## Existing memories") {
+		t.Error("expected existing memories header")
 	}
-	if !strings.Contains(result, "auth.md") {
-		t.Error("expected manifest content")
+	for _, want := range []string{
+		"### [project] project-auth.md",
+		"name: Project auth",
+		"description: Use OIDC for auth",
+		"type: project",
+		"modified: 2026-04-18T11:00:00Z",
+		"content: The project uses OIDC.",
+	} {
+		if !strings.Contains(result, want) {
+			t.Errorf("expected prompt to contain %q", want)
+		}
 	}
 }
 
-func TestExtractUserPrompt_NoManifest(t *testing.T) {
+func TestExtractUserPrompt_NoExistingMemories(t *testing.T) {
 	msgs := []Message{
 		{Role: RoleUser, Content: "hello"},
 	}
 
-	result := extractUserPrompt(msgs, "", "/tmp/mem")
-	if strings.Contains(result, "Existing memory files") {
-		t.Error("should not include manifest header when empty")
+	result := extractUserPrompt(msgs, nil)
+	if strings.Contains(result, "## Existing memories") {
+		t.Error("should not include existing memories header when empty")
 	}
 }
 
@@ -291,7 +388,7 @@ func TestExtractUserPrompt_TruncatesLongMessages(t *testing.T) {
 		{Role: RoleUser, Content: long},
 	}
 
-	result := extractUserPrompt(msgs, "", "/tmp/mem")
+	result := extractUserPrompt(msgs, nil)
 	if !strings.Contains(result, "[...truncated]") {
 		t.Error("expected truncation of long message")
 	}
@@ -445,7 +542,7 @@ func TestExtractionPrompt_CoversAssistantTurns(t *testing.T) {
 	if !strings.Contains(strings.ToLower(extractionPrompt), "assistant") {
 		t.Fatal("extractionPrompt must mention 'assistant'")
 	}
-	for _, kw := range []string{"recommend", "enumerat"} {
+	for _, kw := range []string{"recommend", "enumerat", "preserve concrete historical facts exactly", "relative time phrases"} {
 		if !strings.Contains(strings.ToLower(extractionPrompt), kw) {
 			t.Errorf("extractionPrompt should cover assistant-turn keyword %q", kw)
 		}
@@ -465,9 +562,11 @@ func TestToolCallArguments_DecodeSmoke(t *testing.T) {
 
 type extractStubProvider struct {
 	reply string
+	req   llm.CompleteRequest
 }
 
-func (p *extractStubProvider) Complete(_ context.Context, _ llm.CompleteRequest) (llm.CompleteResponse, error) {
+func (p *extractStubProvider) Complete(_ context.Context, req llm.CompleteRequest) (llm.CompleteResponse, error) {
+	p.req = req
 	return llm.CompleteResponse{Text: p.reply}, nil
 }
 
@@ -476,6 +575,142 @@ func (p *extractStubProvider) CompleteStream(_ context.Context, _ llm.CompleteRe
 }
 
 func (p *extractStubProvider) Close() error { return nil }
+
+func TestExtractFromMessages_UsesExistingMemoryPromptContext(t *testing.T) {
+	mem, store := newTestMemory(t)
+	projectPath := "/project"
+	slug := ProjectSlug(projectPath)
+
+	writeTopic(t, store, brain.MemoryGlobalTopic("feedback-testing"), strings.TrimSpace(`
+---
+name: Testing feedback
+description: Prefer integration tests
+type: feedback
+modified: 2026-04-18T10:00:00Z
+---
+
+Prefer integration tests over snapshots.
+`))
+	writeTopic(t, store, brain.MemoryProjectTopic(slug, "project-auth"), strings.TrimSpace(`
+---
+name: Auth choice
+description: Use OIDC for auth
+type: project
+modified: 2026-04-18T11:00:00Z
+---
+
+The project uses OIDC.
+`))
+
+	provider := &extractStubProvider{reply: `{"memories":[]}`}
+	if _, err := ExtractFromMessages(context.Background(), provider, "test-model", mem, projectPath, []Message{
+		{Role: RoleUser, Content: "msg 0"},
+		{Role: RoleAssistant, Content: "msg 1"},
+	}); err != nil {
+		t.Fatalf("ExtractFromMessages: %v", err)
+	}
+
+	if provider.req.Temperature != 0 {
+		t.Fatalf("temperature = %v, want 0", provider.req.Temperature)
+	}
+
+	if len(provider.req.Messages) != 2 {
+		t.Fatalf("expected system and user prompt messages, got %d", len(provider.req.Messages))
+	}
+	prompt := provider.req.Messages[1].Content
+	for _, want := range []string{
+		"## Existing memories",
+		"### [project] project-auth.md",
+		"### [global] feedback-testing.md",
+		"content: The project uses OIDC.",
+		"content: Prefer integration tests over snapshots.",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Errorf("expected prompt to contain %q", want)
+		}
+	}
+	if strings.Contains(prompt, "Memory directory:") {
+		t.Error("prompt should not include a memory-directory footer")
+	}
+	if strings.Index(prompt, "### [project] project-auth.md") > strings.Index(prompt, "### [global] feedback-testing.md") {
+		t.Error("expected project memory with newer modified timestamp to appear first")
+	}
+}
+
+func TestExtractFromMessages_RefinesSummaryAndTags(t *testing.T) {
+	mem, _ := newTestMemory(t)
+	provider := &extractStubProvider{reply: `{"memories":[{"action":"create","filename":"user-appointment.md","name":"Appointment","description":"Upcoming appointment","type":"user","scope":"global","content":"The user has a dermatologist appointment with Dr Patel next Tuesday at 3 pm.","index_entry":"- user-appointment.md: appointment"}]}`}
+
+	out, err := ExtractFromMessages(context.Background(), provider, "test-model", mem, "/project", []Message{
+		{Role: RoleSystem, Content: "This conversation took place on 2023/06/06 (Tue) 09:00."},
+		{Role: RoleUser, Content: "I've got a dermatologist appointment with Dr Patel next Tuesday at 3 pm."},
+		{Role: RoleAssistant, Content: "That is useful to keep in mind."},
+	})
+	if err != nil {
+		t.Fatalf("ExtractFromMessages: %v", err)
+	}
+
+	var got *ExtractedMemory
+	for i := range out {
+		if out[i].Filename == "user-appointment.md" {
+			got = &out[i]
+			break
+		}
+	}
+	if got == nil {
+		t.Fatalf("expected provider memory in %#v", out)
+	}
+	if !strings.Contains(got.Description, "dermatologist appointment") || !strings.Contains(got.Description, "Dr Patel") {
+		t.Fatalf("description = %q, want specific appointment summary", got.Description)
+	}
+	if !strings.Contains(got.IndexEntry, "dermatologist appointment") || !strings.Contains(got.IndexEntry, "Dr Patel") {
+		t.Fatalf("index entry = %q, want specific appointment summary", got.IndexEntry)
+	}
+	if !strings.HasPrefix(got.Content, "[Date: 2023-06-06 Tuesday June 2023]\n\n[Observed on 2023/06/06 (Tue) 09:00]\n\n") {
+		t.Fatalf("content = %q, want session date prefixes", got.Content)
+	}
+	if got.ObservedOn != "2023-06-06T09:00:00Z" {
+		t.Fatalf("observedOn = %q, want session timestamp", got.ObservedOn)
+	}
+	if got.ModifiedOverride != "2023-06-06T09:00:00Z" {
+		t.Fatalf("modifiedOverride = %q, want session timestamp", got.ModifiedOverride)
+	}
+	if got.SessionDate != "2023-06-06" {
+		t.Fatalf("sessionDate = %q, want short ISO date", got.SessionDate)
+	}
+	for _, tag := range []string{"appointment", "medical", "dermatologist", "next tuesday", "3 pm"} {
+		found := false
+		for _, gotTag := range got.Tags {
+			if gotTag == tag {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("expected tag %q in %#v", tag, got.Tags)
+		}
+	}
+}
+
+func TestExtractFromMessages_DoesNotInferPendingTaskFromAdviceQuestion(t *testing.T) {
+	mem, _ := newTestMemory(t)
+	provider := &extractStubProvider{reply: `{"memories":[]}`}
+
+	out, err := ExtractFromMessages(context.Background(), provider, "test-model", mem, "/project", []Message{
+		{Role: RoleSystem, Content: "This conversation took place on 2022/03/02 (Wed) 04:59."},
+		{Role: RoleUser, Content: "Can you tell me what are some things I should consider before making an offer?"},
+		{Role: RoleAssistant, Content: "I can walk you through the main factors to check."},
+	})
+	if err != nil {
+		t.Fatalf("ExtractFromMessages: %v", err)
+	}
+
+	for _, memory := range out {
+		if strings.Contains(memory.Content, "still needs to consider before making an offer") {
+			t.Fatalf("unexpected pending-task heuristic in %#v", out)
+		}
+	}
+}
 
 func TestExtractFromMessages_AddsHeuristicUserFactForQuantifiedUpdate(t *testing.T) {
 	mem, _ := newTestMemory(t)

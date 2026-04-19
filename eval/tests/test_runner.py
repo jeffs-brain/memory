@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Runner unit tests.
 
-Integration tests that spawn real SDK binaries are skipped — this suite
+Integration tests that spawn real SDK binaries are skipped. This suite
 only validates CLI parsing, dataset loading, scorer selection, and the
 `SdkRunner` lifecycle via mocks.
 """
@@ -20,6 +20,7 @@ import runner as runner_module
 from runner import (
     EvalScore,
     QuestionResult,
+    SCENARIOS,
     _ask_one,
     _ask_path,
     _build_request_spec,
@@ -166,6 +167,9 @@ class TestWriteResult:
 
 
 class TestAskHelpers:
+    def test_scenarios_are_fixed_and_explicit(self) -> None:
+        assert SCENARIOS == ("ask-basic", "ask-augmented", "search-retrieve-only")
+
     def test_ask_path_encodes_brain(self) -> None:
         assert _ask_path("eval") == "/v1/brains/eval/ask"
         assert _ask_path("team alpha") == "/v1/brains/team%20alpha/ask"
@@ -227,6 +231,17 @@ class TestAskHelpers:
             "candidateK": 80,
             "rerankTopN": 40,
         }
+
+    def test_build_request_spec_for_search_retrieve_only_omits_optional_knobs_when_zero(self) -> None:
+        spec = _build_request_spec(
+            brain="eval",
+            item={},
+            question="where?",
+            top_k=4,
+            mode="auto",
+            scenario="search-retrieve-only",
+        )
+        assert spec.body == {"query": "where?", "topK": 4, "mode": "auto"}
 
     def test_hybrid_rerank_is_a_supported_search_mode(self) -> None:
         assert "hybrid-rerank" in runner_module.SEARCH_MODES

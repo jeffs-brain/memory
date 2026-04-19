@@ -685,7 +685,7 @@ func (r *retriever) hydrateBodies(ctx context.Context, fused []RetrievedChunk) [
 			continue
 		}
 		if row.Content != "" {
-			out[i].Text = row.Content
+			out[i].Text = stripFrontmatterBody(row.Content)
 		}
 		if out[i].Title == "" && row.Title != "" {
 			out[i].Title = row.Title
@@ -693,24 +693,89 @@ func (r *retriever) hydrateBodies(ctx context.Context, fused []RetrievedChunk) [
 		if out[i].Summary == "" && row.Summary != "" {
 			out[i].Summary = row.Summary
 		}
-		if row.Scope != "" || row.ProjectSlug != "" || row.SessionDate != "" {
-			meta := out[i].Metadata
-			if meta == nil {
-				meta = map[string]any{}
-			}
+		if row.Scope != "" || row.ProjectSlug != "" || row.SessionDate != "" || row.Content != "" {
+			meta := cloneChunkMetadata(out[i].Metadata)
 			if row.Scope != "" {
 				meta["scope"] = row.Scope
 			}
 			if row.ProjectSlug != "" {
 				meta["project"] = row.ProjectSlug
+				meta["projectSlug"] = row.ProjectSlug
 			}
 			if row.SessionDate != "" {
 				meta["sessionDate"] = row.SessionDate
+				meta["session_date"] = row.SessionDate
 			}
-			out[i].Metadata = meta
+			if sessionID := firstFrontmatterValue(row.Content, "session_id"); sessionID != "" {
+				meta["sessionId"] = sessionID
+				meta["session_id"] = sessionID
+			}
+			if observedOn := firstFrontmatterValue(row.Content, "observed_on"); observedOn != "" {
+				meta["observedOn"] = observedOn
+				meta["observed_on"] = observedOn
+			}
+			if modified := firstFrontmatterValue(row.Content, "modified"); modified != "" {
+				meta["modified"] = modified
+			}
+			if len(meta) > 0 {
+				out[i].Metadata = meta
+			} else {
+				out[i].Metadata = nil
+			}
 		}
 	}
 	return out
+}
+
+func cloneChunkMetadata(src map[string]any) map[string]any {
+	if len(src) == 0 {
+		return map[string]any{}
+	}
+	out := make(map[string]any, len(src))
+	for key, value := range src {
+		out[key] = value
+	}
+	return out
+}
+
+func stripFrontmatterBody(content string) string {
+	lines := strings.Split(content, "\n")
+	if len(lines) == 0 || strings.TrimSpace(lines[0]) != "---" {
+		return strings.TrimSpace(content)
+	}
+	for i := 1; i < len(lines); i++ {
+		if strings.TrimSpace(lines[i]) != "---" {
+			continue
+		}
+		return strings.TrimSpace(strings.Join(lines[i+1:], "\n"))
+	}
+	return strings.TrimSpace(content)
+}
+
+func firstFrontmatterValue(content, key string) string {
+	lines := strings.Split(content, "\n")
+	if len(lines) == 0 || strings.TrimSpace(lines[0]) != "---" {
+		return ""
+	}
+	inFrontmatter := false
+	prefix := key + ":"
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "---" {
+			if inFrontmatter {
+				return ""
+			}
+			inFrontmatter = true
+			continue
+		}
+		if !inFrontmatter {
+			continue
+		}
+		if strings.HasPrefix(trimmed, prefix) {
+			return strings.TrimSpace(strings.TrimPrefix(trimmed, prefix))
+		}
+	}
+	return ""
 }
 
 // rerankerName pulls a best-effort label out of a Reranker. Consumers
@@ -1053,6 +1118,10 @@ func deriveMoneyFocusProbes(question string) []string {
 }
 
 func moneyFocusProbeFromPhrase(phrase string) string {
+	edge := derivePhraseEdgeFocus(phrase)
+	if edge != "" {
+		return edge
+	}
 	head := derivePhraseHeadFocus(phrase)
 	if head == "" {
 		return ""
@@ -1061,6 +1130,19 @@ func moneyFocusProbeFromPhrase(phrase string) string {
 		return head + " cost"
 	}
 	return phrase
+}
+
+func derivePhraseEdgeFocus(phrase string) string {
+	tokens := strings.Fields(strings.ToLower(strings.TrimSpace(phrase)))
+	if len(tokens) < 3 {
+		return ""
+	}
+	first := tokens[0]
+	last := tokens[len(tokens)-1]
+	if !strings.Contains(first, "-") || !headBigramLastTokens[last] {
+		return ""
+	}
+	return first + " " + last
 }
 
 func derivePhraseHeadFocus(phrase string) string {

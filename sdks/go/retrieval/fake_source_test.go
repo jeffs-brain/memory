@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/jeffs-brain/memory/go/llm"
+	"github.com/jeffs-brain/memory/go/search"
 )
 
 // fakeChunk is the seed shape for the in-mem fake source used by the
@@ -22,6 +23,8 @@ type fakeChunk struct {
 	Content string
 	Tags    []string
 	Scope   string
+	Project string
+	Session string
 }
 
 // fakeSource implements [Source] over an in-mem slice. BM25 ranking
@@ -178,6 +181,34 @@ func (f *fakeSource) Chunks(ctx context.Context) ([]trigramChunk, error) {
 		})
 	}
 	return out, nil
+}
+
+func (f *fakeSource) Lookup(ctx context.Context, ids []string) ([]search.IndexedRow, error) {
+	rows := make([]search.IndexedRow, 0, len(ids))
+	seen := make(map[string]bool, len(ids))
+	for _, id := range ids {
+		if id == "" || seen[id] {
+			continue
+		}
+		seen[id] = true
+		for _, chunk := range f.chunks {
+			if chunk.Path != id {
+				continue
+			}
+			rows = append(rows, search.IndexedRow{
+				Path:        chunk.Path,
+				Title:       chunk.Title,
+				Summary:     chunk.Summary,
+				Content:     chunk.Content,
+				Tags:        strings.Join(chunk.Tags, " "),
+				Scope:       chunk.Scope,
+				ProjectSlug: chunk.Project,
+				SessionDate: chunk.Session,
+			})
+			break
+		}
+	}
+	return rows, nil
 }
 
 // matchesFakeFilter mirrors the contract of real Source filters. A
