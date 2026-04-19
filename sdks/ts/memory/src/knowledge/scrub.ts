@@ -1,16 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * PII scrub for ingested/ content. Regex-based (email + phone by
+ * PII scrub for raw/documents/ content. Regex-based (email + phone by
  * default), with pluggable custom patterns. Mutations go through a
  * single Batch with Reason: "scrub". Ported from apps/jeff/internal/
- * knowledge/scrub.go (rewritten — the Go version quarantines; we
+ * knowledge/scrub.go (rewritten: the Go version quarantines; we
  * redact in place per the TS port spec).
  */
 
 import type { Logger } from '../llm/index.js'
 import { pathUnder, toPath, type Path, type Store } from '../store/index.js'
-import { INGESTED_PREFIX } from './ingest.js'
+import { RAW_DOCUMENTS_PREFIX } from './ingest.js'
 import { appendLogInBatch } from './log.js'
 import type { ScrubOptions, ScrubPattern, ScrubResult } from './types.js'
 
@@ -39,7 +39,7 @@ export const createScrub = (deps: ScrubDeps) => {
     ]
     if (patterns.length === 0) return []
 
-    const prefix = toPath(INGESTED_PREFIX)
+    const prefix = toPath(RAW_DOCUMENTS_PREFIX)
     const exists = await store.exists(prefix).catch(() => false)
     if (!exists) return []
 
@@ -49,7 +49,7 @@ export const createScrub = (deps: ScrubDeps) => {
 
     for (const e of entries) {
       if (e.isDir) continue
-      if (!pathUnder(e.path, INGESTED_PREFIX, true)) continue
+      if (!pathUnder(e.path, RAW_DOCUMENTS_PREFIX, true)) continue
       if (!e.path.endsWith('.md')) continue
       const before = (await store.read(e.path)).toString('utf8')
       const { after, matches } = applyPatterns(before, patterns)

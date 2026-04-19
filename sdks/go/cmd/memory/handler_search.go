@@ -11,7 +11,6 @@ import (
 	"github.com/jeffs-brain/memory/go/search"
 )
 
-// searchRequest is the body shape for POST /v1/brains/{brainId}/search.
 type searchRequest struct {
 	Query   string            `json:"query"`
 	TopK    int               `json:"topK,omitempty"`
@@ -19,7 +18,6 @@ type searchRequest struct {
 	Filters retrieval.Filters `json:"filters,omitempty"`
 }
 
-// searchResponse mirrors the wire shape requested by the brief.
 type searchResponse struct {
 	Chunks   []retrieval.RetrievedChunk `json:"chunks"`
 	TookMs   int64                      `json:"tookMs"`
@@ -27,10 +25,10 @@ type searchResponse struct {
 	Attempts []retrieval.Attempt        `json:"attempts,omitempty"`
 }
 
-// handleSearch runs a hybrid search via the bound retriever, falling
-// back to BM25 via the search.Index when no retriever is configured.
-// Ingested raw/documents content is now covered by the FTS classifier
-// so no separate knowledge fallback is required.
+// handleSearch runs hybrid search via the bound retriever, falling back
+// to BM25 via search.Index when no retriever is configured. Ingested
+// raw/documents content is covered by the FTS classifier so no separate
+// knowledge fallback is required.
 func (d *Daemon) handleSearch(w http.ResponseWriter, r *http.Request) {
 	br := d.resolveBrain(w, r)
 	if br == nil {
@@ -49,10 +47,12 @@ func (d *Daemon) handleSearch(w http.ResponseWriter, r *http.Request) {
 		req.TopK = 10
 	}
 
-	// Refresh the index so writes that just landed are searchable.
-	if br.Search != nil {
-		_ = br.Search.Update(r.Context())
-	}
+	// Cheap after the first call: awaits the one-shot initial scan so
+	// pre-seeded disk content surfaces on the first query. Subsequent
+	// writes are caught by the Subscribe mechanism so no per-request
+	// full index scan happens — that would serialise every concurrent
+	// request on the refresh write lock.
+	br.WaitReady(r.Context())
 
 	chunks, trace, attempts, took := d.runSearchPipeline(r, br, req)
 
@@ -64,9 +64,6 @@ func (d *Daemon) handleSearch(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// runSearchPipeline runs the retriever (or BM25 fallback) and returns
-// the resulting chunks. The trace and attempt log are returned only
-// when the retriever produced them.
 func (d *Daemon) runSearchPipeline(r *http.Request, br *BrainResources, req searchRequest) ([]retrieval.RetrievedChunk, *retrieval.Trace, []retrieval.Attempt, int64) {
 	if br.Retriever != nil {
 		started := time.Now()

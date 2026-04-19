@@ -18,6 +18,7 @@ import (
 	"github.com/jeffs-brain/memory/go/memory"
 	"github.com/jeffs-brain/memory/go/retrieval"
 	"github.com/jeffs-brain/memory/go/search"
+	"github.com/jeffs-brain/memory/go/store/pt"
 )
 
 // Daemon owns every resource the HTTP daemon shares across handlers.
@@ -27,12 +28,13 @@ import (
 // via [BrainManager]. The LLM provider and embedder come from
 // environment configuration and are shared across brains.
 type Daemon struct {
-	Root      string
-	AuthToken string
-	LLM       llm.Provider
-	Embedder  llm.Embedder
-	Logger    *slog.Logger
-	Brains    *BrainManager
+	Root       string
+	AuthToken  string
+	LLM        llm.Provider
+	Embedder   llm.Embedder
+	EmbedModel string
+	Logger     *slog.Logger
+	Brains     *BrainManager
 }
 
 // NewDaemon constructs a Daemon rooted at root. When provider is nil
@@ -69,12 +71,14 @@ func NewDaemon(ctx context.Context, root, authToken string, log *slog.Logger) (*
 		log.Debug("daemon: resolving embedder", "err", eerr)
 		embedder = nil
 	}
+	embedModel := resolveEmbedModel(llm.OSGetenv, embedder)
 	d := &Daemon{
-		Root:      abs,
-		AuthToken: authToken,
-		LLM:       provider,
-		Embedder:  embedder,
-		Logger:    log,
+		Root:       abs,
+		AuthToken:  authToken,
+		LLM:        provider,
+		Embedder:   embedder,
+		EmbedModel: embedModel,
+		Logger:     log,
 	}
 	d.Brains = NewBrainManager(d)
 	return d, nil
@@ -98,14 +102,10 @@ func (d *Daemon) Close() error {
 	return nil
 }
 
-// brainRoot returns the on-disk root for a brain id under the
-// daemon's home directory.
 func (d *Daemon) brainRoot(brainID string) string {
 	return filepath.Join(d.Root, "brains", brainID)
 }
 
-// brainExists reports whether a brain directory has been created on
-// disk for brainID.
 func (d *Daemon) brainExists(brainID string) bool {
 	info, err := os.Stat(d.brainRoot(brainID))
 	if err != nil {
@@ -127,6 +127,28 @@ type BrainResources struct {
 	Retriever retrieval.Retriever
 	Memory    *memory.Memory
 	Knowledge knowledge.Base
+
+	// initialScan resolves once the first full index scan completes.
+	// Handlers that care about pre-seeded disk content (e.g. /search,
+	// /ask) await this channel so the tri-SDK extract-once flow returns
+	// hits on the first query. After the initial scan, Subscribe
+	// handles mutations incrementally so no per-request re-scan is
+	// needed.
+	initialScan chan struct{}
+}
+
+// WaitReady blocks until the brain's initial search-index scan has
+// completed, or the context is cancelled. Cheap after the first call:
+// the channel is closed once and every subsequent wait returns
+// immediately.
+func (br *BrainResources) WaitReady(ctx context.Context) {
+	if br == nil || br.initialScan == nil {
+		return
+	}
+	select {
+	case <-br.initialScan:
+	case <-ctx.Done():
+	}
 }
 
 // Close tears down every resource owned by the brain entry. Safe to
@@ -141,11 +163,8 @@ func (br *BrainResources) Close() error {
 			firstErr = err
 		}
 	}
-	if br.Search != nil {
-		// The search package owns the *sql.DB lifecycle through the
-		// shared cache; we never close it directly here. The daemon
-		// closes it via [BrainManager.Close] when the process exits.
-	}
+	// search.Index owns the *sql.DB through a shared cache that the
+	// daemon closes via BrainManager.Close, so do not close it here.
 	if br.Brain != nil {
 		if err := br.Brain.Close(); err != nil && firstErr == nil {
 			firstErr = err
@@ -166,7 +185,6 @@ type BrainManager struct {
 	all map[string]*BrainResources
 }
 
-// NewBrainManager builds an empty manager bound to the daemon.
 func NewBrainManager(d *Daemon) *BrainManager {
 	return &BrainManager{d: d, all: map[string]*BrainResources{}}
 }
@@ -265,7 +283,6 @@ func (bm *BrainManager) Delete(brainID string) error {
 	return os.RemoveAll(root)
 }
 
-// Close tears down every cached entry.
 func (bm *BrainManager) Close() error {
 	bm.mu.Lock()
 	defer bm.mu.Unlock()
@@ -282,7 +299,7 @@ func (bm *BrainManager) Close() error {
 // (or no-op when no index is present).
 func (bm *BrainManager) build(ctx context.Context, brainID string) (*BrainResources, error) {
 	root := bm.d.brainRoot(brainID)
-	store, err := newPassthroughStore(root)
+	store, err := pt.New(root)
 	if err != nil {
 		return nil, fmt.Errorf("brain manager: store %s: %w", root, err)
 	}
@@ -293,8 +310,7 @@ func (bm *BrainManager) build(ctx context.Context, brainID string) (*BrainResour
 	}
 	mem := memory.New(store)
 
-	// Search index lives next to the brain root so it is portable.
-	idx, src, retr := buildSearchAndRetrieval(ctx, root, store, bm.d, bm.d.Logger)
+	idx, vecIdx, src, retr := buildSearchAndRetrieval(ctx, root, store, bm.d, bm.d.Logger)
 
 	kbase, kerr := knowledge.New(knowledge.Options{
 		BrainID:   brainID,
@@ -307,71 +323,102 @@ func (bm *BrainManager) build(ctx context.Context, brainID string) (*BrainResour
 		return nil, fmt.Errorf("brain manager: knowledge %s: %w", brainID, kerr)
 	}
 
+	initialScan := make(chan struct{})
 	if idx != nil && store != nil {
 		// Subscribe the index to brain mutations so writes propagate
-		// into the FTS table without a second pass. Best-effort: the
-		// index handles failures internally via slog.
+		// into the FTS table without a second pass.
 		_ = idx.Subscribe(store)
-		// Trigger an initial scan so a newly opened brain with prior
-		// content surfaces it on the first search request.
+		// Initial scan so a newly opened brain with prior content
+		// surfaces on the first search. Close the channel when done so
+		// callers awaiting WaitReady() unblock. Vector backfill runs
+		// afterwards so FTS queries unblock immediately while the
+		// slower remote embed batches populate the vector index in the
+		// background.
 		go func() {
+			defer close(initialScan)
 			if err := idx.Update(context.Background()); err != nil {
 				bm.d.Logger.Debug("search: initial update failed", "brain", brainID, "err", err)
 			}
+			if vecIdx != nil && bm.d.Embedder != nil && bm.d.EmbedModel != "" {
+				backfillVectors(context.Background(), brainID, store, idx, vecIdx,
+					bm.d.Embedder, bm.d.EmbedModel, bm.d.Logger)
+			}
 		}()
+	} else {
+		close(initialScan)
 	}
 	_ = src
 
 	return &BrainResources{
-		ID:        brainID,
-		Root:      root,
-		Store:     store,
-		Brain:     br,
-		Search:    idx,
-		Retriever: retr,
-		Memory:    mem,
-		Knowledge: kbase,
+		ID:          brainID,
+		Root:        root,
+		Store:       store,
+		Brain:       br,
+		Search:      idx,
+		Retriever:   retr,
+		Memory:      mem,
+		Knowledge:   kbase,
+		initialScan: initialScan,
 	}, nil
 }
 
 // buildSearchAndRetrieval constructs the search index and retriever
-// for a brain. Returns nil values when the SQLite layer cannot be
-// initialised; callers handle the absence gracefully.
+// for a brain. Returns nil values when SQLite cannot be initialised;
+// callers handle the absence gracefully.
 func buildSearchAndRetrieval(
 	ctx context.Context,
 	root string,
 	store brain.Store,
 	d *Daemon,
 	log *slog.Logger,
-) (*search.Index, retrieval.Source, retrieval.Retriever) {
+) (*search.Index, *search.VectorIndex, retrieval.Source, retrieval.Retriever) {
 	var embedder llm.Embedder
+	var embedModel string
 	if d != nil {
 		embedder = d.Embedder
+		embedModel = d.EmbedModel
 	}
 	dbPath := filepath.Join(root, ".search.db")
 	db, err := search.OpenDB(dbPath)
 	if err != nil {
 		log.Warn("daemon: open search db", "root", root, "err", err)
-		return nil, nil, nil
+		return nil, nil, nil, nil
 	}
 	idx, err := search.NewIndex(db, store)
 	if err != nil {
 		log.Warn("daemon: build index", "root", root, "err", err)
 		_ = search.CloseDB(db)
-		return nil, nil, nil
+		return nil, nil, nil, nil
 	}
-	src, err := retrieval.NewIndexSource(idx, retrieval.IndexSourceOptions{Embedder: embedder})
+	// Vector index lives in the same SQLite file as the FTS tables so
+	// WAL writer serialisation and backup stay trivial. Failures here
+	// fall back to BM25-only retrieval rather than blocking startup.
+	var vecIdx *search.VectorIndex
+	if embedder != nil && embedModel != "" {
+		vi, verr := search.NewVectorIndex(db)
+		if verr != nil {
+			log.Warn("daemon: build vector index", "root", root, "err", verr)
+		} else {
+			vecIdx = vi
+		}
+	}
+	srcOpts := retrieval.IndexSourceOptions{Embedder: embedder}
+	if vecIdx != nil {
+		srcOpts.Vectors = vecIdx
+		srcOpts.Model = embedModel
+	}
+	src, err := retrieval.NewIndexSource(idx, srcOpts)
 	if err != nil {
 		log.Warn("daemon: build index source", "root", root, "err", err)
-		return idx, nil, nil
+		return idx, vecIdx, nil, nil
 	}
 	reranker := buildReranker(d, log)
 	retr, err := retrieval.New(retrieval.Config{Source: src, Embedder: embedder, Reranker: reranker})
 	if err != nil {
 		log.Warn("daemon: build retriever", "root", root, "err", err)
-		return idx, src, nil
+		return idx, vecIdx, src, nil
 	}
-	return idx, src, retr
+	return idx, vecIdx, src, retr
 }
 
 // buildReranker wires an optional cross-encoder rerank pass based on

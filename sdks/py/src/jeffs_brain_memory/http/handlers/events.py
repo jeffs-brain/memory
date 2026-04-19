@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""`/events` SSE endpoint — emits ready + change frames for a brain."""
+"""`/events` SSE endpoint. Emits ready + change frames for a brain."""
 
 from __future__ import annotations
 
@@ -34,11 +34,11 @@ async def events(request: Request) -> Response:
     loop = asyncio.get_running_loop()
 
     def on_change(evt: ChangeEvent) -> None:
-        # Called possibly from outside the event loop's running coroutine.
+        # May fire from outside the event loop; RuntimeError means the
+        # loop has already closed.
         try:
             loop.call_soon_threadsafe(_offer, queue, evt)
         except RuntimeError:
-            # Loop has been closed.
             return
 
     unsubscribe = await br.store.subscribe(on_change)

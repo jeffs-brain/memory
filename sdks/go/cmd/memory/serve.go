@@ -75,17 +75,15 @@ func serveCmd() *cobra.Command {
 	return cmd
 }
 
-// RegisterRoutes wires every endpoint defined by the daemon onto
-// mux. The shape mirrors the spec/PROTOCOL.md surface plus the
-// brain-management endpoints listed in spec/MCP-TOOLS.md.
+// RegisterRoutes wires every endpoint defined by the daemon onto mux.
+// The shape mirrors spec/PROTOCOL.md plus the brain-management endpoints
+// in spec/MCP-TOOLS.md.
 func (d *Daemon) RegisterRoutes(mux *http.ServeMux) {
-	// Brain management.
 	mux.HandleFunc("GET /v1/brains", d.handleListBrains)
 	mux.HandleFunc("POST /v1/brains", d.handleCreateBrain)
 	mux.HandleFunc("GET /v1/brains/{brainId}", d.handleGetBrain)
 	mux.HandleFunc("DELETE /v1/brains/{brainId}", d.handleDeleteBrain)
 
-	// Documents.
 	mux.HandleFunc("GET /v1/brains/{brainId}/documents/read", d.handleDocRead)
 	mux.HandleFunc("GET /v1/brains/{brainId}/documents/stat", d.handleDocStat)
 	mux.HandleFunc("GET /v1/brains/{brainId}/documents", d.handleDocListOrHead)
@@ -96,21 +94,17 @@ func (d *Daemon) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/brains/{brainId}/documents/rename", d.handleDocRename)
 	mux.HandleFunc("POST /v1/brains/{brainId}/documents/batch-ops", d.handleDocBatch)
 
-	// Search + ask.
 	mux.HandleFunc("POST /v1/brains/{brainId}/search", d.handleSearch)
 	mux.HandleFunc("POST /v1/brains/{brainId}/ask", d.handleAsk)
 
-	// Ingest.
 	mux.HandleFunc("POST /v1/brains/{brainId}/ingest/file", d.handleIngestFile)
 	mux.HandleFunc("POST /v1/brains/{brainId}/ingest/url", d.handleIngestURL)
 
-	// Memory stages.
 	mux.HandleFunc("POST /v1/brains/{brainId}/remember", d.handleRemember)
 	mux.HandleFunc("POST /v1/brains/{brainId}/recall", d.handleRecall)
 	mux.HandleFunc("POST /v1/brains/{brainId}/extract", d.handleExtract)
 	mux.HandleFunc("POST /v1/brains/{brainId}/reflect", d.handleReflect)
 	mux.HandleFunc("POST /v1/brains/{brainId}/consolidate", d.handleConsolidate)
 
-	// Events SSE.
 	mux.HandleFunc("GET /v1/brains/{brainId}/events", d.handleEvents)
 }

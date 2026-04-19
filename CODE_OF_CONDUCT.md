@@ -6,7 +6,7 @@ The full text is available at https://www.contributor-covenant.org/version/2/1/c
 
 ## Enforcement
 
-Reports of unacceptable behaviour may be sent privately to alex@lleverage.ai. All complaints will be reviewed and investigated promptly and fairly.
+Reports of unacceptable behaviour may be sent privately to jeff@jeffsbrain.com. All complaints will be reviewed and investigated promptly and fairly.
 
 Project maintainers are responsible for clarifying and enforcing the standards of acceptable behaviour and will take appropriate action in response to any instance of behaviour they deem inappropriate, threatening, offensive, or harmful.
 

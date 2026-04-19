@@ -95,12 +95,10 @@ func NewLLMReranker(provider llm.Provider, model string) *LLMReranker {
 	}
 }
 
-// Rerank implements [Reranker]. Splits the candidate slice into
-// MaxBatch-sized chunks, asks the provider to score each chunk, then
-// re-orders the full slice by score descending with ties broken on the
-// original RRF score and finally the input position. Any batch that
-// fails or returns unparseable JSON contributes zero scores so the
-// affected candidates sink to the tail rather than winning silently.
+// Rerank splits candidates into MaxBatch-sized chunks, scores each,
+// then re-orders the full slice by score desc, RRF score, input
+// position. A batch that fails or returns unparseable JSON contributes
+// zero scores so affected candidates sink rather than winning silently.
 func (r *LLMReranker) Rerank(ctx context.Context, query string, candidates []RetrievedChunk) ([]RetrievedChunk, error) {
 	if r == nil {
 		return candidates, nil
@@ -120,9 +118,6 @@ func (r *LLMReranker) Rerank(ctx context.Context, query string, candidates []Ret
 		batch = LLMRerankerDefaultMaxBatch
 	}
 
-	// Build compact per-candidate payloads once; each batch re-uses its
-	// slice of this list with 0-indexed local IDs so the parse step
-	// does not have to track the global offset twice.
 	payloads := make([]llmRerankCandidate, len(candidates))
 	for i, c := range candidates {
 		payloads[i] = llmRerankCandidate{
@@ -167,8 +162,8 @@ func (r *LLMReranker) Rerank(ctx context.Context, query string, candidates []Ret
 		}
 	}
 
-	// If every batch failed we have no new signal; hand back the input
-	// order so callers see a stable fallback rather than an empty slice.
+	// Every batch failed: hand back the input order so callers see a
+	// stable fallback rather than an empty slice.
 	anyScored := false
 	for _, ok := range scored {
 		if ok {
@@ -223,9 +218,8 @@ func (r *LLMReranker) Name() string {
 	return "llm:" + r.Model
 }
 
-// callBatch drives a single provider call for the supplied slice. The
-// first attempt uses the default system prompt; on parse failure we
-// retry once with the strict variant so hallucinated prose collapses
+// callBatch tries the default system prompt once, then retries with
+// the strict variant on parse failure so hallucinated prose collapses
 // to a raw JSON array on the second turn.
 func (r *LLMReranker) callBatch(ctx context.Context, query string, batch []llmRerankCandidate) ([]float64, error) {
 	if len(batch) == 0 {
@@ -233,9 +227,6 @@ func (r *LLMReranker) callBatch(ctx context.Context, query string, batch []llmRe
 	}
 	user := renderLLMRerankUserPrompt(query, batch)
 
-	// First attempt: default prompt. We wrap the system instruction as
-	// a RoleSystem message because llm.CompleteRequest carries the
-	// prompt inside Messages rather than on a dedicated field.
 	messages := []llm.Message{
 		{Role: llm.RoleSystem, Content: llmRerankSystemPrompt},
 		{Role: llm.RoleUser, Content: user},
@@ -253,9 +244,6 @@ func (r *LLMReranker) callBatch(ctx context.Context, query string, batch []llmRe
 		}
 	}
 
-	// Retry once with the strict prompt. A single retry reliably coaxes
-	// a clean array out of a provider that hallucinated prose on the
-	// first turn.
 	messages[0].Content = llmRerankSystemPromptStrict
 	req.Messages = messages
 	resp, err = r.Provider.Complete(ctx, req)
@@ -269,8 +257,6 @@ func (r *LLMReranker) callBatch(ctx context.Context, query string, batch []llmRe
 	return scores, nil
 }
 
-// warn is a no-op safe slog wrapper: the logger is resolved lazily so
-// callers can leave Logger nil and still benefit from slog.Default.
 func (r *LLMReranker) warn(msg string, attrs ...any) {
 	logger := r.Logger
 	if logger == nil {
@@ -279,10 +265,8 @@ func (r *LLMReranker) warn(msg string, attrs ...any) {
 	logger.Warn(msg, attrs...)
 }
 
-// llmRerankCandidate is the compact per-article payload shipped to the
-// provider. ID is the 0-indexed position inside the batch so the
-// response can be zipped back to the candidate list without matching
-// on path strings.
+// llmRerankCandidate carries the 0-indexed batch ID so responses can
+// be zipped back to candidates without matching on path strings.
 type llmRerankCandidate struct {
 	ID      int
 	Path    string
@@ -291,11 +275,8 @@ type llmRerankCandidate struct {
 	Snippet string
 }
 
-// composeLLMRerankSnippet produces the one-line body snippet used in
-// the rerank prompt when title and summary are both empty. The
-// preference order is title -> summary -> first llmRerankSnippetLimit
-// characters of the body so the provider always has some identifying
-// text.
+// composeLLMRerankSnippet returns a body snippet when title and summary
+// are both empty. Preference order: title -> summary -> body prefix.
 func composeLLMRerankSnippet(r RetrievedChunk) string {
 	title := strings.TrimSpace(r.Title)
 	summary := strings.TrimSpace(r.Summary)
@@ -309,10 +290,8 @@ func composeLLMRerankSnippet(r RetrievedChunk) string {
 	return body[:llmRerankSnippetLimit] + "..."
 }
 
-// renderLLMRerankUserPrompt builds the per-request user block. The
-// structure mirrors jeff's renderRerankUserPrompt: "## Question"
-// followed by "## Articles" with one stanza per candidate. Matching
-// the upstream layout keeps rerank quality parity with jeff's bench.
+// renderLLMRerankUserPrompt mirrors jeff's renderRerankUserPrompt so
+// rerank quality stays on parity with the upstream bench.
 func renderLLMRerankUserPrompt(query string, candidates []llmRerankCandidate) string {
 	var b strings.Builder
 	b.WriteString("## Question\n")
@@ -352,7 +331,6 @@ func parseLLMRerankResponse(raw string, expected int) ([]float64, error) {
 		return nil, fmt.Errorf("no JSON array found in response")
 	}
 
-	// Object form first: [{"id": 0, "score": 8.5}, ...].
 	var objForm []struct {
 		ID    *int     `json:"id"`
 		Score *float64 `json:"score"`
@@ -375,7 +353,6 @@ func parseLLMRerankResponse(raw string, expected int) ([]float64, error) {
 		return scores, nil
 	}
 
-	// Bare numeric form fallback: [8.5, 2.0, ...].
 	var numForm []float64
 	if err := json.Unmarshal([]byte(payload), &numForm); err == nil {
 		scores := make([]float64, expected)
@@ -391,10 +368,8 @@ func parseLLMRerankResponse(raw string, expected int) ([]float64, error) {
 	return nil, fmt.Errorf("response is neither object nor numeric JSON array: %q", truncateForError(payload))
 }
 
-// extractJSONArray pulls the outermost [...] substring out of a raw
-// provider response, stripping any fenced-code wrappers the model may
-// have added around the JSON. Returns "" when no bracketed payload is
-// found.
+// extractJSONArray pulls the outermost [...] substring out of the raw
+// response, stripping any fenced-code wrappers.
 func extractJSONArray(raw string) string {
 	s := strings.TrimSpace(raw)
 	if strings.HasPrefix(s, "```") {
@@ -415,8 +390,6 @@ func extractJSONArray(raw string) string {
 	return s[start : end+1]
 }
 
-// truncateForError caps a string to 120 characters for error messages
-// so a 30KB hallucinated response does not flood the trace output.
 func truncateForError(s string) string {
 	if len(s) <= 120 {
 		return s
@@ -424,5 +397,4 @@ func truncateForError(s string) string {
 	return s[:120] + "..."
 }
 
-// compile-time interface check.
 var _ Reranker = (*LLMReranker)(nil)

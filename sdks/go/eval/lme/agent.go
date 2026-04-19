@@ -63,9 +63,9 @@ func defaultAgentFactory(_ context.Context, store brain.Store) (*AgentResources,
 }
 
 // RunQuestionsAgentic drives each question through a tool-enabled
-// agent loop. The loop offers the model two tools — kb_search (hybrid
-// retrieval against the eval brain) and memory_recall (surface
-// extracted memory topics) — and lets the model choose when to call
+// agent loop. The loop offers the model two tools, kb_search (hybrid
+// retrieval against the eval brain) and memory_recall (surfaces
+// extracted memory topics), and lets the model choose when to call
 // them before producing a final answer. Respects the parent context
 // and opts.QuestionTimeout. Costs accumulate via [EstimateUSD] under
 // the agent bucket; readerModel is used for pricing.
@@ -124,9 +124,8 @@ func RunQuestionsAgentic(
 	return outcomes
 }
 
-// processQuestionAgentic runs a single question through the agent
-// loop. A fresh [AgentResources] is built per question so per-question
-// state never leaks between workers.
+// processQuestionAgentic runs a single question through the agent loop
+// with fresh per-question resources so worker state never leaks.
 func processQuestionAgentic(
 	parentCtx context.Context,
 	factory AgentFactory,
@@ -212,9 +211,6 @@ Output:
 const agentMaxTokens = 800
 const agentTemperature = 0.0
 
-// runAgentLoop drives the tool-calling loop for a single question.
-// Returns the final answer, the ordered list of tool names invoked,
-// the aggregated usage, and any terminal error.
 func runAgentLoop(
 	ctx context.Context,
 	res *AgentResources,
@@ -297,18 +293,15 @@ func runAgentLoop(
 		usage.InputTokens += resp.TokensIn
 		usage.OutputTokens += resp.TokensOut
 
-		// No tool calls: treat the text as the final answer.
 		if len(resp.ToolCalls) == 0 {
 			return resp.Text, toolCalls, usage, nil
 		}
 
-		// Record the assistant turn then append each tool call result
-		// back onto the message history so the next Complete call sees
-		// the loop state. The SDK's llm.Message does not carry tool
-		// blocks explicitly; we stringify the tool_use and tool_result
-		// as text so every provider backend can consume them. The
-		// Anthropic adapter flattens RoleTool → user which is fine
-		// because the system prompt anchors the conversation shape.
+		// The SDK's llm.Message does not carry tool blocks explicitly;
+		// stringify tool_use and tool_result as text so every provider
+		// backend can consume them. The Anthropic adapter flattens
+		// RoleTool -> user which is fine because the system prompt
+		// anchors the conversation shape.
 		if resp.Text != "" {
 			messages = append(messages, llm.Message{Role: llm.RoleAssistant, Content: resp.Text})
 		}
@@ -326,14 +319,11 @@ func runAgentLoop(
 		}
 	}
 
-	// Exhausted the iteration budget: synthesise a final answer from
-	// the last assistant text so we still have something to score.
+	// Iteration budget exhausted: synthesise an answer from the last
+	// assistant text so we still have something to score.
 	return lastAssistantText(messages), toolCalls, usage, fmt.Errorf("max iterations (%d) reached", maxIter)
 }
 
-// lastAssistantText walks messages in reverse for the last assistant
-// turn's content. Used when the loop terminates without a clean text
-// response.
 func lastAssistantText(messages []llm.Message) string {
 	for i := len(messages) - 1; i >= 0; i-- {
 		if messages[i].Role == llm.RoleAssistant {
@@ -347,10 +337,6 @@ func lastAssistantText(messages []llm.Message) string {
 	return ""
 }
 
-// executeAgentTool dispatches a tool call against the agent resources.
-// Every unknown tool returns a short error string so the model can
-// self-correct; every tool output is capped in size to keep context
-// cost bounded.
 func executeAgentTool(ctx context.Context, res *AgentResources, tc llm.ToolCall) string {
 	switch tc.Name {
 	case "kb_search":
@@ -362,16 +348,15 @@ func executeAgentTool(ctx context.Context, res *AgentResources, tc llm.ToolCall)
 	}
 }
 
-// kbSearchArgs is the parsed input for the kb_search tool.
 type kbSearchArgs struct {
 	Query string `json:"query"`
 	TopK  int    `json:"top_k,omitempty"`
 }
 
-// toolKBSearch runs a hybrid retrieval call when a retriever is wired
-// and falls back to a naive store walk when it is not. The fallback
-// keeps the agent functional in tests and minimal setups; production
-// runs will always carry a retriever.
+// toolKBSearch runs hybrid retrieval when a retriever is wired and
+// falls back to a naive store walk otherwise. The fallback keeps the
+// agent functional in tests and minimal setups; production runs always
+// carry a retriever.
 func toolKBSearch(ctx context.Context, res *AgentResources, raw json.RawMessage) string {
 	var args kbSearchArgs
 	if err := json.Unmarshal(raw, &args); err != nil {
@@ -401,14 +386,13 @@ func toolKBSearch(ctx context.Context, res *AgentResources, raw json.RawMessage)
 	return naiveStoreSearch(ctx, res, args.Query, topK)
 }
 
-// memoryRecallArgs is the parsed input for the memory_recall tool.
 type memoryRecallArgs struct {
 	Keyword string `json:"keyword"`
 }
 
-// toolMemoryRecall performs a shallow keyword scan over the project
-// memory topics. Simpler than kb_search but useful for exact-phrase
-// recall the hybrid pipeline can miss on tiny corpora.
+// toolMemoryRecall runs a shallow keyword scan over the project memory
+// topics. Simpler than kb_search but useful for exact-phrase recall
+// the hybrid pipeline can miss on tiny corpora.
 func toolMemoryRecall(ctx context.Context, res *AgentResources, raw json.RawMessage) string {
 	var args memoryRecallArgs
 	if err := json.Unmarshal(raw, &args); err != nil {
@@ -500,8 +484,6 @@ func naiveStoreSearch(ctx context.Context, res *AgentResources, query string, to
 	return strings.TrimSpace(b.String())
 }
 
-// excerpt returns a centred snippet around the first match of needle
-// in body. Falls back to the first n runes when the needle is absent.
 func excerpt(body, needle string, n int) string {
 	lowerBody := strings.ToLower(body)
 	lowerNeedle := strings.ToLower(needle)
@@ -530,8 +512,6 @@ func excerpt(body, needle string, n int) string {
 	return snippet
 }
 
-// formatChunks renders retrieval hits into the compact text the
-// agent's Complete call consumes on the next turn.
 func formatChunks(chunks []retrieval.RetrievedChunk) string {
 	if len(chunks) == 0 {
 		return "no matches found"

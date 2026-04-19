@@ -12,12 +12,41 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/jeffs-brain/memory/go/llm"
 )
+
+// newTestDaemonWithRoot spins up a Daemon rooted at the supplied
+// directory. Useful for pre-seeded-brain regression tests where the
+// filesystem layout needs to exist before the daemon opens it.
+func newTestDaemonWithRoot(t *testing.T, root string) (*Daemon, *httptest.Server) {
+	t.Helper()
+	log := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	daemon, err := NewDaemon(context.Background(), root, "", log)
+	if err != nil {
+		t.Fatalf("daemon: %v", err)
+	}
+	if daemon.LLM != nil {
+		_ = daemon.LLM.Close()
+	}
+	daemon.LLM = llm.NewFake([]string{"The hedgehog lives in hedgerows."})
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
+	})
+	daemon.RegisterRoutes(mux)
+	srv := httptest.NewServer(mux)
+	t.Cleanup(func() {
+		srv.Close()
+		_ = daemon.Close()
+	})
+	return daemon, srv
+}
 
 // newTestDaemon spins up a Daemon rooted at t.TempDir() and returns
 // it along with an httptest.Server pointed at the daemon mux. The
@@ -527,4 +556,63 @@ func readSSEEvents(t *testing.T, body io.Reader, timeout time.Duration) map[stri
 		}
 	}
 	return out
+}
+
+// TestServePreseededBrainScanOnOpen is the tri-SDK contract test: the
+// Go eval runner writes memory facts to
+// $JB_HOME/brains/<id>/memory/global/*.md before any downstream
+// daemon (TS, Go, Py) is spawned. Each daemon must scan the brain
+// root on open and index whatever it finds so the first /search
+// surface returns hits rather than an empty array. A regression that
+// stops the initial scan from running (or filters out literally-laid
+// memory/global/ paths) breaks the tri-SDK LongMemEval pipeline with
+// 0% retrieval hit rate and no visible error.
+func TestServePreseededBrainScanOnOpen(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	brainID := "preseed"
+	seeded := root + "/brains/" + brainID + "/memory/global/hedgehog.md"
+	if err := os.MkdirAll(root+"/brains/"+brainID+"/memory/global", 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	body := []byte("---\nname: Hedgehog\ndescription: Small mammal.\n---\n\nThe hedgehog lives in hedgerows across Europe.\n")
+	if err := os.WriteFile(seeded, body, 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	_, srv := newTestDaemonWithRoot(t, root)
+	c := srv.Client()
+	resp, err := c.Post(srv.URL+"/v1/brains/"+brainID+"/search",
+		"application/json",
+		strings.NewReader(`{"query":"hedgehog hedgerows","topK":5,"mode":"auto"}`))
+	if err != nil {
+		t.Fatalf("search: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		got, _ := io.ReadAll(resp.Body)
+		t.Fatalf("search status = %d, body = %s", resp.StatusCode, got)
+	}
+	var out struct {
+		Chunks []struct {
+			Path string `json:"path"`
+		} `json:"chunks"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(out.Chunks) == 0 {
+		t.Fatalf("expected >=1 chunk for pre-seeded brain, got 0")
+	}
+	found := false
+	for _, c := range out.Chunks {
+		if strings.HasSuffix(c.Path, "hedgehog.md") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected hedgehog.md in chunks, got: %+v", out.Chunks)
+	}
 }

@@ -2,9 +2,9 @@
 
 import { extractJSON, type Logger, type Provider } from '../llm/index.js'
 import { joinPath, pathUnder, toPath, type Path, type Store } from '../store/index.js'
-import { archivedSourcePath, INGESTED_ARCHIVE_PREFIX } from './archive.js'
+import { archivedSourcePath, RAW_DOCUMENTS_ARCHIVE_PREFIX } from './archive.js'
 import { parseFrontmatter, serialiseFrontmatter } from './frontmatter.js'
-import { hashContent, INGESTED_PREFIX } from './ingest.js'
+import { hashContent, RAW_DOCUMENTS_PREFIX } from './ingest.js'
 import { appendLogInBatch } from './log.js'
 import {
   tryNormaliseKnowledgeArticleStem,
@@ -420,17 +420,17 @@ export const listIngested = async (store: Store): Promise<readonly string[]> => 
 }
 
 const listPendingIngestedSources = async (store: Store): Promise<readonly IngestedSource[]> => {
-  const prefix = toPath(INGESTED_PREFIX)
+  const prefix = toPath(RAW_DOCUMENTS_PREFIX)
   const exists = await store.exists(prefix).catch(() => false)
   if (!exists) return []
   const entries = await store.list(prefix, { recursive: true })
   const sources: IngestedSource[] = []
   for (const e of entries) {
     if (e.isDir) continue
-    if (!pathUnder(e.path, INGESTED_PREFIX, true)) continue
-    if (pathUnder(e.path, INGESTED_ARCHIVE_PREFIX, true)) continue
+    if (!pathUnder(e.path, RAW_DOCUMENTS_PREFIX, true)) continue
+    if (pathUnder(e.path, RAW_DOCUMENTS_ARCHIVE_PREFIX, true)) continue
     if (!e.path.endsWith('.md')) continue
-    const sourceId = e.path.slice(INGESTED_PREFIX.length + 1, -'.md'.length)
+    const sourceId = e.path.slice(RAW_DOCUMENTS_PREFIX.length + 1, -'.md'.length)
     const content = await store.read(e.path)
     const marker = await readProcessedMarker(store, sourceId)
     if (isProcessedSourceContent(marker, e.path, content)) {

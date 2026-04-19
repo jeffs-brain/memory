@@ -59,6 +59,7 @@ type OpenAIRequestBody = {
   messages: OpenAIChatMessage[]
   stream: boolean
   max_tokens?: number
+  max_completion_tokens?: number
   temperature?: number
   response_format?: Record<string, unknown>
   tools?: Array<{
@@ -70,6 +71,21 @@ type OpenAIRequestBody = {
     }
   }>
   [extra: string]: unknown
+}
+
+/**
+ * Reasoning and gpt-5 models reject `max_tokens` + non-default `temperature`.
+ * They expect `max_completion_tokens` and the default temperature (1). This
+ * covers o1/o3/o4 and gpt-5* as of 2026-04.
+ */
+const usesMaxCompletionTokens = (model: string): boolean => {
+  const m = model.toLowerCase()
+  return (
+    m.startsWith('gpt-5') ||
+    m.startsWith('o1') ||
+    m.startsWith('o3') ||
+    m.startsWith('o4')
+  )
 }
 
 export class OpenAIProvider implements Provider {
@@ -207,15 +223,15 @@ export class OpenAIProvider implements Provider {
       )
     } catch (err) {
       if (err instanceof SchemaValidationError) {
-        // Re-surface with validator's best reason (also attempt to
-        // validate the raw payload to give a cleaner message).
+        // Try revalidating the raw payload so the caller gets a cleaner
+        // reason than the wrapper's generic message.
         if (err.rawPayload !== '') {
           try {
             const parsed = JSON.parse(extractJSON(err.rawPayload))
             validateAgainstSchema(parsed, schemaObj)
             return err.rawPayload
           } catch {
-            // Keep original error.
+            // Fall through with the original SchemaValidationError.
           }
         }
       }
@@ -230,14 +246,20 @@ export class OpenAIProvider implements Provider {
   }
 
   private buildBody(req: CompletionRequest, stream: boolean): OpenAIRequestBody {
+    const model = req.model !== undefined && req.model !== '' ? req.model : this.model
     const body: OpenAIRequestBody = {
-      model: req.model !== undefined && req.model !== '' ? req.model : this.model,
+      model,
       messages: convertMessages(req),
       stream,
     }
-    if (req.maxTokens !== undefined) body.max_tokens = req.maxTokens
-    else body.max_tokens = this.defaultMaxTokens
-    if (req.temperature !== undefined) body.temperature = req.temperature
+    const maxTokens = req.maxTokens ?? this.defaultMaxTokens
+    if (usesMaxCompletionTokens(model)) {
+      body.max_completion_tokens = maxTokens
+      // Reasoning models enforce the default temperature, so we omit it.
+    } else {
+      body.max_tokens = maxTokens
+      if (req.temperature !== undefined) body.temperature = req.temperature
+    }
 
     if (req.jsonMode === true && req.responseFormat === undefined) {
       body.response_format = { type: 'json_object' }

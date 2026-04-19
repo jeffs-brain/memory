@@ -105,4 +105,10 @@ describe('rbac adapter', () => {
     expect(found?.length).toBe(1)
     expect(found?.[0]?.relation).toBe('writer')
   })
+
+  it('exposes a close hook that resolves cleanly', async () => {
+    const acl = createRbacProvider()
+    expect(acl.close).toBeDefined()
+    await expect(acl.close?.()).resolves.toBeUndefined()
+  })
 })

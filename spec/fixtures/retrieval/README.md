@@ -1,9 +1,10 @@
 # Retrieval Golden Fixtures
 
-Golden outputs from the reference TypeScript / Go retrieval pipeline (the
-`jeff` TS implementation). Every language SDK (Go, Python, and any future
-port) re-runs the same corpus and query set against its own pipeline and
-compares the result against these files to prove cross-language parity.
+Golden outputs from the reference retrieval pipeline (originally captured
+from the `jeff` TypeScript implementation). Every language SDK
+(TypeScript, Go, Python) re-runs the same corpus and query set against
+its own pipeline and compares the result against these files to prove
+cross-language parity.
 
 ## Background
 
@@ -73,7 +74,7 @@ The YAML golden sets drive the eval harness. Each query passes when any
 `any_of` entry appears in the top-K retrieved list, or when every
 `must_retrieve` entry appears.
 
-## How the Go and Python SDKs consume these
+## How every SDK consumes these
 
 1. Load the matching YAML golden set (`golden-realworld.yaml`,
    `golden-hybrid.yaml`, or `golden-distillation.yaml`) into the SDK's

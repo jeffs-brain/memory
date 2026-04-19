@@ -2,20 +2,20 @@
 
 import { describe, expect, it } from 'vitest'
 import { createMemStore } from '../store/memstore.js'
-import { createIngest, hashContent, ingestedPath } from './ingest.js'
+import { createIngest, hashContent, rawDocumentPath } from './ingest.js'
 import { noopLogger } from '../llm/index.js'
 import { LOG_PATH, readLog } from './log.js'
 
 describe('ingest', () => {
-  it('writes ingested/<hash>.md with matching content and hash', async () => {
+  it('writes raw/documents/<hash>.md with matching content and hash', async () => {
     const store = createMemStore()
     const ingest = createIngest({ store, logger: noopLogger })
-    const text = 'Hello Jeff — here is a note.'
+    const text = 'Hello Jeff, here is a note.'
     const result = await ingest(text)
 
     const expected = hashContent(Buffer.from(text, 'utf8'))
     expect(result.hash).toBe(expected)
-    expect(result.path).toBe(ingestedPath(expected))
+    expect(result.path).toBe(rawDocumentPath(expected))
     expect(result.bytes).toBe(Buffer.byteLength(text, 'utf8'))
 
     const stored = await store.read(result.path)
@@ -42,6 +42,6 @@ describe('ingest', () => {
     const store = createMemStore()
     const ingest = createIngest({ store, logger: noopLogger })
     const result = await ingest('note body', { name: 'My Custom Note!' })
-    expect(result.path).toBe(ingestedPath('my-custom-note'))
+    expect(result.path).toBe(rawDocumentPath('my-custom-note'))
   })
 })

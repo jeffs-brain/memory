@@ -19,6 +19,7 @@ const (
 	EnvOpenAIAPIKey   = "OPENAI_API_KEY"
 	EnvOpenAIBaseURL  = "OPENAI_BASE_URL"
 	EnvAnthropicKey   = "ANTHROPIC_API_KEY"
+	EnvAnthropicBase  = "ANTHROPIC_BASE_URL"
 	EnvOllamaHost     = "OLLAMA_HOST"
 	EnvEmbedProvider  = "JB_EMBED_PROVIDER"
 	EnvEmbedModel     = "JB_EMBED_MODEL"
@@ -54,7 +55,7 @@ func ProviderFromEnv(env Getenv) (Provider, error) {
 		if key == "" {
 			return nil, fmt.Errorf("llm: %s is set to anthropic but %s is empty", EnvProvider, EnvAnthropicKey)
 		}
-		return NewAnthropic(AnthropicConfig{APIKey: key, Model: env(EnvModel)}), nil
+		return NewAnthropic(AnthropicConfig{APIKey: key, BaseURL: env(EnvAnthropicBase), Model: env(EnvModel)}), nil
 	case "ollama":
 		return NewOllama(OllamaConfig{BaseURL: ollamaHostFromEnv(env), Model: env(EnvModel)}), nil
 	case "fake":
@@ -64,7 +65,16 @@ func ProviderFromEnv(env Getenv) (Provider, error) {
 	default:
 		return nil, fmt.Errorf("llm: unknown %s=%q", EnvProvider, env(EnvProvider))
 	}
-	// Auto-detect.
+	// Auto-detect. When a cloud key is present prefer the cloud provider
+	// over a locally reachable Ollama — a user who set OPENAI_API_KEY
+	// almost always wants that provider, not whatever happens to be
+	// listening on 127.0.0.1:11434.
+	if key := strings.TrimSpace(env(EnvOpenAIAPIKey)); key != "" {
+		return NewOpenAI(OpenAIConfig{APIKey: key, BaseURL: env(EnvOpenAIBaseURL), Model: env(EnvModel)}), nil
+	}
+	if key := strings.TrimSpace(env(EnvAnthropicKey)); key != "" {
+		return NewAnthropic(AnthropicConfig{APIKey: key, BaseURL: env(EnvAnthropicBase), Model: env(EnvModel)}), nil
+	}
 	host := ollamaHostFromEnv(env)
 	if ollamaReachable(host) {
 		return NewOllama(OllamaConfig{BaseURL: host}), nil
@@ -101,6 +111,15 @@ func EmbedderFromEnv(env Getenv) (Embedder, error) {
 	case "fake":
 		return NewFakeEmbedder(ollamaDefaultEmbedDims), nil
 	case "":
+		// Same precedence as ProviderFromEnv: a user who set an OpenAI
+		// API key wants embeddings from OpenAI, not whatever happens to
+		// be listening on 127.0.0.1:11434.
+		if key := strings.TrimSpace(env(EnvOpenAIAPIKey)); key != "" {
+			return NewOpenAIEmbedder(OpenAIEmbedConfig{
+				APIKey: key,
+				Model:  env(EnvEmbedModel),
+			}), nil
+		}
 		host := ollamaHostFromEnv(env)
 		if ollamaReachable(host) {
 			return NewOllamaEmbedder(OllamaEmbedConfig{BaseURL: host}), nil

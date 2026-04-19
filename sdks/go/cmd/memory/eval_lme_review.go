@@ -65,8 +65,6 @@ func evalLmeReviewCmd() *cobra.Command {
 	return cmd
 }
 
-// writeDiffOutput writes md to outputPath, or to stdout when
-// outputPath is empty.
 func writeDiffOutput(stdout io.Writer, outputPath, md string) error {
 	if outputPath == "" {
 		if _, err := io.WriteString(stdout, md); err != nil {
@@ -83,7 +81,6 @@ func writeDiffOutput(stdout io.Writer, outputPath, md string) error {
 	return nil
 }
 
-// hasTrailingNewline reports whether s ends with "\n".
 func hasTrailingNewline(s string) bool {
 	return len(s) > 0 && s[len(s)-1] == '\n'
 }

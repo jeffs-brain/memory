@@ -64,6 +64,45 @@ async def test_provider_from_env_auto_detect_fallback() -> None:
     await provider.close()
 
 
+async def test_provider_from_env_auto_detect_prefers_openai_over_ollama() -> None:
+    """OPENAI_API_KEY present: pick OpenAI even if Ollama is reachable."""
+    provider = provider_from_env(
+        {
+            "OPENAI_API_KEY": "secret",
+            # Point Ollama at localhost:11434 to simulate the buggy case
+            # where a reachable daemon would otherwise win.
+            "OLLAMA_HOST": "http://127.0.0.1:11434",
+        }
+    )
+    assert isinstance(provider, OpenAIProvider)
+    await provider.close()
+
+
+async def test_provider_from_env_auto_detect_prefers_anthropic_over_ollama() -> None:
+    provider = provider_from_env(
+        {
+            "ANTHROPIC_API_KEY": "secret",
+            "OLLAMA_HOST": "http://127.0.0.1:11434",
+        }
+    )
+    from jeffs_brain_memory.llm import AnthropicProvider
+
+    assert isinstance(provider, AnthropicProvider)
+    await provider.close()
+
+
+async def test_provider_from_env_auto_detect_prefers_openai_over_anthropic() -> None:
+    """When both keys are set, OpenAI wins (matches Go SDK ordering)."""
+    provider = provider_from_env(
+        {
+            "OPENAI_API_KEY": "openai-secret",
+            "ANTHROPIC_API_KEY": "anthropic-secret",
+        }
+    )
+    assert isinstance(provider, OpenAIProvider)
+    await provider.close()
+
+
 async def test_provider_from_env_ollama_explicit() -> None:
     provider = provider_from_env(
         {"JB_LLM_PROVIDER": "ollama", "OLLAMA_HOST": "http://ollama.lan:11434"}

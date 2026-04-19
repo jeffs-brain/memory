@@ -383,3 +383,50 @@ def test_serve_version_smoke(tmp_path) -> None:
             body = version.json()
             assert isinstance(body, dict)
             assert "version" in body
+
+
+# -- 10. Pre-seeded brain scan-on-open ---------------------------------------
+#
+# Tri-SDK contract: the Go eval runner writes memory facts to
+# $JB_HOME/brains/<id>/memory/global/*.md before any Python daemon is
+# spawned. The daemon must rebuild its search index on open so the
+# first /search request returns hits rather than an empty array. This
+# regression catches a broken ``_build`` that fails to wire the
+# async-safe scan pass (e.g. the prior ``index.rebuild(store)`` call
+# which ran ``asyncio.run`` inside an already-running event loop).
+
+
+def test_serve_preseeded_brain_scan_on_open(tmp_path) -> None:
+    brain_id = "preseed"
+    seeded = tmp_path / "brains" / brain_id / "memory" / "global" / "hedgehog.md"
+    seeded.parent.mkdir(parents=True, exist_ok=True)
+    seeded.write_text(
+        "\n".join(
+            [
+                "---",
+                "name: Hedgehog",
+                "description: Small mammal that lives in hedgerows.",
+                "---",
+                "",
+                "The hedgehog lives in hedgerows across Europe.",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    app = create_app(root=tmp_path)
+    with _run_app(app) as base_url:
+        with httpx.Client(base_url=base_url, timeout=5.0) as client:
+            # The brain root already exists on disk, so the daemon
+            # should resolve it lazily on the first search without
+            # requiring a POST /v1/brains call first.
+            search = client.post(
+                f"/v1/brains/{brain_id}/search",
+                json={"query": "hedgehog hedgerows", "topK": 5, "mode": "auto"},
+            )
+            assert search.status_code == 200, search.text
+            chunks = search.json().get("chunks", [])
+            assert chunks, "expected pre-seeded hedgehog.md to surface after scan-on-open"
+            assert any(
+                chunk.get("path", "").endswith("hedgehog.md") for chunk in chunks
+            ), f"expected hedgehog.md in chunks, got: {chunks}"

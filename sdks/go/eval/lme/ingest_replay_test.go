@@ -5,6 +5,8 @@ package lme
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -13,6 +15,7 @@ import (
 	"github.com/jeffs-brain/memory/go/llm"
 	"github.com/jeffs-brain/memory/go/memory"
 	"github.com/jeffs-brain/memory/go/store/mem"
+	"github.com/jeffs-brain/memory/go/store/pt"
 )
 
 // replayFakeProvider is a test double that returns canned extraction
@@ -562,6 +565,66 @@ func TestIngestReplay_EmittedMarkdownCarriesTags(t *testing.T) {
 		if !strings.Contains(frontmatter, want) {
 			t.Errorf("frontmatter missing %q in:\n%s", want, frontmatter)
 		}
+	}
+}
+
+// TestIngestReplay_PassthroughLayoutPersistsGlobalMemory is the
+// tri-SDK contract test: when a replay ingest runs over a pt.Store
+// rooted at a brain cache, the resulting memory/global/*.md files
+// must land at the same literal on-disk path. The TS/Py SDKs and the
+// Go HTTP daemon all open the cache with a passthrough store and walk
+// `memory/global/` verbatim; the fs.Store remap from `memory/global/`
+// to `memory/` would break every downstream daemon at search time.
+func TestIngestReplay_PassthroughLayoutPersistsGlobalMemory(t *testing.T) {
+	dir := t.TempDir()
+	store, err := pt.New(dir)
+	if err != nil {
+		t.Fatalf("pt.New: %v", err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+
+	ds := &Dataset{Questions: []Question{{
+		ID: "q1", Category: "single-session",
+		Question:      "Q?",
+		Answer:        "A",
+		SessionIDs:    []string{"sess-001"},
+		HaystackDates: []string{"2024/03/25 (Mon) 10:00"},
+		HaystackSessions: [][]SessionMessage{{
+			{Role: "user", Content: "Globally important fact."},
+			{Role: "assistant", Content: "Understood."},
+		}},
+	}}}
+
+	// Note the `scope: "global"` on the extraction — triggers the
+	// global-memory write path inside ApplyExtractions.
+	provider := &replayFakeProvider{responses: []string{
+		`{"memories": [{"action": "create", "filename": "globally_important.md", "name": "GloballyImportant", "description": "d", "type": "global", "content": "A globally important fact.", "index_entry": "- g", "scope": "global"}]}`,
+	}}
+
+	result, err := IngestReplay(context.Background(), store, ds, provider, ReplayOpts{})
+	if err != nil {
+		t.Fatalf("IngestReplay: %v", err)
+	}
+	if result.FactsWritten != 1 {
+		t.Fatalf("FactsWritten = %d, want 1", result.FactsWritten)
+	}
+
+	literal := filepath.Join(dir, "memory", "global", "globally_important.md")
+	body, err := os.ReadFile(literal)
+	if err != nil {
+		t.Fatalf("expected file at %s (passthrough layout): %v", literal, err)
+	}
+	if !strings.Contains(string(body), "globally important fact") {
+		t.Fatalf("fact content missing from %s: %q", literal, body)
+	}
+
+	// Defence in depth: the fs.Store remap would create the file at
+	// memory/globally_important.md under the root. Confirm that is
+	// absent so a future regression that reintroduces fs.New here
+	// fails this test.
+	remapped := filepath.Join(dir, "memory", "globally_important.md")
+	if _, err := os.Stat(remapped); err == nil {
+		t.Fatalf("found file at remapped path %s; passthrough store must not remap", remapped)
 	}
 }
 

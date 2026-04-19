@@ -2,6 +2,8 @@
 
 Public documentation site for `jeffs-brain/memory`. Powered by [Astro Starlight](https://starlight.astro.build). Deployed to [docs.jeffsbrain.com](https://docs.jeffsbrain.com) on Cloudflare Pages.
 
+21 pages across the landing section, per-SDK getting-started (TypeScript, Go, Python), per-agent MCP integration guides (Claude Code, Claude Desktop, Cursor, Windsurf, Zed), concept pages (brains, memory stages, retrieval, query DSL), spec mirrors, example walkthroughs, and the CLI reference.
+
 ## Develop
 
 ```bash

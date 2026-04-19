@@ -50,14 +50,14 @@ describe('knowledge index', () => {
 
     const knowledge = createKnowledge({ store, provider })
     await store.write(
-      joinPath('ingested', 'stubby-source.md'),
+      joinPath('raw/documents', 'stubby-source.md'),
       Buffer.from('Source material for the stub article.', 'utf8'),
     )
     await store.write(
       processedMarkerPath('stubby-source'),
       Buffer.from(
         serialiseProcessedMarker({
-          sourcePath: 'ingested/stubby-source.md',
+          sourcePath: 'raw/documents/stubby-source.md',
           contentHash: 'd8f9aa4ea36d5f7afcf286d5f43c278cead0f26a87ae7f0ef5b9e421e71ec674',
           processedAt: '2026-04-18T10:00:00.000Z',
           writtenPaths: ['wiki/stubby.md'],
@@ -73,7 +73,7 @@ describe('knowledge index', () => {
             title: 'Stubby',
             summary: 'Thin article',
             tags: [],
-            sources: ['ingested/stubby-source.md'],
+            sources: ['raw/documents/stubby-source.md'],
           },
           'Short note with [[reference]].',
         ),

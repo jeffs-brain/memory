@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Raw-content ingest. Produces an ingested/<hash>.md entry and a matching
+ * Raw-content ingest. Produces a raw/documents/<hash>.md entry and a matching
  * operations-log line in a single Batch with Reason: "ingest". Ported from
  * apps/jeff/internal/knowledge/ingest.go (the ingestInBatch helper).
  */
@@ -12,13 +12,13 @@ import type { Logger } from '../llm/index.js'
 import { appendLogInBatch } from './log.js'
 import type { IngestOptions, IngestResult } from './types.js'
 
-export const INGESTED_PREFIX = 'ingested'
+export const RAW_DOCUMENTS_PREFIX = 'raw/documents'
 
 export const hashContent = (buf: Buffer): string =>
   createHash('sha256').update(buf).digest('hex')
 
-export const ingestedPath = (hashOrName: string): Path =>
-  joinPath(INGESTED_PREFIX, `${hashOrName}.md`)
+export const rawDocumentPath = (hashOrName: string): Path =>
+  joinPath(RAW_DOCUMENTS_PREFIX, `${hashOrName}.md`)
 
 type IngestDeps = {
   store: Store
@@ -35,13 +35,13 @@ export const createIngest = (deps: IngestDeps) => {
     const content = typeof input === 'string' ? Buffer.from(input, 'utf8') : input
     const hash = hashContent(content)
     const name = opts.name && opts.name !== '' ? slugify(opts.name) : hash
-    const path = ingestedPath(name)
+    const path = rawDocumentPath(name)
 
     const existed = await store.exists(path)
     if (existed) {
-      // Same content, same name → deterministic skip. Same name, different
+      // Same content, same name -> deterministic skip. Same name, different
       // content is surfaced by the Store write later (overwrite semantics
-      // vary by backend) — by default we still overwrite because the Go
+      // vary by backend). By default we still overwrite because the Go
       // ingest dedup is checksum-based and a hit here means either the
       // same payload or a deliberate re-name, both safe to overwrite.
       const existing = await store.read(path)

@@ -4,13 +4,13 @@
 Mirrors the Go SDK's ``Index`` contract (``sdks/go/search/index.go``)
 for cross-language parity. One SQLite file holds three tables:
 
-- ``knowledge_fts`` — FTS5 virtual table keyed by ``path`` with the
+- ``knowledge_fts``: FTS5 virtual table keyed by ``path`` with the
   indexed body columns (``title``, ``summary``, ``tags``, ``content``,
   ``scope``, ``project_slug``, ``session_date``).
-- ``knowledge_chunks`` — metadata rows (chunk id, document id, path,
+- ``knowledge_chunks``: metadata rows (chunk id, document id, path,
   frontmatter payload) so callers can hydrate results without a
   second lookup through the brain store.
-- ``knowledge_embeddings`` — one row per chunk, ``vector`` stored as
+- ``knowledge_embeddings``: one row per chunk, ``vector`` stored as
   a little-endian float32 ``BLOB``. When the optional ``sqlite-vec``
   extension loads successfully a parallel ``vec0`` virtual table is
   also maintained for faster lookup; otherwise the pure-Python cosine
@@ -208,6 +208,10 @@ def _classify_path(path: str) -> tuple[str, str]:
         return ("raw_document", "")
     if path.startswith("raw/.sources/"):
         return ("sources", "")
+    if path.startswith("raw/lme/"):
+        # LongMemEval bulk-ingested sessions; indexed so the tri-SDK
+        # eval falls back gracefully when extraction produces no facts.
+        return ("raw_lme", "")
     return ("", "")
 
 
@@ -237,9 +241,6 @@ class Index:
         self._vec_loaded = self._try_load_sqlite_vec()
         self._apply_schema()
 
-    # ------------------------------------------------------------------
-    # Construction / teardown helpers
-    # ------------------------------------------------------------------
     def _try_load_sqlite_vec(self) -> bool:
         """Attempt to load the ``sqlite-vec`` extension.
 
@@ -292,9 +293,6 @@ class Index:
     def __exit__(self, *_exc: object) -> None:
         self.close()
 
-    # ------------------------------------------------------------------
-    # Write path
-    # ------------------------------------------------------------------
     def upsert_chunks(self, chunks: Iterable[Chunk]) -> int:
         """Insert or replace ``chunks``.
 
@@ -331,9 +329,8 @@ class Index:
         generated = 1 if chunk.metadata.get("generated") else 0
         metadata_blob = _serialise_metadata(chunk.metadata)
 
-        # Rewrite any existing rows for this chunk so a re-upsert
-        # presents a clean slate downstream of FTS (which is DELETE
-        # + INSERT rather than UPSERT under the hood).
+        # FTS is DELETE+INSERT under the hood, so clear first to keep
+        # a re-upsert in sync with the chunk + embedding rows.
         self._conn.execute("DELETE FROM knowledge_fts WHERE path = ?", (chunk.path,))
         self._conn.execute("DELETE FROM knowledge_chunks WHERE chunk_id = ?", (chunk.id,))
         self._conn.execute(
@@ -395,9 +392,6 @@ class Index:
             self._conn.execute("DELETE FROM knowledge_chunks WHERE chunk_id = ?", (chunk_id,))
             self._conn.execute("DELETE FROM knowledge_embeddings WHERE chunk_id = ?", (chunk_id,))
 
-    # ------------------------------------------------------------------
-    # Read path: BM25
-    # ------------------------------------------------------------------
     def search_bm25(
         self,
         query: str,
@@ -482,9 +476,6 @@ class Index:
             return False
         return True
 
-    # ------------------------------------------------------------------
-    # Read path: vectors
-    # ------------------------------------------------------------------
     def search_vectors(
         self,
         query_vec: Sequence[float],
@@ -538,9 +529,6 @@ class Index:
         scored.sort(key=lambda h: (-h.score, h.path))
         return scored[:limit]
 
-    # ------------------------------------------------------------------
-    # Read path: trigram
-    # ------------------------------------------------------------------
     def search_trigram(
         self,
         query: str,
@@ -568,9 +556,6 @@ class Index:
             for hit in raw_hits
         ]
 
-    # ------------------------------------------------------------------
-    # Rebuild / housekeeping
-    # ------------------------------------------------------------------
     def rebuild(self, store: Any) -> int:
         """Rebuild the index from a brain store.
 
@@ -643,9 +628,6 @@ class Index:
                 count += 1
         return count
 
-    # ------------------------------------------------------------------
-    # Diagnostics
-    # ------------------------------------------------------------------
     def chunk_count(self) -> int:
         """Return the number of chunks currently indexed."""
         row = self._conn.execute("SELECT count(*) AS n FROM knowledge_chunks").fetchone()
@@ -666,5 +648,4 @@ def _serialise_metadata(metadata: dict[str, Any]) -> str:
         return "{}"
 
 
-# Convenience re-exports for callers that used to build ASTs directly.
 __all__.extend(["parse_query", "compile_fts_ast"])

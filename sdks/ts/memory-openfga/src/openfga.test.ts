@@ -168,3 +168,17 @@ describe('openfga adapter - read', () => {
     expect(tuples?.[0]?.resource).toEqual(brain('notes'))
   })
 })
+
+describe('openfga adapter - close', () => {
+  it('resolves cleanly and makes no fetch calls', async () => {
+    const fetchMock = vi.fn<FetchLike>().mockResolvedValue(jsonResponse({}))
+    const acl = createOpenFgaProvider({
+      apiUrl: 'https://fga.example.com',
+      storeId: 'store-1',
+      fetch: fetchMock,
+    })
+    expect(acl.close).toBeDefined()
+    await expect(acl.close?.()).resolves.toBeUndefined()
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+})

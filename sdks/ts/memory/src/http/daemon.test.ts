@@ -446,7 +446,7 @@ describe('memory daemon integration', () => {
     expect(text).toContain('event: citation')
     expect(text).toContain('event: done')
     // The citation should reference the real ingested path.
-    expect(text).toMatch(/"path":"ingested\/[^"]*habitat/)
+    expect(text).toMatch(/"path":"raw\/documents\/[^"]*habitat/)
   })
 
   it('12. remember then recall round-trips through the real memory pipeline', async () => {
@@ -540,5 +540,56 @@ describe('memory daemon integration', () => {
     expect(extracted).toBeDefined()
     expect(extracted!.content).toContain('pragmatic')
     expect(extracted!.scope).toBe('global')
+  })
+
+  it('14. search surfaces files pre-seeded on disk before the daemon opens the brain', async () => {
+    // Tri-SDK contract: the Go eval runner writes memory facts to
+    // $JB_HOME/brains/<id>/memory/global/*.md before any TS daemon is
+    // spawned. The daemon must scan the brain root on open and index
+    // whatever it finds so a follow-up /search returns hits rather
+    // than an empty array. This regression check catches a broken
+    // scanBrain pass (e.g. an async-in-async call that throws
+    // silently, or a missing scope classifier that filters out valid
+    // paths).
+    const tempDir = await mkdtemp(join(tmpdir(), 'memory-preseed-'))
+    const brainId = 'preseed'
+    const seededFile = join(tempDir, 'brains', brainId, 'memory', 'global', 'hedgehog.md')
+    const { mkdir, writeFile } = await import('node:fs/promises')
+    await mkdir(join(tempDir, 'brains', brainId, 'memory', 'global'), { recursive: true })
+    await writeFile(
+      seededFile,
+      [
+        '---',
+        'name: Hedgehog',
+        'description: Small mammal that lives in hedgerows.',
+        '---',
+        '',
+        'The hedgehog lives in hedgerows across Europe.',
+      ].join('\n'),
+      'utf8',
+    )
+
+    const daemon = new Daemon({
+      root: tempDir,
+      provider: makeFakeProvider('ok'),
+      embedder: createHashEmbedder(),
+    })
+    await daemon.start()
+    const handler = async (req: Request): Promise<Response> =>
+      (await createRouter(daemon))(req)
+    fixtures.push({ daemon, handler, tempDir })
+
+    // Resolve the brain lazily — the manager opens it in the first
+    // /search and kicks off scanBrain under the covers.
+    const resp = await handler(
+      makeRequest('POST', `/v1/brains/${brainId}/search`, {
+        body: JSON.stringify({ query: 'hedgehog hedgerows', topK: 5 }),
+        headers: { 'content-type': 'application/json' },
+      }),
+    )
+    expect(resp.status).toBe(200)
+    const body = (await resp.json()) as { chunks: Array<{ path: string }> }
+    expect(body.chunks.length).toBeGreaterThan(0)
+    expect(body.chunks.some((c) => c.path.endsWith('hedgehog.md'))).toBe(true)
   })
 })

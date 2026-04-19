@@ -12,11 +12,8 @@ import (
 	"github.com/jeffs-brain/memory/go/knowledge"
 )
 
-// ingestFileRequest is the body shape for POST .../ingest/file.
-//
-// When ContentBase64 is non-empty the daemon decodes it and ingests
-// inline; otherwise Path is opened from the daemon's local
-// filesystem. Tags and Title pass through to [knowledge.IngestRequest].
+// ingestFileRequest either decodes inline bytes via ContentBase64 or
+// reads Path from the daemon's local filesystem.
 type ingestFileRequest struct {
 	Path          string   `json:"path"`
 	ContentType   string   `json:"contentType,omitempty"`
@@ -25,13 +22,10 @@ type ingestFileRequest struct {
 	ContentBase64 string   `json:"contentBase64,omitempty"`
 }
 
-// ingestURLRequest is the body shape for POST .../ingest/url.
 type ingestURLRequest struct {
 	URL string `json:"url"`
 }
 
-// handleIngestFile dispatches to knowledge.Ingest with either inline
-// bytes (decoded from base64) or a server-resolvable path.
 func (d *Daemon) handleIngestFile(w http.ResponseWriter, r *http.Request) {
 	br := d.resolveBrain(w, r)
 	if br == nil {
@@ -65,7 +59,6 @@ func (d *Daemon) handleIngestFile(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, resp)
 }
 
-// handleIngestURL fetches the URL and ingests the body.
 func (d *Daemon) handleIngestURL(w http.ResponseWriter, r *http.Request) {
 	br := d.resolveBrain(w, r)
 	if br == nil {

@@ -11,9 +11,9 @@ import (
 	"github.com/jeffs-brain/memory/go/llm"
 )
 
-// readerTodayAnchor renders a short "YYYY-MM-DD (Weekday)" string for the
-// reader's temporal grounding line. Accepts a range of LME date formats
-// and falls back to the raw input when nothing parses.
+// readerTodayAnchor renders a "YYYY-MM-DD (Weekday)" string for the
+// reader's temporal grounding line, falling back to the raw input when
+// nothing parses.
 func readerTodayAnchor(questionDate string) string {
 	s := strings.TrimSpace(questionDate)
 	if s == "" {
@@ -37,6 +37,14 @@ func readerTodayAnchor(questionDate string) string {
 // readerMaxTokens matches the official run_generation.py CoT setting.
 const readerMaxTokens = 800
 const readerTemperature = 0.0
+
+// ReaderMaxTokens and ReaderTemperature are exported so the HTTP /ask
+// handler can run the same generation parameters as the in-process LME
+// reader when a caller opts in to the augmented prompt.
+const (
+	ReaderMaxTokens   = readerMaxTokens
+	ReaderTemperature = readerTemperature
+)
 
 // readerUserTemplate is the LME CoT prompt augmented with recency and
 // enumeration guidance so multi-session list/count and knowledge-update
@@ -65,6 +73,36 @@ Current Date: %s
 Question: %s
 Answer (step by step):`
 
+// BuildReaderPrompt renders the augmented LME CoT user prompt that the
+// in-process reader sends to the LLM. Exposed so the HTTP /ask handler
+// can opt in to the same prompt shape (recency, enumeration, temporal
+// guidance, today anchor, step-by-step CoT) used by the eval harness.
+//
+// questionDate accepts the LME "YYYY/MM/DD (Mon) HH:MM" form and a few
+// siblings; an empty string falls through to "unknown".
+func BuildReaderPrompt(question, questionDate, retrievedContent string) string {
+	date := questionDate
+	if date == "" {
+		date = "unknown"
+	}
+	return fmt.Sprintf(
+		readerUserTemplate,
+		readerTodayAnchor(questionDate),
+		retrievedContent,
+		date,
+		question,
+	)
+}
+
+// ProcessSessionContextForQuestion is the exported entry point to the
+// session-block aware preprocessor. The HTTP /ask handler calls this
+// when retrieved chunks carry session_id frontmatter so the augmented
+// reader sees the same chronologically-sorted, assistant-filtered shape
+// as the in-process pipeline.
+func ProcessSessionContextForQuestion(raw, question string) string {
+	return processSessionContextForQuestion(raw, question)
+}
+
 // ReaderConfig controls the reading/answering step.
 type ReaderConfig struct {
 	Provider llm.Provider
@@ -75,10 +113,6 @@ type ReaderConfig struct {
 	ContentBudget int
 }
 
-// resolveReaderContentBudget picks an explicit cfg.ContentBudget when set
-// or defers to [defaultJudgeContentBudget]. The SDK's Provider interface
-// does not expose a context-window getter, so the dynamic budget logic
-// from jeff collapses to the same default used by the judge.
 func resolveReaderContentBudget(cfg ReaderConfig) int {
 	if cfg.ContentBudget > 0 {
 		return cfg.ContentBudget
@@ -101,13 +135,7 @@ func ReadAnswer(ctx context.Context, cfg ReaderConfig, question, questionDate, r
 
 	content := truncateSmartly(retrievedContent, resolveReaderContentBudget(cfg))
 
-	date := questionDate
-	if date == "" {
-		date = "unknown"
-	}
-	todayAnchor := readerTodayAnchor(questionDate)
-
-	prompt := fmt.Sprintf(readerUserTemplate, todayAnchor, content, date, question)
+	prompt := BuildReaderPrompt(question, questionDate, content)
 
 	resp, err := cfg.Provider.Complete(ctx, llm.CompleteRequest{
 		Model: cfg.Model,

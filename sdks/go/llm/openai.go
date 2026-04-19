@@ -72,13 +72,29 @@ type openAIProvider struct {
 }
 
 type openAIChatRequest struct {
-	Model       string              `json:"model"`
-	Messages    []openAIChatMessage `json:"messages"`
-	Temperature float64             `json:"temperature,omitempty"`
-	MaxTokens   int                 `json:"max_tokens,omitempty"`
-	Stop        []string            `json:"stop,omitempty"`
-	Stream      bool                `json:"stream,omitempty"`
-	Tools       []openAIToolDef     `json:"tools,omitempty"`
+	Model               string              `json:"model"`
+	Messages            []openAIChatMessage `json:"messages"`
+	Temperature         float64             `json:"temperature,omitempty"`
+	MaxTokens           int                 `json:"max_tokens,omitempty"`
+	MaxCompletionTokens int                 `json:"max_completion_tokens,omitempty"`
+	Stop                []string            `json:"stop,omitempty"`
+	Stream              bool                `json:"stream,omitempty"`
+	Tools               []openAIToolDef     `json:"tools,omitempty"`
+}
+
+// usesMaxCompletionTokens reports whether the model expects
+// `max_completion_tokens` instead of the legacy `max_tokens`. As of
+// 2026-04 this covers the reasoning families (o1, o3, o4) and gpt-5*.
+func usesMaxCompletionTokens(model string) bool {
+	m := strings.ToLower(model)
+	switch {
+	case strings.HasPrefix(m, "gpt-5"),
+		strings.HasPrefix(m, "o1"),
+		strings.HasPrefix(m, "o3"),
+		strings.HasPrefix(m, "o4"):
+		return true
+	}
+	return false
 }
 
 type openAIChatMessage struct {
@@ -334,7 +350,6 @@ func sortedToolIndexes(buffers map[int]*openAIToolBuffer) []int {
 	for i := range buffers {
 		idx = append(idx, i)
 	}
-	// Stable small sort; tool calls are always few.
 	for i := 1; i < len(idx); i++ {
 		for j := i; j > 0 && idx[j-1] > idx[j]; j-- {
 			idx[j-1], idx[j] = idx[j], idx[j-1]
@@ -345,11 +360,17 @@ func sortedToolIndexes(buffers map[int]*openAIToolBuffer) []int {
 
 func openAIBuildRequest(req CompleteRequest, stream bool) openAIChatRequest {
 	out := openAIChatRequest{
-		Model:       req.Model,
-		Temperature: req.Temperature,
-		MaxTokens:   req.MaxTokens,
-		Stop:        req.Stop,
-		Stream:      stream,
+		Model:  req.Model,
+		Stop:   req.Stop,
+		Stream: stream,
+	}
+	// Reasoning / gpt-5 models reject non-default temperature and use
+	// max_completion_tokens; legacy models stay on max_tokens.
+	if usesMaxCompletionTokens(req.Model) {
+		out.MaxCompletionTokens = req.MaxTokens
+	} else {
+		out.MaxTokens = req.MaxTokens
+		out.Temperature = req.Temperature
 	}
 	for _, m := range req.Messages {
 		msg := openAIChatMessage{

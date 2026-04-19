@@ -8,9 +8,9 @@ import {
   type Path,
   type Store,
 } from '../store/index.js'
-import { INGESTED_PREFIX } from './ingest.js'
+import { RAW_DOCUMENTS_PREFIX } from './ingest.js'
 
-export const INGESTED_ARCHIVE_PREFIX = joinPath(INGESTED_PREFIX, '_archived')
+export const RAW_DOCUMENTS_ARCHIVE_PREFIX = joinPath(RAW_DOCUMENTS_PREFIX, '_archived')
 
 export type SourceArchiveStats = {
   readonly fileCount: number
@@ -35,7 +35,7 @@ type SourceArchiveDeps = {
 }
 
 export const archivedSourcePath = (sourceId: string): Path =>
-  joinPath(INGESTED_ARCHIVE_PREFIX, `${sourceId}.md`)
+  joinPath(RAW_DOCUMENTS_ARCHIVE_PREFIX, `${sourceId}.md`)
 
 export const createSourceArchive = (deps: SourceArchiveDeps) => {
   const { store } = deps
@@ -105,7 +105,7 @@ export const createSourceArchive = (deps: SourceArchiveDeps) => {
 const listArchivedSourceEntries = async (
   store: Store,
 ): Promise<readonly FileInfo[]> => {
-  const root = toPath(INGESTED_ARCHIVE_PREFIX)
+  const root = toPath(RAW_DOCUMENTS_ARCHIVE_PREFIX)
   const exists = await store.exists(root).catch(() => false)
   if (!exists) return []
 
@@ -113,7 +113,7 @@ const listArchivedSourceEntries = async (
   return entries.filter(
     (entry) =>
       !entry.isDir &&
-      pathUnder(entry.path, INGESTED_ARCHIVE_PREFIX, true) &&
+      pathUnder(entry.path, RAW_DOCUMENTS_ARCHIVE_PREFIX, true) &&
       entry.path.endsWith('.md'),
   )
 }

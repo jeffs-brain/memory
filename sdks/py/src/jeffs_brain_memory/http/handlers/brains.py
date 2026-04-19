@@ -31,7 +31,7 @@ async def get_brain(request: Request) -> Response:
     brain_id = request.path_params.get("brain_id") or ""
     if not brain_id:
         return validation_error("missing brainId")
-    if not daemon.brains._exists_on_disk(brain_id):  # noqa: SLF001 — small helper
+    if not daemon.brains._exists_on_disk(brain_id):  # noqa: SLF001 - small helper
         return not_found(f"brain not found: {brain_id}")
     return ok_json({"brainId": brain_id})
 

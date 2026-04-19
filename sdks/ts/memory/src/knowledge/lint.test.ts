@@ -88,7 +88,7 @@ describe('lint', () => {
     try {
       const store = createMemStore()
       const articlePath = joinPath(WIKI_PREFIX, 'stale.md')
-      const sourcePath = joinPath('ingested', 'source.md')
+      const sourcePath = joinPath('raw/documents', 'source.md')
 
       vi.setSystemTime(new Date('2026-04-17T10:00:00Z'))
       const article = serialiseFrontmatter(

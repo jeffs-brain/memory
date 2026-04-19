@@ -21,9 +21,10 @@ keeping human notes at the top of a file.
 
 ## Files
 
-- `smoke.jsonl` — 20 provider-agnostic factual questions. Cheap, fast,
-  deterministic (`exact` scorer). Runs on every PR.
-- `lme.jsonl` — 100-question benchmark spanning facts, definitional,
+- `smoke.jsonl` - 20 provider-agnostic factual questions. Cheap, fast,
+  deterministic (`exact` scorer). Runs on every PR; used for the
+  tri-SDK smoke benchmark against local Ollama.
+- `lme.jsonl` - 100-question benchmark spanning facts, definitional,
   temporal, procedural, comparison, and memory-retrieval-specific prompts
   (SQLite FTS5, BM25, embeddings, RAG, vector search). Answerable from
   general LLM knowledge so it can run against any pre-ingested brain.

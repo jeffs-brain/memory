@@ -2,12 +2,20 @@
 
 Stdio Model Context Protocol server for [`jeffs-brain-memory`](https://pypi.org/project/jeffs-brain-memory/). Gives agents (Claude Code, Claude Desktop, Cursor, Windsurf, Zed) first-class access to a local or hosted Jeffs Brain.
 
+One of three wire-compatible MCP wrappers; its counterparts are the TypeScript `@jeffs-brain/memory-mcp` package and the Go `cmd/memory-mcp` binary. All three expose the same 11 `memory_*` tools defined in [`spec/MCP-TOOLS.md`](https://github.com/jeffs-brain/memory/blob/main/spec/MCP-TOOLS.md).
+
 ## Install
 
 ```bash
 uv tool install jeffs-brain-memory-mcp
 # or run on demand
 uvx jeffs-brain-memory-mcp
+```
+
+For a one-shot install across every supported agent, use the TS orchestrator:
+
+```bash
+npx @jeffs-brain/install
 ```
 
 ## Claude Code
@@ -36,6 +44,21 @@ Add to the app's MCP config:
 }
 ```
 
+## Zed (`context_servers`)
+
+```json
+{
+  "context_servers": {
+    "jeffs-brain": {
+      "source": "custom",
+      "command": "uvx",
+      "args": ["jeffs-brain-memory-mcp"],
+      "env": { "JB_TOKEN": "optional-hosted-token" }
+    }
+  }
+}
+```
+
 ## Modes
 
 Selected automatically:
@@ -55,7 +78,7 @@ Selected automatically:
 
 ## Tools
 
-Eleven `memory_*` tools shared with the TypeScript and Go SDKs:
+Eleven `memory_*` tools shared with the TypeScript and Go MCP wrappers:
 
 - `memory_remember`
 - `memory_recall`
@@ -75,6 +98,7 @@ Input and output shapes are specified in [`spec/MCP-TOOLS.md`](https://github.co
 
 - Repo README: https://github.com/jeffs-brain/memory#readme
 - Protocol and MCP spec: https://github.com/jeffs-brain/memory/tree/main/spec
+- Docs site: https://docs.jeffsbrain.com
 
 ## License
 

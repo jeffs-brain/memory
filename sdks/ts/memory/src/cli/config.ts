@@ -3,13 +3,9 @@
 /**
  * Shared configuration for the memory CLI.
  *
- * Resolution order for the brain directory:
- *   1. explicit `--brain` flag
- *   2. `JB_BRAIN` environment variable
- *   3. process cwd
- *
- * LLM provider and embedder configuration is driven entirely by env
- * variables so commands stay side-effect free below the main().
+ * Brain directory resolution: `--brain` flag, then `JB_BRAIN`, then
+ * process cwd. LLM provider and embedder configuration comes entirely
+ * from env so commands stay side-effect free below main().
  */
 
 import { resolve } from 'node:path'
@@ -104,6 +100,7 @@ export const buildProvider = (settings: ProviderSettings): Provider => {
         type: 'anthropic',
         apiKey: settings.apiKey,
         model: settings.model,
+        ...(settings.baseURL ? { baseURL: settings.baseURL } : {}),
       })
     case 'openai':
       return createProvider({
@@ -116,6 +113,7 @@ export const buildProvider = (settings: ProviderSettings): Provider => {
       return createProvider({
         type: 'ollama',
         model: settings.model,
+        ...(settings.baseURL ? { baseURL: settings.baseURL } : {}),
       })
   }
 }

@@ -457,7 +457,7 @@ const cleanCommand = defineCommand({
   },
   args: {
     brain: { type: 'string', description: 'Brain directory' },
-    scope: { type: 'string', description: 'Clean scope', default: 'ingested' },
+    scope: { type: 'string', description: 'Clean scope', default: 'raw' },
     apply: { type: 'boolean', description: 'Delete matching files', default: false },
     'max-size-mb': {
       type: 'string',
@@ -468,7 +468,7 @@ const cleanCommand = defineCommand({
   run: async ({ args }) => {
     const brainDir = resolveBrainDir(typeof args.brain === 'string' ? args.brain : undefined)
     await requireGitBrain(brainDir)
-    const scope = typeof args.scope === 'string' ? args.scope : 'ingested'
+    const scope = typeof args.scope === 'string' ? args.scope : 'raw'
     const prefixes = scopePrefixes(scope)
     const maxSizeBytes = Math.floor(parsePositiveNumber(args['max-size-mb'], 5) * 1024 * 1024)
     const report = readCleanReport(await listBrainFiles(brainDir, prefixes), maxSizeBytes)

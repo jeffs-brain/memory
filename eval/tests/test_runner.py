@@ -48,9 +48,9 @@ class TestGetRunner:
 
 
 class TestRunnerCommands:
-    def test_ts_command_includes_bun_and_port(self) -> None:
+    def test_ts_command_uses_node_and_port(self) -> None:
         cmd = TsRunner().build_command(4321)
-        assert cmd[0] == "bun"
+        assert cmd[0] == "node"
         assert "127.0.0.1:4321" in cmd
 
     def test_go_command_uses_go_run(self) -> None:

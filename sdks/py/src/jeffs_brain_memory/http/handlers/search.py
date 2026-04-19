@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Search handler — delegates to the retriever, falls back to BM25."""
+"""Search handler. Delegates to the retriever, falls back to BM25."""
 
 from __future__ import annotations
 
@@ -105,8 +105,7 @@ async def search(request: Request) -> Response:
     except Exception as exc:  # noqa: BLE001
         return internal_error(str(exc))
 
-    # If the retriever produced nothing, fall back to raw BM25 over the
-    # search index — mirrors the Go daemon's safety net.
+    # Fall back to raw BM25 when the retriever produced nothing.
     if not chunks:
         try:
             hits = br.search_index.search_bm25(

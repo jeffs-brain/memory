@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { joinPath, pathUnder, type Path, type Store } from '../store/index.js'
-import { hashContent, INGESTED_PREFIX } from './ingest.js'
+import { hashContent, RAW_DOCUMENTS_PREFIX } from './ingest.js'
 
-export const INGESTED_PROCESSED_PREFIX = joinPath(INGESTED_PREFIX, '_processed')
+export const RAW_DOCUMENTS_PROCESSED_PREFIX = joinPath(RAW_DOCUMENTS_PREFIX, '_processed')
 
 export type ProcessedSourceMarker = {
   readonly sourcePath: string
@@ -13,7 +13,7 @@ export type ProcessedSourceMarker = {
 }
 
 export const processedMarkerPath = (sourceId: string): Path =>
-  joinPath(INGESTED_PROCESSED_PREFIX, `${sourceId}.json`)
+  joinPath(RAW_DOCUMENTS_PROCESSED_PREFIX, `${sourceId}.json`)
 
 export const parseProcessedMarker = (content: string): ProcessedSourceMarker | undefined => {
   try {
@@ -56,7 +56,7 @@ export const readProcessedMarker = async (
 }
 
 export const isProcessedMarkerPath = (path: string): boolean =>
-  pathUnder(path as Path, INGESTED_PROCESSED_PREFIX, true)
+  pathUnder(path as Path, RAW_DOCUMENTS_PROCESSED_PREFIX, true)
 
 export const isProcessedSourceContent = (
   marker: ProcessedSourceMarker | undefined,

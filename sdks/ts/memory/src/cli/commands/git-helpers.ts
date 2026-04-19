@@ -357,7 +357,7 @@ export const readSectionStats = async (brainDir: string): Promise<readonly {
     { name: 'reflections', prefixes: ['reflections'] },
     { name: 'wiki', prefixes: ['wiki'] },
     { name: 'drafts', prefixes: ['drafts'] },
-    { name: 'ingested', prefixes: ['ingested'] },
+    { name: 'raw/documents', prefixes: ['raw/documents'] },
   ] as const
   const out: Array<{ name: string; count: number; bytes: number }> = []
   for (const section of sections) {
@@ -472,10 +472,10 @@ export const scopePrefixes = (scopeRaw: string): readonly string[] => {
   switch (scope) {
     case '':
     case 'all':
-      return ['memory', 'reflections', 'wiki', 'drafts', 'ingested']
-    case 'ingested':
+      return ['memory', 'reflections', 'wiki', 'drafts', 'raw/documents']
     case 'raw':
-      return ['ingested']
+    case 'raw/documents':
+      return ['raw/documents']
     case 'wiki':
       return ['wiki', 'drafts']
     case 'drafts':
@@ -485,7 +485,7 @@ export const scopePrefixes = (scopeRaw: string): readonly string[] => {
     case 'reflections':
       return ['reflections']
     default:
-      throw new CliError(`unknown scope '${scopeRaw}'; expected all|ingested|raw|wiki|drafts|memory|reflections`)
+      throw new CliError(`unknown scope '${scopeRaw}'; expected all|raw|wiki|drafts|memory|reflections`)
   }
 }
 

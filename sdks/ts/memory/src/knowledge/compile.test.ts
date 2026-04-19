@@ -44,7 +44,7 @@ describe('compile', () => {
         title: 'Dutch Public Transit',
         summary: 'Existing overview',
         tags: ['transport'],
-        sources: ['ingested/legacy.md'],
+        sources: ['raw/documents/legacy.md'],
         created: '2026-01-01T00:00:00.000Z',
       },
       'Existing body with [[cities/amsterdam]] and [[transport/rail]].',
@@ -113,7 +113,7 @@ describe('compile', () => {
     expect(updated.frontmatter.summary).toBe('Updated overview of trains, trams, and bikes.')
     expect(updated.frontmatter.created).toBe('2026-01-01T00:00:00.000Z')
     expect(updated.frontmatter.modified).toBeDefined()
-    expect(updated.frontmatter.sources).toContain('ingested/legacy.md')
+    expect(updated.frontmatter.sources).toContain('raw/documents/legacy.md')
     expect(updated.frontmatter.sources).toContain(archivedSourcePath(a.hash))
     expect(updated.body).toContain('trains, trams, and bikes')
     expect(updated.body).toContain('[[cities/amsterdam]]')
@@ -145,7 +145,7 @@ describe('compile', () => {
         title: 'Dutch Public Transit',
         summary: 'Existing overview',
         tags: ['transport'],
-        sources: ['ingested/legacy.md'],
+        sources: ['raw/documents/legacy.md'],
         created: '2026-01-01T00:00:00.000Z',
       },
       'Existing body with [[cities/amsterdam]] and [[transport/rail]].',
@@ -158,7 +158,7 @@ describe('compile', () => {
         title: 'Netherlands Overview',
         summary: 'Country overview',
         tags: ['netherlands'],
-        sources: ['ingested/legacy-overview.md'],
+        sources: ['raw/documents/legacy-overview.md'],
       },
       'A broad overview of the Netherlands.',
     )
@@ -261,7 +261,7 @@ describe('compile', () => {
             title: 'Dutch Transport',
             summary: 'Existing transport overview',
             tags: ['transport'],
-            sources: ['ingested/legacy.md'],
+            sources: ['raw/documents/legacy.md'],
             created: '2026-01-01T00:00:00.000Z',
           },
           'Existing body with [[cities/utrecht]].',
@@ -324,17 +324,17 @@ describe('compile', () => {
       (await store.read(processedMarkerPath(updateSource.hash))).toString('utf8'),
     )
 
-    expect(createdMarker?.sourcePath).toBe(`ingested/${createSource.hash}.md`)
+    expect(createdMarker?.sourcePath).toBe(`raw/documents/${createSource.hash}.md`)
     expect(createdMarker?.contentHash).toBe(hashContent(Buffer.from('Note about protected cycle lanes in Utrecht.', 'utf8')))
     expect(createdMarker?.writtenPaths).toContain(`${DRAFTS_PREFIX}/utrecht-cycle-lanes.md`)
-    expect(updatedMarker?.sourcePath).toBe(`ingested/${updateSource.hash}.md`)
+    expect(updatedMarker?.sourcePath).toBe(`raw/documents/${updateSource.hash}.md`)
     expect(updatedMarker?.contentHash).toBe(
       hashContent(Buffer.from('Note about ferries linking Dutch neighbourhoods.', 'utf8')),
     )
     expect(updatedMarker?.writtenPaths).toContain(`${WIKI_PREFIX}/dutch-transport.md`)
 
     const updated = parseFrontmatter((await store.read(existingPath)).toString('utf8'))
-    expect(updated.frontmatter.sources).toContain('ingested/legacy.md')
+    expect(updated.frontmatter.sources).toContain('raw/documents/legacy.md')
     expect(updated.frontmatter.sources).toContain(archivedSourcePath(updateSource.hash))
     expect(updated.frontmatter.sources).not.toContain(archivedSourcePath(createSource.hash))
     expect(await store.exists(archivedSourcePath(createSource.hash))).toBe(true)
@@ -433,7 +433,7 @@ describe('compile', () => {
             title: 'Cycling in the Netherlands',
             summary: 'Existing article',
             tags: ['cycling'],
-            sources: ['ingested/legacy.md'],
+            sources: ['raw/documents/legacy.md'],
             created: '2026-01-01T00:00:00.000Z',
           },
           'Existing body.',
@@ -476,7 +476,7 @@ describe('compile', () => {
 
     const updated = parseFrontmatter((await store.read(existingPath)).toString('utf8'))
     expect(updated.frontmatter.summary).toBe('Updated article')
-    expect(updated.frontmatter.sources).toContain('ingested/legacy.md')
+    expect(updated.frontmatter.sources).toContain('raw/documents/legacy.md')
     expect(updated.frontmatter.sources).toContain(archivedSourcePath(source.hash))
     expect(updated.body).toContain('Updated body')
 

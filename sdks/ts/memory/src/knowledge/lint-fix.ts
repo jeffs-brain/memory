@@ -2,7 +2,7 @@
 
 import { pathUnder, type Path, type Store } from '../store/index.js'
 import { parseFrontmatter, serialiseFrontmatter } from './frontmatter.js'
-import { INGESTED_PREFIX } from './ingest.js'
+import { RAW_DOCUMENTS_PREFIX } from './ingest.js'
 import { appendLogInBatch } from './log.js'
 import { processedMarkerPath, readProcessedMarker } from './processed.js'
 import type {
@@ -439,11 +439,11 @@ const isSupersededArticle = (frontmatter: LoadedArticle['frontmatter']): boolean
   (typeof frontmatter.supersededBy === 'string' && frontmatter.supersededBy.trim() !== '')
 
 const isIngestedMarkdownPath = (path: string): path is Path =>
-  pathUnder(path as Path, INGESTED_PREFIX, true) && path.endsWith('.md')
+  pathUnder(path as Path, RAW_DOCUMENTS_PREFIX, true) && path.endsWith('.md')
 
 const sourceIdFromIngestedPath = (path: Path): string | undefined => {
   if (!isIngestedMarkdownPath(path)) return undefined
-  const relative = path.slice(INGESTED_PREFIX.length + 1)
+  const relative = path.slice(RAW_DOCUMENTS_PREFIX.length + 1)
   if (relative.startsWith('_processed/')) return undefined
   return relative.slice(0, -'.md'.length)
 }

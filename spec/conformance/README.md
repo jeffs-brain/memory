@@ -6,9 +6,9 @@ This suite drives any Jeffs Brain SDK's HTTP store implementation against the ca
 
 1. Spin up the SDK's HTTP store in serve mode:
 
-   - TypeScript: `bunx @jeffs-brain/memory serve --brain <id> --port <port>`
-   - Go: `memory serve --brain <id> --port <port>` (forthcoming)
-   - Python: `python -m jeffs_brain_memory serve --brain <id> --port <port>` (forthcoming)
+   - TypeScript: `bunx @jeffs-brain/memory serve --addr 127.0.0.1:<port>`
+   - Go: `memory serve --addr :<port>`
+   - Python: `uv run memory serve --addr 127.0.0.1:<port>` (or `python -m jeffs_brain_memory.cli.main serve --addr ...`)
 
 2. Run the harness against the base URL and a freshly provisioned brain id. The harness:
 
@@ -29,7 +29,11 @@ This suite drives any Jeffs Brain SDK's HTTP store implementation against the ca
 
 ## Scope
 
-The suite exercises the Store contract surface: read, write, append, delete, rename, exists, stat, list (with all flag combinations), batch commit, path validation, authentication header propagation, and the SSE `ready` + `change` frames. It deliberately does not cover higher-level endpoints like ingest, ask, or brain CRUD; those live in separate conformance suites once their SDKs stabilise.
+The suite exercises the Store contract surface: read, write, append, delete, rename, exists, stat, list (with all flag combinations), batch commit, path validation, authentication header propagation, and the SSE `ready` + `change` frames. It deliberately does not cover higher-level endpoints like ingest, ask, or brain CRUD; those are driven through the cross-SDK eval runner at [`../../eval`](../../eval).
+
+## Current parity
+
+All three SDKs (TypeScript, Go, Python) pass 28 of the 29 cases.
 
 ## Notes
 

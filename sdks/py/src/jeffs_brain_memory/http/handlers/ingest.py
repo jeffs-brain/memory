@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Ingest handlers — delegate to the knowledge base for chunking + index."""
+"""Ingest handlers that delegate to the knowledge base for chunking + index."""
 
 from __future__ import annotations
 
@@ -44,8 +44,6 @@ async def ingest_file(request: Request) -> Response:
         except Exception as exc:  # noqa: BLE001
             return validation_error(f"invalid contentBase64: {exc}")
         ireq.content = raw
-    # When no inline bytes are supplied the knowledge layer itself
-    # resolves the server-local path.
 
     try:
         resp = await br.knowledge_base.ingest(ireq)

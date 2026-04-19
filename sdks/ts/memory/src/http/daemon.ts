@@ -102,12 +102,10 @@ export class Daemon {
     this.brains = new BrainManager(this)
   }
 
-  /** Initialise the on-disk root, creating it if missing. */
   async start(): Promise<void> {
     await mkdir(this.root, { recursive: true })
   }
 
-  /** Close every per-brain resource currently cached. */
   async close(): Promise<void> {
     await this.brains.closeAll()
   }
@@ -197,7 +195,6 @@ export class BrainManager {
       throw err
     }
     await rm(root, { recursive: true, force: true })
-    // Best-effort cleanup of the sidecar search index.
     await rm(joinFs(this.daemon.root, 'indices', brainId), {
       recursive: true,
       force: true,
@@ -259,9 +256,8 @@ export class BrainManager {
       extractMinMessages: 1,
     })
 
-    // Subscribe the index to store mutations so writes land in FTS
-    // without a poll. Index rows use the relative path as id to match
-    // the Go daemon's simple classifier.
+    // Index rows use the relative path as id so the Go daemon's
+    // classifier can consume the same database.
     let unsubscribe: (() => void) | undefined
     if (index !== undefined) {
       unsubscribe = store.subscribe((evt) => {
@@ -269,23 +265,19 @@ export class BrainManager {
       })
     }
 
-    // Fire an initial scan so prior contents surface on the first
-    // search. Kick it off in the background; the public refresh()
-    // awaits the in-flight promise.
-    let refreshInFlight: Promise<void> | undefined
+    // Fire the initial scan so prior contents surface on the first
+    // search. Subscribe handles every subsequent write incrementally,
+    // so refresh() is a cheap await-the-initial-scan after that — no
+    // per-request re-scan, which would serialise every concurrent
+    // request under a single write lock.
     let disposed = false
+    let initialScan: Promise<void> | undefined
     const refresh = async (): Promise<void> => {
       if (index === undefined || disposed) return
-      if (refreshInFlight !== undefined) {
-        await refreshInFlight
-        return
+      if (initialScan === undefined) {
+        initialScan = this.scanBrain(index, store).catch(() => undefined)
       }
-      refreshInFlight = this.scanBrain(index, store)
-        .catch(() => undefined)
-        .finally(() => {
-          refreshInFlight = undefined
-        })
-      await refreshInFlight
+      await initialScan
     }
     void refresh()
 
@@ -302,11 +294,11 @@ export class BrainManager {
       close: async () => {
         disposed = true
         unsubscribe?.()
-        // Let any in-flight scan finish so it is not observed as an
-        // unhandled rejection against a closed store.
-        if (refreshInFlight !== undefined) {
+        // Await in-flight scan so it is not observed as an unhandled
+        // rejection against a closed store.
+        if (initialScan !== undefined) {
           try {
-            await refreshInFlight
+            await initialScan
           } catch {
             /* ignore */
           }
@@ -433,5 +425,4 @@ export type DaemonTypes = {
   RecallHit: RecallHit
 }
 
-/** Re-exports for handler modules. */
 export { joinPath }

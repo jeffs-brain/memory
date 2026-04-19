@@ -5,10 +5,17 @@
  *
  * Talks to an OpenFGA server (or any API-compatible proxy) via plain
  * `fetch`. Implements the `AccessControlProvider` surface: `check`,
- * `write`, `read`.
+ * `write`, `read`, `close`.
  *
  * The adapter is stateless and has no transitive runtime dependencies
  * other than `fetch`. Pass `{ fetch: mockFetch }` in tests.
+ *
+ * `close()` is a no-op for the fetch transport because we do not hold a
+ * connection pool or any other releasable resource. Callers should still
+ * invoke it for forward compatibility: a future transport (long-lived
+ * gRPC client, persistent HTTP/2 session, etc.) may need to release real
+ * state, and uniform lifecycle handling avoids leaks when adapters are
+ * swapped.
  *
  * Endpoints used (per OpenFGA HTTP API):
  *   POST {apiUrl}/stores/{storeId}/check
@@ -39,7 +46,7 @@ export type OpenFgaOptions = {
 }
 
 /**
- * Default action -> relation map aligned with `schema.fga`.
+ * Default action -> relation map aligned with `spec/openfga/schema.fga`.
  *
  * Callers can pick different relations for the same action if they have a
  * variant model by passing a pre-computed `Tuple` via `write`/`read`.
@@ -169,7 +176,10 @@ export const createOpenFgaProvider = (opts: OpenFgaOptions): AccessControlProvid
     return out
   }
 
-  return { name: 'openfga', check, write, read }
+  // No-op for the fetch transport; see the file header for rationale.
+  const close = async (): Promise<void> => {}
+
+  return { name: 'openfga', check, write, read, close }
 }
 
 const tupleToKey = (t: Tuple): { user: string; relation: string; object: string } => ({

@@ -209,7 +209,13 @@ export const createRbacProvider = (opts: RbacOptions = {}): AccessControlProvide
 
   const read = async (query: ReadTuplesQuery): Promise<readonly Tuple[]> => store.list(query)
 
-  return { name: 'rbac', check, write, read }
+  // The in-memory tuple store owns no transport or file handles, so close
+  // is a documented no-op. We keep it defined for symmetry with the Go and
+  // Python ports and so callers can invoke `acl.close()` uniformly across
+  // adapters.
+  const close = async (): Promise<void> => {}
+
+  return { name: 'rbac', check, write, read, close }
 }
 
 const assertSupportedRelation = (relation: string): void => {

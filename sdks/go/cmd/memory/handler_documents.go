@@ -22,7 +22,6 @@ const (
 	batchOpLimit   = 1024
 )
 
-// rawFileInfo is the wire shape returned by stat / list / batch list.
 type rawFileInfo struct {
 	Path  string    `json:"path"`
 	Size  int64     `json:"size"`
@@ -39,7 +38,6 @@ func toRawFileInfo(fi brain.FileInfo) rawFileInfo {
 	}
 }
 
-// handleDocRead implements GET /v1/brains/{brainId}/documents/read?path=...
 func (d *Daemon) handleDocRead(w http.ResponseWriter, r *http.Request) {
 	br := d.resolveBrain(w, r)
 	if br == nil {
@@ -63,7 +61,6 @@ func (d *Daemon) handleDocRead(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write(data)
 }
 
-// handleDocStat implements GET /v1/brains/{brainId}/documents/stat
 func (d *Daemon) handleDocStat(w http.ResponseWriter, r *http.Request) {
 	br := d.resolveBrain(w, r)
 	if br == nil {
@@ -84,8 +81,8 @@ func (d *Daemon) handleDocStat(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, toRawFileInfo(info))
 }
 
-// handleDocList implements GET /v1/brains/{brainId}/documents (listing)
-// and HEAD /v1/brains/{brainId}/documents (existence).
+// handleDocListOrHead dispatches GET (list) vs HEAD (existence) since
+// they share the same route.
 func (d *Daemon) handleDocListOrHead(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodHead {
 		d.handleDocHead(w, r)
@@ -118,7 +115,6 @@ func (d *Daemon) handleDocListOrHead(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"items": items})
 }
 
-// handleDocHead implements HEAD /v1/brains/{brainId}/documents
 func (d *Daemon) handleDocHead(w http.ResponseWriter, r *http.Request) {
 	br := d.resolveBrain(w, r)
 	if br == nil {
@@ -144,7 +140,6 @@ func (d *Daemon) handleDocHead(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
-// handleDocPut implements PUT /v1/brains/{brainId}/documents
 func (d *Daemon) handleDocPut(w http.ResponseWriter, r *http.Request) {
 	br := d.resolveBrain(w, r)
 	if br == nil {
@@ -173,7 +168,6 @@ func (d *Daemon) handleDocPut(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// handleDocAppend implements POST /v1/brains/{brainId}/documents/append
 func (d *Daemon) handleDocAppend(w http.ResponseWriter, r *http.Request) {
 	br := d.resolveBrain(w, r)
 	if br == nil {
@@ -202,7 +196,6 @@ func (d *Daemon) handleDocAppend(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// handleDocDelete implements DELETE /v1/brains/{brainId}/documents
 func (d *Daemon) handleDocDelete(w http.ResponseWriter, r *http.Request) {
 	br := d.resolveBrain(w, r)
 	if br == nil {
@@ -222,7 +215,6 @@ func (d *Daemon) handleDocDelete(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// handleDocRename implements POST /v1/brains/{brainId}/documents/rename
 func (d *Daemon) handleDocRename(w http.ResponseWriter, r *http.Request) {
 	br := d.resolveBrain(w, r)
 	if br == nil {
@@ -255,7 +247,6 @@ func (d *Daemon) handleDocRename(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// batchOp matches the wire shape of a single op in a batch request.
 type batchOp struct {
 	Type          string `json:"type"`
 	Path          string `json:"path"`
@@ -263,7 +254,6 @@ type batchOp struct {
 	ContentBase64 string `json:"content_base64,omitempty"`
 }
 
-// batchRequest matches the wire shape of POST /documents/batch-ops.
 type batchRequest struct {
 	Reason  string    `json:"reason,omitempty"`
 	Message string    `json:"message,omitempty"`
@@ -272,7 +262,6 @@ type batchRequest struct {
 	Ops     []batchOp `json:"ops"`
 }
 
-// handleDocBatch implements POST /v1/brains/{brainId}/documents/batch-ops.
 func (d *Daemon) handleDocBatch(w http.ResponseWriter, r *http.Request) {
 	br := d.resolveBrain(w, r)
 	if br == nil {
@@ -294,7 +283,6 @@ func (d *Daemon) handleDocBatch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Compute decoded payload size before applying.
 	decodedSize := 0
 	decoded := make([][]byte, len(req.Ops))
 	for i, op := range req.Ops {

@@ -13,7 +13,7 @@ describe('frontmatter', () => {
       '  - alpha',
       '  - beta',
       'sources:',
-      '  - ingested/abc.md',
+      '  - raw/documents/abc.md',
       'created: 2026-04-17T00:00:00Z',
       '---',
       '',
@@ -25,7 +25,7 @@ describe('frontmatter', () => {
     expect(frontmatter.title).toBe('My Article')
     expect(frontmatter.summary).toBe('A thing about a thing')
     expect(frontmatter.tags).toEqual(['alpha', 'beta'])
-    expect(frontmatter.sources).toEqual(['ingested/abc.md'])
+    expect(frontmatter.sources).toEqual(['raw/documents/abc.md'])
     expect(frontmatter.created).toBe('2026-04-17T00:00:00Z')
     expect(body).toBe('Body text here.')
   })
@@ -35,7 +35,7 @@ describe('frontmatter', () => {
       title: 'Round Trip',
       summary: 'Back and forth',
       tags: ['one', 'two'],
-      sources: ['ingested/deadbeef.md'],
+      sources: ['raw/documents/deadbeef.md'],
       created: '2026-04-17T00:00:00Z',
     }
     const serialised = serialiseFrontmatter(original, 'Hello world.')

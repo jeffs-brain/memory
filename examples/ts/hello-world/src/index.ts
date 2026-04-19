@@ -39,7 +39,7 @@ async function main(): Promise<void> {
     // 3. Ingest docs/hedgehogs.md.
     const docPath = resolve('./docs/hedgehogs.md')
     const raw = await readFile(docPath)
-    const storedPath = `ingested/${basename(docPath)}`
+    const storedPath = `raw/documents/${basename(docPath)}`
     await store.batch({ reason: 'ingest' }, async (batch) => {
       await batch.write(toPath(storedPath), raw)
     })
@@ -53,6 +53,7 @@ async function main(): Promise<void> {
       content: chunk.content,
     }))
     index.upsertChunks(indexChunks)
+    console.log(`Ingested ${storedPath} (${chunks.length} chunks, ${raw.byteLength} bytes)`)
 
     // 4. Search.
     const query = 'where do hedgehogs live?'
@@ -61,8 +62,9 @@ async function main(): Promise<void> {
 
     console.log(`Top ${results.length} results for "${query}":`)
     for (const [i, hit] of results.entries()) {
-      const snippet = hit.chunk.content.replace(/\s+/g, ' ').trim().slice(0, 120)
-      console.log(`${i + 1}. [${hit.score.toFixed(3)}] ${snippet}...`)
+      const snippet = hit.chunk.content.replace(/\s+/g, ' ').trim().slice(0, 160)
+      console.log(`${i + 1}. [${hit.score.toFixed(3)}] ${hit.chunk.path}`)
+      console.log(`   ${snippet}${hit.chunk.content.length > 160 ? '...' : ''}`)
     }
   } finally {
     await index.close()

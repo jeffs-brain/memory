@@ -121,22 +121,20 @@ func NewHTTPReranker(cfg HTTPRerankerConfig) (*HTTPReranker, error) {
 // exact path (e.g. "/rerank" for Cohere) keep their spelling intact.
 func normaliseRerankEndpoint(endpoint string) string {
 	trimmed := strings.TrimRight(endpoint, "/")
-	// Parse the path portion by stripping scheme + host.
 	slash := strings.Index(trimmed, "://")
 	tail := trimmed
 	if slash >= 0 {
 		tail = trimmed[slash+3:]
 	}
 	if idx := strings.IndexByte(tail, '/'); idx >= 0 {
-		// Path present; assume the caller knows what they want.
+		// Explicit path: assume the caller wants their spelling.
 		return trimmed
 	}
 	return trimmed + "/v1/rerank"
 }
 
-// httpRerankRequest is the JSON body posted to the cross-encoder. The
-// shape matches llama-server's /v1/rerank and is compatible with
-// Cohere and Jina's rerank endpoints modulo the "top_n" convention.
+// httpRerankRequest matches llama-server's /v1/rerank shape (also
+// compatible with Cohere and Jina modulo the "top_n" convention).
 type httpRerankRequest struct {
 	Model     string   `json:"model"`
 	Query     string   `json:"query"`
@@ -144,9 +142,6 @@ type httpRerankRequest struct {
 	TopN      int      `json:"top_n,omitempty"`
 }
 
-// httpRerankResponse mirrors the cross-encoder reply. The "results"
-// array carries one entry per input document with a 0-indexed reference
-// back to the request slice.
 type httpRerankResponse struct {
 	Results []httpRerankHit `json:"results"`
 }
@@ -156,11 +151,9 @@ type httpRerankHit struct {
 	RelevanceScore float64 `json:"relevance_score"`
 }
 
-// Rerank implements [Reranker]. Builds a single /rerank call, parses
-// the response, and re-orders the candidate slice by relevance score
-// descending. Any error short-circuits back to the input order so the
-// caller's pipeline keeps working; the error is returned to the
-// retrieval layer which records it on the trace.
+// Rerank re-orders the candidate slice by relevance score descending.
+// Errors short-circuit back to the input order; the retrieval layer
+// records the failure on the trace via RerankSkipReason.
 func (r *HTTPReranker) Rerank(ctx context.Context, query string, candidates []RetrievedChunk) ([]RetrievedChunk, error) {
 	if r == nil {
 		return candidates, nil
@@ -221,10 +214,8 @@ func (r *HTTPReranker) Rerank(ctx context.Context, query string, candidates []Re
 	}
 
 	if len(parsed.Results) == 0 {
-		// The server answered but returned nothing usable. The caller's
-		// retrieval trace records this via the failure path; we
-		// surface a typed error so the decision is explicit rather
-		// than a silent identity reorder.
+		// Typed error rather than a silent identity reorder so callers
+		// can record the decision on the trace.
 		return nil, errors.New("retrieval: HTTPReranker returned no scored documents")
 	}
 
@@ -262,9 +253,6 @@ func (r *HTTPReranker) Rerank(ctx context.Context, query string, candidates []Re
 	return out, nil
 }
 
-// Name implements the namedReranker interface so the retrieval trace
-// can attribute a rerank pass to the configured model. Falls through
-// to a generic label when no model is set so the name is never empty.
 func (r *HTTPReranker) Name() string {
 	if r == nil || r.model == "" {
 		return "http-reranker"
@@ -272,11 +260,9 @@ func (r *HTTPReranker) Name() string {
 	return "http:" + r.model
 }
 
-// composeHTTPRerankDoc builds the per-candidate document sent in the
-// request. The preference order is title + summary joined by a newline
-// (matching jeff's composeCrossEncoderDoc at lines 195-231), falling
-// back to the raw text when both are empty. Returns the path as a last
-// resort so the cross-encoder always has something to score.
+// composeHTTPRerankDoc prefers title + summary (matching jeff's
+// composeCrossEncoderDoc), falling back to raw text then the path so
+// the cross-encoder always has something to score.
 func composeHTTPRerankDoc(c RetrievedChunk) string {
 	title := strings.TrimSpace(c.Title)
 	summary := strings.TrimSpace(c.Summary)
@@ -300,5 +286,4 @@ func composeHTTPRerankDoc(c RetrievedChunk) string {
 	return c.Path
 }
 
-// compile-time interface check.
 var _ Reranker = (*HTTPReranker)(nil)
