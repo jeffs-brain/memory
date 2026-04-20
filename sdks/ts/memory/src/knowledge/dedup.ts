@@ -8,7 +8,7 @@
  */
 
 import { createHash } from 'node:crypto'
-import { pathUnder, toPath, type Path, type Store } from '../store/index.js'
+import { type Path, type Store, pathUnder, toPath } from '../store/index.js'
 import { parseFrontmatter } from './frontmatter.js'
 import type { DedupReport, DedupSuggestion } from './types.js'
 

@@ -92,12 +92,7 @@ type OpenAIRequestBody = {
  */
 const usesMaxCompletionTokens = (model: string): boolean => {
   const m = model.toLowerCase()
-  return (
-    m.startsWith('gpt-5') ||
-    m.startsWith('o1') ||
-    m.startsWith('o3') ||
-    m.startsWith('o4')
-  )
+  return m.startsWith('gpt-5') || m.startsWith('o1') || m.startsWith('o3') || m.startsWith('o4')
 }
 
 export class OpenAIProvider implements Provider {
@@ -135,15 +130,10 @@ export class OpenAIProvider implements Provider {
 
   async *stream(req: CompletionRequest, signal?: AbortSignal): AsyncIterable<StreamEvent> {
     const body = this.buildBody(req, true)
-    const response = await postForStream(
-      this.http,
-      `${this.baseURL}/v1/chat/completions`,
-      body,
-      {
-        headers: this.headers(),
-        ...(signal ? { signal } : {}),
-      },
-    )
+    const response = await postForStream(this.http, `${this.baseURL}/v1/chat/completions`, body, {
+      headers: this.headers(),
+      ...(signal ? { signal } : {}),
+    })
     if (response.body === null) {
       throw new TransportError('openai: stream response missing body')
     }
@@ -204,13 +194,10 @@ export class OpenAIProvider implements Provider {
         },
       },
     }
-    const maxRetries =
-      req.maxRetries !== undefined && req.maxRetries > 0 ? req.maxRetries : 5
+    const maxRetries = req.maxRetries !== undefined && req.maxRetries > 0 ? req.maxRetries : 5
 
     const runner = {
-      call: async (
-        messages: ReadonlyArray<{ role: string; content: string }>,
-      ): Promise<string> => {
+      call: async (messages: ReadonlyArray<{ role: string; content: string }>): Promise<string> => {
         const runReq: CompletionRequest = {
           ...baseRequest,
           messages: messages.map((m) => ({
@@ -317,16 +304,19 @@ export class OpenAIProvider implements Provider {
   ): AsyncGenerator<StreamEvent, void, void> {
     let lastSeen = Date.now()
     let idleTripped = false
-    const idleTimer = setInterval(() => {
-      if (Date.now() - lastSeen > this.streamIdleTimeoutMs) {
-        idleTripped = true
-        try {
-          body.cancel().catch(() => {})
-        } catch {
-          // Ignored.
+    const idleTimer = setInterval(
+      () => {
+        if (Date.now() - lastSeen > this.streamIdleTimeoutMs) {
+          idleTripped = true
+          try {
+            body.cancel().catch(() => {})
+          } catch {
+            // Ignored.
+          }
         }
-      }
-    }, Math.min(1000, this.streamIdleTimeoutMs))
+      },
+      Math.min(1000, this.streamIdleTimeoutMs),
+    )
 
     const activeTools = new Map<number, ToolCall>()
     const accUsage: Usage = { inputTokens: 0, outputTokens: 0 }
@@ -513,12 +503,7 @@ export class OpenAIEmbedder implements Embedder {
     try {
       parsed = JSON.parse(text) as typeof parsed
     } catch (err) {
-      throw new ProviderError(
-        'openai: embed returned invalid JSON',
-        response.status,
-        text,
-        err,
-      )
+      throw new ProviderError('openai: embed returned invalid JSON', response.status, text, err)
     }
     if (parsed.error?.message !== undefined && parsed.error.message !== '') {
       throw new LLMError(`openai: embed error: ${parsed.error.message}`)

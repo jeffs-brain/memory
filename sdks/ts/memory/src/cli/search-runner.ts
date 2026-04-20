@@ -17,7 +17,7 @@ import type { Embedder } from '../llm/index.js'
 import type { Reranker } from '../rerank/index.js'
 import { createRetrieval } from '../retrieval/index.js'
 import type { HybridMode } from '../retrieval/types.js'
-import { createSearchIndex, type Chunk } from '../search/index.js'
+import { type Chunk, createSearchIndex } from '../search/index.js'
 import type { Store } from '../store/index.js'
 
 export type SearchMode = 'hybrid' | 'hybrid-rerank' | 'bm25' | 'semantic'
@@ -51,10 +51,7 @@ const TO_HYBRID_MODE: Record<SearchMode, HybridMode> = {
   semantic: 'semantic',
 }
 
-export const runSearch = async (
-  query: string,
-  deps: SearchDeps,
-): Promise<readonly SearchHit[]> => {
+export const runSearch = async (query: string, deps: SearchDeps): Promise<readonly SearchHit[]> => {
   const docs = await collectDocuments(deps.store)
   if (docs.length === 0) return []
 

@@ -2,10 +2,7 @@
 
 import { describe, expect, it } from 'vitest'
 
-import {
-  parseRenderedRetrievedFacts,
-  resolveDeterministicAugmentedAnswer,
-} from './resolver.js'
+import { parseRenderedRetrievedFacts, resolveDeterministicAugmentedAnswer } from './resolver.js'
 
 const renderFacts = (bodies: readonly string[]): string =>
   [

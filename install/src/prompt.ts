@@ -10,8 +10,8 @@ import { AGENT_META } from './detect.js'
 import { obtainHostedToken } from './oauth.js'
 import {
   type AgentId,
-  type DetectionResult,
   DEFAULT_ENDPOINT,
+  type DetectionResult,
   type InstallConfig,
   type Mode,
 } from './types.js'

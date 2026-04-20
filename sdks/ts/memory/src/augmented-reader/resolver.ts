@@ -9,10 +9,7 @@ export type RenderedRetrievedFact = {
 }
 
 export type DeterministicAugmentedAnswer = {
-  readonly kind:
-    | 'action-date'
-    | 'recipient-total-spend'
-    | 'backend-language-recommendation'
+  readonly kind: 'action-date' | 'recipient-total-spend' | 'backend-language-recommendation'
   readonly answer: string
 }
 
@@ -184,10 +181,8 @@ const RESOURCE_LIST_RE =
 const RESOURCE_LIST_ITEM_RE =
   /\b(?:coursera|django|flask|hibernate|nodeschool|spring|sql|udacity)\b/i
 const RECOMMENDATION_QUERY_RE = /\b(?:back-?end|backend)\b.*\blanguages?\b/i
-const RECOMMENDATION_RECALL_RE =
-  /\b(?:recommend(?:ed)?|remind me|specific|exact|learn)\b/i
-const DIRECT_RECOMMENDATION_RE =
-  /\b(?:learn|recommend(?:ed)?|programming language(?:s)?)\b/i
+const RECOMMENDATION_RECALL_RE = /\b(?:recommend(?:ed)?|remind me|specific|exact|learn)\b/i
+const DIRECT_RECOMMENDATION_RE = /\b(?:learn|recommend(?:ed)?|programming language(?:s)?)\b/i
 const LIST_INTRO_RE = /\b(?:for example|including|like|such as)\b/i
 const LANGUAGE_PATTERNS: ReadonlyArray<readonly [RegExp, string]> = [
   [/\bRuby\b/i, 'Ruby'],
@@ -211,30 +206,25 @@ const ACTION_RESOLVER_SPECS: ReadonlyArray<ActionResolverSpec> = [
     questionPattern: /\bsubmit(?:ted)?\b/i,
     pastActionPattern: /\bsubmitted\b/i,
     dateLabelPattern: /\bsubmission date\b/i,
-    directDatePattern:
-      /\bsubmitted\b[^.!?\n]{0,120}\b(?:on|by)\s+([^.!?\n]+)/i,
+    directDatePattern: /\bsubmitted\b[^.!?\n]{0,120}\b(?:on|by)\s+([^.!?\n]+)/i,
   },
   {
     kind: 'booking',
     questionPattern: /\bbook(?:ed|ing)?\b/i,
     pastActionPattern: /\bbooked\b/i,
     dateLabelPattern: /\bbooking date\b/i,
-    directDatePattern:
-      /\bbooked\b[^.!?\n]{0,120}\b(?:for|on)\s+([^.!?\n]+)/i,
+    directDatePattern: /\bbooked\b[^.!?\n]{0,120}\b(?:for|on)\s+([^.!?\n]+)/i,
   },
   {
     kind: 'join',
     questionPattern: /\bjoin(?:ed)?\b/i,
     pastActionPattern: /\bjoined\b/i,
     dateLabelPattern: /\bjoin date\b/i,
-    directDatePattern:
-      /\bjoined\b[^.!?\n]{0,120}\bon\s+([^.!?\n]+)/i,
+    directDatePattern: /\bjoined\b[^.!?\n]{0,120}\bon\s+([^.!?\n]+)/i,
   },
 ]
 
-export const parseRenderedRetrievedFacts = (
-  rendered: string,
-): readonly RenderedRetrievedFact[] => {
+export const parseRenderedRetrievedFacts = (rendered: string): readonly RenderedRetrievedFact[] => {
   const lines = rendered.replace(/\r\n?/gu, '\n').split('\n')
   const facts: RenderedRetrievedFact[] = []
   let inFacts = false
@@ -309,31 +299,20 @@ const resolveAnchoredActionDate = (
   facts: readonly RenderedRetrievedFact[],
 ): DeterministicAugmentedAnswer | undefined => {
   if (!/\b(?:when|what date)\b/i.test(question)) return undefined
-  const spec = ACTION_RESOLVER_SPECS.find((candidate) =>
-    candidate.questionPattern.test(question),
-  )
+  const spec = ACTION_RESOLVER_SPECS.find((candidate) => candidate.questionPattern.test(question))
   if (spec === undefined) return undefined
 
   const questionAnchors = extractAnchors(question)
   const focusTokens = questionTokens(question, ACTION_FOCUS_SKIP_WORDS)
   const minimumFocusOverlap = minimumTargetOverlap(focusTokens.length)
   const actionFacts = facts.filter((fact) =>
-    isRelevantActionFact(
-      fact.body,
-      spec,
-      focusTokens,
-      questionAnchors,
-      minimumFocusOverlap,
-    ),
+    isRelevantActionFact(fact.body, spec, focusTokens, questionAnchors, minimumFocusOverlap),
   )
   if (actionFacts.length === 0) return undefined
 
   const candidates: Array<{ readonly score: number; readonly date: string }> = []
   for (const actionFact of actionFacts) {
-    const anchors = dedupeStrings([
-      ...questionAnchors,
-      ...extractAnchors(actionFact.body),
-    ])
+    const anchors = dedupeStrings([...questionAnchors, ...extractAnchors(actionFact.body)])
     for (const fact of facts) {
       const date = extractActionDate(fact, spec)
       if (date === undefined) continue
@@ -381,9 +360,7 @@ const resolveRecipientTotalSpend = (
       }
       const amount = extractTransactionalAmount(clause)
       if (amount === undefined) continue
-      const matches = recipients.filter((recipient) =>
-        clauseTargetsRecipient(clause, recipient),
-      )
+      const matches = recipients.filter((recipient) => clauseTargetsRecipient(clause, recipient))
       if (matches.length !== 1) continue
       const matchedRecipient = matches[0]
       if (matchedRecipient === undefined) continue
@@ -425,10 +402,7 @@ const resolveRecipientTotalSpend = (
     return undefined
   }
 
-  const total = [...totalsByRecipient.values()].reduce(
-    (sum, value) => sum + value,
-    0,
-  )
+  const total = [...totalsByRecipient.values()].reduce((sum, value) => sum + value, 0)
   if (total <= 0) return undefined
 
   return {
@@ -441,10 +415,7 @@ const resolveBackendLanguageRecommendation = (
   question: string,
   facts: readonly RenderedRetrievedFact[],
 ): DeterministicAugmentedAnswer | undefined => {
-  if (
-    !RECOMMENDATION_QUERY_RE.test(question) ||
-    !RECOMMENDATION_RECALL_RE.test(question)
-  ) {
+  if (!RECOMMENDATION_QUERY_RE.test(question) || !RECOMMENDATION_RECALL_RE.test(question)) {
     return undefined
   }
 
@@ -516,10 +487,7 @@ const extractActionDate = (
   ).exec(text)
   const anchoredDate = extractDatePhrase(anchoredMatch?.[1] ?? '', fact.date)
   if (anchoredDate !== undefined) return anchoredDate
-  const directDate = extractDatePhrase(
-    spec.directDatePattern.exec(text)?.[1] ?? '',
-    fact.date,
-  )
+  const directDate = extractDatePhrase(spec.directDatePattern.exec(text)?.[1] ?? '', fact.date)
   if (directDate !== undefined) return directDate
   if (
     spec.pastActionPattern.test(text) &&
@@ -537,10 +505,7 @@ const extractActionDate = (
   return undefined
 }
 
-const extractDatePhrase = (
-  value: string,
-  anchorDateLabel?: string,
-): string | undefined => {
+const extractDatePhrase = (value: string, anchorDateLabel?: string): string | undefined => {
   const trimmed = value.trim()
   if (trimmed === '') return undefined
   const relativeDate = RELATIVE_DATE_RE.exec(trimmed)?.[0]?.toLowerCase()
@@ -567,9 +532,7 @@ const extractRecipients = (question: string): readonly Recipient[] => {
   if (parts.length === 0) return []
 
   const recipients = parts.map((part): Recipient | undefined => {
-    const cleaned = part
-      .replace(/^(?:my|our|the|a|an|his|her|their)\s+/iu, '')
-      .trim()
+    const cleaned = part.replace(/^(?:my|our|the|a|an|his|her|their)\s+/iu, '').trim()
     if (cleaned === '') return undefined
     const key = normaliseText(cleaned)
     const words = cleaned.split(/\s+/u)
@@ -585,22 +548,17 @@ const extractRecipients = (question: string): readonly Recipient[] => {
       key,
       display: cleaned,
       phrase: cleaned,
-      ...(looksRelationship && relationshipTail !== undefined
-        ? { relationshipTail }
-        : {}),
+      ...(looksRelationship && relationshipTail !== undefined ? { relationshipTail } : {}),
     }
   })
 
   if (recipients.some((recipient) => recipient === undefined)) return []
-  return recipients.filter(
-    (recipient): recipient is Recipient => recipient !== undefined,
-  )
+  return recipients.filter((recipient): recipient is Recipient => recipient !== undefined)
 }
 
 const clauseTargetsRecipient = (clause: string, recipient: Recipient): boolean => {
   const phrasePattern = escapeRegex(recipient.phrase).replace(/\s+/gu, '\\s+')
-  const leadingDet =
-    '(?:my\\s+|our\\s+|the\\s+|a\\s+|an\\s+|his\\s+|her\\s+|their\\s+)?'
+  const leadingDet = '(?:my\\s+|our\\s+|the\\s+|a\\s+|an\\s+|his\\s+|her\\s+|their\\s+)?'
   const variants = [
     new RegExp(`\\bfor\\s+${leadingDet}${phrasePattern}\\b`, 'i'),
     new RegExp(
@@ -624,9 +582,7 @@ const clauseTargetsRecipient = (clause: string, recipient: Recipient): boolean =
   return variants.some((pattern) => pattern.test(clause))
 }
 
-const extractTransactionalAmount = (
-  clause: string,
-): ResolvedAmount | undefined => {
+const extractTransactionalAmount = (clause: string): ResolvedAmount | undefined => {
   const patterns: readonly RegExp[] = [
     /\bspent\s+([$£€])\s?(\d[\d,]*(?:\.\d{1,2})?)/i,
     /\bpaid\s+([$£€])\s?(\d[\d,]*(?:\.\d{1,2})?)/i,
@@ -653,10 +609,7 @@ const parseAmountMatch = (
 }
 
 const extractRecommendedLanguages = (clause: string): readonly string[] => {
-  if (
-    RESOURCE_LIST_RE.test(clause) &&
-    !/\bprogramming language(?:s)?\b/i.test(clause)
-  ) {
+  if (RESOURCE_LIST_RE.test(clause) && !/\bprogramming language(?:s)?\b/i.test(clause)) {
     return []
   }
   const out: string[] = []
@@ -694,10 +647,7 @@ const splitClauses = (text: string): readonly string[] => {
     .filter((clause) => clause !== '')
 }
 
-const questionTokens = (
-  question: string,
-  skip: ReadonlySet<string>,
-): readonly string[] => {
+const questionTokens = (question: string, skip: ReadonlySet<string>): readonly string[] => {
   const seen = new Set<string>()
   const out: string[] = []
   for (const rawToken of question
@@ -741,10 +691,7 @@ const normaliseAnchor = (value: string | undefined): string => {
   return normaliseText(trimmed)
 }
 
-const scoreSharedAnchors = (
-  text: string,
-  anchors: readonly string[],
-): number => {
+const scoreSharedAnchors = (text: string, anchors: readonly string[]): number => {
   const normalised = normaliseText(text)
   let score = 0
   for (const anchor of anchors) {
@@ -753,10 +700,7 @@ const scoreSharedAnchors = (
   return score
 }
 
-const countTokenOverlap = (
-  text: string,
-  tokens: readonly string[],
-): number => {
+const countTokenOverlap = (text: string, tokens: readonly string[]): number => {
   const normalised = normaliseText(text)
   let matches = 0
   for (const token of tokens) {
@@ -779,11 +723,7 @@ const parseAnchorDate = (value: string | undefined): Date | undefined => {
   const year = Number(match[1])
   const month = Number(match[2])
   const day = Number(match[3])
-  if (
-    !Number.isInteger(year) ||
-    !Number.isInteger(month) ||
-    !Number.isInteger(day)
-  ) {
+  if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day)) {
     return undefined
   }
   const parsed = new Date(Date.UTC(year, month - 1, day))
@@ -865,5 +805,4 @@ const joinWithOr = (values: readonly string[]): string => {
   return `${values.slice(0, -1).join(', ')}, or ${values.at(-1) ?? ''}`
 }
 
-const escapeRegex = (value: string): string =>
-  value.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')
+const escapeRegex = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')

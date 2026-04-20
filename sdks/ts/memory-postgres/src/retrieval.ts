@@ -1,24 +1,25 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import type { Embedder } from '@jeffs-brain/memory/llm'
-import { augmentQueryWithTemporal, type AliasTable } from '@jeffs-brain/memory/query'
+import { type AliasTable, augmentQueryWithTemporal } from '@jeffs-brain/memory/query'
 import type { Reranker } from '@jeffs-brain/memory/rerank'
 import {
   RRF_DEFAULT_K,
+  type TrigramIndex,
+  type TrigramSourceChunk,
   buildTrigramIndex,
   forceRefreshIndex,
   queryTokens,
   reciprocalRankFusion,
   sanitiseQuery as retrySanitiseQuery,
   strongestTerm as retryStrongestTerm,
-  type TrigramIndex,
-  type TrigramSourceChunk,
 } from '@jeffs-brain/memory/retrieval'
 import {
-  createPostgresSearchIndex,
   type PostgresBM25Result,
   type PostgresChunk,
+  type PostgresEmbeddingDim,
   type PostgresVectorResult,
+  createPostgresSearchIndex,
 } from './search.js'
 import type { PgSql } from './store.js'
 
@@ -42,9 +43,7 @@ export type PostgresRetrievalFilterOperator = {
   readonly lte?: string | number | undefined
 }
 
-export type PostgresRetrievalFilter =
-  | PostgresRetrievalPrimitive
-  | PostgresRetrievalFilterOperator
+export type PostgresRetrievalFilter = PostgresRetrievalPrimitive | PostgresRetrievalFilterOperator
 
 export type PostgresRetrievalFilters = Readonly<Record<string, PostgresRetrievalFilter>>
 
@@ -124,13 +123,10 @@ export type PostgresRetrievalRequest = {
 }
 
 export type PostgresSearchLike = {
-  readonly searchBM25: (
-    query: string,
-    limit: number,
-  ) => Promise<readonly PostgresBM25Result[]>
+  readonly searchBM25: (query: string, limit: number) => Promise<readonly PostgresBM25Result[]>
   readonly hasEmbeddings?: () => Promise<boolean>
   readonly searchVector: (
-    embedding: Float32Array | number[],
+    embedding: Float32Array | readonly number[],
     limit: number,
   ) => Promise<readonly PostgresVectorResult[]>
   readonly getTrigramChunks?: () => Promise<readonly TrigramSourceChunk[]>
@@ -138,21 +134,18 @@ export type PostgresSearchLike = {
 }
 
 export type PostgresRetriever = {
-  readonly retrieve: (
-    req: PostgresRetrievalRequest,
-  ) => Promise<PostgresRetrievalResponse>
+  readonly retrieve: (req: PostgresRetrievalRequest) => Promise<PostgresRetrievalResponse>
 }
 
 export type PostgresRetrieverFactoryInput = {
   readonly pg: PgSql
   readonly tenantId: string
   readonly brainId: string
+  readonly vectorDim?: PostgresEmbeddingDim
   readonly env: NodeJS.ProcessEnv
 }
 
-export type PostgresRetrieverFactory = (
-  input: PostgresRetrieverFactoryInput,
-) => PostgresRetriever
+export type PostgresRetrieverFactory = (input: PostgresRetrieverFactoryInput) => PostgresRetriever
 
 export type PostgresEmbedderFactory = (env: NodeJS.ProcessEnv) => Embedder
 
@@ -164,6 +157,7 @@ export type CreatePostgresRetrieverOptions = PostgresRetrieverFactoryInput & {
     readonly pg: PgSql
     readonly tenantId: string
     readonly brainId: string
+    readonly vectorDim?: PostgresEmbeddingDim
     readonly aliases?: AliasTable
   }) => PostgresSearchLike
   readonly embedderFactory?: PostgresEmbedderFactory
@@ -203,9 +197,7 @@ const toRetrievedChunk = (input: {
   score: input.score,
   text: input.text,
   ...(input.metadata !== undefined ? { metadata: input.metadata } : {}),
-  ...(input.componentScores !== undefined
-    ? { componentScores: input.componentScores }
-    : {}),
+  ...(input.componentScores !== undefined ? { componentScores: input.componentScores } : {}),
 })
 
 const composeRerankText = (text: string): string => {
@@ -341,12 +333,14 @@ const defaultIndexFactory = (input: {
   readonly pg: PgSql
   readonly tenantId: string
   readonly brainId: string
+  readonly vectorDim?: PostgresEmbeddingDim
   readonly aliases?: AliasTable
 }): PostgresSearchLike =>
   createPostgresSearchIndex({
     sql: input.pg,
     tenantId: input.tenantId,
     brainId: input.brainId,
+    ...(input.vectorDim !== undefined ? { vectorDim: input.vectorDim } : {}),
     ...(input.aliases !== undefined ? { aliases: input.aliases } : {}),
   })
 
@@ -360,6 +354,7 @@ export const createPostgresRetriever = (
     pg: opts.pg,
     tenantId: opts.tenantId,
     brainId: opts.brainId,
+    ...(opts.vectorDim !== undefined ? { vectorDim: opts.vectorDim } : {}),
     ...(opts.aliases !== undefined ? { aliases: opts.aliases } : {}),
   })
   const embedderFactory = opts.embedderFactory
@@ -382,8 +377,18 @@ export const createPostgresRetriever = (
 
   const hydrate = async (
     hits: readonly (
-      | { readonly chunkId: bigint; readonly score: number; readonly kind: 'lexical'; readonly rank: number }
-      | { readonly chunkId: bigint; readonly score: number; readonly kind: 'semantic'; readonly rank: number }
+      | {
+          readonly chunkId: bigint
+          readonly score: number
+          readonly kind: 'lexical'
+          readonly rank: number
+        }
+      | {
+          readonly chunkId: bigint
+          readonly score: number
+          readonly kind: 'semantic'
+          readonly rank: number
+        }
     )[],
     documentIdAllowlist?: ReadonlySet<string>,
   ): Promise<InternalCandidate[]> => {
@@ -431,7 +436,7 @@ export const createPostgresRetriever = (
 
       let effectiveMode: PostgresRetrievalMode = requestedMode
       let fellBackToLexical = false
-      let embedding: number[] | undefined
+      let embedding: readonly number[] | undefined
       const attempts: PostgresRetrievalAttempt[] = []
 
       if (requestedMode !== 'lexical') {
@@ -546,7 +551,7 @@ export const createPostgresRetriever = (
             score: hit.score,
             kind: 'semantic' as const,
             rank,
-            })),
+          })),
           req.documentIdAllowlist,
         ),
       ])
@@ -627,7 +632,9 @@ export const createPostgresRetriever = (
       let reranked = false
       let rerankerName: string | null = null
       const reranker =
-        req.rerank === false || rerankerFactory === undefined ? undefined : rerankerFactory(opts.env)
+        req.rerank === false || rerankerFactory === undefined
+          ? undefined
+          : rerankerFactory(opts.env)
       if (
         reranker !== undefined &&
         chunks.length > 0 &&

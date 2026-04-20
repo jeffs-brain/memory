@@ -47,14 +47,16 @@ export const officialHypothesesFromResults = (
     hypothesis: result.predicted,
   }))
 
-export const serialiseOfficialHypotheses = (
-  results: readonly LMEResult[],
-): string => {
+export const serialiseOfficialHypotheses = (results: readonly LMEResult[]): string => {
   const rows = officialHypothesesFromResults(results)
-  return rows.map((row) => JSON.stringify({
-    question_id: row.questionId,
-    hypothesis: row.hypothesis,
-  })).join('\n')
+  return rows
+    .map((row) =>
+      JSON.stringify({
+        question_id: row.questionId,
+        hypothesis: row.hypothesis,
+      }),
+    )
+    .join('\n')
 }
 
 export const resultsToOfficialEvalLog = (
@@ -123,9 +125,7 @@ export type ScoreOfficialEvalLogArgs = {
   readonly entries: readonly OfficialLMEEvalLogRow[]
 }
 
-export const scoreOfficialEvalLog = (
-  args: ScoreOfficialEvalLogArgs,
-): OfficialLMEScoreSummary => {
+export const scoreOfficialEvalLog = (args: ScoreOfficialEvalLogArgs): OfficialLMEScoreSummary => {
   const refById = new Map(args.references.map((example) => [example.id, example]))
   const categoryBuckets = new Map<string, number[]>()
   const skippedQuestionIds: string[] = []
@@ -195,11 +195,9 @@ export const compareOfficialScoreSummaries = (
       (baseline.perCategory[category]?.accuracy ?? 0)
   }
   return {
-    taskAverageAccuracyDelta:
-      candidate.taskAverageAccuracy - baseline.taskAverageAccuracy,
+    taskAverageAccuracyDelta: candidate.taskAverageAccuracy - baseline.taskAverageAccuracy,
     overallAccuracyDelta: candidate.overallAccuracy - baseline.overallAccuracy,
-    abstentionAccuracyDelta:
-      candidate.abstentionAccuracy - baseline.abstentionAccuracy,
+    abstentionAccuracyDelta: candidate.abstentionAccuracy - baseline.abstentionAccuracy,
     categoryDeltas,
   }
 }
@@ -214,8 +212,7 @@ const mean = (values: readonly number[]): number => {
   return sum / values.length
 }
 
-const toStringField = (value: unknown): string =>
-  typeof value === 'string' ? value : ''
+const toStringField = (value: unknown): string => (typeof value === 'string' ? value : '')
 
 const toAutoEvalLabel = (value: unknown): OfficialLMEEvalLabel => {
   if (value == null || typeof value !== 'object') {
@@ -232,5 +229,4 @@ const toAutoEvalLabel = (value: unknown): OfficialLMEEvalLabel => {
   }
 }
 
-const errorMessage = (err: unknown): string =>
-  err instanceof Error ? err.message : String(err)
+const errorMessage = (err: unknown): string => (err instanceof Error ? err.message : String(err))

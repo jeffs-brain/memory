@@ -1,7 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from 'vitest'
-import { noopLogger, type CompletionRequest, type CompletionResponse, type Provider } from '../llm/index.js'
+import {
+  type CompletionRequest,
+  type CompletionResponse,
+  type Provider,
+  noopLogger,
+} from '../llm/index.js'
 import { joinPath } from '../store/index.js'
 import { createMemStore } from '../store/memstore.js'
 import { archivedSourcePath } from './archive.js'
@@ -315,7 +320,9 @@ describe('compile', () => {
     const compile = createCompile({ store, provider, logger: noopLogger })
     const first = await compile()
 
-    expect([...first.plan.processedSources].sort()).toEqual([createSource.hash, updateSource.hash].sort())
+    expect([...first.plan.processedSources].sort()).toEqual(
+      [createSource.hash, updateSource.hash].sort(),
+    )
 
     const createdMarker = parseProcessedMarker(
       (await store.read(processedMarkerPath(createSource.hash))).toString('utf8'),
@@ -325,7 +332,9 @@ describe('compile', () => {
     )
 
     expect(createdMarker?.sourcePath).toBe(`raw/documents/${createSource.hash}.md`)
-    expect(createdMarker?.contentHash).toBe(hashContent(Buffer.from('Note about protected cycle lanes in Utrecht.', 'utf8')))
+    expect(createdMarker?.contentHash).toBe(
+      hashContent(Buffer.from('Note about protected cycle lanes in Utrecht.', 'utf8')),
+    )
     expect(createdMarker?.writtenPaths).toContain(`${DRAFTS_PREFIX}/utrecht-cycle-lanes.md`)
     expect(updatedMarker?.sourcePath).toBe(`raw/documents/${updateSource.hash}.md`)
     expect(updatedMarker?.contentHash).toBe(
@@ -410,7 +419,9 @@ describe('compile', () => {
 
   it('returns an empty plan when there are no ingests', async () => {
     const store = createMemStore()
-    const provider = makeProvider(() => '{"new_articles":[],"updates":[],"cross_references":[],"concepts":[]}')
+    const provider = makeProvider(
+      () => '{"new_articles":[],"updates":[],"cross_references":[],"concepts":[]}',
+    )
     const compile = createCompile({ store, provider, logger: noopLogger })
     const result = await compile()
     expect(result.plan.articles).toHaveLength(0)
@@ -470,9 +481,7 @@ describe('compile', () => {
     const result = await compile()
 
     expect(result.written.map(String)).toEqual([`${WIKI_PREFIX}/cycling-in-the-netherlands.md`])
-    expect(await store.exists(joinPath(DRAFTS_PREFIX, 'cycling-in-the-netherlands.md'))).toBe(
-      false,
-    )
+    expect(await store.exists(joinPath(DRAFTS_PREFIX, 'cycling-in-the-netherlands.md'))).toBe(false)
 
     const updated = parseFrontmatter((await store.read(existingPath)).toString('utf8'))
     expect(updated.frontmatter.summary).toBe('Updated article')

@@ -3,10 +3,10 @@
 import { defineCommand } from 'citty'
 import { openBrain } from '../brain.js'
 import {
-  buildProvider,
-  buildReranker,
   CliUsageError,
   buildEmbedder,
+  buildProvider,
+  buildReranker,
   embedderFromEnv,
   providerFromEnvOptional,
   rerankerFromEnv,
@@ -64,17 +64,12 @@ export const searchCommand = defineCommand({
       )
     }
     const limit = parseLimit(args.limit)
-    const brainDir = resolveBrainDir(
-      typeof args.brain === 'string' ? args.brain : undefined,
-    )
+    const brainDir = resolveBrainDir(typeof args.brain === 'string' ? args.brain : undefined)
     const rerankerSettings = rerankerFromEnv()
-    const providerSettings =
-      rerankerSettings !== undefined ? providerFromEnvOptional() : undefined
-    const provider =
-      providerSettings !== undefined ? buildProvider(providerSettings) : undefined
+    const providerSettings = rerankerSettings !== undefined ? providerFromEnvOptional() : undefined
+    const provider = providerSettings !== undefined ? buildProvider(providerSettings) : undefined
     const embedderSettings = embedderFromEnv()
-    const embedder =
-      embedderSettings !== undefined ? buildEmbedder(embedderSettings) : undefined
+    const embedder = embedderSettings !== undefined ? buildEmbedder(embedderSettings) : undefined
     const reranker =
       rerankerSettings !== undefined
         ? buildReranker(rerankerSettings, { ...(provider !== undefined ? { provider } : {}) })

@@ -56,13 +56,14 @@ export const ingestBulk = async (
  * an example lacks `haystackSessions` we fall back to the joined haystack
  * render so ingest never silently drops content.
  */
-export const deduplicateSessions = (
-  examples: readonly LMEExample[],
-): readonly SessionPayload[] => {
+export const deduplicateSessions = (examples: readonly LMEExample[]): readonly SessionPayload[] => {
   const seen = new Map<string, { text: string; date?: string; questionIds: string[] }>()
   const order: string[] = []
 
-  const ensure = (id: string, init: () => { text: string; date?: string }): { text: string; date?: string; questionIds: string[] } => {
+  const ensure = (
+    id: string,
+    init: () => { text: string; date?: string },
+  ): { text: string; date?: string; questionIds: string[] } => {
     const existing = seen.get(id)
     if (existing) return existing
     const { text, date } = init()

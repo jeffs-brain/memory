@@ -4,8 +4,6 @@ import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import type { InstallConfig } from '../src/types.js'
-import { backupPath } from '../src/writers/shared.js'
-import type { Fs } from '../src/writers/shared.js'
 import {
   writeAgent,
   writeClaudeCode,
@@ -14,6 +12,8 @@ import {
   writeWindsurf,
   writeZed,
 } from '../src/writers/index.js'
+import { backupPath } from '../src/writers/shared.js'
+import type { Fs } from '../src/writers/shared.js'
 
 const FIXTURES = path.resolve(import.meta.dirname, 'fixtures')
 const fixture = (name: string): string => readFileSync(path.join(FIXTURES, name), 'utf8')
@@ -87,9 +87,7 @@ describe('writeClaudeCode', () => {
     expect(outcome.backup).toBeUndefined()
     expect(outcome.smokeTest).toContain('claude mcp add jeffs-brain')
     const written = JSON.parse(state.files.get(target) ?? '{}')
-    expect(written.mcpServers['jeffs-brain'].env.JB_HOME).toBe(
-      '/home/alex/.jeffs-brain',
-    )
+    expect(written.mcpServers['jeffs-brain'].env.JB_HOME).toBe('/home/alex/.jeffs-brain')
     expect(written.mcpServers['jeffs-brain'].args).toEqual(['-y', '@jeffs-brain/memory-mcp'])
   })
 
@@ -130,9 +128,7 @@ describe('writeClaudeDesktop', () => {
     expect(outcome.backup).toBeDefined()
     const written = JSON.parse(state.files.get(target) ?? '{}')
     expect(written.mcpServers['jeffs-brain'].env.JB_TOKEN).toBe('jbp_test_token')
-    expect(written.mcpServers['jeffs-brain'].env.JB_ENDPOINT).toBe(
-      'https://api.jeffsbrain.com',
-    )
+    expect(written.mcpServers['jeffs-brain'].env.JB_ENDPOINT).toBe('https://api.jeffsbrain.com')
     expect(written.mcpServers['jeffs-brain'].env.JB_HOME).toBeUndefined()
   })
 })
@@ -176,9 +172,7 @@ describe('writeZed', () => {
     expect(written.theme).toBe('One Dark')
     expect(Object.keys(written.context_servers).sort()).toEqual(['jeffs-brain', 'some-server'])
     expect(written.context_servers['jeffs-brain'].source).toBe('custom')
-    expect(written.context_servers['jeffs-brain'].env.JB_HOME).toBe(
-      '/home/alex/.jeffs-brain',
-    )
+    expect(written.context_servers['jeffs-brain'].env.JB_HOME).toBe('/home/alex/.jeffs-brain')
     expect(written.mcpServers).toBeUndefined()
   })
 })

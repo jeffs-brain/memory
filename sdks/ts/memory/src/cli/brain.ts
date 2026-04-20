@@ -6,7 +6,7 @@
  * brain directory with config + git init.
  */
 
-import { mkdir, readFile, writeFile, access } from 'node:fs/promises'
+import { access, mkdir, readFile, writeFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import type { GitStore } from '../store/index.js'
 import { createGitStore } from '../store/index.js'
@@ -46,10 +46,7 @@ export const readBrainConfig = async (dir: string): Promise<BrainConfig> => {
   }
 }
 
-export const writeBrainConfig = async (
-  dir: string,
-  cfg: BrainConfig,
-): Promise<void> => {
+export const writeBrainConfig = async (dir: string, cfg: BrainConfig): Promise<void> => {
   await mkdir(dir, { recursive: true })
   const path = join(dir, CONFIG_FILENAME)
   await writeFile(path, `${JSON.stringify(cfg, null, 2)}\n`, 'utf8')

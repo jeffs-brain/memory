@@ -10,13 +10,7 @@ import { writeWindsurf } from './windsurf.js'
 import { writeZed } from './zed.js'
 
 export { buildServerSpec, backupPath, type Fs, nodeFs } from './shared.js'
-export {
-  writeClaudeCode,
-  writeClaudeDesktop,
-  writeCursor,
-  writeWindsurf,
-  writeZed,
-}
+export { writeClaudeCode, writeClaudeDesktop, writeCursor, writeWindsurf, writeZed }
 
 export const WRITERS: Readonly<
   Record<AgentId, (target: string, config: InstallConfig, fs?: Fs) => WriteOutcome>

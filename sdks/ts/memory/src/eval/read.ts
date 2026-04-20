@@ -7,19 +7,14 @@
  * measured separately so downstream reports can attribute slow runs.
  */
 
-import { resolveDeterministicAugmentedAnswer } from '../augmented-reader/resolver.js'
 import {
-  buildAugmentedReaderPrompt,
   READER_AUGMENTED_MAX_TOKENS,
   READER_AUGMENTED_TEMPERATURE,
+  buildAugmentedReaderPrompt,
 } from '../augmented-reader/prompt.js'
+import { resolveDeterministicAugmentedAnswer } from '../augmented-reader/resolver.js'
 import type { Provider } from '../llm/index.js'
-import type {
-  LMEExample,
-  ReaderFn,
-  RetrievalFn,
-  RetrievalResult,
-} from './types.js'
+import type { LMEExample, ReaderFn, RetrievalFn, RetrievalResult } from './types.js'
 export type ReadOutcome = {
   readonly id: string
   readonly predicted: string
@@ -34,10 +29,7 @@ export type ReadDeps = {
   readonly reader: ReaderFn
 }
 
-export const runRead = async (
-  deps: ReadDeps,
-  example: LMEExample,
-): Promise<ReadOutcome> => {
+export const runRead = async (deps: ReadDeps, example: LMEExample): Promise<ReadOutcome> => {
   const retrievalStart = Date.now()
   let retrieval: RetrievalResult
   try {
@@ -159,9 +151,7 @@ export const truncateSmartly = (content: string, budget: number): string => {
     let allocation = Math.max(Math.floor((section.length * budget) / totalLength), 500)
     allocation = Math.min(allocation, remainingBudget)
     if (index === sections.length - 1) allocation = remainingBudget
-    parts.push(
-      section.length <= allocation ? section : headTailTruncate(section, allocation),
-    )
+    parts.push(section.length <= allocation ? section : headTailTruncate(section, allocation))
     remainingBudget -= Math.min(section.length, allocation)
   }
 
@@ -215,10 +205,7 @@ const questionTokens = (question: string): readonly string[] => {
   return out
 }
 
-const scoreChunkRelevance = (
-  chunk: string,
-  tokens: readonly string[],
-): number => {
+const scoreChunkRelevance = (chunk: string, tokens: readonly string[]): number => {
   const lower = chunk.toLowerCase()
   let score = 0
   for (const token of tokens) {
@@ -230,9 +217,7 @@ const scoreChunkRelevance = (
 const splitSessions = (content: string): readonly string[] => {
   const bySessionId = content.split('\n\n---\nsession_id:')
   if (bySessionId.length > 1) {
-    return bySessionId.map((part, index) =>
-      index === 0 ? part : `---\nsession_id:${part}`,
-    )
+    return bySessionId.map((part, index) => (index === 0 ? part : `---\nsession_id:${part}`))
   }
   const byDivider = content.split('\n\n---\n\n')
   if (byDivider.length > 1) return byDivider
@@ -243,11 +228,7 @@ const splitSessions = (content: string): readonly string[] => {
   return [content]
 }
 
-const truncateForQuestion = (
-  content: string,
-  budget: number,
-  question: string,
-): string => {
+const truncateForQuestion = (content: string, budget: number, question: string): string => {
   if (budget <= 0) return ''
   if (content.length <= budget) return content
   if (question.trim() === '') return truncateSmartly(content, budget)
@@ -273,14 +254,12 @@ const truncateForQuestion = (
     parts.push(snippet)
     break
   }
-  return parts.length > 0 ? parts.join('\n\n---\n\n') : relevantSnippetForQuestion(content, question, budget)
+  return parts.length > 0
+    ? parts.join('\n\n---\n\n')
+    : relevantSnippetForQuestion(content, question, budget)
 }
 
-const relevantSnippetForQuestion = (
-  content: string,
-  question: string,
-  budget: number,
-): string => {
+const relevantSnippetForQuestion = (content: string, question: string, budget: number): string => {
   if (budget <= 0) return ''
   if (content.length <= budget) return content
   const tokens = questionTokens(question)
@@ -290,8 +269,8 @@ const relevantSnippetForQuestion = (
   let prefixEnd = 0
   while (
     prefixEnd < lines.length &&
-    !lines[prefixEnd]!.startsWith('[user]:') &&
-    !lines[prefixEnd]!.startsWith('[assistant]:')
+    !lines[prefixEnd]?.startsWith('[user]:') &&
+    !lines[prefixEnd]?.startsWith('[assistant]:')
   ) {
     prefixEnd++
   }

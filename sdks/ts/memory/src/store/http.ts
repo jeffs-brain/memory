@@ -24,14 +24,13 @@
  *     tenant transaction.
  */
 
-import { ErrInvalidPath, ErrNotFound, ErrReadOnly, StoreError } from './errors.js'
 import {
-  isGenerated as pathIsGenerated,
-  lastSegment,
-  matchGlob,
-  validatePath,
-  type Path,
-} from './path.js'
+  ErrInvalidPath,
+  ErrNotFound,
+  ErrPayloadTooLarge,
+  ErrReadOnly,
+  StoreError,
+} from './errors.js'
 import type {
   Batch,
   BatchOptions,
@@ -42,6 +41,14 @@ import type {
   Store,
   Unsubscribe,
 } from './index.js'
+import { type DocumentBodyLimits, normaliseDocumentBodyLimits } from './limits.js'
+import {
+  type Path,
+  lastSegment,
+  matchGlob,
+  isGenerated as pathIsGenerated,
+  validatePath,
+} from './path.js'
 
 type FetchLike = (input: string, init?: RequestInit) => Promise<Response>
 
@@ -52,6 +59,7 @@ export type HttpStoreOptions = {
   readonly token?: string
   readonly fetch?: FetchLike
   readonly timeoutMs?: number
+  readonly bodyLimits?: Partial<DocumentBodyLimits>
 }
 
 export type HttpStoreCapabilities = {
@@ -62,6 +70,8 @@ export type HttpStoreCapabilities = {
    * a microtask after a mutation completes before their sink fires.
    */
   readonly synchronousEvents: false
+  /** Resolved request-size ceilings enforced client-side. */
+  readonly bodyLimits: DocumentBodyLimits
 }
 
 const DEFAULT_TIMEOUT_MS = 30_000
@@ -112,7 +122,11 @@ const parseProblem = async (resp: Response): Promise<ProblemPayload> => {
 const throwForResponse = async (resp: Response, path: string | undefined): Promise<never> => {
   const problem = await parseProblem(resp)
   if (resp.status === 404) throw new ErrNotFound(path ?? '', problem)
-  if (resp.status === 400) throw new ErrInvalidPath(problem.detail ?? problem.title ?? 'bad request')
+  if (resp.status === 400)
+    throw new ErrInvalidPath(problem.detail ?? problem.title ?? 'bad request')
+  if (resp.status === 413) {
+    throw new ErrPayloadTooLarge(problem.detail ?? problem.title ?? 'payload exceeds server limit')
+  }
   throw new StoreError(
     `http-store: ${resp.status} ${problem.title ?? resp.statusText}${problem.detail ? `: ${problem.detail}` : ''}`,
     problem,
@@ -125,6 +139,7 @@ type HttpStoreDeps = {
   readonly fetch: FetchLike
   readonly timeoutMs: number
   readonly authHeader: string | undefined
+  readonly bodyLimits: DocumentBodyLimits
 }
 
 const buildDeps = (opts: HttpStoreOptions): HttpStoreDeps => {
@@ -141,6 +156,7 @@ const buildDeps = (opts: HttpStoreOptions): HttpStoreDeps => {
     fetch: resolveFetch(opts.fetch),
     timeoutMs: opts.timeoutMs ?? DEFAULT_TIMEOUT_MS,
     authHeader,
+    bodyLimits: normaliseDocumentBodyLimits(opts.bodyLimits),
   }
 }
 
@@ -267,8 +283,7 @@ const subscribeSse = (
       dataLines = []
     }
     try {
-      // biome-ignore lint/suspicious/noConstantCondition: stream loop
-      while (true) {
+      for (;;) {
         const { value, done } = await reader.read()
         if (done) break
         buffer += decoder.decode(value, { stream: true })
@@ -313,14 +328,10 @@ const subscribeSse = (
   }
 }
 
-export const createHttpStore = (opts: HttpStoreOptions): HttpStore =>
-  new HttpStore(opts)
+export const createHttpStore = (opts: HttpStoreOptions): HttpStore => new HttpStore(opts)
 
 export class HttpStore implements Store {
-  readonly capabilities: HttpStoreCapabilities = {
-    supportsLocalPath: false,
-    synchronousEvents: false,
-  }
+  readonly capabilities: HttpStoreCapabilities
 
   private readonly deps: HttpStoreDeps
   private readonly sinks = new Map<number, EventSink>()
@@ -330,6 +341,11 @@ export class HttpStore implements Store {
 
   constructor(opts: HttpStoreOptions) {
     this.deps = buildDeps(opts)
+    this.capabilities = {
+      supportsLocalPath: false,
+      synchronousEvents: false,
+      bodyLimits: this.deps.bodyLimits,
+    }
   }
 
   async read(p: Path): Promise<Buffer> {
@@ -393,6 +409,7 @@ export class HttpStore implements Store {
   async write(p: Path, content: Buffer): Promise<void> {
     this.ensureOpen()
     validatePath(p)
+    this.assertSingleBodySize(content.length, p)
     const resp = await doFetch(this.deps, {
       method: 'PUT',
       path: brainPath(this.deps.brainId, '/documents'),
@@ -406,6 +423,7 @@ export class HttpStore implements Store {
   async append(p: Path, content: Buffer): Promise<void> {
     this.ensureOpen()
     validatePath(p)
+    this.assertSingleBodySize(content.length, p)
     const resp = await doFetch(this.deps, {
       method: 'POST',
       path: brainPath(this.deps.brainId, '/documents/append'),
@@ -444,13 +462,9 @@ export class HttpStore implements Store {
     this.ensureOpen()
     const journal: JournalOp[] = []
     const batch = new HttpBatch(this, journal)
-    try {
-      await fn(batch)
-    } catch (err) {
-      // buffered; nothing sent server-side yet
-      throw err
-    }
+    await fn(batch)
     if (journal.length === 0) return
+    this.assertBatchSize(journal)
     const payload = {
       reason: opts.reason,
       ...(opts.message !== undefined ? { message: opts.message } : {}),
@@ -542,6 +556,33 @@ export class HttpStore implements Store {
   private ensureOpen(): void {
     if (this.closed) throw new ErrReadOnly()
   }
+
+  private assertSingleBodySize(size: number, path: Path): void {
+    if (size > this.deps.bodyLimits.singleDocumentBytes) {
+      throw new ErrPayloadTooLarge(
+        `${path} exceeds ${this.deps.bodyLimits.singleDocumentBytes} bytes`,
+      )
+    }
+  }
+
+  private assertBatchSize(journal: readonly JournalOp[]): void {
+    if (journal.length > this.deps.bodyLimits.batchOpCount) {
+      throw new ErrPayloadTooLarge(
+        `batch has ${journal.length} ops (cap ${this.deps.bodyLimits.batchOpCount})`,
+      )
+    }
+    let decodedBytes = 0
+    for (const op of journal) {
+      if (op.kind === 'write' || op.kind === 'append') {
+        decodedBytes += op.content.length
+        if (decodedBytes > this.deps.bodyLimits.batchDecodedBytes) {
+          throw new ErrPayloadTooLarge(
+            `batch payload exceeds ${this.deps.bodyLimits.batchDecodedBytes} bytes`,
+          )
+        }
+      }
+    }
+  }
 }
 
 type JournalOp =
@@ -550,10 +591,7 @@ type JournalOp =
   | { kind: 'delete'; path: Path }
   | { kind: 'rename'; src: Path; dst: Path }
 
-type BatchState =
-  | { kind: 'present'; content: Buffer }
-  | { kind: 'deleted' }
-  | { kind: 'untouched' }
+type BatchState = { kind: 'present'; content: Buffer } | { kind: 'deleted' } | { kind: 'untouched' }
 
 const replay = (journal: readonly JournalOp[], p: Path): BatchState => {
   let present = false

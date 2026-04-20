@@ -259,6 +259,44 @@ def _build_frontmatter(values: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def _infer_memory_scope(path: str) -> Literal["global", "project", "agent"]:
+    if path.startswith("memory/project/"):
+        return "project"
+    if path.startswith("memory/agent/"):
+        return "agent"
+    return "global"
+
+
+def _scope_filter(scope: Scope | RecallScope | None) -> Callable[[dict[str, Any]], bool]:
+    if scope is None or scope == "all":
+        return lambda _hit: True
+    prefix = f"memory/{scope}/"
+    return lambda hit: str(hit.get("path", "")).startswith(prefix)
+
+
+def _sort_hits(
+    brain: "_BrainResources",
+    hits: list[dict[str, Any]],
+    sort: Sort | None,
+) -> list[dict[str, Any]]:
+    if sort is None or sort == "relevance":
+        return hits
+
+    def _timestamp(hit: dict[str, Any]) -> int:
+        rel = str(hit.get("path", ""))
+        try:
+            return (brain.root / rel).stat().st_mtime_ns
+        except OSError:
+            return -1
+
+    if sort == "relevance_then_recency":
+        return sorted(
+            hits,
+            key=lambda hit: (-float(hit.get("score", 0.0)), -_timestamp(hit)),
+        )
+    return sorted(hits, key=lambda hit: (-_timestamp(hit), -float(hit.get("score", 0.0))))
+
+
 # ---------------------------------------------------------------------------
 # Local mode — FS store + SQLite FTS5 index + optional Ollama embedder
 # ---------------------------------------------------------------------------
@@ -450,11 +488,12 @@ class LocalMemoryClient:
         title = _derive_title(args.content, args.title)
         slug = _slug_from_title(title)
         rel_path = args.path or f"memory/global/{slug}.md"
+        scope = _infer_memory_scope(rel_path)
         frontmatter = _build_frontmatter(
             {
                 "title": title,
-                "scope": "global",
-                "type": "user",
+                "scope": scope,
+                "type": "user" if scope == "global" else "project",
                 "created": _now_iso(),
                 "modified": _now_iso(),
                 **({"tags": list(args.tags)} if args.tags else {}),
@@ -462,7 +501,7 @@ class LocalMemoryClient:
         )
         body = f"{frontmatter}\n\n{args.content.rstrip()}\n"
         content_bytes = body.encode("utf-8")
-        metadata: dict[str, Any] = {}
+        metadata: dict[str, Any] = {"scope": scope}
         if args.tags:
             metadata["tags"] = ",".join(args.tags)
         written = self._write_note(
@@ -497,7 +536,10 @@ class LocalMemoryClient:
         brain = self._open_brain(brain_id)
         top_k = args.top_k or 10
         started = time.perf_counter()
-        hits = _search_index(brain.conn, args.query, top_k)
+        search_k = top_k if args.scope in (None, "all") else max(top_k * 5, top_k)
+        hits = _search_index(brain.conn, args.query, search_k)
+        hits = [hit for hit in hits if _scope_filter(args.scope)(hit)]
+        hits = _sort_hits(brain, hits, args.sort)
         took_ms = int((time.perf_counter() - started) * 1000)
         return {
             "query": args.query,
@@ -511,7 +553,7 @@ class LocalMemoryClient:
                     "chunk_id": hit["chunk_id"],
                     "metadata": hit["metadata"],
                 }
-                for hit in hits
+                for hit in hits[:top_k]
             ],
             "took_ms": took_ms,
         }
@@ -521,7 +563,9 @@ class LocalMemoryClient:
         brain_id = self._resolve_brain(args.brain)
         brain = self._open_brain(brain_id)
         top_k = args.top_k or 5
-        hits = _search_index(brain.conn, args.query, top_k)
+        search_k = top_k if args.scope is None else max(top_k * 5, top_k)
+        hits = _search_index(brain.conn, args.query, search_k)
+        hits = [hit for hit in hits if _scope_filter(args.scope)(hit)]
         return {
             "query": args.query,
             "brain_id": brain_id,
@@ -534,7 +578,7 @@ class LocalMemoryClient:
                     "title": hit["title"],
                     "chunk_id": hit["chunk_id"],
                 }
-                for hit in hits
+                for hit in hits[:top_k]
             ],
         }
 

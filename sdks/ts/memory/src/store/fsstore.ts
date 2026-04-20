@@ -2,24 +2,17 @@
 
 import { randomBytes } from 'node:crypto'
 import {
+  rename as fsRename,
+  stat as fsStat,
   mkdir,
   open,
   readFile,
   readdir,
-  rename as fsRename,
   rm,
-  stat as fsStat,
   writeFile,
 } from 'node:fs/promises'
 import { dirname, isAbsolute, join, resolve } from 'node:path'
 import { ErrNotFound, ErrReadOnly, StoreError } from './errors.js'
-import {
-  isGenerated as pathIsGenerated,
-  lastSegment,
-  matchGlob,
-  validatePath,
-  type Path,
-} from './path.js'
 import type {
   Batch,
   BatchOptions,
@@ -30,6 +23,13 @@ import type {
   Store,
   Unsubscribe,
 } from './index.js'
+import {
+  type Path,
+  lastSegment,
+  matchGlob,
+  isGenerated as pathIsGenerated,
+  validatePath,
+} from './path.js'
 
 export type FsStoreOptions = {
   readonly root: string
@@ -95,7 +95,7 @@ export class FsStore implements Store {
   async list(dir: Path | '', opts: ListOpts = {}): Promise<FileInfo[]> {
     this.ensureOpen()
     const absDir = dir === '' ? this.root : this.resolve(dir as Path)
-    let rootStat
+    let rootStat: Awaited<ReturnType<typeof fsStat>>
     try {
       rootStat = await fsStat(absDir)
     } catch (err) {
@@ -204,11 +204,7 @@ export class FsStore implements Store {
       this.ensureOpen()
       const journal: JournalOp[] = []
       const batch = new FsBatch(this, journal)
-      try {
-        await fn(batch)
-      } catch (err) {
-        throw err
-      }
+      await fn(batch)
       await this.commitJournal(journal, opts.reason)
     })
   }
@@ -378,9 +374,7 @@ type JournalOp =
   | { kind: 'delete'; path: Path }
   | { kind: 'rename'; src: Path; dst: Path }
 
-type PlanStep =
-  | { kind: 'write'; path: Path; content: Buffer }
-  | { kind: 'delete'; path: Path }
+type PlanStep = { kind: 'write'; path: Path; content: Buffer } | { kind: 'delete'; path: Path }
 
 type RollbackStep =
   | { kind: 'restore'; abs: string; content: Buffer }

@@ -15,13 +15,7 @@ import { parseFrontmatter } from './frontmatter.js'
 import { reflectionPath, scopeIndex, scopeTopic } from './paths.js'
 import { fireReflectionEnd, fireReflectionStart } from './plugins.js'
 import { REFLECTION_SYSTEM_PROMPT } from './prompts.js'
-import type {
-  Heuristic,
-  Plugin,
-  ReflectArgs,
-  ReflectionResult,
-  Scope,
-} from './types.js'
+import type { Heuristic, Plugin, ReflectArgs, ReflectionResult, Scope } from './types.js'
 
 const REFLECT_MAX_TOKENS = 4096
 const REFLECT_TEMPERATURE = 0.3
@@ -44,16 +38,10 @@ export const createReflect = (deps: ReflectDeps) => {
     const scope = args.scope ?? deps.defaultScope
     const messages = args.messages
 
-    await fireReflectionStart(
-      deps.plugins,
-      { actorId, scope, messages },
-      deps.logger,
-    )
+    await fireReflectionStart(deps.plugins, { actorId, scope, messages }, deps.logger)
 
     const recent =
-      messages.length > REFLECT_MAX_RECENT
-        ? messages.slice(-REFLECT_MAX_RECENT)
-        : messages
+      messages.length > REFLECT_MAX_RECENT ? messages.slice(-REFLECT_MAX_RECENT) : messages
     const userPrompt = buildReflectionPrompt(recent)
 
     let raw: string
@@ -74,11 +62,7 @@ export const createReflect = (deps: ReflectDeps) => {
 
     const parsed = parseReflectionJson(raw)
     if (!parsed.outcome) {
-      await fireReflectionEnd(
-        deps.plugins,
-        { actorId, scope, messages },
-        deps.logger,
-      )
+      await fireReflectionEnd(deps.plugins, { actorId, scope, messages }, deps.logger)
       return undefined
     }
 
@@ -102,11 +86,7 @@ export const createReflect = (deps: ReflectDeps) => {
     }
 
     const result: ReflectionResult = { ...parsed, path }
-    await fireReflectionEnd(
-      deps.plugins,
-      { actorId, scope, messages, result },
-      deps.logger,
-    )
+    await fireReflectionEnd(deps.plugins, { actorId, scope, messages, result }, deps.logger)
     return result
   }
 }
@@ -138,9 +118,7 @@ export const parseReflectionJson = (content: string): ParsedReflection => {
   try {
     const parsed = JSON.parse(slice) as Record<string, unknown>
     const outcome =
-      parsed.outcome === 'success' ||
-      parsed.outcome === 'partial' ||
-      parsed.outcome === 'failure'
+      parsed.outcome === 'success' || parsed.outcome === 'partial' || parsed.outcome === 'failure'
         ? parsed.outcome
         : 'unknown'
     const summary = typeof parsed.summary === 'string' ? parsed.summary : ''
@@ -161,9 +139,7 @@ export const parseReflectionJson = (content: string): ParsedReflection => {
       : Array.isArray(parsed.openQuestions)
         ? parsed.openQuestions
         : []
-    const openQuestions = openQuestionsRaw.filter(
-      (s): s is string => typeof s === 'string',
-    )
+    const openQuestions = openQuestionsRaw.filter((s): s is string => typeof s === 'string')
     const heuristicsRaw = Array.isArray(parsed.heuristics) ? parsed.heuristics : []
     const heuristics: Heuristic[] = []
     for (const h of heuristicsRaw) {
@@ -181,8 +157,7 @@ export const parseReflectionJson = (content: string): ParsedReflection => {
           r.scope === 'global' || r.scope === 'project' || r.scope === 'agent'
             ? r.scope
             : 'project',
-        antiPattern:
-          r.anti_pattern === true || r.antiPattern === true ? true : false,
+        antiPattern: !!(r.anti_pattern === true || r.antiPattern === true),
       })
     }
     return {
@@ -219,11 +194,7 @@ const buildReflectionPrompt = (messages: readonly Message[]): string => {
   return parts.join('\n')
 }
 
-const buildReflectionFile = (
-  r: ParsedReflection,
-  sessionId: string,
-  scope: Scope,
-): string => {
+const buildReflectionFile = (r: ParsedReflection, sessionId: string, scope: Scope): string => {
   const now = new Date().toISOString()
   const fm = buildFrontmatter({
     extra: {
@@ -280,7 +251,9 @@ const persistHeuristicsInBatch = async (
   }
 
   for (const [path, heuristic] of deduped) {
-    const existing = await batch.read(path as import('../store/path.js').Path).catch(() => undefined)
+    const existing = await batch
+      .read(path as import('../store/path.js').Path)
+      .catch(() => undefined)
     const parsedExisting =
       existing === undefined ? undefined : parseFrontmatter(existing.toString('utf8')).frontmatter
     await batch.write(
@@ -335,7 +308,7 @@ const heuristicFilename = (heuristic: Heuristic): string => {
 
 const heuristicIndexEntry = (path: string, heuristic: Heuristic): string =>
   truncateOneLine(
-    `- ${path.split('/').pop() ?? path}: ${(heuristic.antiPattern ? 'anti-pattern' : 'heuristic')} ${heuristic.rule}`,
+    `- ${path.split('/').pop() ?? path}: ${heuristic.antiPattern ? 'anti-pattern' : 'heuristic'} ${heuristic.rule}`,
     HEURISTIC_ENTRY_LIMIT,
   )
 
@@ -348,7 +321,9 @@ const buildHeuristicFile = (input: {
   const { heuristic } = input
   const fm = buildFrontmatter({
     extra: {},
-    name: heuristic.antiPattern ? `Anti-pattern: ${heuristic.rule}` : `Heuristic: ${heuristic.rule}`,
+    name: heuristic.antiPattern
+      ? `Anti-pattern: ${heuristic.rule}`
+      : `Heuristic: ${heuristic.rule}`,
     description: heuristicDescription(heuristic),
     type: heuristic.scope === 'project' ? 'project' : 'feedback',
     scope: heuristic.scope,

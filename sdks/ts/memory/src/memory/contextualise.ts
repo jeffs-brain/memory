@@ -30,6 +30,7 @@ export type ContextualiseDeps = {
     k?: number
     scope?: Scope
     actorId?: string
+    fallbackScopes?: readonly Scope[]
     excludedPaths?: readonly Path[]
     surfacedPaths?: readonly Path[]
     selector?: RecallSelectorMode
@@ -41,11 +42,14 @@ export type ContextualiseDeps = {
 export const createContextualise = (deps: ContextualiseDeps) => {
   return async (args: ContextualiseArgs): Promise<PromptContext> => {
     const k = args.topK ?? DEFAULT_TOP_N
+    const scope = args.scope ?? deps.defaultScope
+    const fallbackScopes = args.fallbackScopes ?? (scope === 'project' ? ['global'] : undefined)
     const memories = await deps.recall({
       query: args.message,
       k,
-      scope: args.scope ?? deps.defaultScope,
+      scope,
       actorId: args.actorId ?? deps.defaultActorId,
+      ...(fallbackScopes !== undefined ? { fallbackScopes } : {}),
       ...(args.excludedPaths !== undefined ? { excludedPaths: args.excludedPaths } : {}),
       ...(args.surfacedPaths !== undefined ? { surfacedPaths: args.surfacedPaths } : {}),
       selector: args.selector ?? DEFAULT_SELECTOR_MODE,

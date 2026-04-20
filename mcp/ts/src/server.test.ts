@@ -19,10 +19,12 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { resolveConfig } from './config.js'
 import { createMemoryClient } from './memory-client.js'
 import { createServer } from './server.js'
-import type { Tool, ToolContext } from './tools/types.js'
 import { tools } from './tools/index.js'
+import type { Tool, ToolContext } from './tools/types.js'
 
-const bootServer = async (home: string): Promise<{
+const bootServer = async (
+  home: string,
+): Promise<{
   client: Client
   shutdown: () => Promise<void>
 }> => {
@@ -99,9 +101,9 @@ describe('memory-mcp server', () => {
       expect(createdPayload.slug).toBe('scratch')
 
       const after = await client.callTool({ name: 'memory_list_brains', arguments: {} })
-      const afterPayload = JSON.parse(
-        (after.content as { text: string }[])[0]?.text ?? '{}',
-      ) as { items: { slug: string }[] }
+      const afterPayload = JSON.parse((after.content as { text: string }[])[0]?.text ?? '{}') as {
+        items: { slug: string }[]
+      }
       expect(afterPayload.items.map((i) => i.slug)).toEqual(['scratch'])
     } finally {
       await shutdown()
@@ -128,9 +130,10 @@ describe('memory-mcp server', () => {
         name: 'memory_ingest_file',
         arguments: { path: fixture, brain: 'default' },
       })
-      const ingestPayload = JSON.parse(
-        (ingest.content as { text: string }[])[0]?.text ?? '{}',
-      ) as { status: string; chunk_count: number }
+      const ingestPayload = JSON.parse((ingest.content as { text: string }[])[0]?.text ?? '{}') as {
+        status: string
+        chunk_count: number
+      }
       expect(ingestPayload.status).toBe('completed')
       expect(ingestPayload.chunk_count).toBeGreaterThanOrEqual(1)
 
@@ -138,9 +141,9 @@ describe('memory-mcp server', () => {
         name: 'memory_search',
         arguments: { query: 'parkrun', brain: 'default' },
       })
-      const searchPayload = JSON.parse(
-        (search.content as { text: string }[])[0]?.text ?? '{}',
-      ) as { hits: { content: string }[] }
+      const searchPayload = JSON.parse((search.content as { text: string }[])[0]?.text ?? '{}') as {
+        hits: { content: string }[]
+      }
       expect(searchPayload.hits.length).toBeGreaterThan(0)
       const combined = searchPayload.hits.map((hit) => hit.content).join('\n')
       expect(combined.toLowerCase()).toContain('parkrun')

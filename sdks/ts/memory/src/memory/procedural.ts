@@ -22,10 +22,7 @@ export const detectProceduralRecords = (
   opts: DetectProceduralRecordsOptions = {},
 ): readonly ProceduralRecord[] => {
   const observedAt = normaliseTimestamp(opts.observedAt)
-  const maxContextLength = sanitisePositiveInt(
-    opts.maxContextLength,
-    DEFAULT_MAX_CONTEXT_LENGTH,
-  )
+  const maxContextLength = sanitisePositiveInt(opts.maxContextLength, DEFAULT_MAX_CONTEXT_LENGTH)
 
   return [
     ...detectSkillInvocations(messages, maxContextLength),
@@ -127,8 +124,7 @@ const detectAgentInvocations = (
       results.push({
         tier: 'agent',
         name,
-        taskContext:
-          prompt || inferProceduralContext(messages, index, maxContextLength),
+        taskContext: prompt || inferProceduralContext(messages, index, maxContextLength),
         outcome: inferToolCallOutcome(messages, index, toolCall.id, toolCall.name),
         toolCalls: [toolCall.name],
       })
@@ -170,9 +166,7 @@ const inferToolCallOutcome = (
     for (const result of readToolResults(message)) {
       const idMatches = toolCallId !== '' && result.toolCallId === toolCallId
       const nameMatches =
-        toolCallId === '' &&
-        result.toolName !== undefined &&
-        result.toolName === toolName
+        toolCallId === '' && result.toolName !== undefined && result.toolName === toolName
       if (!idMatches && !nameMatches) {
         continue
       }
@@ -198,9 +192,7 @@ const readToolResults = (message: Message): readonly ToolResultRecord[] => {
       .map((block) => ({
         toolCallId: block.toolResult?.toolCallId ?? '',
         content: block.toolResult?.content ?? '',
-        ...(block.toolResult?.isError !== undefined
-          ? { isError: block.toolResult.isError }
-          : {}),
+        ...(block.toolResult?.isError !== undefined ? { isError: block.toolResult.isError } : {}),
       })) ?? []
 
   if (fromBlocks.length > 0) {
@@ -308,9 +300,7 @@ const normaliseTimestamp = (value: Date | string | undefined): string => {
 }
 
 const sanitisePositiveInt = (value: number | undefined, fallback: number): number =>
-  typeof value === 'number' && Number.isFinite(value) && value > 0
-    ? Math.floor(value)
-    : fallback
+  typeof value === 'number' && Number.isFinite(value) && value > 0 ? Math.floor(value) : fallback
 
 const quoteYaml = (value: string): string => JSON.stringify(value)
 

@@ -1,11 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 
+import { execFile as execFileCallback } from 'node:child_process'
 import { access, readFile } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
-import { execFile as execFileCallback } from 'node:child_process'
 import { promisify } from 'node:util'
-import { parseOfficialEvalLog, scoreOfficialEvalLog, type OfficialLMEScoreSummary } from './scorer.js'
 import { loadDataset } from './dataset.js'
+import {
+  type OfficialLMEScoreSummary,
+  parseOfficialEvalLog,
+  scoreOfficialEvalLog,
+} from './scorer.js'
 
 const execFile = promisify(execFileCallback)
 
@@ -66,8 +70,7 @@ export const runOfficialScorer = async (
 export const officialScorerScriptPath = (repoDir: string): string =>
   join(resolve(repoDir), OFFICIAL_SCORER_SCRIPT)
 
-export const officialScorerRequirements = (repoDir: string, pythonBin = 'python3'): readonly string[] => [
-  officialScorerScriptPath(repoDir),
-  pythonBin,
-  dirname(resolve(repoDir)),
-]
+export const officialScorerRequirements = (
+  repoDir: string,
+  pythonBin = 'python3',
+): readonly string[] => [officialScorerScriptPath(repoDir), pythonBin, dirname(resolve(repoDir))]

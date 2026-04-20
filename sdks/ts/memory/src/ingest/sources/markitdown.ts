@@ -124,7 +124,9 @@ const responseDetail = (raw: string): string | undefined => {
 const isClientSafeStatus = (status: number): boolean =>
   status === 400 || status === 413 || status === 415 || status === 422
 
-const parseMarkdownResponse = (raw: string): {
+const parseMarkdownResponse = (
+  raw: string,
+): {
   readonly markdown: string
   readonly metadata?: Readonly<Record<string, unknown>>
 } => {
@@ -138,9 +140,10 @@ const parseMarkdownResponse = (raw: string): {
   if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
     throw new MarkitdownConvertError('markitdown returned an invalid response body')
   }
-  const markdown = typeof (parsed as { markdown?: unknown }).markdown === 'string'
-    ? (parsed as { markdown: string }).markdown.trim()
-    : ''
+  const markdown =
+    typeof (parsed as { markdown?: unknown }).markdown === 'string'
+      ? (parsed as { markdown: string }).markdown.trim()
+      : ''
   if (markdown === '') {
     throw new MarkitdownConvertError('markitdown returned empty markdown')
   }
@@ -189,10 +192,9 @@ export const loadMarkitdownFile = async (
   opts: LoadMarkitdownFileOptions,
 ): Promise<LoadedSource> => {
   if (!isMarkitdownCandidate(opts)) {
-    throw new MarkitdownConvertError(
-      'markitdown was requested for an unsupported file type',
-      { clientSafe: true },
-    )
+    throw new MarkitdownConvertError('markitdown was requested for an unsupported file type', {
+      clientSafe: true,
+    })
   }
   const service = resolveServiceConfig(opts.service)
   const fetchImpl = opts.fetch ?? defaultFetch()

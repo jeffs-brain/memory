@@ -6,7 +6,7 @@
  * or the call itself fails.
  */
 
-import type { Reranker, RerankRequest, RerankResult } from './index.js'
+import type { RerankRequest, RerankResult, Reranker } from './index.js'
 
 export type AutoRerankerConfig = {
   readonly primary: Reranker

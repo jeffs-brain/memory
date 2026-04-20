@@ -1,10 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it, vi } from 'vitest'
-import type {
-  Reranker as TEIRerankerContract,
-  RerankScore,
-} from '../llm/types.js'
+import type { RerankScore, Reranker as TEIRerankerContract } from '../llm/types.js'
 import { CrossEncoderReranker } from './crossencoder.js'
 
 function stubClient(hits: readonly RerankScore[]): {
@@ -14,12 +11,10 @@ function stubClient(hits: readonly RerankScore[]): {
   const calls: { query: string; documents: readonly string[] }[] = []
   const client: TEIRerankerContract = {
     name: () => 'stub-tei',
-    rerank: vi.fn(
-      async (query: string, documents: readonly string[]) => {
-        calls.push({ query, documents })
-        return hits
-      },
-    ),
+    rerank: vi.fn(async (query: string, documents: readonly string[]) => {
+      calls.push({ query, documents })
+      return hits
+    }),
   }
   return { client, calls }
 }

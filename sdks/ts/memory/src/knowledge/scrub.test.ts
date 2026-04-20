@@ -24,9 +24,7 @@ describe('scrub', () => {
 
     const scrub = createScrub({ store, logger: noopLogger })
     const results = await scrub({
-      patterns: [
-        { name: 'token', pattern: /TKN-[A-Z]+-\d+/g, replacement: '[redacted:token]' },
-      ],
+      patterns: [{ name: 'token', pattern: /TKN-[A-Z]+-\d+/g, replacement: '[redacted:token]' }],
     })
 
     expect(results).toHaveLength(1)

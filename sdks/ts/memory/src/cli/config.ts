@@ -9,16 +9,16 @@
  */
 
 import { resolve } from 'node:path'
+import type { HttpClient } from '../llm/http.js'
 import type { Embedder, Provider } from '../llm/index.js'
 import {
-  TEIReranker,
-  OpenAIEmbedder,
   OllamaEmbedder,
+  OpenAIEmbedder,
   TEIEmbedder,
+  TEIReranker,
   createHashEmbedder,
   createProvider,
 } from '../llm/index.js'
-import type { HttpClient } from '../llm/http.js'
 import {
   AutoReranker,
   CrossEncoderReranker,
@@ -35,7 +35,7 @@ export type BrainConfig = {
 
 export const resolveBrainDir = (flag: string | undefined): string => {
   const trimmed = flag !== undefined && flag !== '' ? flag : undefined
-  const fromEnv = process.env['JB_BRAIN']
+  const fromEnv = process.env.JB_BRAIN
   const picked =
     trimmed !== undefined
       ? trimmed
@@ -66,62 +66,56 @@ export class CliError extends Error {
 }
 
 const providerApiKeyFromEnv = (kind: ProviderKind): string => {
-  const explicit = process.env['JB_LLM_API_KEY']
+  const explicit = process.env.JB_LLM_API_KEY
   if (explicit !== undefined && explicit !== '') return explicit
   switch (kind) {
     case 'anthropic':
-      return process.env['ANTHROPIC_API_KEY'] ?? ''
+      return process.env.ANTHROPIC_API_KEY ?? ''
     case 'openai':
-      return process.env['OPENAI_API_KEY'] ?? ''
+      return process.env.OPENAI_API_KEY ?? ''
     case 'ollama':
       return ''
   }
 }
 
 const providerBaseURLFromEnv = (kind: ProviderKind): string | undefined => {
-  const explicit = process.env['JB_LLM_BASE_URL']
+  const explicit = process.env.JB_LLM_BASE_URL
   if (explicit !== undefined && explicit !== '') return explicit
   switch (kind) {
     case 'anthropic':
-      return process.env['ANTHROPIC_BASE_URL']
+      return process.env.ANTHROPIC_BASE_URL
     case 'openai':
-      return process.env['OPENAI_BASE_URL']
+      return process.env.OPENAI_BASE_URL
     case 'ollama':
-      return process.env['OLLAMA_HOST']
+      return process.env.OLLAMA_HOST
   }
 }
 
 const inferProviderKindFromFallbackEnv = (): ProviderKind | undefined => {
   if (
-    (process.env['ANTHROPIC_API_KEY'] ?? '') !== '' ||
-    (process.env['ANTHROPIC_BASE_URL'] ?? '') !== ''
+    (process.env.ANTHROPIC_API_KEY ?? '') !== '' ||
+    (process.env.ANTHROPIC_BASE_URL ?? '') !== ''
   ) {
     return 'anthropic'
   }
-  if (
-    (process.env['OPENAI_API_KEY'] ?? '') !== '' ||
-    (process.env['OPENAI_BASE_URL'] ?? '') !== ''
-  ) {
+  if ((process.env.OPENAI_API_KEY ?? '') !== '' || (process.env.OPENAI_BASE_URL ?? '') !== '') {
     return 'openai'
   }
   return undefined
 }
 
 export const providerFromEnv = (): ProviderSettings => {
-  const raw = process.env['JB_LLM_PROVIDER']
-  const kindRaw =
-    raw !== undefined && raw !== '' ? raw : inferProviderKindFromFallbackEnv()
+  const raw = process.env.JB_LLM_PROVIDER
+  const kindRaw = raw !== undefined && raw !== '' ? raw : inferProviderKindFromFallbackEnv()
   if (kindRaw === undefined) {
-    throw new CliError(
-      'JB_LLM_PROVIDER not set; expected one of anthropic|openai|ollama',
-    )
+    throw new CliError('JB_LLM_PROVIDER not set; expected one of anthropic|openai|ollama')
   }
   if (!isProviderKind(kindRaw)) {
     throw new CliUsageError(
       `invalid JB_LLM_PROVIDER='${kindRaw}'; expected anthropic|openai|ollama`,
     )
   }
-  const model = process.env['JB_LLM_MODEL'] ?? defaultModelFor(kindRaw)
+  const model = process.env.JB_LLM_MODEL ?? defaultModelFor(kindRaw)
   const apiKey = providerApiKeyFromEnv(kindRaw)
   const baseURL = providerBaseURLFromEnv(kindRaw)
   if (kindRaw !== 'ollama' && apiKey === '' && baseURL === undefined) {
@@ -131,7 +125,7 @@ export const providerFromEnv = (): ProviderSettings => {
 }
 
 export const providerFromEnvOptional = (): ProviderSettings | undefined => {
-  const kindRaw = process.env['JB_LLM_PROVIDER']
+  const kindRaw = process.env.JB_LLM_PROVIDER
   if (kindRaw === undefined || kindRaw === '') {
     return inferProviderKindFromFallbackEnv() !== undefined ? providerFromEnv() : undefined
   }
@@ -191,11 +185,11 @@ const DEFAULT_TEI_URL = 'http://localhost:8080'
 const DEFAULT_OPENAI_URL = 'https://api.openai.com'
 
 export const embedderFromEnv = (): EmbedderSettings | undefined => {
-  const raw = process.env['JB_EMBED_PROVIDER']
+  const raw = process.env.JB_EMBED_PROVIDER
   const inferred =
     raw !== undefined && raw !== ''
       ? raw
-      : (process.env['OPENAI_API_KEY'] ?? '') !== '' || (process.env['OPENAI_BASE_URL'] ?? '') !== ''
+      : (process.env.OPENAI_API_KEY ?? '') !== '' || (process.env.OPENAI_BASE_URL ?? '') !== ''
         ? 'openai'
         : undefined
   if (inferred === undefined) return undefined
@@ -205,14 +199,14 @@ export const embedderFromEnv = (): EmbedderSettings | undefined => {
     )
   }
   const baseURL =
-    process.env['JB_EMBED_URL'] ??
+    process.env.JB_EMBED_URL ??
     (inferred === 'openai'
-      ? providerBaseURLFromEnv('openai') ?? DEFAULT_OPENAI_URL
+      ? (providerBaseURLFromEnv('openai') ?? DEFAULT_OPENAI_URL)
       : inferred === 'ollama'
         ? DEFAULT_OLLAMA_URL
         : DEFAULT_TEI_URL)
   const model =
-    process.env['JB_EMBED_MODEL'] ??
+    process.env.JB_EMBED_MODEL ??
     (inferred === 'hash'
       ? 'hash'
       : inferred === 'openai'
@@ -278,46 +272,29 @@ const parsePositiveIntEnv = (name: string, fallback: number): number => {
   if (raw === undefined || raw === '') return fallback
   const parsed = Number.parseInt(raw, 10)
   if (!Number.isFinite(parsed) || parsed <= 0) {
-    throw new CliUsageError(
-      `invalid ${name}='${raw}'; expected a positive integer`,
-    )
+    throw new CliUsageError(`invalid ${name}='${raw}'; expected a positive integer`)
   }
   return parsed
 }
 
 export const rerankerFromEnv = (): RerankerSettings | undefined => {
-  const raw = process.env['JB_RERANK_PROVIDER']
+  const raw = process.env.JB_RERANK_PROVIDER
   if (raw === undefined || raw === '') return undefined
   if (!isRerankerKind(raw)) {
-    throw new CliUsageError(
-      `invalid JB_RERANK_PROVIDER='${raw}'; expected tei|http|llm|auto`,
-    )
+    throw new CliUsageError(`invalid JB_RERANK_PROVIDER='${raw}'; expected tei|http|llm|auto`)
   }
-  const explicitURL = (process.env['JB_RERANK_URL'] ?? '').trim() !== ''
-  const baseURL = process.env['JB_RERANK_URL'] ?? DEFAULT_TEI_URL
+  const explicitURL = (process.env.JB_RERANK_URL ?? '').trim() !== ''
+  const baseURL = process.env.JB_RERANK_URL ?? DEFAULT_TEI_URL
   const label =
-    process.env['JB_RERANK_LABEL'] ??
-    (raw === 'auto'
-      ? 'auto-rerank'
-      : raw === 'llm'
-        ? 'llm-rerank'
-        : 'cross-encoder')
+    process.env.JB_RERANK_LABEL ??
+    (raw === 'auto' ? 'auto-rerank' : raw === 'llm' ? 'llm-rerank' : 'cross-encoder')
   return {
     kind: raw,
     baseURL,
     label,
-    batchSize: parsePositiveIntEnv(
-      'JB_RERANK_BATCH_SIZE',
-      DEFAULT_RERANK_BATCH_SIZE,
-    ),
-    parallelism: parsePositiveIntEnv(
-      'JB_RERANK_PARALLELISM',
-      DEFAULT_RERANK_PARALLELISM,
-    ),
-    concurrencyCap: parsePositiveIntEnv(
-      'JB_RERANK_CONCURRENCY',
-      DEFAULT_SHARED_RERANK_CONCURRENCY,
-    ),
+    batchSize: parsePositiveIntEnv('JB_RERANK_BATCH_SIZE', DEFAULT_RERANK_BATCH_SIZE),
+    parallelism: parsePositiveIntEnv('JB_RERANK_PARALLELISM', DEFAULT_RERANK_PARALLELISM),
+    concurrencyCap: parsePositiveIntEnv('JB_RERANK_CONCURRENCY', DEFAULT_SHARED_RERANK_CONCURRENCY),
     preferHttp: raw === 'auto' ? explicitURL : raw === 'tei' || raw === 'http',
   }
 }
@@ -328,9 +305,7 @@ export const buildReranker = (
 ): Reranker => {
   const llm = (): Reranker => {
     if (deps.provider === undefined) {
-      throw new CliError(
-        'JB_RERANK_PROVIDER=llm requires JB_LLM_PROVIDER to be configured',
-      )
+      throw new CliError('JB_RERANK_PROVIDER=llm requires JB_LLM_PROVIDER to be configured')
     }
     return new LLMReranker({
       provider: deps.provider,

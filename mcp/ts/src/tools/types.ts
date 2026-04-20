@@ -26,11 +26,7 @@ export type Tool<TSchema extends z.ZodTypeAny = z.ZodTypeAny> = {
   readonly name: string
   readonly description: string
   readonly inputSchema: TSchema
-  handler(
-    args: z.infer<TSchema>,
-    client: MemoryClient,
-    ctx?: ToolContext,
-  ): Promise<ToolResult>
+  handler(args: z.infer<TSchema>, client: MemoryClient, ctx?: ToolContext): Promise<ToolResult>
 }
 
 export const jsonContent = (value: unknown): ToolResult => ({

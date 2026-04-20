@@ -7,13 +7,13 @@
  */
 
 import { createHash } from 'node:crypto'
+import { RAW_DOCUMENTS_PREFIX } from '../knowledge/ingest.js'
+import { appendLogInBatch } from '../knowledge/log.js'
 import type { Embedder } from '../llm/index.js'
+import type { Chunk as IndexChunk, SearchIndex as SqliteSearchIndex } from '../search/index.js'
 import type { Store } from '../store/index.js'
 import { toPath } from '../store/index.js'
-import { appendLogInBatch } from '../knowledge/log.js'
-import type { Chunk as IndexChunk, SearchIndex as SqliteSearchIndex } from '../search/index.js'
-import { RAW_DOCUMENTS_PREFIX } from '../knowledge/ingest.js'
-import { chunkAuto, chunkMarkdown, chunkPlainText, type Chunk } from './chunker.js'
+import { type Chunk, chunkAuto, chunkMarkdown, chunkPlainText } from './chunker.js'
 
 export type IngestProgressStage = 'store' | 'chunk' | 'embed' | 'index'
 
@@ -55,8 +55,7 @@ export type IngestPipelineDeps = {
   readonly now?: () => Date
 }
 
-const hashContent = (buf: Buffer): string =>
-  createHash('sha256').update(buf).digest('hex')
+const hashContent = (buf: Buffer): string => createHash('sha256').update(buf).digest('hex')
 
 const extensionForMime = (mime: string | undefined): string => {
   if (mime === undefined) return '.md'
@@ -94,9 +93,7 @@ const pickChunker = (mime: string): ((text: string) => readonly Chunk[]) => {
  * Run the full ingest pipeline for a single document. Steps are emitted
  * via `onProgress` so UIs can render a status line.
  */
-export const ingestDocument = async (
-  deps: IngestPipelineDeps,
-): Promise<IngestPipelineResult> => {
+export const ingestDocument = async (deps: IngestPipelineDeps): Promise<IngestPipelineResult> => {
   const start = (deps.now ?? (() => new Date()))().getTime()
   const { store, searchIndex, embedder, doc, onProgress } = deps
   const buffer = typeof doc.content === 'string' ? Buffer.from(doc.content, 'utf8') : doc.content

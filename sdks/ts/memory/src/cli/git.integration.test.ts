@@ -15,7 +15,9 @@ const execFile = promisify(execFileCallback)
 
 type RunnableCommand = {
   readonly run?: (ctx: { readonly args: Record<string, unknown> }) => Promise<void> | void
-  readonly subCommands?: Record<string, RunnableCommand> | ((...args: readonly unknown[]) => unknown)
+  readonly subCommands?:
+    | Record<string, RunnableCommand>
+    | ((...args: readonly unknown[]) => unknown)
 }
 
 const makeTempDir = async (): Promise<string> => {
@@ -47,12 +49,12 @@ const runGitCommand = async (
   args: Record<string, unknown>,
 ): Promise<Record<string, unknown>> => {
   const chunks: string[] = []
-  const spy = vi
-    .spyOn(process.stdout, 'write')
-    .mockImplementation(((chunk: string | Uint8Array) => {
-      chunks.push(typeof chunk === 'string' ? chunk : Buffer.from(chunk).toString('utf8'))
-      return true
-    }) as typeof process.stdout.write)
+  const spy = vi.spyOn(process.stdout, 'write').mockImplementation(((
+    chunk: string | Uint8Array,
+  ) => {
+    chunks.push(typeof chunk === 'string' ? chunk : Buffer.from(chunk).toString('utf8'))
+    return true
+  }) as typeof process.stdout.write)
   try {
     const cmd = pickSub(gitCommand as unknown as RunnableCommand, subcommand)
     await cmd.run?.({ args })
@@ -83,10 +85,10 @@ describe('memory git operator commands', () => {
     await writeFile(join(brainDir, 'memory', 'note.md'), 'dirty', 'utf8')
 
     const payload = await runGitCommand('diff', { brain: brainDir })
-    expect(payload['operation']).toBe('diff')
-    expect(payload['clean']).toBe(false)
-    expect(payload['summary']).toMatchObject({ modified: 1, total: 1 })
-    expect(payload['changes']).toEqual([
+    expect(payload.operation).toBe('diff')
+    expect(payload.clean).toBe(false)
+    expect(payload.summary).toMatchObject({ modified: 1, total: 1 })
+    expect(payload.changes).toEqual([
       expect.objectContaining({ label: 'Modified', path: 'memory/note.md' }),
     ])
   })
@@ -102,20 +104,20 @@ describe('memory git operator commands', () => {
     }
 
     const logPayload = await runGitCommand('log', { brain: brainDir, limit: '1' })
-    const entries = logPayload['entries'] as Array<Record<string, unknown>>
+    const entries = logPayload.entries as Array<Record<string, unknown>>
     expect(entries.length).toBe(1)
-    const oid = entries[0]?.['oid']
+    const oid = entries[0]?.oid
     expect(typeof oid).toBe('string')
 
     const showPayload = await runGitCommand('show', { brain: brainDir, commit: oid })
-    expect(showPayload['operation']).toBe('show')
-    expect(showPayload['commit']).toMatchObject({
+    expect(showPayload.operation).toBe('show')
+    expect(showPayload.commit).toMatchObject({
       oid,
       files: ['wiki/topic.md'],
     })
 
     const filesPayload = await runGitCommand('files', { brain: brainDir, commit: oid })
-    expect(filesPayload['files']).toEqual(['wiki/topic.md'])
+    expect(filesPayload.files).toEqual(['wiki/topic.md'])
   })
 
   it('returns healthy verification output and section stats', async () => {
@@ -130,11 +132,11 @@ describe('memory git operator commands', () => {
     }
 
     const verifyPayload = await runGitCommand('verify', { brain: brainDir })
-    expect(verifyPayload['ok']).toBe(true)
+    expect(verifyPayload.ok).toBe(true)
 
     const statsPayload = await runGitCommand('stats', { brain: brainDir })
-    expect(statsPayload['operation']).toBe('stats')
-    expect(statsPayload['sections']).toEqual(
+    expect(statsPayload.operation).toBe('stats')
+    expect(statsPayload.sections).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ name: 'memory', count: 1 }),
         expect.objectContaining({ name: 'wiki', count: 1 }),
@@ -154,18 +156,20 @@ describe('memory git operator commands', () => {
     }
 
     const dryRun = await runGitCommand('clean', { brain: brainDir, scope: 'raw' })
-    expect(dryRun['totalFound']).toBe(2)
-    expect(dryRun['committed']).toBe(false)
+    expect(dryRun.totalFound).toBe(2)
+    expect(dryRun.committed).toBe(false)
 
     const applied = await runGitCommand('clean', {
       brain: brainDir,
       scope: 'raw',
       apply: true,
     })
-    expect(applied['totalFound']).toBe(2)
-    expect(applied['committed']).toBe(true)
+    expect(applied.totalFound).toBe(2)
+    expect(applied.committed).toBe(true)
     await expect(stat(join(brainDir, 'raw', 'documents', 'dist', 'app.map'))).rejects.toThrow()
-    await expect(stat(join(brainDir, 'raw', 'documents', 'vendor', 'bundle.min.js'))).rejects.toThrow()
+    await expect(
+      stat(join(brainDir, 'raw', 'documents', 'vendor', 'bundle.min.js')),
+    ).rejects.toThrow()
   })
 
   it('resets a scoped section and leaves unrelated files alone', async () => {
@@ -183,8 +187,8 @@ describe('memory git operator commands', () => {
       scope: 'wiki',
       confirm: true,
     })
-    expect(payload['deleted']).toBe(1)
-    expect(payload['committed']).toBe(true)
+    expect(payload.deleted).toBe(1)
+    expect(payload.committed).toBe(true)
     expect(await readFile(join(brainDir, 'memory', 'keep.md'), 'utf8')).toBe('keep')
     await expect(stat(join(brainDir, 'wiki', 'drop.md'))).rejects.toThrow()
   })

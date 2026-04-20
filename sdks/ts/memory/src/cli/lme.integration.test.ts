@@ -1,17 +1,19 @@
 // SPDX-License-Identifier: Apache-2.0
 
-import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { buildReport, writeReport, type LMEResult } from '../eval/index.js'
+import { type LMEResult, buildReport, writeReport } from '../eval/index.js'
 import { rootCommand } from './main.js'
 
 const createdDirs: string[] = []
 
 type RunnableCommand = {
   readonly run?: (ctx: { readonly args: Record<string, unknown> }) => Promise<void> | void
-  readonly subCommands?: Record<string, RunnableCommand> | ((...args: readonly unknown[]) => unknown)
+  readonly subCommands?:
+    | Record<string, RunnableCommand>
+    | ((...args: readonly unknown[]) => unknown)
 }
 
 const makeTempDir = async (): Promise<string> => {
@@ -41,12 +43,12 @@ const captureLMECommand = async (
   readonly error?: unknown
 }> => {
   const chunks: string[] = []
-  const spy = vi
-    .spyOn(process.stdout, 'write')
-    .mockImplementation(((chunk: string | Uint8Array) => {
-      chunks.push(typeof chunk === 'string' ? chunk : Buffer.from(chunk).toString('utf8'))
-      return true
-    }) as typeof process.stdout.write)
+  const spy = vi.spyOn(process.stdout, 'write').mockImplementation(((
+    chunk: string | Uint8Array,
+  ) => {
+    chunks.push(typeof chunk === 'string' ? chunk : Buffer.from(chunk).toString('utf8'))
+    return true
+  }) as typeof process.stdout.write)
 
   let error: unknown
   try {

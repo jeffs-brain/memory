@@ -35,9 +35,7 @@
           "administrative/bosch-skil-service-claims.md",
           "clients/bsh.md"
         ],
-        "missing_must": [
-          "companies/bosch.md"
-        ]
+        "missing_must": ["companies/bosch.md"]
       },
       {
         "id": "bosch-direct",
@@ -55,9 +53,7 @@
           "workflows/bosch-dishwasher-scraper.md",
           "projects/bosch-dishwasher-scraper.md"
         ],
-        "missing_must": [
-          "companies/bosch.md"
-        ]
+        "missing_must": ["companies/bosch.md"]
       },
       {
         "id": "bosch-power-tools",
@@ -75,9 +71,7 @@
           "companies/robert-bosch-tool-corporation-na.md",
           "administrative/_index.md"
         ],
-        "missing_must": [
-          "workflows/bosch-pt-contract-extraction.md"
-        ]
+        "missing_must": ["workflows/bosch-pt-contract-extraction.md"]
       },
       {
         "id": "bosch-service-claims",
@@ -113,9 +107,7 @@
           "workflows/oude-reimer-service-proposal-generation.md",
           "business/oude-reimer.md"
         ],
-        "missing_must": [
-          "companies/oude-reimer.md"
-        ]
+        "missing_must": ["companies/oude-reimer.md"]
       },
       {
         "id": "oude-reimer-quotes",
@@ -169,9 +161,7 @@
           "architecture/_index.md",
           "business/_index.md"
         ],
-        "missing_must": [
-          "business/billing.md"
-        ]
+        "missing_must": ["business/billing.md"]
       },
       {
         "id": "cargill-project",
@@ -207,9 +197,7 @@
           "projects/royal-aware-production-planning-poc.md",
           "workflows/royal-aware-changeover-logic.md"
         ],
-        "missing_must": [
-          "projects/a-ware-production-optimisation.md"
-        ]
+        "missing_must": ["projects/a-ware-production-optimisation.md"]
       }
     ]
   },

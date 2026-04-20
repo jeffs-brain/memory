@@ -40,7 +40,10 @@ type StoredChunkRow = {
 
 function hydrateRow(row: StoredChunkRow): Chunk {
   const tags = row.tags === '' ? [] : row.tags.split(/\s+/)
-  const metadata = row.metadata_json === null ? undefined : (JSON.parse(row.metadata_json) as Record<string, unknown>)
+  const metadata =
+    row.metadata_json === null
+      ? undefined
+      : (JSON.parse(row.metadata_json) as Record<string, unknown>)
   return {
     id: row.id,
     path: row.path,
@@ -121,7 +124,11 @@ export function searchBM25(db: SqlDb, query: string, limit: number): BM25Result[
  * responsible for matching the embedding dimension; a mismatch raises a
  * sqlite-vec error.
  */
-export function searchVector(db: SqlDb, embedding: Float32Array | number[], limit: number): VectorResult[] {
+export function searchVector(
+  db: SqlDb,
+  embedding: Float32Array | number[],
+  limit: number,
+): VectorResult[] {
   if (limit <= 0) return []
   const rows = knnSearch(db, embedding, limit)
   if (rows.length === 0) return []

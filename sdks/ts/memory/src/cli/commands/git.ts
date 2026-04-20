@@ -3,6 +3,7 @@
 import * as nodeFs from 'node:fs'
 import { defineCommand } from 'citty'
 import * as git from 'isomorphic-git'
+import { readGitLog } from '../../store/gitstore.js'
 import { openBrain } from '../brain.js'
 import { CliError, CliUsageError, resolveBrainDir } from '../config.js'
 import {
@@ -30,7 +31,6 @@ import {
   tryReadAheadBehind,
   writeJson,
 } from './git-helpers.js'
-import { readGitLog } from '../../store/gitstore.js'
 
 const asBool = (value: unknown): boolean => value === true || value === 'true'
 
@@ -152,7 +152,8 @@ const statusCommand = defineCommand({
     const branch = (await git.currentBranch({ fs: nodeFs, dir: brainDir, fullname: false })) ?? null
     const remoteUrl = await readRemoteUrl(brainDir)
     const changes = await readDiff(brainDir)
-    const { ahead, behind } = branch === null ? { ahead: null, behind: null } : await tryReadAheadBehind(brainDir, branch)
+    const { ahead, behind } =
+      branch === null ? { ahead: null, behind: null } : await tryReadAheadBehind(brainDir, branch)
     writeJson({
       brain: brainDir,
       operation: 'status',
@@ -324,7 +325,8 @@ const statsCommand = defineCommand({
       }),
       { count: 0, bytes: 0 },
     )
-    const { ahead, behind } = branch === null ? { ahead: null, behind: null } : await tryReadAheadBehind(brainDir, branch)
+    const { ahead, behind } =
+      branch === null ? { ahead: null, behind: null } : await tryReadAheadBehind(brainDir, branch)
     writeJson({
       brain: brainDir,
       operation: 'stats',

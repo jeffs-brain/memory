@@ -13,9 +13,9 @@
  */
 
 import type { CompletionRequest, Provider } from '../llm/types.js'
-import { runWithSharedRerankConcurrency } from './concurrency.js'
 import { runBatches } from './batch.js'
-import type { Reranker, RerankRequest, RerankResult } from './index.js'
+import { runWithSharedRerankConcurrency } from './concurrency.js'
+import type { RerankRequest, RerankResult, Reranker } from './index.js'
 
 export const DEFAULT_RERANK_BATCH_SIZE = 5
 export const DEFAULT_RERANK_PARALLELISM = 4

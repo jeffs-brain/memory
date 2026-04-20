@@ -19,9 +19,7 @@ const tryLoadPdfParse = async (): Promise<PdfParseFn | null> => {
   if (pdfParseCache !== undefined) return pdfParseCache
   try {
     // @ts-expect-error — pdf-parse is an optional runtime dependency
-    const mod = (await import('pdf-parse')) as unknown as
-      | { default?: PdfParseFn }
-      | PdfParseFn
+    const mod = (await import('pdf-parse')) as unknown as { default?: PdfParseFn } | PdfParseFn
     if (typeof mod === 'function') {
       pdfParseCache = mod
     } else if (typeof (mod as { default?: PdfParseFn }).default === 'function') {
@@ -41,15 +39,12 @@ export const loadPdf = async (
 ): Promise<LoadedSource> => {
   const pdfParse = await tryLoadPdfParse()
   if (pdfParse === null) {
-    throw new Error(
-      'loadPdf: pdf-parse is not installed; add it or supply pre-extracted text',
-    )
+    throw new Error('loadPdf: pdf-parse is not installed; add it or supply pre-extracted text')
   }
   const result = await pdfParse(bytes)
   const body = (result.text ?? '').trim()
-  const content = opts.title !== undefined && opts.title !== ''
-    ? `# ${opts.title}\n\n${body}`
-    : body
+  const content =
+    opts.title !== undefined && opts.title !== '' ? `# ${opts.title}\n\n${body}` : body
   return {
     content: Buffer.from(content, 'utf8'),
     mime: 'text/markdown',

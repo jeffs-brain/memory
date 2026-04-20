@@ -2,8 +2,8 @@
 
 import { createHash } from 'node:crypto'
 import { createReadStream, createWriteStream } from 'node:fs'
-import { access, mkdir, rename, rm } from 'node:fs/promises'
 import * as nodeFs from 'node:fs'
+import { access, mkdir, rename, rm } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
 import { Readable } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
@@ -98,10 +98,8 @@ export const LONG_MEM_EVAL_UPSTREAM_DATASETS: Readonly<
   },
 }
 
-export const LONG_MEM_EVAL_OFFICIAL_REPO_URL =
-  'https://github.com/xiaowu0162/LongMemEval'
-export const LONG_MEM_EVAL_OFFICIAL_REPO_REF =
-  '982fbd7045c9977e9119b5424cab0d7790d19413'
+export const LONG_MEM_EVAL_OFFICIAL_REPO_URL = 'https://github.com/xiaowu0162/LongMemEval'
+export const LONG_MEM_EVAL_OFFICIAL_REPO_REF = '982fbd7045c9977e9119b5424cab0d7790d19413'
 
 export type LMEUpstreamFetchMetadata = {
   readonly bundle: LMEUpstreamBundleName

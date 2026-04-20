@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
-import { describe, expect, it, vi } from 'vitest'
 import type { Resource, Subject } from '@jeffs-brain/memory/acl'
-import { createOpenFgaProvider, OpenFgaHttpError, type FetchLike } from './openfga.js'
+import { describe, expect, it, vi } from 'vitest'
+import { type FetchLike, OpenFgaHttpError, createOpenFgaProvider } from './openfga.js'
 
 const user = (id: string): Subject => ({ kind: 'user', id })
 const brain = (id: string): Resource => ({ type: 'brain', id })
@@ -33,7 +33,7 @@ describe('openfga adapter - check', () => {
     expect(url).toBe('https://fga.example.com/stores/store-1/check')
     expect(init?.method).toBe('POST')
     const headers = init?.headers as Record<string, string> | undefined
-    expect(headers?.['authorization']).toBe('Bearer secret')
+    expect(headers?.authorization).toBe('Bearer secret')
     expect(headers?.['content-type']).toBe('application/json')
     const body = JSON.parse(String(init?.body ?? '{}')) as {
       tuple_key: { user: string; relation: string; object: string }
@@ -62,9 +62,7 @@ describe('openfga adapter - check', () => {
   })
 
   it('throws OpenFgaHttpError on non-2xx', async () => {
-    const fetchMock = vi
-      .fn<FetchLike>()
-      .mockResolvedValue(new Response('boom', { status: 500 }))
+    const fetchMock = vi.fn<FetchLike>().mockResolvedValue(new Response('boom', { status: 500 }))
     const acl = createOpenFgaProvider({
       apiUrl: 'https://fga.example.com',
       storeId: 'store-1',
@@ -84,7 +82,7 @@ describe('openfga adapter - check', () => {
     })
     await acl.check(user('alice'), 'read', brain('notes'))
     const headers = fetchMock.mock.calls[0]?.[1]?.headers as Record<string, string> | undefined
-    expect(headers?.['authorization']).toBeUndefined()
+    expect(headers?.authorization).toBeUndefined()
   })
 })
 

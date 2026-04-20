@@ -32,7 +32,9 @@ describe('lint-fix', () => {
     expect(result.dryRun).toBe(true)
     expect(result.applied).toEqual([])
     expect(result.clearedMarkers).toEqual([])
-    expect(await store.exists(joinPath('raw/documents', '_processed', 'stubby-source.json'))).toBe(true)
+    expect(await store.exists(joinPath('raw/documents', '_processed', 'stubby-source.json'))).toBe(
+      true,
+    )
 
     const archived = await store.read(joinPath('wiki', 'shared-title-b.md'))
     const archivedText = archived.toString('utf8')
@@ -53,7 +55,9 @@ describe('lint-fix', () => {
     expect(result.clearedMarkers).toEqual(['raw/documents/_processed/stubby-source.json'])
     expect(result.compileTriggered).toBe(true)
     expect(compile).toHaveBeenCalledTimes(1)
-    expect(await store.exists(joinPath('raw/documents', '_processed', 'stubby-source.json'))).toBe(false)
+    expect(await store.exists(joinPath('raw/documents', '_processed', 'stubby-source.json'))).toBe(
+      false,
+    )
 
     const log = parseLog(await readLog(store))
     expect(log.some((entry) => entry.kind === 'lint.fix')).toBe(true)

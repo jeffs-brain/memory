@@ -6,12 +6,7 @@ import type { Message } from '../../llm/index.js'
 import { createStoreBackedCursorStore } from '../../memory/cursor.js'
 import { createMemory } from '../../memory/index.js'
 import { openBrain, readBrainConfig } from '../brain.js'
-import {
-  buildProvider,
-  CliUsageError,
-  providerFromEnv,
-  resolveBrainDir,
-} from '../config.js'
+import { CliUsageError, buildProvider, providerFromEnv, resolveBrainDir } from '../config.js'
 
 export const reflectCommand = defineCommand({
   meta: {
@@ -42,9 +37,7 @@ export const reflectCommand = defineCommand({
       throw new CliUsageError('reflect: --from <messages.json> is required')
     }
     const messages = parseMessages(await readFile(fromArg, 'utf8'))
-    const brainDir = resolveBrainDir(
-      typeof args.brain === 'string' ? args.brain : undefined,
-    )
+    const brainDir = resolveBrainDir(typeof args.brain === 'string' ? args.brain : undefined)
     const store = await openBrain(brainDir)
     try {
       const cfg = await readBrainConfig(brainDir)
@@ -71,12 +64,7 @@ const parseMessages = (raw: string): Message[] => {
   }
   const out: Message[] = []
   for (const m of parsed) {
-    if (
-      m !== null &&
-      typeof m === 'object' &&
-      'role' in m &&
-      'content' in m
-    ) {
+    if (m !== null && typeof m === 'object' && 'role' in m && 'content' in m) {
       const role = (m as { role: unknown }).role
       const content = (m as { content: unknown }).content
       if (

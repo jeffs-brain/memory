@@ -15,6 +15,7 @@ export {
   createPostgresSearchIndex,
   type PostgresBM25Result,
   type PostgresChunk,
+  type PostgresEmbeddingDim,
   type PostgresHybridResult,
   type PostgresSearchIndexOptions,
   type PostgresVectorResult,

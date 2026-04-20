@@ -9,8 +9,8 @@
  */
 
 import { ErrNotFound } from '../store/errors.js'
-import { joinPath } from '../store/path.js'
 import type { Store } from '../store/index.js'
+import { joinPath } from '../store/path.js'
 import type { CursorScope, CursorStore } from './types.js'
 
 const CURSOR_DIR = 'memory/_cursors'
@@ -140,20 +140,19 @@ const upsertSessionCursor = (
   sessions: unknown,
   next: SessionCursorRecord,
 ): readonly SessionCursorRecord[] => {
-  const kept =
-    Array.isArray(sessions)
-      ? sessions.filter((session): session is SessionCursorRecord => {
-          if (session === null || typeof session !== 'object') return false
-          return (
-            typeof (session as SessionCursorRecord).sessionId === 'string' &&
-            (session as SessionCursorRecord).sessionId !== '' &&
-            (session as SessionCursorRecord).sessionId !== next.sessionId &&
-            typeof (session as SessionCursorRecord).written === 'string' &&
-            typeof (session as SessionCursorRecord).cursor === 'number' &&
-            Number.isFinite((session as SessionCursorRecord).cursor)
-          )
-        })
-      : []
+  const kept = Array.isArray(sessions)
+    ? sessions.filter((session): session is SessionCursorRecord => {
+        if (session === null || typeof session !== 'object') return false
+        return (
+          typeof (session as SessionCursorRecord).sessionId === 'string' &&
+          (session as SessionCursorRecord).sessionId !== '' &&
+          (session as SessionCursorRecord).sessionId !== next.sessionId &&
+          typeof (session as SessionCursorRecord).written === 'string' &&
+          typeof (session as SessionCursorRecord).cursor === 'number' &&
+          Number.isFinite((session as SessionCursorRecord).cursor)
+        )
+      })
+    : []
 
   return [...kept, next]
 }

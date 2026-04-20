@@ -61,14 +61,11 @@ export const loadDataset = async (path: string): Promise<LoadedDataset> => {
 }
 
 /** Parse a raw dataset string. Exposed for tests. */
-export const parseDatasetText = (
-  text: string,
-  path: string,
-  sha256: string,
-): LoadedDataset => {
+export const parseDatasetText = (text: string, path: string, sha256: string): LoadedDataset => {
   const trimmed = text.trimStart()
-  const examples: LMEExample[] =
-    trimmed.startsWith('[') ? parseArray(trimmed, path) : parseJSONL(text, path)
+  const examples: LMEExample[] = trimmed.startsWith('[')
+    ? parseArray(trimmed, path)
+    : parseJSONL(text, path)
 
   if (examples.length === 0) {
     throw new DatasetLoadError('lme: dataset contains no questions', path)
@@ -95,10 +92,7 @@ const parseArray = (text: string, path: string): LMEExample[] => {
     try {
       return toExample(raw as RawExample, idx)
     } catch (err) {
-      throw new DatasetLoadError(
-        `lme: question ${idx}: ${errorMessage(err)}`,
-        path,
-      )
+      throw new DatasetLoadError(`lme: question ${idx}: ${errorMessage(err)}`, path)
     }
   })
 }
@@ -122,11 +116,7 @@ const parseJSONL = (text: string, path: string): LMEExample[] => {
     try {
       out.push(toExample(parsed as RawExample, i))
     } catch (err) {
-      throw new DatasetLoadError(
-        `lme: line ${i + 1}: ${errorMessage(err)}`,
-        path,
-        i + 1,
-      )
+      throw new DatasetLoadError(`lme: line ${i + 1}: ${errorMessage(err)}`, path, i + 1)
     }
   }
   return out
@@ -208,5 +198,4 @@ const toHaystackSessions = (v: unknown): readonly (readonly LMESessionMessage[])
   return out
 }
 
-const errorMessage = (err: unknown): string =>
-  err instanceof Error ? err.message : String(err)
+const errorMessage = (err: unknown): string => (err instanceof Error ? err.message : String(err))

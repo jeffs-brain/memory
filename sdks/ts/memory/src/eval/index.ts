@@ -13,10 +13,10 @@
 
 import { noopLogger } from '../llm/index.js'
 import type { Logger } from '../llm/index.js'
-import { createProviderJudge, exactMatchVerdict } from './judge.js'
 import { ingestAgentic } from './ingest-agentic.js'
 import { ingestBulk } from './ingest-bulk.js'
 import { ingestReplay } from './ingest-replay.js'
+import { createProviderJudge, exactMatchVerdict } from './judge.js'
 import { createProviderReader, runRead } from './read.js'
 import { buildReport, writeReport } from './report.js'
 import type {
@@ -105,9 +105,7 @@ export {
   verifyOfficialScorer,
 } from './official.js'
 export type { OfficialScorerOutcome, RunOfficialScorerArgs } from './official.js'
-export {
-  runStandaloneLMEEval,
-} from './run.js'
+export { runStandaloneLMEEval } from './run.js'
 export type { StandaloneLMERunArgs, StandaloneLMERunOutcome } from './run.js'
 export { READER_USER_TEMPLATE } from '../augmented-reader/prompt.js'
 export { runRead, createProviderReader, truncateSmartly } from './read.js'
@@ -278,9 +276,7 @@ const defaultRetrieval = (opts: CreateLMERunnerOpts): RetrievalFn => {
         const body = buf.toString('utf8')
         passages.push({ path: pathStr, score: 1, body })
         chunks.push(body)
-      } catch {
-        continue
-      }
+      } catch {}
     }
     return { passages, rendered: chunks.join('\n\n') }
   }

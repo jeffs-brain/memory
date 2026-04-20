@@ -13,16 +13,7 @@
     "url": "git+https://github.com/jeffs-brain/memory.git",
     "directory": "sdks/ts/memory-openfga"
   },
-  "keywords": [
-    "memory",
-    "llm",
-    "rag",
-    "authorisation",
-    "openfga",
-    "rbac",
-    "acl",
-    "ai-agent"
-  ],
+  "keywords": ["memory", "llm", "rag", "authorisation", "openfga", "rbac", "acl", "ai-agent"],
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

@@ -22,20 +22,14 @@ describe('retry token normalisation', () => {
   })
 
   it('drops generic question scaffolding from recall-style prompts', () => {
-    expect(
-      queryTokens(
-        'Can you recommend a show or movie for me to watch tonight?',
-      ),
-    ).toEqual(['movie'])
+    expect(queryTokens('Can you recommend a show or movie for me to watch tonight?')).toEqual([
+      'movie',
+    ])
 
     expect(
-      queryTokens(
-        'How many items of clothing do I need to pick up or return from a store?',
-      ),
+      queryTokens('How many items of clothing do I need to pick up or return from a store?'),
     ).toEqual(['clothing', 'pick', 'return', 'store'])
 
-    expect(queryTokens('What types of doctors have I seen?')).toEqual([
-      'doctors',
-    ])
+    expect(queryTokens('What types of doctors have I seen?')).toEqual(['doctors'])
   })
 })

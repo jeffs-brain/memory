@@ -6,12 +6,7 @@
  * shape of what flows between them.
  */
 
-export type AgentId =
-  | 'claude-code'
-  | 'claude-desktop'
-  | 'cursor'
-  | 'windsurf'
-  | 'zed'
+export type AgentId = 'claude-code' | 'claude-desktop' | 'cursor' | 'windsurf' | 'zed'
 
 export type Mode = 'local' | 'hosted'
 

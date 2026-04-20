@@ -26,7 +26,8 @@ describe('TEIReranker availability', () => {
 
   it('falls back to /info when /health is unavailable', async () => {
     const fetch = vi.fn(async (input: string | URL | Request) => {
-      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
+      const url =
+        typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
       if (url.endsWith('/health')) {
         return new Response('missing', { status: 404 })
       }

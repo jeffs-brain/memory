@@ -51,15 +51,15 @@ function tryParse(s: string): string | undefined {
   const closer = opener === '{' ? '}' : ']'
   let depth = 0
   let inString = false
-  let escape = false
+  let escaping = false
   for (let i = 0; i < s.length; i++) {
     const ch = s[i]
-    if (escape) {
-      escape = false
+    if (escaping) {
+      escaping = false
       continue
     }
     if (inString) {
-      if (ch === '\\') escape = true
+      if (ch === '\\') escaping = true
       else if (ch === '"') inString = false
       continue
     }
@@ -210,21 +210,19 @@ export async function runStructured(
   schema: string,
   maxRetries: number,
 ): Promise<string> {
-  if (maxRetries <= 0) maxRetries = 5
+  const retryBudget = maxRetries <= 0 ? 5 : maxRetries
   let schemaObj: unknown
   try {
     schemaObj = JSON.parse(schema)
   } catch (err) {
-    throw new Error(
-      `invalid JSON schema: ${err instanceof Error ? err.message : String(err)}`,
-    )
+    throw new Error(`invalid JSON schema: ${err instanceof Error ? err.message : String(err)}`)
   }
 
   let messages = baseMessages.slice()
   let lastPayload = ''
   let lastReason = ''
 
-  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+  for (let attempt = 1; attempt <= retryBudget; attempt++) {
     const content = await runner.call(messages)
     try {
       const payload = extractJSON(content)

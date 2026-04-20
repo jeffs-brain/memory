@@ -10,7 +10,7 @@
 import { bootstrap } from './server.js'
 
 bootstrap().catch((err: unknown) => {
-  const message = err instanceof Error ? err.stack ?? err.message : String(err)
+  const message = err instanceof Error ? (err.stack ?? err.message) : String(err)
   process.stderr.write(`[memory-mcp] fatal: ${message}\n`)
   process.exit(1)
 })

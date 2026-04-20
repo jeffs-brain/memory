@@ -73,11 +73,21 @@ describe('lint', () => {
 
       expect(report.ok).toBe(false)
       expect(report.issues.some((issue) => issue.path === 'wiki/topic/_scratch.md')).toBe(false)
-      expect(report.issues.some((issue) => issue.kind === 'stub_article' && issue.path === 'wiki/stubby.md')).toBe(true)
       expect(
-        report.issues.some((issue) => issue.kind === 'zero_link_article' && issue.path === 'wiki/quiet.md'),
+        report.issues.some(
+          (issue) => issue.kind === 'stub_article' && issue.path === 'wiki/stubby.md',
+        ),
       ).toBe(true)
-      expect(report.issues.some((issue) => issue.kind === 'zero_link_article' && issue.path === 'wiki/stubby.md')).toBe(false)
+      expect(
+        report.issues.some(
+          (issue) => issue.kind === 'zero_link_article' && issue.path === 'wiki/quiet.md',
+        ),
+      ).toBe(true)
+      expect(
+        report.issues.some(
+          (issue) => issue.kind === 'zero_link_article' && issue.path === 'wiki/stubby.md',
+        ),
+      ).toBe(false)
     } finally {
       vi.useRealTimers()
     }
@@ -108,7 +118,9 @@ describe('lint', () => {
       const lint = createLint({ store })
       const report = await lint()
 
-      const stale = report.issues.find((issue) => issue.kind === 'stale_source' && issue.path === articlePath)
+      const stale = report.issues.find(
+        (issue) => issue.kind === 'stale_source' && issue.path === articlePath,
+      )
       expect(stale).toBeDefined()
       expect(stale?.message).toContain(sourcePath)
     } finally {

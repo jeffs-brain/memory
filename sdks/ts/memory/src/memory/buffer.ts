@@ -5,10 +5,12 @@ import type {
   L0BufferAppendResult,
   L0BufferCompactionResult,
   L0BufferConfig,
+  L0BufferSnapshot,
   L0Intent,
   L0Observation,
   L0Outcome,
   ObserveMessagesOptions,
+  Semver,
 } from './types.js'
 
 const DEFAULT_L0_BUFFER_CONFIG: L0BufferConfig = {
@@ -39,13 +41,11 @@ const EDIT_TOOL_NAMES = new Set(['edit', 'multi_edit', 'write', 'bash', 'patch']
 const READ_TOOL_NAMES = new Set(['read', 'grep', 'glob', 'search', 'kb_search'])
 const PLAN_TOOL_NAMES = new Set(['skill', 'agent'])
 
-export const defaultL0BufferConfig = (
-  overrides: Partial<L0BufferConfig> = {},
-): L0BufferConfig => ({
-  tokenBudget: sanitisePositiveInt(
-    overrides.tokenBudget,
-    DEFAULT_L0_BUFFER_CONFIG.tokenBudget,
-  ),
+export const L0_BUFFER_SNAPSHOT_FORMAT = 'l0-buffer-snapshot' as const
+export const L0_BUFFER_SNAPSHOT_VERSION: Semver = '1.0.0'
+
+export const defaultL0BufferConfig = (overrides: Partial<L0BufferConfig> = {}): L0BufferConfig => ({
+  tokenBudget: sanitisePositiveInt(overrides.tokenBudget, DEFAULT_L0_BUFFER_CONFIG.tokenBudget),
   compactThresholdPercent: sanitisePercentage(
     overrides.compactThresholdPercent,
     DEFAULT_L0_BUFFER_CONFIG.compactThresholdPercent,
@@ -58,10 +58,7 @@ export const defaultL0BufferConfig = (
     overrides.maxObservationLength,
     DEFAULT_L0_BUFFER_CONFIG.maxObservationLength,
   ),
-  maxEntities: sanitisePositiveInt(
-    overrides.maxEntities,
-    DEFAULT_L0_BUFFER_CONFIG.maxEntities,
-  ),
+  maxEntities: sanitisePositiveInt(overrides.maxEntities, DEFAULT_L0_BUFFER_CONFIG.maxEntities),
   reminderHeading:
     typeof overrides.reminderHeading === 'string' && overrides.reminderHeading.trim() !== ''
       ? overrides.reminderHeading.trim()
@@ -80,10 +77,7 @@ export const observeMessages = (
     opts.maxObservationLength,
     DEFAULT_L0_BUFFER_CONFIG.maxObservationLength,
   )
-  const maxEntities = sanitisePositiveInt(
-    opts.maxEntities,
-    DEFAULT_L0_BUFFER_CONFIG.maxEntities,
-  )
+  const maxEntities = sanitisePositiveInt(opts.maxEntities, DEFAULT_L0_BUFFER_CONFIG.maxEntities)
   const turnStart = findTurnStart(messages)
   const turnMessages = messages.slice(turnStart)
   const summary = buildTurnSummary(messages, maxObservationLength)
@@ -127,13 +121,7 @@ export const renderL0Reminder = (
   }
 
   const config = defaultL0BufferConfig(overrides)
-  return [
-    '<system-reminder>',
-    config.reminderHeading,
-    '',
-    content,
-    '</system-reminder>',
-  ].join('\n')
+  return ['<system-reminder>', config.reminderHeading, '', content, '</system-reminder>'].join('\n')
 }
 
 export const estimateL0BufferTokens = (
@@ -146,9 +134,7 @@ export const needsL0BufferCompaction = (
   overrides: Partial<L0BufferConfig> = {},
 ): boolean => {
   const config = defaultL0BufferConfig(overrides)
-  const threshold = Math.floor(
-    (config.tokenBudget * config.compactThresholdPercent) / 100,
-  )
+  const threshold = Math.floor((config.tokenBudget * config.compactThresholdPercent) / 100)
   return estimateL0BufferTokens(observations, config) >= threshold
 }
 
@@ -161,10 +147,7 @@ export const compactL0Buffer = (
   }
 
   const config = defaultL0BufferConfig(overrides)
-  let keepCount = Math.max(
-    Math.floor((observations.length * config.keepRecentPercent) / 100),
-    1,
-  )
+  let keepCount = Math.max(Math.floor((observations.length * config.keepRecentPercent) / 100), 1)
   let kept = observations.slice(-keepCount)
 
   while (kept.length > 1 && estimateL0BufferTokens(kept, config) > config.tokenBudget) {
@@ -197,6 +180,33 @@ export const appendL0Observation = (
   }
 }
 
+export const exportL0BufferSnapshot = (
+  observations: readonly L0Observation[],
+  opts: { readonly createdAt?: Date | string } = {},
+): L0BufferSnapshot => ({
+  metadata: {
+    format: L0_BUFFER_SNAPSHOT_FORMAT,
+    version: L0_BUFFER_SNAPSHOT_VERSION,
+    createdAt: normaliseTimestamp(opts.createdAt),
+    observationCount: observations.length,
+  },
+  observations: observations.map(cloneL0Observation),
+})
+
+export const restoreL0BufferSnapshot = (snapshot: unknown): readonly L0Observation[] => {
+  const parsed = parseL0BufferSnapshot(snapshot)
+  if (parsed.metadata.version.split('.')[0] !== '1') {
+    throw new Error(`Invalid L0 buffer snapshot version: ${parsed.metadata.version}`)
+  }
+  if (parsed.metadata.observationCount !== parsed.observations.length) {
+    throw new Error(
+      `Invalid L0 buffer snapshot: expected ${parsed.metadata.observationCount} observations, got ${parsed.observations.length}`,
+    )
+  }
+
+  return parsed.observations.map(cloneL0Observation)
+}
+
 const sanitiseObservation = (
   observation: L0Observation,
   config: L0BufferConfig,
@@ -207,6 +217,102 @@ const sanitiseObservation = (
   entities: dedupeStrings(observation.entities).slice(0, config.maxEntities),
 })
 
+const cloneL0Observation = (observation: L0Observation): L0Observation => ({
+  ...observation,
+  entities: [...observation.entities],
+})
+
+type ParsedL0BufferSnapshot = {
+  readonly metadata: {
+    readonly format: string
+    readonly version: string
+    readonly createdAt: string
+    readonly observationCount: number
+  }
+  readonly observations: readonly L0Observation[]
+}
+
+const parseL0BufferSnapshot = (snapshot: unknown): ParsedL0BufferSnapshot => {
+  if (!isRecord(snapshot)) {
+    throw new Error('Invalid L0 buffer snapshot: expected an object')
+  }
+
+  if (!isRecord(snapshot.metadata)) {
+    throw new Error('Invalid L0 buffer snapshot: missing metadata')
+  }
+
+  const format = snapshot.metadata.format
+  const version = snapshot.metadata.version
+  const createdAt = snapshot.metadata.createdAt
+  const observationCount = snapshot.metadata.observationCount
+
+  if (format !== L0_BUFFER_SNAPSHOT_FORMAT) {
+    throw new Error(`Invalid L0 buffer snapshot format: ${String(format)}`)
+  }
+  if (typeof version !== 'string' || version.trim() === '' || !isSemver(version)) {
+    throw new Error(`Invalid L0 buffer snapshot version: ${String(version)}`)
+  }
+  if (typeof createdAt !== 'string' || createdAt.trim() === '') {
+    throw new Error('Invalid L0 buffer snapshot: missing metadata.createdAt')
+  }
+  if (!isNonNegativeInteger(observationCount)) {
+    throw new Error(
+      'Invalid L0 buffer snapshot: metadata.observationCount must be a non-negative integer',
+    )
+  }
+  if (!Array.isArray(snapshot.observations)) {
+    throw new Error('Invalid L0 buffer snapshot: observations must be an array')
+  }
+
+  return {
+    metadata: {
+      format,
+      version,
+      createdAt,
+      observationCount,
+    },
+    observations: snapshot.observations.map(parseL0Observation),
+  }
+}
+
+const parseL0Observation = (value: unknown): L0Observation => {
+  if (!isRecord(value)) {
+    throw new Error('Invalid L0 buffer snapshot: observation must be an object')
+  }
+
+  const at = parseTimestamp(value.at)
+  const intent = value.intent
+  const outcome = value.outcome
+  const summary = value.summary
+  const entities = value.entities
+
+  if (at === undefined) {
+    throw new Error('Invalid L0 buffer snapshot: observation.at must be a valid timestamp')
+  }
+  if (!isL0Intent(intent)) {
+    throw new Error(`Invalid L0 buffer snapshot: unsupported observation.intent ${String(intent)}`)
+  }
+  if (!isL0Outcome(outcome)) {
+    throw new Error(
+      `Invalid L0 buffer snapshot: unsupported observation.outcome ${String(outcome)}`,
+    )
+  }
+  if (typeof summary !== 'string') {
+    throw new Error('Invalid L0 buffer snapshot: observation.summary must be a string')
+  }
+  if (!Array.isArray(entities) || entities.some((entity) => typeof entity !== 'string')) {
+    throw new Error('Invalid L0 buffer snapshot: observation.entities must be a string array')
+  }
+
+  return {
+    at,
+    intent,
+    outcome,
+    summary,
+    entities: [...entities],
+  }
+}
+
 const findTurnStart = (messages: readonly Message[]): number => {
   for (let index = messages.length - 1; index >= 0; index--) {
     if (messages[index]?.role === 'user') {
@@ -216,12 +322,11 @@ const findTurnStart = (messages: readonly Message[]): number => {
   return 0
 }
 
-const inferIntent = (
-  turnMessages: readonly Message[],
-  messages: readonly Message[],
-): L0Intent => {
+const inferIntent = (turnMessages: readonly Message[], messages: readonly Message[]): L0Intent => {
   const toolNames = turnMessages.flatMap((message) =>
-    message.role === 'assistant' ? (message.toolCalls ?? []).map((toolCall) => normaliseToolName(toolCall)) : [],
+    message.role === 'assistant'
+      ? (message.toolCalls ?? []).map((toolCall) => normaliseToolName(toolCall))
+      : [],
   )
 
   if (toolNames.some((name) => EDIT_TOOL_NAMES.has(name))) {
@@ -285,10 +390,7 @@ const inferOutcome = (turnMessages: readonly Message[]): L0Outcome => {
   return matched.size < toolCalls.length ? 'partial' : 'ok'
 }
 
-const buildTurnSummary = (
-  messages: readonly Message[],
-  maxObservationLength: number,
-): string => {
+const buildTurnSummary = (messages: readonly Message[], maxObservationLength: number): string => {
   const lastUser = [...messages].reverse().find((message) => message.role === 'user')
   const content = stripSystemReminders(readMessageText(lastUser))
   return truncateText(content, maxObservationLength)
@@ -342,9 +444,7 @@ const readToolResults = (message: Message): readonly ToolResultRecord[] => {
       .map((block) => ({
         toolCallId: block.toolResult?.toolCallId ?? '',
         content: block.toolResult?.content ?? '',
-        ...(block.toolResult?.isError !== undefined
-          ? { isError: block.toolResult.isError }
-          : {}),
+        ...(block.toolResult?.isError !== undefined ? { isError: block.toolResult.isError } : {}),
       })) ?? []
 
   if (fromBlocks.length > 0) {
@@ -498,9 +598,7 @@ const dedupeStrings = (values: readonly string[]): string[] => {
 }
 
 const sanitisePositiveInt = (value: number | undefined, fallback: number): number =>
-  typeof value === 'number' && Number.isFinite(value) && value > 0
-    ? Math.floor(value)
-    : fallback
+  typeof value === 'number' && Number.isFinite(value) && value > 0 ? Math.floor(value) : fallback
 
 const sanitisePercentage = (value: number | undefined, fallback: number): number => {
   if (typeof value !== 'number' || !Number.isFinite(value)) {
@@ -508,6 +606,30 @@ const sanitisePercentage = (value: number | undefined, fallback: number): number
   }
   return Math.min(Math.max(Math.floor(value), 1), 100)
 }
+
+const parseTimestamp = (value: unknown): string | undefined => {
+  if (typeof value !== 'string' || value.trim() === '') {
+    return undefined
+  }
+
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.valueOf())) {
+    return undefined
+  }
+
+  return parsed.toISOString()
+}
+
+const isSemver = (value: string): boolean => /^(\d+)\.(\d+)\.(\d+)$/.test(value.trim())
+
+const isNonNegativeInteger = (value: unknown): value is number =>
+  typeof value === 'number' && Number.isInteger(value) && value >= 0
+
+const isL0Intent = (value: unknown): value is L0Intent =>
+  value === 'ask' || value === 'edit' || value === 'read' || value === 'plan' || value === 'chat'
+
+const isL0Outcome = (value: unknown): value is L0Outcome =>
+  value === 'ok' || value === 'error' || value === 'partial'
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value)

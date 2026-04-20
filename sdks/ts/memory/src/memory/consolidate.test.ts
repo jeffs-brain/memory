@@ -10,7 +10,7 @@ import type {
 import { createMemStore } from '../store/memstore.js'
 import { toPath } from '../store/path.js'
 import { createStoreBackedCursorStore } from './cursor.js'
-import { buildFrontmatter, parseFrontmatter, type Frontmatter } from './frontmatter.js'
+import { type Frontmatter, buildFrontmatter, parseFrontmatter } from './frontmatter.js'
 import { createMemory } from './index.js'
 import type { Plugin } from './types.js'
 
@@ -18,7 +18,7 @@ const provider = (verdict: string): Provider => ({
   name: () => 'stub',
   modelName: () => 'stub-model',
   async *stream() {
-    throw new Error('not implemented')
+    yield { type: 'done', stopReason: 'end_turn' as const }
   },
   complete: async (_req: CompletionRequest): Promise<CompletionResponse> => ({
     content: JSON.stringify({ verdict, reason: 'overlap' }),
@@ -27,8 +27,7 @@ const provider = (verdict: string): Provider => ({
     stopReason: 'end_turn',
   }),
   supportsStructuredDecoding: () => false,
-  structured: async (_req: StructuredRequest) =>
-    JSON.stringify({ verdict, reason: 'overlap' }),
+  structured: async (_req: StructuredRequest) => JSON.stringify({ verdict, reason: 'overlap' }),
 })
 
 const writeNote = async (
@@ -68,15 +67,10 @@ describe('consolidate', () => {
     const store = createMemStore()
     const cursorStore = createStoreBackedCursorStore(store)
     // Shared significant word: "auth".
-    await writeNote(
-      store,
-      'memory/project/tenant-a/auth-notes.md',
-      'Uses OIDC via Lleverage.',
-      {
-        description: 'Primary auth implementation note',
-        modified: isoDaysAgo(2),
-      },
-    )
+    await writeNote(store, 'memory/project/tenant-a/auth-notes.md', 'Uses OIDC via Lleverage.', {
+      description: 'Primary auth implementation note',
+      modified: isoDaysAgo(2),
+    })
     await writeNote(
       store,
       'memory/project/tenant-a/auth-extra.md',
@@ -165,7 +159,9 @@ describe('consolidate', () => {
     )
 
     const heuristic = parseFrontmatter(
-      (await store.read(toPath('memory/project/tenant-a/heuristic-build-pipeline.md'))).toString('utf8'),
+      (await store.read(toPath('memory/project/tenant-a/heuristic-build-pipeline.md'))).toString(
+        'utf8',
+      ),
     )
     expect(heuristic.frontmatter.confidence).toBe('medium')
     expect(heuristic.frontmatter.modified).toBe(modifiedAt)
@@ -207,7 +203,9 @@ describe('consolidate', () => {
     await mem.consolidate()
 
     const heuristic = parseFrontmatter(
-      (await store.read(toPath('memory/project/tenant-a/heuristic-route-contracts.md'))).toString('utf8'),
+      (await store.read(toPath('memory/project/tenant-a/heuristic-route-contracts.md'))).toString(
+        'utf8',
+      ),
     )
     expect(heuristic.frontmatter.confidence).toBe('high')
     expect(heuristic.frontmatter.tags).toEqual(

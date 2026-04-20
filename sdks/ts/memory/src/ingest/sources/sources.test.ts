@@ -2,8 +2,8 @@
 
 import { describe, expect, it } from 'vitest'
 import { detectSource } from './detect.js'
-import { loadJsonTranscript } from './json-transcript.js'
 import { loadSource } from './index.js'
+import { loadJsonTranscript } from './json-transcript.js'
 import type { SourceFetchLike } from './types.js'
 import { htmlToMarkdown, loadUrl } from './url.js'
 
@@ -11,10 +11,14 @@ const enc = (s: string): Buffer => Buffer.from(s, 'utf8')
 
 describe('detectSource', () => {
   it('classifies markdown via magic bytes + extension', () => {
-    expect(detectSource({ kind: 'bytes', bytes: enc('# hi\n\nbody'), filename: 'x.md' })).toBe('markdown')
+    expect(detectSource({ kind: 'bytes', bytes: enc('# hi\n\nbody'), filename: 'x.md' })).toBe(
+      'markdown',
+    )
   })
   it('classifies plain text', () => {
-    expect(detectSource({ kind: 'bytes', bytes: enc('no markers here'), filename: 'x.txt' })).toBe('text')
+    expect(detectSource({ kind: 'bytes', bytes: enc('no markers here'), filename: 'x.txt' })).toBe(
+      'text',
+    )
   })
   it('classifies JSON transcript', () => {
     const payload = Buffer.from(JSON.stringify({ messages: [{ role: 'user', content: 'hi' }] }))
@@ -48,7 +52,9 @@ describe('loadUrl', () => {
       ok: true,
       status: 200,
       statusText: 'OK',
-      headers: { get: (name: string) => (name.toLowerCase() === 'content-type' ? 'text/html' : null) },
+      headers: {
+        get: (name: string) => (name.toLowerCase() === 'content-type' ? 'text/html' : null),
+      },
       arrayBuffer: async () =>
         new TextEncoder().encode(
           '<html><head><title>My Page</title></head><body><h2>Sub</h2><p>hello</p></body></html>',
@@ -92,7 +98,11 @@ describe('loadJsonTranscript', () => {
 
 describe('loadSource dispatch', () => {
   it('routes markdown bytes through the markdown adapter', async () => {
-    const loaded = await loadSource({ kind: 'bytes', bytes: enc('# Hello\n\nbody'), filename: 'x.md' })
+    const loaded = await loadSource({
+      kind: 'bytes',
+      bytes: enc('# Hello\n\nbody'),
+      filename: 'x.md',
+    })
     expect(loaded.mime).toBe('text/markdown')
   })
 
@@ -199,10 +209,11 @@ describe('loadSource dispatch', () => {
               return null
             },
           },
-          arrayBuffer: async () => officeBytes.buffer.slice(
-            officeBytes.byteOffset,
-            officeBytes.byteOffset + officeBytes.byteLength,
-          ),
+          arrayBuffer: async () =>
+            officeBytes.buffer.slice(
+              officeBytes.byteOffset,
+              officeBytes.byteOffset + officeBytes.byteLength,
+            ),
           text: async () => '',
         }
       }
@@ -217,7 +228,8 @@ describe('loadSource dispatch', () => {
             new TextEncoder().encode(
               JSON.stringify({ markdown: '# URL Report\n\nFetched through markitdown.' }),
             ).buffer,
-          text: async () => JSON.stringify({ markdown: '# URL Report\n\nFetched through markitdown.' }),
+          text: async () =>
+            JSON.stringify({ markdown: '# URL Report\n\nFetched through markitdown.' }),
         }
       }
       throw new Error(`unexpected fetch ${url}`)
@@ -250,7 +262,8 @@ describe('loadSource dispatch', () => {
       status: 200,
       statusText: 'OK',
       headers: { get: () => 'text/html' },
-      arrayBuffer: async () => new TextEncoder().encode('<html><body><p>hi</p></body></html>').buffer,
+      arrayBuffer: async () =>
+        new TextEncoder().encode('<html><body><p>hi</p></body></html>').buffer,
       text: async () => '',
     })
     const loaded = await loadSource({ kind: 'url', url: 'https://x.com' }, { fetch: stubFetch })

@@ -290,17 +290,13 @@ const assertListAssertion = (assertion: BodyAssertion, parsed: unknown): void =>
     }
     case 'items-files-equal': {
       const want = (assertion.paths as string[]) ?? []
-      const got = items
-        .filter((it) => it.is_dir !== true)
-        .map((it) => String(it.path))
+      const got = items.filter((it) => it.is_dir !== true).map((it) => String(it.path))
       expect(new Set(got)).toEqual(new Set(want))
       break
     }
     case 'items-dirs-equal': {
       const want = (assertion.paths as string[]) ?? []
-      const got = items
-        .filter((it) => it.is_dir === true)
-        .map((it) => String(it.path))
+      const got = items.filter((it) => it.is_dir === true).map((it) => String(it.path))
       expect(new Set(got)).toEqual(new Set(want))
       break
     }
@@ -402,7 +398,7 @@ describe('memory daemon conformance', async () => {
         if ((req as { kind?: string }).kind === 'await-sse-event') {
           const sub = ctx.ssePool.get(String((req as { name?: string }).name ?? ''))
           expect(sub).toBeDefined()
-          await sub!.waitFor(String((req as { event?: string }).event ?? ''))
+          await sub?.waitFor(String((req as { event?: string }).event ?? ''))
         } else {
           const step = stepFromRequest(c.request)
           const resp = await handler(buildRequest(step, ctx))
@@ -454,7 +450,7 @@ const assertExpectedResponse = async (
       if (kind === 'expect-event') want.add((a as { event?: string }).event ?? '')
     }
     const seen = new Set<string>()
-    const reader = resp.body!.getReader()
+    const reader = resp.body?.getReader()
     const decoder = new TextDecoder('utf-8')
     const deadline = Date.now() + 2500
     let buffer = ''

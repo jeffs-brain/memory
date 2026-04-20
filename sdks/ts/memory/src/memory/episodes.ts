@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
-import { noopLogger, type Logger, type Message } from '../llm/index.js'
-import { joinPath, toPath, type Path, type Store } from '../store/index.js'
+import { type Logger, type Message, noopLogger } from '../llm/index.js'
+import { type Path, type Store, joinPath, toPath } from '../store/index.js'
 import { buildFrontmatter, parseFrontmatter } from './frontmatter.js'
 import { ensureMarkdown } from './paths.js'
 import type { Heuristic, ReflectionResult, Scope } from './types.js'
@@ -69,11 +69,7 @@ export type EpisodeRecordArgs = {
   readonly tags?: readonly string[]
 }
 
-export type EpisodeGateReason =
-  | 'passed'
-  | 'below_threshold'
-  | 'no_action_signal'
-  | 'model_declined'
+export type EpisodeGateReason = 'passed' | 'below_threshold' | 'no_action_signal' | 'model_declined'
 
 export type EpisodeGateDecision = {
   readonly allowed: boolean
@@ -435,7 +431,18 @@ const buildEpisodeFile = (args: {
     },
   })
 
-  const body: string[] = [`# ${args.name}`, '', '## Summary', '', args.summary || '_no summary_', '', '## Outcome', '', args.outcome, '']
+  const body: string[] = [
+    `# ${args.name}`,
+    '',
+    '## Summary',
+    '',
+    args.summary || '_no summary_',
+    '',
+    '## Outcome',
+    '',
+    args.outcome,
+    '',
+  ]
 
   if (args.payload.retry_feedback !== '') {
     body.push('## Retry feedback', '', args.payload.retry_feedback, '')
@@ -483,18 +490,14 @@ const parseEpisodeFile = (path: Path, raw: string): EpisodeRecord | undefined =>
   const { frontmatter, body } = parseFrontmatter(raw)
   const payload = parseEpisodePayload(body)
   const sessionId =
-    frontmatter.session_id ??
-    payload?.session_id ??
-    path
-      .split('/')
-      .pop()
-      ?.replace(/\.md$/i, '')
+    frontmatter.session_id ?? payload?.session_id ?? path.split('/').pop()?.replace(/\.md$/i, '')
   if (sessionId === undefined || sessionId.trim() === '') return undefined
 
   const actorId = frontmatter.extra.actor_id ?? payload?.actor_id ?? ''
-  const scope = isScope(frontmatter.scope) ? frontmatter.scope : payload?.scope ?? 'project'
-  const summary =
-    collapseWhitespace(frontmatter.description ?? payload?.summary ?? firstMeaningfulBodyText(body))
+  const scope = isScope(frontmatter.scope) ? frontmatter.scope : (payload?.scope ?? 'project')
+  const summary = collapseWhitespace(
+    frontmatter.description ?? payload?.summary ?? firstMeaningfulBodyText(body),
+  )
   const outcome = normaliseEpisodeOutcome(frontmatter.extra.outcome ?? payload?.outcome)
   const tags = dedupeStrings(frontmatter.tags ?? payload?.tags ?? [])
   const retryFeedback = collapseWhitespace(payload?.retry_feedback ?? '')
@@ -507,7 +510,9 @@ const parseEpisodeFile = (path: Path, raw: string): EpisodeRecord | undefined =>
     antiPattern: heuristic.anti_pattern,
   }))
   const signals = parseEpisodeSignals(frontmatter.extra, payload?.signals)
-  const startedAt = normaliseOptionalIsoTimestamp(frontmatter.extra.started_at ?? payload?.started_at)
+  const startedAt = normaliseOptionalIsoTimestamp(
+    frontmatter.extra.started_at ?? payload?.started_at,
+  )
   const endedAt = normaliseOptionalIsoTimestamp(frontmatter.extra.ended_at ?? payload?.ended_at)
 
   return {
@@ -556,9 +561,7 @@ const parseEpisodePayload = (body: string): StoredEpisodePayload | undefined => 
     firstString(parsed.retry_feedback, parsed.retryFeedback) ?? '',
   )
   const shouldRecordEpisode =
-    parseBoolean(parsed.should_record_episode) ??
-    parseBoolean(parsed.shouldRecordEpisode) ??
-    false
+    parseBoolean(parsed.should_record_episode) ?? parseBoolean(parsed.shouldRecordEpisode) ?? false
   const openQuestions = toStringArray(parsed.open_questions, parsed.openQuestions)
   const heuristics = toHeuristicArray(parsed.heuristics)
   const tags = dedupeStrings(toStringArray(parsed.tags))
@@ -597,9 +600,9 @@ const parseEpisodeSignals = (
     payload?.assistant_message_count ?? parseInteger(extra.assistant_message_count),
   toolMessageCount: payload?.tool_message_count ?? parseInteger(extra.tool_message_count),
   toolCallCount: payload?.tool_call_count ?? parseInteger(extra.tool_call_count),
-  writeSignal: payload?.write_signal ?? (parseBoolean(extra.write_signal) ?? false),
-  editSignal: payload?.edit_signal ?? (parseBoolean(extra.edit_signal) ?? false),
-  toolSignal: payload?.tool_signal ?? (parseBoolean(extra.tool_signal) ?? false),
+  writeSignal: payload?.write_signal ?? parseBoolean(extra.write_signal) ?? false,
+  editSignal: payload?.edit_signal ?? parseBoolean(extra.edit_signal) ?? false,
+  toolSignal: payload?.tool_signal ?? parseBoolean(extra.tool_signal) ?? false,
 })
 
 const toStoredEpisodeSignals = (value: unknown): StoredEpisodeSignals | undefined => {
@@ -618,8 +621,7 @@ const toStoredEpisodeSignals = (value: unknown): StoredEpisodeSignals | undefine
     ),
     tool_message_count: normaliseCount(value.tool_message_count, value.toolMessageCount),
     tool_call_count: normaliseCount(value.tool_call_count, value.toolCallCount),
-    write_signal:
-      parseBoolean(value.write_signal) ?? parseBoolean(value.writeSignal) ?? false,
+    write_signal: parseBoolean(value.write_signal) ?? parseBoolean(value.writeSignal) ?? false,
     edit_signal: parseBoolean(value.edit_signal) ?? parseBoolean(value.editSignal) ?? false,
     tool_signal: parseBoolean(value.tool_signal) ?? parseBoolean(value.toolSignal) ?? false,
   }
@@ -636,8 +638,7 @@ const toHeuristicArray = (value: unknown): readonly StoredEpisodeHeuristic[] => 
       confidence: normaliseConfidence(firstString(item.confidence)),
       category: collapseWhitespace(firstString(item.category) ?? ''),
       scope: normaliseScope(firstString(item.scope)),
-      anti_pattern:
-        parseBoolean(item.anti_pattern) ?? parseBoolean(item.antiPattern) ?? false,
+      anti_pattern: parseBoolean(item.anti_pattern) ?? parseBoolean(item.antiPattern) ?? false,
     })
   }
   return out
@@ -969,8 +970,7 @@ const normaliseEpisodeOutcome = (value: unknown): EpisodeOutcome => {
 const isScope = (value: string | undefined): value is Scope =>
   value === 'global' || value === 'project' || value === 'agent'
 
-const normaliseScope = (value: string | undefined): Scope =>
-  isScope(value) ? value : 'project'
+const normaliseScope = (value: string | undefined): Scope => (isScope(value) ? value : 'project')
 
 const normaliseConfidence = (value: string | undefined): Heuristic['confidence'] =>
   value === 'high' || value === 'medium' || value === 'low' ? value : 'low'

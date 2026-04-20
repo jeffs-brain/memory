@@ -69,9 +69,7 @@ describe('detectAgents', () => {
       fileExists: () => false,
     })
     const desktop = results.find((r) => r.agent === 'claude-desktop')
-    expect(desktop?.path).toBe(
-      `${FAKE_HOME}/.config/Claude/claude_desktop_config.json`,
-    )
+    expect(desktop?.path).toBe(`${FAKE_HOME}/.config/Claude/claude_desktop_config.json`)
   })
 })
 

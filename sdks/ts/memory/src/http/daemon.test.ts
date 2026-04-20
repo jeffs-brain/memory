@@ -11,11 +11,18 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
-import type { CompletionRequest, CompletionResponse, Embedder, Provider, StreamEvent } from '../llm/index.js'
-import { createHashEmbedder } from '../llm/index.js'
-import { Daemon, createRouter } from './index.js'
 import { MEMORY_PACKAGE } from '../index.js'
+import type {
+  CompletionRequest,
+  CompletionResponse,
+  Embedder,
+  Provider,
+  StreamEvent,
+} from '../llm/index.js'
+import { createHashEmbedder } from '../llm/index.js'
 import { createContextualPrefixBuilder } from '../memory/index.js'
+import type { DocumentBodyLimits } from '../store/index.js'
+import { Daemon, createRouter } from './index.js'
 
 const makeFakeProvider = (text: string): Provider => ({
   name: () => 'fake',
@@ -106,6 +113,7 @@ type MakeDaemonOpts = {
   embedder?: Embedder
   contextualise?: boolean
   contextualiseCacheDir?: string
+  bodyLimits?: Partial<DocumentBodyLimits>
 }
 
 const makeDaemon = async (opts: MakeDaemonOpts = {}): Promise<Fixture> => {
@@ -125,6 +133,7 @@ const makeDaemon = async (opts: MakeDaemonOpts = {}): Promise<Fixture> => {
           }),
         }
       : {}),
+    ...(opts.bodyLimits !== undefined ? { bodyLimits: opts.bodyLimits } : {}),
   })
   await daemon.start()
   const router = createRouter(daemon)
@@ -349,13 +358,9 @@ describe('memory daemon integration', () => {
     await createBrain(handler, 'filters')
 
     const globalWrite = await handler(
-      makeRequest(
-        'PUT',
-        '/v1/brains/filters/documents?path=memory%2Fglobal%2Fhedgehog.md',
-        {
-          body: Buffer.from('The global hedgehog lives in hedgerows.', 'utf8'),
-        },
-      ),
+      makeRequest('PUT', '/v1/brains/filters/documents?path=memory%2Fglobal%2Fhedgehog.md', {
+        body: Buffer.from('The global hedgehog lives in hedgerows.', 'utf8'),
+      }),
     )
     expect(globalWrite.status).toBe(204)
 
@@ -418,9 +423,13 @@ describe('memory daemon integration', () => {
 
     for (const { path, content } of writes) {
       const response = await handler(
-        makeRequest('PUT', `/v1/brains/memory-scope-filters/documents?path=${encodeURIComponent(path)}`, {
-          body: Buffer.from(content, 'utf8'),
-        }),
+        makeRequest(
+          'PUT',
+          `/v1/brains/memory-scope-filters/documents?path=${encodeURIComponent(path)}`,
+          {
+            body: Buffer.from(content, 'utf8'),
+          },
+        ),
       )
       expect(response.status).toBe(204)
     }
@@ -442,10 +451,7 @@ describe('memory daemon integration', () => {
       trace?: { filtersApplied?: boolean }
     }
     const paths = body.chunks.map((chunk) => chunk.path).sort()
-    expect(paths).toEqual([
-      'memory/global/hedgehog.md',
-      'memory/project/eval-lme/hedgehog.md',
-    ])
+    expect(paths).toEqual(['memory/global/hedgehog.md', 'memory/project/eval-lme/hedgehog.md'])
     expect(body.trace?.filtersApplied).toBe(true)
   })
 
@@ -489,8 +495,7 @@ describe('memory daemon integration', () => {
       },
       {
         path: 'raw/lme/session-1-a.md',
-        content:
-          '---\nsession_id: s1\nsession_date: 2024-01-10\n---\n[user]: I bought a bike.\n',
+        content: '---\nsession_id: s1\nsession_date: 2024-01-10\n---\n[user]: I bought a bike.\n',
       },
       {
         path: 'raw/lme/session-1-b.md',
@@ -501,10 +506,14 @@ describe('memory daemon integration', () => {
 
     for (const doc of docs) {
       const put = await handler(
-        makeRequest('PUT', `/v1/brains/askaugmented/documents?path=${encodeURIComponent(doc.path)}`, {
-          body: Buffer.from(doc.content, 'utf8'),
-          headers: { 'content-type': 'text/markdown' },
-        }),
+        makeRequest(
+          'PUT',
+          `/v1/brains/askaugmented/documents?path=${encodeURIComponent(doc.path)}`,
+          {
+            body: Buffer.from(doc.content, 'utf8'),
+            headers: { 'content-type': 'text/markdown' },
+          },
+        ),
       )
       expect(put.status).toBe(204)
     }
@@ -553,7 +562,7 @@ describe('memory daemon integration', () => {
     const brain = await daemon.brains.get('searchknobs')
     expect(brain.retrieval).toBeDefined()
     const capture: { request?: Record<string, unknown> } = {}
-    const originalSearchRaw = brain.retrieval!.searchRaw.bind(brain.retrieval)
+    const originalSearchRaw = brain.retrieval?.searchRaw.bind(brain.retrieval)
     ;(
       brain.retrieval as {
         searchRaw: (request: Record<string, unknown>) => ReturnType<typeof originalSearchRaw>
@@ -588,7 +597,7 @@ describe('memory daemon integration', () => {
     const respPromise = handler(makeRequest('GET', '/v1/brains/events/events'))
     const resp = await respPromise
     expect(resp.status).toBe(200)
-    const reader = resp.body!.getReader()
+    const reader = resp.body?.getReader()
     const decoder = new TextDecoder('utf-8')
     let collected = ''
     const readUntil = async (pred: (s: string) => boolean, budgetMs = 2000): Promise<string> => {
@@ -628,9 +637,7 @@ describe('memory daemon integration', () => {
   it('7. maps not-found and oversized body to Problem+JSON', async () => {
     const { handler } = await makeDaemon()
 
-    const missing = await handler(
-      makeRequest('GET', '/v1/brains/missing/documents/read?path=a.md'),
-    )
+    const missing = await handler(makeRequest('GET', '/v1/brains/missing/documents/read?path=a.md'))
     expect(missing.status).toBe(404)
     const missingBody = (await missing.json()) as { code?: string }
     expect(missingBody.code).toBe('not_found')
@@ -647,6 +654,50 @@ describe('memory daemon integration', () => {
     expect(big.status).toBe(413)
     const bigBody = (await big.json()) as { code?: string }
     expect(bigBody.code).toBe('payload_too_large')
+  })
+
+  it('7b. honours configured batch ceilings on the daemon', async () => {
+    const { handler } = await makeDaemon({
+      bodyLimits: {
+        batchDecodedBytes: 8,
+        batchOpCount: 2,
+      },
+    })
+    await createBrain(handler, 'limited')
+
+    const tooManyOps = await handler(
+      makeRequest('POST', '/v1/brains/limited/documents/batch-ops', {
+        body: JSON.stringify({
+          reason: 'test',
+          ops: [
+            { type: 'write', path: 'a.md', content_base64: Buffer.from('a').toString('base64') },
+            { type: 'write', path: 'b.md', content_base64: Buffer.from('b').toString('base64') },
+            { type: 'write', path: 'c.md', content_base64: Buffer.from('c').toString('base64') },
+          ],
+        }),
+        headers: { 'content-type': 'application/json' },
+      }),
+    )
+    expect(tooManyOps.status).toBe(413)
+
+    const tooLarge = await handler(
+      makeRequest('POST', '/v1/brains/limited/documents/batch-ops', {
+        body: JSON.stringify({
+          reason: 'test',
+          ops: [
+            {
+              type: 'write',
+              path: 'big.md',
+              content_base64: Buffer.from('123456789').toString('base64'),
+            },
+          ],
+        }),
+        headers: { 'content-type': 'application/json' },
+      }),
+    )
+    expect(tooLarge.status).toBe(413)
+    const tooLargeBody = (await tooLarge.json()) as { code?: string }
+    expect(tooLargeBody.code).toBe('payload_too_large')
   })
 
   it('8. auth middleware blocks anon and allows a valid token', async () => {
@@ -836,7 +887,7 @@ describe('memory daemon integration', () => {
     expect(recallBody.memories.length).toBeGreaterThan(0)
     const hit = recallBody.memories.find((m) => m.path === rememberBody.path)
     expect(hit).toBeDefined()
-    expect(hit!.content).toContain('pragmatic')
+    expect(hit?.content).toContain('pragmatic')
   })
 
   it('13. extract previews structured memories returned by the provider without persisting', async () => {
@@ -889,17 +940,13 @@ describe('memory daemon integration', () => {
         scope: string
       }>
     }
-    const extracted = body.memories.find(
-      (m) => m.filename === 'user-preference-commit-style',
-    )
+    const extracted = body.memories.find((m) => m.filename === 'user-preference-commit-style')
     expect(extracted).toBeDefined()
-    expect(extracted!.content).toContain('pragmatic')
-    expect(extracted!.scope).toBe('global')
+    expect(extracted?.content).toContain('pragmatic')
+    expect(extracted?.scope).toBe('global')
     const exists = await daemon.brains
       .get('extracted')
-      .then((brain) =>
-        brain.store.exists('memory/global/alex/user-preference-commit-style.md'),
-      )
+      .then((brain) => brain.store.exists('memory/global/alex/user-preference-commit-style.md'))
     expect(exists).toBe(false)
   })
 
@@ -965,7 +1012,7 @@ describe('memory daemon integration', () => {
     expect(body.memories[0]?.sessionDate).toBe('2024-02-20')
     expect(body.memories[0]?.contextPrefix).toContain('bike')
 
-    const exists = await fixtures[fixtures.length - 1]!.daemon.brains
+    const exists = await fixtures[fixtures.length - 1]?.daemon.brains
       .get('contextualised')
       .then((brain) => brain.store.exists('memory/project/alex/bike-status.md'))
     expect(exists).toBe(false)
@@ -1004,8 +1051,7 @@ describe('memory daemon integration', () => {
       embedder: createHashEmbedder(),
     })
     await daemon.start()
-    const handler = async (req: Request): Promise<Response> =>
-      (await createRouter(daemon))(req)
+    const handler = async (req: Request): Promise<Response> => (await createRouter(daemon))(req)
     fixtures.push({ daemon, handler, tempDir })
 
     // Resolve the brain lazily — the manager opens it in the first
@@ -1049,8 +1095,7 @@ describe('memory daemon integration', () => {
       embedModel: 'hash-1024',
     })
     await daemon.start()
-    const handler = async (req: Request): Promise<Response> =>
-      (await createRouter(daemon))(req)
+    const handler = async (req: Request): Promise<Response> => (await createRouter(daemon))(req)
     fixtures.push({ daemon, handler, tempDir })
 
     // Trigger the lazy brain open + scanBrain + backfill chain.
@@ -1067,11 +1112,8 @@ describe('memory daemon integration', () => {
     // Both markdown paths should end up with a vector tagged for the
     // active model once the backfill has drained.
     await waitFor(() => {
-      const withVectors = br.index!.chunkIdsWithVectorForModel('hash-1024')
-      expect(withVectors.sort()).toEqual([
-        'memory/global/alpha.md',
-        'memory/global/beta.md',
-      ])
+      const withVectors = br.index?.chunkIdsWithVectorForModel('hash-1024')
+      expect(withVectors.sort()).toEqual(['memory/global/alpha.md', 'memory/global/beta.md'])
     })
   })
 
@@ -1111,8 +1153,7 @@ describe('memory daemon integration', () => {
       embedModel: 'stub-1536',
     })
     await daemon.start()
-    const handler = async (req: Request): Promise<Response> =>
-      (await createRouter(daemon))(req)
+    const handler = async (req: Request): Promise<Response> => (await createRouter(daemon))(req)
     fixtures.push({ daemon, handler, tempDir })
 
     const search = await handler(
@@ -1125,9 +1166,9 @@ describe('memory daemon integration', () => {
 
     const br = await daemon.brains.get(brainId)
     expect(br.index).toBeDefined()
-    expect(br.index!.vectorDim).toBe(1536)
+    expect(br.index?.vectorDim).toBe(1536)
     await waitFor(() => {
-      expect(br.index!.chunkIdsWithVectorForModel('stub-1536').sort()).toEqual([
+      expect(br.index?.chunkIdsWithVectorForModel('stub-1536').sort()).toEqual([
         'memory/global/alpha.md',
         'memory/global/beta.md',
       ])
@@ -1215,7 +1256,9 @@ describe('memory daemon integration', () => {
     expect(secondSearch.status).toBe(200)
 
     const br = await secondDaemon.brains.get(brainId)
-    expect(br.index?.indexedPaths()).toContain('memory/project/eval-lme/project_sentiment_analysis.md')
+    expect(br.index?.indexedPaths()).toContain(
+      'memory/project/eval-lme/project_sentiment_analysis.md',
+    )
     expect(br.index?.indexedPaths()).not.toContain('memory/project_sentiment_analysis.md')
   })
 
@@ -1255,8 +1298,7 @@ describe('memory daemon integration', () => {
       embedModel: 'gated-hash',
     })
     await daemon.start()
-    const handler = async (req: Request): Promise<Response> =>
-      (await createRouter(daemon))(req)
+    const handler = async (req: Request): Promise<Response> => (await createRouter(daemon))(req)
     fixtures.push({ daemon, handler, tempDir })
 
     const searchPromise = handler(
@@ -1275,7 +1317,7 @@ describe('memory daemon integration', () => {
     releaseEmbed?.()
     const br = await daemon.brains.get(brainId)
     await waitFor(() => {
-      expect(br.index!.chunkIdsWithVectorForModel('gated-hash')).toEqual(['memory/global/alpha.md'])
+      expect(br.index?.chunkIdsWithVectorForModel('gated-hash')).toEqual(['memory/global/alpha.md'])
     })
   })
 })

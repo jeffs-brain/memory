@@ -46,10 +46,7 @@ export type LMEReportComparison = {
   readonly resultSet: LMEResultSetComparison
 }
 
-export const compareResults = (
-  baseline: LMEResult,
-  candidate: LMEResult,
-): LMEResultComparison => ({
+export const compareResults = (baseline: LMEResult, candidate: LMEResult): LMEResultComparison => ({
   id: baseline.id,
   sameQuestion: baseline.question === candidate.question,
   sameCategory: baseline.category === candidate.category,
@@ -99,10 +96,7 @@ export const compareResultSets = (
   }
 }
 
-export const compareReports = (
-  baseline: LMEReport,
-  candidate: LMEReport,
-): LMEReportComparison => {
+export const compareReports = (baseline: LMEReport, candidate: LMEReport): LMEReportComparison => {
   const categories = new Set<string>([
     ...Object.keys(baseline.perCategory),
     ...Object.keys(candidate.perCategory),

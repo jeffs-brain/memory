@@ -8,11 +8,7 @@
  */
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type {
-  CompletionResponse,
-  Provider,
-  StreamEvent,
-} from '../llm/index.js'
+import type { CompletionResponse, Provider, StreamEvent } from '../llm/index.js'
 import {
   buildProvider,
   buildReranker,
@@ -89,15 +85,14 @@ describe('buildProvider / anthropic baseURL wiring', () => {
     const seen: { url?: string } = {}
     const originalFetch = globalThis.fetch
     globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
+      const url =
+        typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
       seen.url = url
       // Minimal streaming response the provider can parse.
       const body = new ReadableStream<Uint8Array>({
         start(controller) {
           controller.enqueue(
-            new TextEncoder().encode(
-              'event: message_stop\ndata: {"type":"message_stop"}\n\n',
-            ),
+            new TextEncoder().encode('event: message_stop\ndata: {"type":"message_stop"}\n\n'),
           )
           controller.close()
         },
@@ -121,7 +116,7 @@ describe('buildProvider / anthropic baseURL wiring', () => {
         // drain
       }
       expect(seen.url).toBeDefined()
-      expect(seen.url!.startsWith('https://proxy.example.com/v1')).toBe(true)
+      expect(seen.url?.startsWith('https://proxy.example.com/v1')).toBe(true)
     } finally {
       globalThis.fetch = originalFetch
     }
@@ -220,7 +215,8 @@ describe('reranker config', () => {
   it('prefers TEI in auto mode when the health probe succeeds', async () => {
     const provider = makeStubProvider()
     const fetch = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
-      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
+      const url =
+        typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
       if (url.endsWith('/health')) {
         return new Response('ok', { status: 200 })
       }
@@ -258,12 +254,14 @@ describe('reranker config', () => {
   })
 
   it('falls back to the llm reranker in auto mode when TEI is unavailable', async () => {
-    const complete = vi.fn(async (): Promise<CompletionResponse> => ({
-      content: '[{"id":0,"score":9},{"id":1,"score":1}]',
-      toolCalls: [],
-      usage: { inputTokens: 0, outputTokens: 0 },
-      stopReason: 'end_turn',
-    }))
+    const complete = vi.fn(
+      async (): Promise<CompletionResponse> => ({
+        content: '[{"id":0,"score":9},{"id":1,"score":1}]',
+        toolCalls: [],
+        usage: { inputTokens: 0, outputTokens: 0 },
+        stopReason: 'end_turn',
+      }),
+    )
     const provider: Provider = {
       ...makeStubProvider(),
       complete,
@@ -298,12 +296,14 @@ describe('reranker config', () => {
   })
 
   it('builds an llm reranker when explicitly requested', async () => {
-    const complete = vi.fn(async (): Promise<CompletionResponse> => ({
-      content: '[{"id":1,"score":9},{"id":0,"score":1}]',
-      toolCalls: [],
-      usage: { inputTokens: 0, outputTokens: 0 },
-      stopReason: 'end_turn',
-    }))
+    const complete = vi.fn(
+      async (): Promise<CompletionResponse> => ({
+        content: '[{"id":1,"score":9},{"id":0,"score":1}]',
+        toolCalls: [],
+        usage: { inputTokens: 0, outputTokens: 0 },
+        stopReason: 'end_turn',
+      }),
+    )
     const provider: Provider = {
       ...makeStubProvider(),
       complete,
@@ -334,12 +334,14 @@ describe('reranker config', () => {
   })
 
   it('uses the llm reranker directly in auto mode when no explicit rerank URL is configured', async () => {
-    const complete = vi.fn(async (): Promise<CompletionResponse> => ({
-      content: '[{"id":1,"score":9},{"id":0,"score":1}]',
-      toolCalls: [],
-      usage: { inputTokens: 0, outputTokens: 0 },
-      stopReason: 'end_turn',
-    }))
+    const complete = vi.fn(
+      async (): Promise<CompletionResponse> => ({
+        content: '[{"id":1,"score":9},{"id":0,"score":1}]',
+        toolCalls: [],
+        usage: { inputTokens: 0, outputTokens: 0 },
+        stopReason: 'end_turn',
+      }),
+    )
     const provider: Provider = {
       ...makeStubProvider(),
       complete,

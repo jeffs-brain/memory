@@ -9,10 +9,15 @@
  * handlers to drive graceful shutdown.
  */
 
-import { createServer as createNodeServer, type IncomingMessage, type ServerResponse } from 'node:http'
+import {
+  type IncomingMessage,
+  type ServerResponse,
+  createServer as createNodeServer,
+} from 'node:http'
 import { defineCommand } from 'citty'
 
 import { Daemon, createRouter, defaultRoot } from '../../http/index.js'
+import { createContextualPrefixBuilder } from '../../memory/index.js'
 import {
   CliUsageError,
   buildEmbedder,
@@ -22,7 +27,6 @@ import {
   providerFromEnvOptional,
   rerankerFromEnv,
 } from '../config.js'
-import { createContextualPrefixBuilder } from '../../memory/index.js'
 
 const DEFAULT_PORT = 8080
 
@@ -64,22 +68,19 @@ export const serveCommand = defineCommand({
   run: async ({ args }) => {
     // `--addr host:port` wins; `--port`/`--host` preserve the older
     // flag surface.
-    const portFlag =
-      typeof args.port === 'string' && args.port !== '' ? args.port : undefined
-    const hostFlag =
-      typeof args.host === 'string' && args.host !== '' ? args.host : undefined
+    const portFlag = typeof args.port === 'string' && args.port !== '' ? args.port : undefined
+    const hostFlag = typeof args.host === 'string' && args.host !== '' ? args.host : undefined
     const addr =
       typeof args.addr === 'string' && args.addr !== ''
         ? args.addr
         : portFlag !== undefined
           ? `${hostFlag ?? ''}:${portFlag}`
-          : (process.env['JB_ADDR'] ?? `:${DEFAULT_PORT}`)
-    const root =
-      typeof args.root === 'string' && args.root !== '' ? args.root : defaultRoot()
+          : (process.env.JB_ADDR ?? `:${DEFAULT_PORT}`)
+    const root = typeof args.root === 'string' && args.root !== '' ? args.root : defaultRoot()
     const token =
       typeof args['auth-token'] === 'string' && args['auth-token'] !== ''
         ? args['auth-token']
-        : process.env['JB_AUTH_TOKEN']
+        : process.env.JB_AUTH_TOKEN
     const { hostname, port } = parseAddr(addr)
 
     const providerSettings = providerFromEnvOptional()
@@ -94,17 +95,20 @@ export const serveCommand = defineCommand({
     const contextualise =
       typeof args.contextualise === 'boolean'
         ? args.contextualise
-        : envEnabled(process.env['JB_CONTEXTUALISE'])
+        : envEnabled(process.env.JB_CONTEXTUALISE)
     const contextualiseCacheDir =
       typeof args['contextualise-cache-dir'] === 'string' && args['contextualise-cache-dir'] !== ''
         ? args['contextualise-cache-dir']
-        : process.env['JB_CONTEXTUALISE_CACHE_DIR']
+        : process.env.JB_CONTEXTUALISE_CACHE_DIR
+    const singleDocumentBytes = parseOptionalPositiveInt(process.env.JB_SINGLE_BODY_LIMIT_BYTES)
+    const batchDecodedBytes = parseOptionalPositiveInt(process.env.JB_BATCH_BODY_LIMIT_BYTES)
+    const batchOpCount = parseOptionalPositiveInt(process.env.JB_BATCH_OP_LIMIT)
     const contextualPrefixBuilder =
       contextualise && provider !== undefined
         ? createContextualPrefixBuilder({
             provider,
-            ...(process.env['JB_CONTEXTUALISE_MODEL'] !== undefined
-              ? { model: process.env['JB_CONTEXTUALISE_MODEL'] }
+            ...(process.env.JB_CONTEXTUALISE_MODEL !== undefined
+              ? { model: process.env.JB_CONTEXTUALISE_MODEL }
               : {}),
             ...(contextualiseCacheDir !== undefined ? { cacheDir: contextualiseCacheDir } : {}),
           })
@@ -117,6 +121,17 @@ export const serveCommand = defineCommand({
       ...(embedder !== undefined ? { embedder } : {}),
       ...(reranker !== undefined ? { reranker } : {}),
       ...(contextualPrefixBuilder !== undefined ? { contextualPrefixBuilder } : {}),
+      ...(singleDocumentBytes !== undefined ||
+      batchDecodedBytes !== undefined ||
+      batchOpCount !== undefined
+        ? {
+            bodyLimits: {
+              ...(singleDocumentBytes !== undefined ? { singleDocumentBytes } : {}),
+              ...(batchDecodedBytes !== undefined ? { batchDecodedBytes } : {}),
+              ...(batchOpCount !== undefined ? { batchOpCount } : {}),
+            },
+          }
+        : {}),
     })
     await daemon.start()
     const router = createRouter(daemon)
@@ -172,6 +187,15 @@ const envEnabled = (value: string | undefined): boolean => {
   return lowered === '1' || lowered === 'true' || lowered === 'yes' || lowered === 'on'
 }
 
+const parseOptionalPositiveInt = (value: string | undefined): number | undefined => {
+  if (value === undefined || value.trim() === '') return undefined
+  const parsed = Number.parseInt(value, 10)
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    throw new CliUsageError(`serve: invalid positive integer '${value}'`)
+  }
+  return parsed
+}
+
 /**
  * Translate a Node request into a fetch-style Request, pass it to the
  * router, then stream the Response back onto the Node response.
@@ -187,7 +211,7 @@ export const handleNodeRequest = async (
   nres: ServerResponse,
 ): Promise<void> => {
   const urlPath = nreq.url ?? '/'
-  const hostHeader = nreq.headers['host'] ?? `${hostname}:${port}`
+  const hostHeader = nreq.headers.host ?? `${hostname}:${port}`
   const url = `http://${hostHeader}${urlPath.startsWith('/') ? urlPath : `/${urlPath}`}`
 
   const controller = new AbortController()
@@ -228,8 +252,7 @@ export const handleNodeRequest = async (
   nres.once('close', () => {
     void reader.cancel().catch(() => undefined)
   })
-  // biome-ignore lint/suspicious/noConstantCondition: pump loop
-  while (true) {
+  for (;;) {
     const { value, done } = await reader.read()
     if (done) break
     if (value !== undefined) {

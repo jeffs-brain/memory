@@ -6,8 +6,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { createGitStore, listCommitFiles, readGitLog, type GitStore } from './gitstore.js'
-import { toPath, type Path } from './path.js'
+import { type GitStore, createGitStore, listCommitFiles, readGitLog } from './gitstore.js'
+import { type Path, toPath } from './path.js'
 
 const buf = (s: string): Buffer => Buffer.from(s, 'utf8')
 const p = (s: string): Path => toPath(s)
@@ -128,20 +128,18 @@ describe('gitstore specifics', () => {
   it('deleting a file removes it from the commit tree', async () => {
     await store.write(p('memory/victim.md'), buf('to-be-gone'))
     const afterWrite = await readGitLog(dir, 1)
-    const writtenTree = await listCommitFiles(dir, afterWrite[0]!.oid)
+    const writtenTree = await listCommitFiles(dir, afterWrite[0]?.oid)
     expect(writtenTree).toContain('memory/victim.md')
 
     await store.delete(p('memory/victim.md'))
     const afterDelete = await readGitLog(dir, 1)
-    const deletedTree = await listCommitFiles(dir, afterDelete[0]!.oid)
+    const deletedTree = await listCommitFiles(dir, afterDelete[0]?.oid)
     expect(deletedTree).not.toContain('memory/victim.md')
   })
 
   it('concurrent writes serialise without corrupting the tree', async () => {
     await Promise.all(
-      Array.from({ length: 10 }, (_, i) =>
-        store.write(p(`memory/race-${i}.md`), buf(`v${i}`)),
-      ),
+      Array.from({ length: 10 }, (_, i) => store.write(p(`memory/race-${i}.md`), buf(`v${i}`))),
     )
     for (let i = 0; i < 10; i++) {
       expect((await store.read(p(`memory/race-${i}.md`))).toString()).toBe(`v${i}`)
@@ -149,7 +147,7 @@ describe('gitstore specifics', () => {
     // Every write is its own commit on top of the bootstrap; tree at HEAD must
     // contain all ten files.
     const [head] = await readGitLog(dir, 1)
-    const tree = await listCommitFiles(dir, head!.oid)
+    const tree = await listCommitFiles(dir, head?.oid)
     for (let i = 0; i < 10; i++) {
       expect(tree).toContain(`memory/race-${i}.md`)
     }

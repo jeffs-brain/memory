@@ -2,8 +2,8 @@
 
 import { describe, expect, it } from 'vitest'
 import { noopLogger } from '../llm/index.js'
-import { createMemStore } from '../store/memstore.js'
 import { joinPath } from '../store/index.js'
+import { createMemStore } from '../store/memstore.js'
 import { DRAFTS_PREFIX } from './compile.js'
 import { serialiseFrontmatter } from './frontmatter.js'
 import { parseLog, readLog } from './log.js'
@@ -12,6 +12,14 @@ import { WIKI_PREFIX, createPromote } from './promote.js'
 describe('promote', () => {
   it('moves drafts/<slug>.md to wiki/<slug>.md inside a single batch', async () => {
     const store = createMemStore()
+    const events: Array<{
+      kind: string
+      slug: string
+      from: string
+      to: string
+      detail: string
+      when: string
+    }> = []
     const draftPath = joinPath(DRAFTS_PREFIX, 'foo.md')
     const content = serialiseFrontmatter(
       { title: 'Foo', summary: 'A foo', tags: [], sources: [] },
@@ -19,7 +27,20 @@ describe('promote', () => {
     )
     await store.write(draftPath, Buffer.from(content, 'utf8'))
 
-    const promote = createPromote({ store, logger: noopLogger })
+    const promote = createPromote({
+      store,
+      logger: noopLogger,
+      onEvent: (event) => {
+        events.push({
+          kind: event.kind,
+          slug: event.slug,
+          from: String(event.from),
+          to: String(event.to),
+          detail: event.detail,
+          when: event.when,
+        })
+      },
+    })
     const result = await promote('foo')
 
     expect(String(result.to)).toBe(`${WIKI_PREFIX}/foo.md`)
@@ -34,6 +55,16 @@ describe('promote', () => {
     const promoteEntries = entries.filter((e) => e.kind === 'promote')
     expect(promoteEntries).toHaveLength(1)
     expect(promoteEntries[0]?.title).toBe('foo.md')
+    expect(events).toEqual([
+      {
+        kind: 'promotion.landed',
+        slug: 'foo',
+        from: 'drafts/foo.md',
+        to: 'wiki/foo.md',
+        detail: 'promoted drafts/foo.md → wiki/foo.md',
+        when: events[0]?.when ?? '',
+      },
+    ])
   })
 
   it('throws when the draft is missing', async () => {

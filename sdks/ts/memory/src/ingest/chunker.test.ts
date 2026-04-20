@@ -56,8 +56,9 @@ describe('chunkMarkdown', () => {
   it('breaks oversized sections into overlapping windows', () => {
     // Several paragraphs, each small enough on its own so the packer
     // batches them into windows rather than hard-splitting a single para.
-    const paragraphs = Array.from({ length: 20 }, (_, i) =>
-      `paragraph-${i} ${'token '.repeat(12).trim()}`,
+    const paragraphs = Array.from(
+      { length: 20 },
+      (_, i) => `paragraph-${i} ${'token '.repeat(12).trim()}`,
     )
     const text = `# Big\n\n${paragraphs.join('\n\n')}`
     const chunks = chunkMarkdown(text, { maxTokens: 48, overlapTokens: 24 })

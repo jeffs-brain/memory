@@ -15,19 +15,19 @@ import { createHash, randomUUID } from 'node:crypto'
 import { mkdir, readFile, readdir, stat, writeFile } from 'node:fs/promises'
 import { extname, isAbsolute, join, resolve } from 'node:path'
 import {
+  AnthropicProvider,
+  type Embedder,
+  type Message,
+  OllamaEmbedder,
+  OllamaProvider,
+  OpenAIProvider,
+  type Provider,
+  type SqliteSearchIndex,
+  type Store,
   createFsStore,
   createMemory,
   createSearchIndex,
   createStoreBackedCursorStore,
-  OllamaEmbedder,
-  OllamaProvider,
-  AnthropicProvider,
-  OpenAIProvider,
-  type Embedder,
-  type Message,
-  type Provider,
-  type SqliteSearchIndex,
-  type Store,
 } from '@jeffs-brain/memory'
 import { ingestDocument } from '@jeffs-brain/memory/ingest'
 import { createRetrieval } from '@jeffs-brain/memory/retrieval'
@@ -164,6 +164,11 @@ type LocalDeps = {
   readonly brains: Map<string, BrainResources>
 }
 
+type LocalRankedHit = {
+  readonly path: string
+  readonly score: number
+}
+
 const ensureDir = async (path: string): Promise<void> => {
   await mkdir(path, { recursive: true })
 }
@@ -176,7 +181,7 @@ const ollamaReachable = async (baseUrl: string): Promise<boolean> => {
       signal: controller.signal,
     }).catch(() => undefined)
     clearTimeout(timer)
-    return resp !== undefined && resp.ok
+    return resp?.ok ?? false
   } catch {
     return false
   }
@@ -220,10 +225,7 @@ const resolveBrainId = (cfg: LocalConfig, override: string | undefined): string 
   return DEFAULT_BRAIN_ID
 }
 
-const openBrainResources = async (
-  deps: LocalDeps,
-  brainId: string,
-): Promise<BrainResources> => {
+const openBrainResources = async (deps: LocalDeps, brainId: string): Promise<BrainResources> => {
   const existing = deps.brains.get(brainId)
   if (existing !== undefined) return existing
   const brainRoot = join(deps.cfg.brainRoot, sanitiseBrainId(brainId))
@@ -265,7 +267,10 @@ const deriveTitle = (content: string, fallback: string | undefined): string => {
   if (fallback !== undefined && fallback !== '') return fallback
   const firstHeading = content.match(/^#\s+(.+)$/m)?.[1]?.trim()
   if (firstHeading !== undefined && firstHeading !== '') return firstHeading
-  const firstLine = content.split('\n').find((line) => line.trim() !== '')?.trim()
+  const firstLine = content
+    .split('\n')
+    .find((line) => line.trim() !== '')
+    ?.trim()
   return firstLine ?? 'Untitled memory'
 }
 
@@ -281,6 +286,12 @@ const buildFrontmatterBlock = (frontmatter: Record<string, unknown>): string => 
   }
   lines.push('---')
   return lines.join('\n')
+}
+
+const inferMemoryScopeFromPath = (path: string): 'global' | 'project' | 'agent' => {
+  if (path.startsWith('memory/project/')) return 'project'
+  if (path.startsWith('memory/agent/')) return 'agent'
+  return 'global'
 }
 
 const mimeForFile = (path: string, hint: IngestFileArgs['as']): string => {
@@ -327,6 +338,40 @@ const createLocalClient = (cfg: LocalConfig): MemoryClient => {
       cursorStore: createStoreBackedCursorStore(brain.store),
     })
 
+  const resolveLocalScopeFilter = (
+    scope: SearchArgs['scope'] | RecallArgs['scope'],
+  ): { readonly scope: string } | undefined => {
+    if (scope === undefined || scope === 'all') return undefined
+    return { scope }
+  }
+
+  const sortLocalHits = async <THit extends LocalRankedHit>(
+    brain: BrainResources,
+    hits: readonly THit[],
+    sort: SearchArgs['sort'] | undefined,
+  ): Promise<THit[]> => {
+    if (sort === undefined || sort === 'relevance') return [...hits]
+    const stamped = await Promise.all(
+      hits.map(async (hit, index) => {
+        const info = await brain.store.stat(hit.path as never).catch(() => undefined)
+        const timestamp = info?.modTime?.getTime() ?? Number.NEGATIVE_INFINITY
+        return { hit, index, timestamp }
+      }),
+    )
+    return stamped
+      .sort((left, right) => {
+        if (sort === 'relevance_then_recency' && left.hit.score !== right.hit.score) {
+          return right.hit.score - left.hit.score
+        }
+        if (left.timestamp !== right.timestamp) return right.timestamp - left.timestamp
+        if (sort !== 'relevance_then_recency' && left.hit.score !== right.hit.score) {
+          return right.hit.score - left.hit.score
+        }
+        return left.index - right.index
+      })
+      .map(({ hit }) => hit)
+  }
+
   return {
     mode: 'local',
     async remember(args) {
@@ -335,14 +380,14 @@ const createLocalClient = (cfg: LocalConfig): MemoryClient => {
       const brain = await openBrainResources(deps, brainId)
       const title = deriveTitle(args.content, args.title)
       const slug = slugFromTitle(title)
-      const relativePath = args.path !== undefined && args.path !== ''
-        ? args.path
-        : `memory/global/${slug}.md`
+      const relativePath =
+        args.path !== undefined && args.path !== '' ? args.path : `memory/global/${slug}.md`
+      const scope = inferMemoryScopeFromPath(relativePath)
       const nowIso = new Date().toISOString()
       const frontmatter = buildFrontmatterBlock({
         title,
-        scope: 'global',
-        type: 'user',
+        scope,
+        type: scope === 'global' ? 'user' : 'project',
         created: nowIso,
         modified: nowIso,
         ...(args.tags !== undefined && args.tags.length > 0 ? { tags: args.tags } : {}),
@@ -362,6 +407,7 @@ const createLocalClient = (cfg: LocalConfig): MemoryClient => {
             title,
             mime: 'text/markdown',
             metadata: {
+              scope,
               ...(args.tags !== undefined && args.tags.length > 0
                 ? { tags: args.tags.join(',') }
                 : {}),
@@ -392,9 +438,8 @@ const createLocalClient = (cfg: LocalConfig): MemoryClient => {
         metadata: {
           path: relativePath,
           brainId,
-          ...(args.tags !== undefined && args.tags.length > 0
-            ? { tags: args.tags.join(',') }
-            : {}),
+          scope,
+          ...(args.tags !== undefined && args.tags.length > 0 ? { tags: args.tags.join(',') } : {}),
         },
       })
       return {
@@ -413,12 +458,15 @@ const createLocalClient = (cfg: LocalConfig): MemoryClient => {
       const brainId = resolveBrainId(cfg, args.brain)
       const brain = await openBrainResources(deps, brainId)
       const retrieval = buildRetrieval(brain)
+      const filters = resolveLocalScopeFilter(args.scope)
       const results = await retrieval.search({
         query: args.query,
         topK: args.topK ?? 10,
         rerank: false,
+        ...(filters !== undefined ? { filters } : {}),
       })
-      const hits = results.map((result) => ({
+      const ordered = await sortLocalHits(brain, results, args.sort)
+      const hits = ordered.map((result) => ({
         score: result.score,
         path: result.path,
         content: result.content,
@@ -439,10 +487,12 @@ const createLocalClient = (cfg: LocalConfig): MemoryClient => {
       const brainId = resolveBrainId(cfg, args.brain)
       const brain = await openBrainResources(deps, brainId)
       const retrieval = buildRetrieval(brain)
+      const filters = resolveLocalScopeFilter(args.scope)
       const results = await retrieval.search({
         query: args.query,
         topK: args.topK ?? 5,
         rerank: false,
+        ...(filters !== undefined ? { filters } : {}),
       })
       const chunks = results.map((result) => ({
         score: result.score,
@@ -885,7 +935,8 @@ const createHostedClient = (cfg: HostedConfig): MemoryClient => {
           title: args.title,
           content: args.content,
           path: args.path,
-          metadata: args.tags !== undefined && args.tags.length > 0 ? { tags: args.tags.join(',') } : {},
+          metadata:
+            args.tags !== undefined && args.tags.length > 0 ? { tags: args.tags.join(',') } : {},
         }),
       })
     },
@@ -927,11 +978,14 @@ const createHostedClient = (cfg: HostedConfig): MemoryClient => {
       const form = new FormData()
       const blob = new Blob([new Uint8Array(content)], { type: mimeForFile(absPath, args.as) })
       form.append('file', blob, absPath.split(/[\\/]/).pop() ?? 'upload')
-      const resp = await fetch(joinUrl(deps.endpoint, `/v1/brains/${encodeURIComponent(brain)}/documents/ingest/file`), {
-        method: 'POST',
-        headers: { authorization: `Bearer ${deps.token}` },
-        body: form,
-      })
+      const resp = await fetch(
+        joinUrl(deps.endpoint, `/v1/brains/${encodeURIComponent(brain)}/documents/ingest/file`),
+        {
+          method: 'POST',
+          headers: { authorization: `Bearer ${deps.token}` },
+          body: form,
+        },
+      )
       if (!resp.ok) {
         const text = await resp.text().catch(() => '')
         throw new Error(`memory_ingest_file hosted ${resp.status}: ${text.slice(0, 256)}`)
@@ -974,9 +1028,7 @@ const createHostedClient = (cfg: HostedConfig): MemoryClient => {
         method: 'POST',
         body: JSON.stringify({
           title: `Transcript ${new Date().toISOString()}`,
-          content: args.messages
-            .map((m) => `[${m.role}] ${m.content}`)
-            .join('\n\n'),
+          content: args.messages.map((m) => `[${m.role}] ${m.content}`).join('\n\n'),
           source: 'extract',
         }),
       })

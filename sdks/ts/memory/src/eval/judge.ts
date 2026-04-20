@@ -68,10 +68,7 @@ Does the model correctly identify the question as unanswerable? Answer yes or no
 /** Abstention detection: mirrors evaluate_qa.py (id contains "_abs"). */
 export const isAbstention = (id: string): boolean => id.includes('_abs')
 
-export const judgePromptForCategory = (
-  category: string,
-  abstention: boolean,
-): string => {
+export const judgePromptForCategory = (category: string, abstention: boolean): string => {
   if (abstention) return JUDGE_PROMPT_ABSTENTION
   switch (category) {
     case 'temporal-reasoning':

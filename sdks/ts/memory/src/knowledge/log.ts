@@ -6,7 +6,7 @@
  * in place. Ported from apps/jeff/internal/knowledge/log.go.
  */
 
-import { toPath, type Batch, type Path, type Store } from '../store/index.js'
+import { type Batch, type Path, type Store, toPath } from '../store/index.js'
 import type { Operation } from './types.js'
 
 export const LOG_PATH: Path = toPath('_log.md')
@@ -49,7 +49,7 @@ export const parseLog = (raw: string): readonly Operation[] => {
   const parts = raw.split(/\n## \[/)
   const out: Operation[] = []
   for (let i = 0; i < parts.length; i++) {
-    const part = i === 0 ? parts[i]?.replace(/^# Operations Log\n+/, '') ?? '' : parts[i] ?? ''
+    const part = i === 0 ? (parts[i]?.replace(/^# Operations Log\n+/, '') ?? '') : (parts[i] ?? '')
     if (part === '' || !part.includes(']')) continue
     const body = i === 0 && part.startsWith('## [') ? part.slice(4) : part
     const bracketEnd = body.indexOf(']')

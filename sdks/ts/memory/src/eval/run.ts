@@ -5,47 +5,48 @@ import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import type { Embedder, Logger, Provider } from '../llm/index.js'
 import { noopLogger } from '../llm/index.js'
-import {
-  createRetrieval,
-  type HybridMode,
-  type Retrieval as HybridRetrieval,
-} from '../retrieval/index.js'
-import type { Reranker } from '../rerank/index.js'
-import { createSearchIndex, type Chunk as SearchChunk } from '../search/index.js'
-import { createFsStore } from '../store/index.js'
-import { lastSegment, toPath } from '../store/index.js'
-import type { FileInfo, Path } from '../store/index.js'
+import { parseFrontmatter } from '../memory/frontmatter.js'
 import {
   EXTRACTION_SYSTEM_PROMPT,
+  type SearchIndex as MemorySearchIndex,
+  type RecallHit,
+  type Scope,
   createContextualPrefixBuilder,
   createMemory,
   createStoreBackedCursorStore,
   mergeRecallHits,
   scopePrefix,
-  type RecallHit,
-  type Scope,
-  type SearchIndex as MemorySearchIndex,
 } from '../memory/index.js'
-import { parseFrontmatter } from '../memory/frontmatter.js'
-import { createProviderJudge } from './judge.js'
-import { createProviderReader } from './read.js'
+import type { Reranker } from '../rerank/index.js'
 import {
-  buildLMEManifest,
+  type HybridMode,
+  type Retrieval as HybridRetrieval,
+  createRetrieval,
+} from '../retrieval/index.js'
+import { type Chunk as SearchChunk, createSearchIndex } from '../search/index.js'
+import { createFsStore } from '../store/index.js'
+import { lastSegment, toPath } from '../store/index.js'
+import type { FileInfo, Path } from '../store/index.js'
+import { type LMEReportComparison, compareReports } from './compare.js'
+import { type LoadedDataset, loadDataset } from './dataset.js'
+import { LMEEmbedCache } from './embed-cache.js'
+import { DEFAULT_OUT_DIR, createLMERunner } from './index.js'
+import { createProviderJudge } from './judge.js'
+import {
   type LMEManifest,
   type LMEModelManifest,
   type LMERunConfig,
   type LMESampleManifest,
+  buildLMEManifest,
 } from './manifest.js'
-import { compareReports, type LMEReportComparison } from './compare.js'
-import { loadDataset, type LoadedDataset } from './dataset.js'
-import { LMEEmbedCache } from './embed-cache.js'
+import { createProviderReader } from './read.js'
 import { sampleExamples } from './sample.js'
 import {
+  type OfficialLMEScoreSummary,
   resultsToOfficialEvalLog,
   scoreOfficialEvalLog,
   serialiseOfficialEvalLog,
   serialiseOfficialHypotheses,
-  type OfficialLMEScoreSummary,
 } from './scorer.js'
 import {
   augmentQueryWithTemporal,
@@ -62,7 +63,6 @@ import type {
   RetrievalFn,
   RetrievedPassage,
 } from './types.js'
-import { createLMERunner, DEFAULT_OUT_DIR } from './index.js'
 import type {
   LMEOfficialRepoFetchResult,
   LMEUpstreamBundleName,
@@ -188,30 +188,19 @@ export const runStandaloneLMEEval = async (
   const candidateK = args.candidateK ?? DEFAULT_CANDIDATE_K
   const rerankTopN = args.rerankTopN ?? DEFAULT_RERANK_TOP_N
   const ingestConcurrency =
-    args.ingestConcurrency ??
-    (ingestMode === 'replay' ? 1 : DEFAULT_INGEST_CONCURRENCY)
+    args.ingestConcurrency ?? (ingestMode === 'replay' ? 1 : DEFAULT_INGEST_CONCURRENCY)
   const judgeConcurrency = args.judgeConcurrency ?? DEFAULT_JUDGE_CONCURRENCY
-  const embeddingBatchSize =
-    args.embeddingBatchSize ?? DEFAULT_EMBEDDING_BATCH_SIZE
-  const readerBudgetChars =
-    args.readerBudgetChars ?? DEFAULT_READER_BUDGET_CHARS
+  const embeddingBatchSize = args.embeddingBatchSize ?? DEFAULT_EMBEDDING_BATCH_SIZE
+  const readerBudgetChars = args.readerBudgetChars ?? DEFAULT_READER_BUDGET_CHARS
   const runId = args.runId ?? defaultRunId(createdAt)
   const actorId = args.actorId ?? 'lme'
   const logger = args.logger ?? noopLogger
-  const retrievalEmbedder =
-    retrievalMode === 'bm25' ? undefined : args.embedder
+  const retrievalEmbedder = retrievalMode === 'bm25' ? undefined : args.embedder
   const activeReranker = rerank ? args.reranker : undefined
 
-  const preparedDataset = await loadAndSampleDataset(
-    args.datasetPath,
-    args.sampleSize,
-    args.seed,
-  )
+  const preparedDataset = await loadAndSampleDataset(args.datasetPath, args.sampleSize, args.seed)
   const dataset = preparedDataset.dataset
-  const evalExamples = filterExamplesByCategory(
-    dataset.examples,
-    args.questionCategories,
-  )
+  const evalExamples = filterExamplesByCategory(dataset.examples, args.questionCategories)
   if (evalExamples.length === 0) {
     throw new Error('runStandaloneLMEEval: no examples matched questionCategories')
   }
@@ -225,17 +214,13 @@ export const runStandaloneLMEEval = async (
   const judgeProviderName = judgeProvider?.name()
   const resolvedJudgeModel = args.judgeModel ?? judgeProvider?.modelName()
   const modelManifest: LMEModelManifest = {
-    ...(extractProviderName !== undefined
-      ? { extractProvider: extractProviderName }
-      : {}),
+    ...(extractProviderName !== undefined ? { extractProvider: extractProviderName } : {}),
     ...(extractModel !== undefined ? { extractModel } : {}),
     ...(readerProviderName !== undefined ? { readerProvider: readerProviderName } : {}),
     ...(resolvedReaderModel !== undefined ? { readerModel: resolvedReaderModel } : {}),
     ...(judgeProviderName !== undefined ? { judgeProvider: judgeProviderName } : {}),
     ...(resolvedJudgeModel !== undefined ? { judgeModel: resolvedJudgeModel } : {}),
-    ...(retrievalEmbedder !== undefined
-      ? { embedder: retrievalEmbedder.model() }
-      : {}),
+    ...(retrievalEmbedder !== undefined ? { embedder: retrievalEmbedder.model() } : {}),
     ...(activeReranker !== undefined ? { reranker: activeReranker.name() } : {}),
   }
 
@@ -259,16 +244,20 @@ export const runStandaloneLMEEval = async (
       : {}),
   }
 
-  const brainRoot = join(cacheDir, 'brains', createBrainCacheKey({
-    datasetSha256: dataset.sha256,
-    ...(preparedDataset.sample !== undefined
-      ? { sampleSignature: preparedDataset.sample.signature }
-      : {}),
-    ingestMode,
-    actorId,
-    extractModel: modelManifest.extractModel,
-    contextualise,
-  }))
+  const brainRoot = join(
+    cacheDir,
+    'brains',
+    createBrainCacheKey({
+      datasetSha256: dataset.sha256,
+      ...(preparedDataset.sample !== undefined
+        ? { sampleSignature: preparedDataset.sample.signature }
+        : {}),
+      ingestMode,
+      actorId,
+      extractModel: modelManifest.extractModel,
+      contextualise,
+    }),
+  )
   const scratchRoot = join(cacheDir, 'scratch', runId)
   const storeRoot = ingestMode === 'bulk' ? scratchRoot : brainRoot
   const brainFingerprint = createBrainFingerprint({
@@ -371,7 +360,7 @@ export const runStandaloneLMEEval = async (
         : {}),
       ...(judgeProvider !== undefined
         ? {
-          judge: createProviderJudge({
+            judge: createProviderJudge({
               provider: judgeProvider,
               ...(args.judgeModel !== undefined ? { model: args.judgeModel } : {}),
             }),
@@ -399,10 +388,7 @@ export const runStandaloneLMEEval = async (
 
     const officialScore = scoreOfficialEvalLog({
       references: evalExamples,
-      entries: resultsToOfficialEvalLog(
-        results,
-        modelManifest.judgeModel ?? 'gpt-4o-2024-08-06',
-      ),
+      entries: resultsToOfficialEvalLog(results, modelManifest.judgeModel ?? 'gpt-4o-2024-08-06'),
     })
     const officialHypothesesJsonl = `${serialiseOfficialHypotheses(results)}\n`
     const officialEvalLogJsonl = `${serialiseOfficialEvalLog(
@@ -421,9 +407,7 @@ export const runStandaloneLMEEval = async (
       datasetPath: resolve(args.datasetPath),
       bundle: args.bundle,
       split: args.split,
-      ...(preparedDataset.sample !== undefined
-        ? { sample: preparedDataset.sample }
-        : {}),
+      ...(preparedDataset.sample !== undefined ? { sample: preparedDataset.sample } : {}),
       run: runConfig,
       models: modelManifest,
       cache: {
@@ -444,16 +428,10 @@ export const runStandaloneLMEEval = async (
       ...(args.officialRepo !== undefined ? { officialRepo: args.officialRepo } : {}),
       createdAt,
     })
-    await writeFile(
-      manifestPath,
-      `${JSON.stringify(manifest, null, 2)}\n`,
-      'utf8',
-    )
+    await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8')
 
     const comparison =
-      args.compareAgainst !== undefined
-        ? compareReports(args.compareAgainst, report)
-        : undefined
+      args.compareAgainst !== undefined ? compareReports(args.compareAgainst, report) : undefined
 
     return {
       manifest,
@@ -486,11 +464,7 @@ const loadAndSampleDataset = async (
   seed: number | undefined,
 ): Promise<PreparedDataset> => {
   const loaded = await loadDataset(datasetPath)
-  if (
-    sampleSize === undefined ||
-    sampleSize <= 0 ||
-    sampleSize >= loaded.examples.length
-  ) {
+  if (sampleSize === undefined || sampleSize <= 0 || sampleSize >= loaded.examples.length) {
     return {
       dataset: loaded,
       sample: undefined,
@@ -502,8 +476,8 @@ const loadAndSampleDataset = async (
     size: sampleSize,
     seed: resolvedSeed,
   })
-  const categories = [...new Set(examples.map((example) => example.category))].sort(
-    (left, right) => left.localeCompare(right),
+  const categories = [...new Set(examples.map((example) => example.category))].sort((left, right) =>
+    left.localeCompare(right),
   )
   return {
     dataset: {
@@ -525,9 +499,7 @@ const filterExamplesByCategory = (
 ): readonly LMEExample[] => {
   if (categories === undefined || categories.length === 0) return examples
   const wanted = new Set(
-    categories
-      .map((category) => category.trim())
-      .filter((category) => category !== ''),
+    categories.map((category) => category.trim()).filter((category) => category !== ''),
   )
   if (wanted.size === 0) return examples
   return examples.filter((example) => wanted.has(example.category))
@@ -564,9 +536,7 @@ const ingestDataset = async (args: {
   }
 
   if (args.provider === undefined) {
-    throw new Error(
-      `runStandaloneLMEEval: ${args.ingestMode} ingest requires a provider`,
-    )
+    throw new Error(`runStandaloneLMEEval: ${args.ingestMode} ingest requires a provider`)
   }
 
   const contextualPrefixBuilder =
@@ -659,9 +629,7 @@ const buildEvalRetrieval = async (args: {
       })
       return { passages, rendered }
     },
-    ...(search.embedCachePath !== undefined
-      ? { embedCachePath: search.embedCachePath }
-      : {}),
+    ...(search.embedCachePath !== undefined ? { embedCachePath: search.embedCachePath } : {}),
     close: search.close,
   }
 }
@@ -738,10 +706,7 @@ const buildReplayRecallRetrieval = async (args: {
           actorId: args.actorId,
         })
         hydratedPassages = await recallHitsToPassages(args.store, hits)
-        const eligibleCount = countReplayEligiblePassages(
-          hydratedPassages,
-          questionDate,
-        )
+        const eligibleCount = countReplayEligiblePassages(hydratedPassages, questionDate)
         if (
           eligibleCount >= args.topK ||
           recallK >= MAX_SCOPE_FILTER_FETCH ||
@@ -764,9 +729,7 @@ const buildReplayRecallRetrieval = async (args: {
       })
       return { passages, rendered }
     },
-    ...(search.embedCachePath !== undefined
-      ? { embedCachePath: search.embedCachePath }
-      : {}),
+    ...(search.embedCachePath !== undefined ? { embedCachePath: search.embedCachePath } : {}),
     close: search.close,
   }
 }
@@ -794,9 +757,7 @@ const buildEvalSearchPipeline = async (args: {
       ? join(args.cacheDir, 'embeddings', `${sanitiseFileSegment(args.embedder.model())}.sqlite`)
       : undefined
   const cache =
-    embedCachePath !== undefined
-      ? await LMEEmbedCache.open({ path: embedCachePath })
-      : undefined
+    embedCachePath !== undefined ? await LMEEmbedCache.open({ path: embedCachePath }) : undefined
   let index: Awaited<ReturnType<typeof createSearchIndex>> | undefined
 
   try {
@@ -870,7 +831,11 @@ const createRetrievalBackedSearchIndex = (args: {
       const hits = dedupeSearchHits(
         response.results.map((result) => ({ path: toPath(result.path), score: result.score })),
       )
-      if (hits.length >= opts.k || response.results.length < limit || limit >= MAX_SCOPE_FILTER_FETCH) {
+      if (
+        hits.length >= opts.k ||
+        response.results.length < limit ||
+        limit >= MAX_SCOPE_FILTER_FETCH
+      ) {
         return hits.slice(0, opts.k)
       }
       limit = Math.min(limit * 2, MAX_SCOPE_FILTER_FETCH)
@@ -954,8 +919,7 @@ export const rankReplayPassagesForQuestion = (
   }
 
   return [...passages].sort((left, right) => {
-    const scoreDelta =
-      replayAdjustedScore(right, anchor) - replayAdjustedScore(left, anchor)
+    const scoreDelta = replayAdjustedScore(right, anchor) - replayAdjustedScore(left, anchor)
     if (scoreDelta !== 0) return scoreDelta
     return right.score - left.score
   })
@@ -975,20 +939,14 @@ const shouldPreferRecentPassages = (question: string): boolean => {
   )
 }
 
-const replayAdjustedScore = (
-  passage: RetrievedPassage,
-  anchor: Date,
-): number => {
+const replayAdjustedScore = (passage: RetrievedPassage, anchor: Date): number => {
   const base = passage.score
   const parsed =
     passage.date !== undefined && passage.date.trim() !== ''
       ? parseQuestionDate(passage.date)
       : undefined
   if (parsed === undefined) return base * 0.75
-  const deltaDays = Math.max(
-    0,
-    Math.floor((anchor.getTime() - parsed.getTime()) / 86_400_000),
-  )
+  const deltaDays = Math.max(0, Math.floor((anchor.getTime() - parsed.getTime()) / 86_400_000))
   return base / (1 + deltaDays / 14)
 }
 
@@ -1107,34 +1065,24 @@ const collectEvalDocuments = async (
       tags: dedupeStrings([
         ...(frontmatter.tags ?? []),
         ...dateSearchTokens(
-          typeof frontmatter.session_date === 'string'
-            ? frontmatter.session_date
-            : undefined,
+          typeof frontmatter.session_date === 'string' ? frontmatter.session_date : undefined,
         ),
         ...dateSearchTokens(
-          typeof frontmatter.observed_on === 'string'
-            ? frontmatter.observed_on
-            : undefined,
+          typeof frontmatter.observed_on === 'string' ? frontmatter.observed_on : undefined,
         ),
         ...dateSearchTokens(
-          typeof frontmatter.modified === 'string'
-            ? frontmatter.modified
-            : undefined,
+          typeof frontmatter.modified === 'string' ? frontmatter.modified : undefined,
         ),
       ]),
       content: body === '' ? raw : body,
       metadata: {
         ...(frontmatter.scope !== undefined ? { scope: frontmatter.scope } : {}),
         ...(frontmatter.type !== undefined ? { type: frontmatter.type } : {}),
-        ...(frontmatter.session_id !== undefined
-          ? { sessionId: frontmatter.session_id }
-          : {}),
+        ...(frontmatter.session_id !== undefined ? { sessionId: frontmatter.session_id } : {}),
         ...(frontmatter.session_date !== undefined
           ? { sessionDate: frontmatter.session_date }
           : {}),
-        ...(frontmatter.observed_on !== undefined
-          ? { observedOn: frontmatter.observed_on }
-          : {}),
+        ...(frontmatter.observed_on !== undefined ? { observedOn: frontmatter.observed_on } : {}),
         ...(frontmatter.modified !== undefined ? { modified: frontmatter.modified } : {}),
       },
     })
@@ -1193,10 +1141,7 @@ const buildSearchChunks = async (args: {
   return enriched
 }
 
-const inferVectorDim = (
-  chunks: readonly SearchChunk[],
-  embedder: Embedder | undefined,
-): number => {
+const inferVectorDim = (chunks: readonly SearchChunk[], embedder: Embedder | undefined): number => {
   for (const chunk of chunks) {
     if (chunk.embedding !== undefined && chunk.embedding.length > 0) {
       return chunk.embedding.length
@@ -1214,9 +1159,7 @@ export const renderRetrievedPassages = (
   if (ordered.length === 0) return ''
   const parts: string[] = []
   const temporalHint =
-    args !== undefined
-      ? resolvedTemporalHintLine(args.question, args.questionDate)
-      : undefined
+    args !== undefined ? resolvedTemporalHintLine(args.question, args.questionDate) : undefined
   if (temporalHint !== undefined) {
     parts.push(temporalHint)
     parts.push('')
@@ -1238,10 +1181,7 @@ export const renderRetrievedPassages = (
   return parts.join('\n').trim()
 }
 
-const processSessionContextForQuestion = (
-  raw: string,
-  question: string,
-): string => {
+const processSessionContextForQuestion = (raw: string, question: string): string => {
   const blocks = parseSessionBlocksForQuestion(raw, question)
   if (blocks.length === 0) return raw
 
@@ -1278,10 +1218,7 @@ type SessionBlock = {
   readonly filtered: string
 }
 
-const parseSessionBlocksForQuestion = (
-  content: string,
-  question: string,
-): SessionBlock[] => {
+const parseSessionBlocksForQuestion = (content: string, question: string): SessionBlock[] => {
   const tokens = questionTokens(question)
   return splitOnSessionBoundary(content)
     .map((part) => part.trim())
@@ -1303,9 +1240,7 @@ const parseSessionBlocksForQuestion = (
 const splitOnSessionBoundary = (content: string): readonly string[] => {
   const bySessionId = content.split('\n\n---\nsession_id:')
   if (bySessionId.length > 1) {
-    return bySessionId.map((part, index) =>
-      index === 0 ? part : `---\nsession_id:${part}`,
-    )
+    return bySessionId.map((part, index) => (index === 0 ? part : `---\nsession_id:${part}`))
   }
   const byFrontmatter = content.split('\n\n---\n')
   if (byFrontmatter.length > 1) {
@@ -1333,10 +1268,7 @@ const firstFrontmatterValue = (content: string, key: string): string => {
   return ''
 }
 
-const filterAssistantTurnsForQuestion = (
-  content: string,
-  question: string,
-): string => {
+const filterAssistantTurnsForQuestion = (content: string, question: string): string => {
   const lines = content.split('\n')
   const userLines: string[] = []
   const assistantChunks: string[] = []
@@ -1451,10 +1383,7 @@ const questionTokens = (question: string): readonly string[] => {
   return out
 }
 
-const scoreChunkRelevance = (
-  chunk: string,
-  tokens: readonly string[],
-): number => {
+const scoreChunkRelevance = (chunk: string, tokens: readonly string[]): number => {
   const lower = chunk.toLowerCase()
   let score = 0
   for (const token of tokens) {
@@ -1469,9 +1398,7 @@ const buildEmbeddingText = (doc: EvalDocument): string =>
     .filter((part) => part !== '')
     .join('\n\n')
 
-const clusterPassagesBySession = (
-  passages: readonly RetrievedPassage[],
-): RetrievedPassage[] => {
+const clusterPassagesBySession = (passages: readonly RetrievedPassage[]): RetrievedPassage[] => {
   if (passages.length <= 1) return [...passages]
   const order: string[] = []
   const groups = new Map<string, RetrievedPassage[]>()
@@ -1541,9 +1468,7 @@ const dedupeSearchHits = (
     .sort((left, right) => right.score - left.score)
 }
 
-const extractDate = (
-  metadata: Readonly<Record<string, unknown>>,
-): string | undefined => {
+const extractDate = (metadata: Readonly<Record<string, unknown>>): string | undefined => {
   return metadataString(
     metadata,
     'sessionDate',
@@ -1567,9 +1492,7 @@ const metadataString = (
   return undefined
 }
 
-const toHybridMode = (
-  mode: 'bm25' | 'semantic' | 'hybrid' | 'hybrid-rerank',
-): HybridMode => {
+const toHybridMode = (mode: 'bm25' | 'semantic' | 'hybrid' | 'hybrid-rerank'): HybridMode => {
   switch (mode) {
     case 'bm25':
       return 'bm25'
@@ -1615,8 +1538,7 @@ const createBrainCacheKey = (args: {
   readonly actorId: string
   readonly extractModel: string | undefined
   readonly contextualise: boolean
-}): string =>
-  createBrainFingerprint(args).slice(0, 24)
+}): string => createBrainFingerprint(args).slice(0, 24)
 
 const readFingerprint = async (filePath: string): Promise<string | undefined> => {
   try {
@@ -1630,13 +1552,10 @@ const defaultRunId = (date: Date): string => {
   const pad = (value: number): string => String(value).padStart(2, '0')
   return `lme-${date.getUTCFullYear()}${pad(date.getUTCMonth() + 1)}${pad(
     date.getUTCDate(),
-  )}-${pad(date.getUTCHours())}${pad(date.getUTCMinutes())}${pad(
-    date.getUTCSeconds(),
-  )}`
+  )}-${pad(date.getUTCHours())}${pad(date.getUTCMinutes())}${pad(date.getUTCSeconds())}`
 }
 
-const sanitiseFileSegment = (value: string): string =>
-  value.replace(/[^A-Za-z0-9._-]/g, '_')
+const sanitiseFileSegment = (value: string): string => value.replace(/[^A-Za-z0-9._-]/g, '_')
 
 const createSampleSignature = (
   examples: readonly { readonly id: string }[],

@@ -11,11 +11,11 @@ import { homedir } from 'node:os'
 import { defineCommand, runMain } from 'citty'
 import { z } from 'zod'
 import { AGENT_META, detectAgents, resolveAgentPath } from './detect.js'
-import { runInteractivePrompts } from './prompt.js'
 import { obtainHostedToken } from './oauth.js'
+import { runInteractivePrompts } from './prompt.js'
 import {
-  type AgentId,
   ALL_AGENTS,
+  type AgentId,
   DEFAULT_ENDPOINT,
   DEFAULT_STORAGE,
   type InstallConfig,
@@ -24,13 +24,7 @@ import {
 } from './types.js'
 import { writeAgent } from './writers/index.js'
 
-const agentSchema = z.enum([
-  'claude-code',
-  'claude-desktop',
-  'cursor',
-  'windsurf',
-  'zed',
-])
+const agentSchema = z.enum(['claude-code', 'claude-desktop', 'cursor', 'windsurf', 'zed'])
 
 const modeSchema = z.enum(['local', 'hosted'])
 
@@ -43,9 +37,7 @@ const parseAgentList = (raw: string): ReadonlyArray<AgentId> => {
   for (const token of tokens) {
     const parsed = agentSchema.safeParse(token)
     if (!parsed.success) {
-      throw new Error(
-        `Unknown agent '${token}'. Supported: ${ALL_AGENTS.join(', ')}`,
-      )
+      throw new Error(`Unknown agent '${token}'. Supported: ${ALL_AGENTS.join(', ')}`)
     }
     agents.push(parsed.data)
   }
@@ -86,7 +78,7 @@ export const run = async (opts: RunOptions): Promise<ReadonlyArray<WriteOutcome>
   let config: InstallConfig
   if (nonInteractive) {
     const agents = parseAgentList(opts.agents ?? '')
-    const mode = (modeSchema.parse(opts.mode ?? 'local') as Mode)
+    const mode = modeSchema.parse(opts.mode ?? 'local') as Mode
     const storage = expandHome(opts.storage ?? DEFAULT_STORAGE)
     const endpoint = opts.endpoint ?? DEFAULT_ENDPOINT
     let token: string | undefined
@@ -200,7 +192,9 @@ const isEntry = (() => {
     const invoked = process.argv[1]
     if (!invoked) return false
     const self = new URL(import.meta.url).pathname
-    return invoked === self || invoked.endsWith('/index.js') || invoked.endsWith('jeffs-brain-install')
+    return (
+      invoked === self || invoked.endsWith('/index.js') || invoked.endsWith('jeffs-brain-install')
+    )
   } catch {
     return false
   }

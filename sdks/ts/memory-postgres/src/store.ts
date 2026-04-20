@@ -24,28 +24,29 @@
 
 import { createHash } from 'node:crypto'
 import {
-  ErrNotFound,
-  ErrReadOnly,
-  StoreError,
-  isGenerated as pathIsGenerated,
-  lastSegment,
-  matchGlob,
-  validatePath,
   type Batch,
   type BatchOptions,
   type ChangeEvent,
+  ErrNotFound,
+  ErrReadOnly,
   type EventSink,
   type FileInfo,
   type ListOpts,
   type Path,
   type Store,
+  StoreError,
   type Unsubscribe,
+  lastSegment,
+  matchGlob,
+  isGenerated as pathIsGenerated,
+  validatePath,
 } from '@jeffs-brain/memory/store'
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 const assertUuid = (value: string, label: string): void => {
-  if (!UUID_RE.test(value)) throw new StoreError(`postgres-store: ${label} must be a uuid, got ${value}`)
+  if (!UUID_RE.test(value))
+    throw new StoreError(`postgres-store: ${label} must be a uuid, got ${value}`)
 }
 
 /**
@@ -231,8 +232,9 @@ export class PostgresStore implements Store {
     // matches the semantics MemStore/FsStore expose (directory collapsing,
     // glob matching on last segment, generated filtering).
     const pattern = prefix === '' ? '%' : `${globToLike(prefix)}%`
-    const rows = await this.withTenant(async (tx) =>
-      (await tx<DocumentRow>`
+    const rows = await this.withTenant(
+      async (tx) =>
+        (await tx<DocumentRow>`
         select path, content, size, content_hash, updated_at
         from memory.documents
         where brain_id = ${this.brainId}::uuid
@@ -613,4 +615,3 @@ class PostgresBatch implements Batch {
     return rows.length > 0
   }
 }
-

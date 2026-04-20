@@ -8,6 +8,7 @@ transport so we exercise the real ``initialize`` + ``tools/list`` +
 
 from __future__ import annotations
 
+import asyncio
 import json
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -144,6 +145,74 @@ async def test_remember_then_recall(tmp_path: Path) -> None:
         recall_payload = _parse_json(recall_result.content)
         chunks = recall_payload["chunks"]
         assert isinstance(chunks, list) and len(chunks) >= 1
+
+
+@pytest.mark.anyio
+async def test_search_and_recall_honour_local_scope_and_sort(tmp_path: Path) -> None:
+    async with _session(tmp_path) as session:
+        await session.call_tool(
+            "memory_create_brain", {"name": "default", "slug": "default"}
+        )
+        await session.call_tool(
+            "memory_remember",
+            {
+                "content": "Project release checklist for this repo.",
+                "title": "Project release checklist",
+                "brain": "default",
+                "path": "memory/project/tenant-a/release-project.md",
+            },
+        )
+        await session.call_tool(
+            "memory_remember",
+            {
+                "content": "Global release checklist for every repo.",
+                "title": "Global release checklist",
+                "brain": "default",
+                "path": "memory/global/release-global.md",
+            },
+        )
+        await asyncio.sleep(0.02)
+        await session.call_tool(
+            "memory_remember",
+            {
+                "content": "Newest project release checklist for this repo.",
+                "title": "Newest project release checklist",
+                "brain": "default",
+                "path": "memory/project/tenant-a/release-project-newer.md",
+            },
+        )
+
+        search_result = await session.call_tool(
+            "memory_search",
+            {
+                "query": "release checklist",
+                "brain": "default",
+                "scope": "project",
+                "sort": "recency",
+                "top_k": 5,
+            },
+        )
+        search_payload = _parse_json(search_result.content)
+        hits = search_payload["hits"]
+        assert isinstance(hits, list)
+        assert [hit["path"] for hit in hits] == [
+            "memory/project/tenant-a/release-project-newer.md",
+            "memory/project/tenant-a/release-project.md",
+        ]
+
+        recall_result = await session.call_tool(
+            "memory_recall",
+            {
+                "query": "release checklist",
+                "brain": "default",
+                "scope": "project",
+                "top_k": 5,
+            },
+        )
+        recall_payload = _parse_json(recall_result.content)
+        chunks = recall_payload["chunks"]
+        assert isinstance(chunks, list)
+        assert all(chunk["path"].startswith("memory/project/") for chunk in chunks)
 
 
 @pytest.fixture

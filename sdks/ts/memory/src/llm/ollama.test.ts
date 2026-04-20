@@ -1,14 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from 'vitest'
-import { OllamaEmbedder } from './ollama.js'
 import type { HttpClient } from './http.js'
+import { OllamaEmbedder } from './ollama.js'
 
 type RecordedCall = { url: string; body: unknown }
 
-function makeHttp(
-  impl: (url: string, body: unknown) => { status: number; body: string },
-): { http: HttpClient; calls: RecordedCall[] } {
+function makeHttp(impl: (url: string, body: unknown) => { status: number; body: string }): {
+  http: HttpClient
+  calls: RecordedCall[]
+} {
   const calls: RecordedCall[] = []
   const http: HttpClient = {
     fetch: async (input, init) => {

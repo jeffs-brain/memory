@@ -32,9 +32,7 @@ describe('StoreBackedCursorStore', () => {
     const store = createMemStore()
     const cursor = createStoreBackedCursorStore(store)
     await cursor.set('alice', 7)
-    const raw = (
-      await store.read(toPath('memory/_cursors/alice.json'))
-    ).toString('utf8')
+    const raw = (await store.read(toPath('memory/_cursors/alice.json'))).toString('utf8')
     const parsed = JSON.parse(raw) as { cursor: number; written: string }
     expect(parsed.cursor).toBe(7)
     expect(typeof parsed.written).toBe('string')
@@ -63,9 +61,7 @@ describe('StoreBackedCursorStore', () => {
     const cursor = createStoreBackedCursorStore(store)
     await cursor.set('alice', 7)
     await cursor.set('alice', 3, { sessionId: 'session-a' })
-    const raw = (
-      await store.read(toPath('memory/_cursors/alice.json'))
-    ).toString('utf8')
+    const raw = (await store.read(toPath('memory/_cursors/alice.json'))).toString('utf8')
     const parsed = JSON.parse(raw) as {
       cursor: number
       written: string

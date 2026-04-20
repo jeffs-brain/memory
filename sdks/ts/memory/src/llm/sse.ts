@@ -39,8 +39,9 @@ export class SSEParser {
     // Split on any newline variant but keep the stream cursor advancing
     // only over fully-terminated lines; the tail (no trailing newline)
     // stays in the buffer.
-    let idx: number
-    while ((idx = this.indexOfLineEnd(this.buffer)) !== -1) {
+    for (;;) {
+      const idx = this.indexOfLineEnd(this.buffer)
+      if (idx === -1) break
       const line = this.buffer.slice(0, idx)
       // Consume the line plus its terminator (which may be 1 or 2 bytes).
       const term = this.buffer.startsWith('\r\n', idx) ? 2 : 1

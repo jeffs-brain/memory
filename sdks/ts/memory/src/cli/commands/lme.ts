@@ -5,28 +5,28 @@ import path from 'node:path'
 import { defineCommand } from 'citty'
 import {
   DEFAULT_OUT_DIR,
+  type LMEManifest,
+  type LMEReport,
+  type LMEUpstreamBundleName,
+  type LMEUpstreamDatasetName,
+  LONG_MEM_EVAL_OFFICIAL_REPO_REF,
+  type OfficialLMEScoreSummary,
   compareReports,
   fetchOfficialRepo,
   fetchUpstreamDatasets,
   loadDataset,
-  LONG_MEM_EVAL_OFFICIAL_REPO_REF,
   officialScorerScriptPath,
   resolveUpstreamDatasetPath,
   runOfficialScorer,
   runStandaloneLMEEval,
   verifyOfficialScorer,
-  type LMEManifest,
-  type LMEReport,
-  type LMEUpstreamBundleName,
-  type LMEUpstreamDatasetName,
-  type OfficialLMEScoreSummary,
 } from '../../eval/index.js'
 import {
+  CliError,
+  CliUsageError,
   buildEmbedder,
   buildProvider,
   buildReranker,
-  CliError,
-  CliUsageError,
   embedderFromEnv,
   providerFromEnvOptional,
   rerankerFromEnv,
@@ -66,29 +66,18 @@ const getEnv = (name: string): string | undefined => {
   return raw !== undefined && raw !== '' ? raw : undefined
 }
 
-const resolveOptionalString = (
-  value: unknown,
-  envName: string,
-): string | undefined => {
+const resolveOptionalString = (value: unknown, envName: string): string | undefined => {
   if (isString(value) && value !== '') return value
   return getEnv(envName)
 }
 
-const resolveRequiredString = (
-  value: unknown,
-  envName: string,
-  label: string,
-): string => {
+const resolveRequiredString = (value: unknown, envName: string, label: string): string => {
   const resolved = resolveOptionalString(value, envName)
   if (resolved !== undefined) return resolved
   throw new CliUsageError(`${label}: missing value and ${envName} is not set`)
 }
 
-const parsePositiveInt = (
-  value: unknown,
-  fallback: number,
-  label: string,
-): number => {
+const parsePositiveInt = (value: unknown, fallback: number, label: string): number => {
   if (!isString(value) || value === '') return fallback
   const parsed = Number.parseInt(value, 10)
   if (!Number.isFinite(parsed) || parsed <= 0) {
@@ -97,11 +86,7 @@ const parsePositiveInt = (
   return parsed
 }
 
-const parseNonNegativeInt = (
-  value: unknown,
-  fallback: number,
-  label: string,
-): number => {
+const parseNonNegativeInt = (value: unknown, fallback: number, label: string): number => {
   if (!isString(value) || value === '') return fallback
   const parsed = Number.parseInt(value, 10)
   if (!Number.isFinite(parsed) || parsed < 0) {
@@ -121,9 +106,7 @@ const parseBoolean = (value: unknown, fallback: boolean): boolean => {
 const parseBundle = (value: unknown): LMEUpstreamBundleName => {
   const raw = isString(value) && value !== '' ? value : 'cleaned'
   if (raw === 'cleaned' || raw === 'legacy') return raw
-  throw new CliUsageError(
-    `invalid bundle '${raw}'; expected cleaned|legacy`,
-  )
+  throw new CliUsageError(`invalid bundle '${raw}'; expected cleaned|legacy`)
 }
 
 const parseSplit = (value: unknown): LMEUpstreamDatasetName => {
@@ -133,17 +116,13 @@ const parseSplit = (value: unknown): LMEUpstreamDatasetName => {
 }
 
 const parseIngestMode = (value: unknown) => {
-  const raw =
-    resolveOptionalString(value, 'JB_LME_INGEST_MODE') ?? 'replay'
+  const raw = resolveOptionalString(value, 'JB_LME_INGEST_MODE') ?? 'replay'
   if (raw === 'bulk' || raw === 'replay' || raw === 'agentic') return raw
-  throw new CliUsageError(
-    `invalid ingest mode '${raw}'; expected bulk|replay|agentic`,
-  )
+  throw new CliUsageError(`invalid ingest mode '${raw}'; expected bulk|replay|agentic`)
 }
 
 const parseRetrievalMode = (value: unknown) => {
-  const raw =
-    resolveOptionalString(value, 'JB_LME_RETRIEVAL_MODE') ?? 'bm25'
+  const raw = resolveOptionalString(value, 'JB_LME_RETRIEVAL_MODE') ?? 'bm25'
   if (raw === 'bm25' || raw === 'semantic' || raw === 'hybrid' || raw === 'hybrid-rerank') {
     return raw
   }
@@ -152,17 +131,9 @@ const parseRetrievalMode = (value: unknown) => {
   )
 }
 
-const parseMetricModel = (
-  value: unknown,
-): 'gpt-4o' | 'gpt-4o-mini' | 'llama-3.1-70b-instruct' => {
-  const raw =
-    resolveOptionalString(value, 'JB_LME_METRIC_MODEL') ??
-    DEFAULT_METRIC_MODEL
-  if (
-    raw === 'gpt-4o' ||
-    raw === 'gpt-4o-mini' ||
-    raw === 'llama-3.1-70b-instruct'
-  ) {
+const parseMetricModel = (value: unknown): 'gpt-4o' | 'gpt-4o-mini' | 'llama-3.1-70b-instruct' => {
+  const raw = resolveOptionalString(value, 'JB_LME_METRIC_MODEL') ?? DEFAULT_METRIC_MODEL
+  if (raw === 'gpt-4o' || raw === 'gpt-4o-mini' || raw === 'llama-3.1-70b-instruct') {
     return raw
   }
   throw new CliUsageError(
@@ -172,7 +143,10 @@ const parseMetricModel = (
 
 const parseSplits = (value: unknown): readonly LMEUpstreamDatasetName[] => {
   const raw = isString(value) && value !== '' ? value : DEFAULT_SPLITS
-  const parts = raw.split(',').map((part) => part.trim()).filter(Boolean)
+  const parts = raw
+    .split(',')
+    .map((part) => part.trim())
+    .filter(Boolean)
   const out: LMEUpstreamDatasetName[] = []
   for (const part of parts) {
     if (part !== 'oracle' && part !== 's' && part !== 'm') {
@@ -188,7 +162,10 @@ const parseSplits = (value: unknown): readonly LMEUpstreamDatasetName[] => {
 
 const parseCsv = (value: unknown): readonly string[] | undefined => {
   if (!isString(value) || value === '') return undefined
-  const items = value.split(',').map((part) => part.trim()).filter(Boolean)
+  const items = value
+    .split(',')
+    .map((part) => part.trim())
+    .filter(Boolean)
   return items.length > 0 ? items : undefined
 }
 
@@ -198,21 +175,17 @@ const resolveCacheDir = (value: unknown): string =>
 const resolveOutDir = (value: unknown): string =>
   path.resolve(resolveOptionalString(value, 'JB_LME_OUT_DIR') ?? DEFAULT_OUT_DIR)
 
-const defaultDatasetDir = (
-  cacheDir: string,
-  bundle: LMEUpstreamBundleName,
-): string => path.join(cacheDir, 'datasets', bundle)
+const defaultDatasetDir = (cacheDir: string, bundle: LMEUpstreamBundleName): string =>
+  path.join(cacheDir, 'datasets', bundle)
 
-const defaultRepoDir = (cacheDir: string): string =>
-  path.join(cacheDir, 'upstream', 'LongMemEval')
+const defaultRepoDir = (cacheDir: string): string => path.join(cacheDir, 'upstream', 'LongMemEval')
 
 const readJsonFile = async <T>(filePath: string): Promise<T> => {
   const raw = await readFile(filePath, 'utf8')
   return JSON.parse(raw) as T
 }
 
-const readReport = async (filePath: string): Promise<LMEReport> =>
-  readJsonFile<LMEReport>(filePath)
+const readReport = async (filePath: string): Promise<LMEReport> => readJsonFile<LMEReport>(filePath)
 
 const readManifest = async (filePath: string): Promise<ParsedManifest> =>
   readJsonFile<ParsedManifest>(filePath)
@@ -226,10 +199,7 @@ const latestRunDir = async (outDir: string): Promise<string> => {
   }
 }
 
-const resolveReportPath = async (
-  reportArg: unknown,
-  outDirArg: unknown,
-): Promise<string> => {
+const resolveReportPath = async (reportArg: unknown, outDirArg: unknown): Promise<string> => {
   const explicit = resolveOptionalString(reportArg, 'JB_LME_REPORT')
   if (explicit !== undefined) return path.resolve(explicit)
   const outDir = resolveOutDir(outDirArg)
@@ -248,11 +218,9 @@ const resolveManifestPath = async (
 
 const buildProviders = () => {
   const providerSettings = providerFromEnvOptional()
-  const provider =
-    providerSettings !== undefined ? buildProvider(providerSettings) : undefined
+  const provider = providerSettings !== undefined ? buildProvider(providerSettings) : undefined
   const embedderSettings = embedderFromEnv()
-  const embedder =
-    embedderSettings !== undefined ? buildEmbedder(embedderSettings) : undefined
+  const embedder = embedderSettings !== undefined ? buildEmbedder(embedderSettings) : undefined
   const rerankerSettings = rerankerFromEnv()
   const reranker =
     rerankerSettings !== undefined
@@ -314,8 +282,7 @@ const fetchCommand = defineCommand({
         defaultDatasetDir(cacheDir, bundle),
     )
     const repoDir = path.resolve(
-      resolveOptionalString(args.repoDir, 'JB_LME_REPO_DIR') ??
-        defaultRepoDir(cacheDir),
+      resolveOptionalString(args.repoDir, 'JB_LME_REPO_DIR') ?? defaultRepoDir(cacheDir),
     )
     const skipRepo = parseBoolean(args.skipRepo, false)
     const skipDataset = parseBoolean(args.skipDataset, false)
@@ -488,29 +455,21 @@ const runCommand = defineCommand({
         ),
     )
     const repoDir = path.resolve(
-      resolveOptionalString(args.repoDir, 'JB_LME_REPO_DIR') ??
-        defaultRepoDir(cacheDir),
+      resolveOptionalString(args.repoDir, 'JB_LME_REPO_DIR') ?? defaultRepoDir(cacheDir),
     )
     const { provider, embedder, reranker } = buildProviders()
     const ingestMode = parseIngestMode(args.ingestMode)
     if (ingestMode !== 'bulk' && provider === undefined) {
-      throw new CliUsageError(
-        'lme run: replay and agentic modes require JB_LLM_PROVIDER',
-      )
+      throw new CliUsageError('lme run: replay and agentic modes require JB_LLM_PROVIDER')
     }
     if (!(await pathExists(datasetPath))) {
-        throw new CliUsageError(
-          `lme run: dataset not found at ${datasetPath}; run \`memory eval lme fetch\` first or pass --dataset`,
-        )
+      throw new CliUsageError(
+        `lme run: dataset not found at ${datasetPath}; run \`memory eval lme fetch\` first or pass --dataset`,
+      )
     }
 
-    const compareReportPath = resolveOptionalString(
-      args.compareReport,
-      'JB_LME_COMPARE_REPORT',
-    )
-    const questionCategories = parseCsv(
-      resolveOptionalString(args.categories, 'JB_LME_CATEGORIES'),
-    )
+    const compareReportPath = resolveOptionalString(args.compareReport, 'JB_LME_COMPARE_REPORT')
+    const questionCategories = parseCsv(resolveOptionalString(args.categories, 'JB_LME_CATEGORIES'))
     const outcome = await runStandaloneLMEEval({
       datasetPath,
       bundle,
@@ -538,16 +497,8 @@ const runCommand = defineCommand({
         'lme run',
       ),
       judgeConcurrency: parsePositiveInt(args.judgeConcurrency, 8, 'lme run'),
-      embeddingBatchSize: parsePositiveInt(
-        args.embeddingBatchSize,
-        8,
-        'lme run',
-      ),
-      readerBudgetChars: parsePositiveInt(
-        args.readerBudgetChars,
-        100000,
-        'lme run',
-      ),
+      embeddingBatchSize: parsePositiveInt(args.embeddingBatchSize, 8, 'lme run'),
+      readerBudgetChars: parsePositiveInt(args.readerBudgetChars, 100000, 'lme run'),
       ...(questionCategories !== undefined ? { questionCategories } : {}),
       outDir,
       cacheDir,
@@ -557,10 +508,8 @@ const runCommand = defineCommand({
       ...(resolveOptionalString(args.actorId, 'JB_LME_ACTOR_ID') !== undefined
         ? { actorId: resolveRequiredString(args.actorId, 'JB_LME_ACTOR_ID', 'lme run') }
         : {}),
-      ...(resolveOptionalString(
-        args.contextualiseCacheDir,
-        'JB_CONTEXTUALISE_CACHE_DIR',
-      ) !== undefined
+      ...(resolveOptionalString(args.contextualiseCacheDir, 'JB_CONTEXTUALISE_CACHE_DIR') !==
+      undefined
         ? {
             contextualiseCacheDir: resolveRequiredString(
               args.contextualiseCacheDir,
@@ -574,23 +523,15 @@ const runCommand = defineCommand({
       ...(reranker !== undefined ? { reranker } : {}),
       ...(resolveOptionalString(args.readerModel, 'JB_LME_READER_MODEL') !== undefined
         ? {
-            readerModel: resolveRequiredString(
-              args.readerModel,
-              'JB_LME_READER_MODEL',
-              'lme run',
-            ),
+            readerModel: resolveRequiredString(args.readerModel, 'JB_LME_READER_MODEL', 'lme run'),
           }
         : {}),
       ...(resolveOptionalString(args.judgeModel, 'JB_LME_JUDGE_MODEL') !== undefined
         ? {
-            judgeModel: resolveRequiredString(
-              args.judgeModel,
-              'JB_LME_JUDGE_MODEL',
-              'lme run',
-            ),
+            judgeModel: resolveRequiredString(args.judgeModel, 'JB_LME_JUDGE_MODEL', 'lme run'),
           }
         : {}),
-      ...(await pathExists(officialScorerScriptPath(repoDir))
+      ...((await pathExists(officialScorerScriptPath(repoDir)))
         ? { officialRepo: await fetchOfficialRepo({ dir: repoDir }) }
         : {}),
       ...(compareReportPath !== undefined
@@ -686,8 +627,7 @@ const scoreCommand = defineCommand({
           path.join(path.dirname(reportPath), 'predictions.jsonl'),
       )
       const datasetPath = path.resolve(
-        resolveOptionalString(args.dataset, 'JB_LME_DATASET') ??
-          manifest.dataset.path,
+        resolveOptionalString(args.dataset, 'JB_LME_DATASET') ?? manifest.dataset.path,
       )
       const official = await runOfficialScorer({
         repoDir,
@@ -737,10 +677,7 @@ const compareCommand = defineCommand({
     const rightPath = path.resolve(
       resolveRequiredString(args.right, 'JB_LME_RIGHT_REPORT', 'lme compare'),
     )
-    const comparison = compareReports(
-      await readReport(leftPath),
-      await readReport(rightPath),
-    )
+    const comparison = compareReports(await readReport(leftPath), await readReport(rightPath))
     process.stdout.write(`${JSON.stringify(comparison)}\n`)
   },
 })
@@ -794,15 +731,10 @@ const doctorCommand = defineCommand({
     const cacheDir = resolveCacheDir(args.cacheDir)
     const datasetPath = path.resolve(
       resolveOptionalString(args.dataset, 'JB_LME_DATASET') ??
-        resolveUpstreamDatasetPath(
-          bundle,
-          split,
-          defaultDatasetDir(cacheDir, bundle),
-        ),
+        resolveUpstreamDatasetPath(bundle, split, defaultDatasetDir(cacheDir, bundle)),
     )
     const repoDir = path.resolve(
-      resolveOptionalString(args.repoDir, 'JB_LME_REPO_DIR') ??
-        defaultRepoDir(cacheDir),
+      resolveOptionalString(args.repoDir, 'JB_LME_REPO_DIR') ?? defaultRepoDir(cacheDir),
     )
     const outDir = resolveOutDir(args.outDir)
     const checks: DoctorCheck[] = []
@@ -836,9 +768,7 @@ const doctorCommand = defineCommand({
         name: 'provider',
         ok: true,
         detail:
-          provider !== undefined
-            ? 'provider configuration is valid'
-            : 'JB_LLM_PROVIDER not set',
+          provider !== undefined ? 'provider configuration is valid' : 'JB_LLM_PROVIDER not set',
         ...(provider !== undefined
           ? { value: { kind: provider.kind, model: provider.model } }
           : {}),
@@ -858,9 +788,7 @@ const doctorCommand = defineCommand({
         name: 'embedder',
         ok: true,
         detail:
-          embedder !== undefined
-            ? 'embedder configuration is valid'
-            : 'JB_EMBED_PROVIDER not set',
+          embedder !== undefined ? 'embedder configuration is valid' : 'JB_EMBED_PROVIDER not set',
         ...(embedder !== undefined ? { value: embedder } : {}),
       })
     } catch (err) {
@@ -878,9 +806,7 @@ const doctorCommand = defineCommand({
         name: 'reranker',
         ok: true,
         detail:
-          reranker !== undefined
-            ? 'reranker configuration is valid'
-            : 'JB_RERANK_PROVIDER not set',
+          reranker !== undefined ? 'reranker configuration is valid' : 'JB_RERANK_PROVIDER not set',
         ...(reranker !== undefined ? { value: reranker } : {}),
       })
     } catch (err) {

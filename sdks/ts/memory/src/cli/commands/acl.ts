@@ -20,10 +20,10 @@ import type {
 } from '../../acl/index.js'
 import { resourceKey, subjectKey, tupleKey } from '../../acl/index.js'
 import {
-  createInMemoryTupleStore,
-  createRbacProvider,
   type RbacRole,
   type RbacTupleStore,
+  createInMemoryTupleStore,
+  createRbacProvider,
 } from '../../acl/rbac.js'
 import { CliUsageError, resolveBrainDir } from '../config.js'
 
@@ -35,8 +35,7 @@ const isResourceType = (v: string): v is ResourceType =>
 const isSubjectKind = (v: string): v is SubjectKind =>
   v === 'user' || v === 'api_key' || v === 'service'
 
-const isRole = (v: string): v is RbacRole =>
-  v === 'admin' || v === 'writer' || v === 'reader'
+const isRole = (v: string): v is RbacRole => v === 'admin' || v === 'writer' || v === 'reader'
 
 const parseRef = (
   raw: string,
@@ -45,16 +44,12 @@ const parseRef = (
 ): { kind: string; id: string } => {
   const idx = raw.indexOf(':')
   if (idx === -1) {
-    throw new CliUsageError(
-      `${what} must be in the form <kind>:<id>, got '${raw}'`,
-    )
+    throw new CliUsageError(`${what} must be in the form <kind>:<id>, got '${raw}'`)
   }
   const kind = raw.slice(0, idx)
   const id = raw.slice(idx + 1)
   if (!validate(kind) || id === '') {
-    throw new CliUsageError(
-      `${what} has unsupported kind '${kind}' or empty id`,
-    )
+    throw new CliUsageError(`${what} has unsupported kind '${kind}' or empty id`)
   }
   return { kind, id }
 }
@@ -69,7 +64,9 @@ const parseResource = (raw: string): Resource => {
   return { type: kind as ResourceType, id }
 }
 
-const loadStore = async (brainDir: string): Promise<{
+const loadStore = async (
+  brainDir: string,
+): Promise<{
   store: RbacTupleStore
   save: () => Promise<void>
   all: () => Tuple[]
@@ -119,10 +116,10 @@ const loadStore = async (brainDir: string): Promise<{
 const isTuple = (row: unknown): row is Tuple => {
   if (row === null || typeof row !== 'object') return false
   const r = row as Record<string, unknown>
-  const sub = r['subject']
-  const res = r['resource']
+  const sub = r.subject
+  const res = r.resource
   return (
-    typeof r['relation'] === 'string' &&
+    typeof r.relation === 'string' &&
     sub !== null &&
     typeof sub === 'object' &&
     res !== null &&
@@ -148,15 +145,11 @@ const grantCommand = defineCommand({
   },
   run: async ({ args }) => {
     if (!isRole(String(args.role))) {
-      throw new CliUsageError(
-        `acl grant: invalid role '${String(args.role)}'`,
-      )
+      throw new CliUsageError(`acl grant: invalid role '${String(args.role)}'`)
     }
     const subject = parseSubject(String(args.subject))
     const resource = parseResource(String(args.resource))
-    const brainDir = resolveBrainDir(
-      typeof args.brain === 'string' ? args.brain : undefined,
-    )
+    const brainDir = resolveBrainDir(typeof args.brain === 'string' ? args.brain : undefined)
     const loaded = await loadStore(brainDir)
     const provider = createRbacProvider({ store: loaded.store })
     await provider.write?.({
@@ -189,9 +182,7 @@ const revokeCommand = defineCommand({
     }
     const subject = parseSubject(String(args.subject))
     const resource = parseResource(String(args.resource))
-    const brainDir = resolveBrainDir(
-      typeof args.brain === 'string' ? args.brain : undefined,
-    )
+    const brainDir = resolveBrainDir(typeof args.brain === 'string' ? args.brain : undefined)
     const loaded = await loadStore(brainDir)
     const provider = createRbacProvider({ store: loaded.store })
     await provider.write?.({
@@ -208,9 +199,7 @@ const listAclCommand = defineCommand({
     brain: { type: 'string', description: 'Brain directory' },
   },
   run: async ({ args }) => {
-    const brainDir = resolveBrainDir(
-      typeof args.brain === 'string' ? args.brain : undefined,
-    )
+    const brainDir = resolveBrainDir(typeof args.brain === 'string' ? args.brain : undefined)
     const loaded = await loadStore(brainDir)
     process.stdout.write(`${JSON.stringify({ tuples: loaded.all() })}\n`)
   },

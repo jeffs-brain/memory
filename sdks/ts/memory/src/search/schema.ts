@@ -145,10 +145,7 @@ CREATE INDEX IF NOT EXISTS idx_knowledge_vec_map_model ON knowledge_vec_map(mode
  * The rank INSERT is guarded: FTS5 stores it in its config shadow table so
  * repeated applications simply overwrite the same row.
  */
-export const applyDDL = (
-  exec: (sql: string) => void,
-  vectorDim: number,
-): void => {
+export const applyDDL = (exec: (sql: string) => void, vectorDim: number): void => {
   exec(META_SCHEMA)
   exec(CHUNK_SCHEMA)
   exec(FTS_SCHEMA)
@@ -164,9 +161,7 @@ export const applyDDL = (
     if (!msg.includes('duplicate column name')) throw err
   }
   exec('CREATE INDEX IF NOT EXISTS idx_knowledge_vec_map_model ON knowledge_vec_map(model)')
-  exec(
-    `INSERT INTO knowledge_fts(knowledge_fts, rank) VALUES('rank', ${buildRankExpr()})`,
-  )
+  exec(`INSERT INTO knowledge_fts(knowledge_fts, rank) VALUES('rank', ${buildRankExpr()})`)
   exec(
     `INSERT INTO knowledge_meta(key, value) VALUES ('schema_version', '${SCHEMA_VERSION}') ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
   )

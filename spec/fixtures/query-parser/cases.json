@@ -49,10 +49,7 @@
       "input": "kube* cluster",
       "expectedAst": {
         "raw": "kube* cluster",
-        "tokens": [
-          { "kind": "prefix", "text": "kube" },
-          { "kind": "term", "text": "cluster" }
-        ],
+        "tokens": [{ "kind": "prefix", "text": "kube" }, { "kind": "term", "text": "cluster" }],
         "hasOperators": false
       }
     },
@@ -61,7 +58,7 @@
       "input": "cafe\u0301",
       "expectedAst": {
         "raw": "caf\u00e9",
-        "tokens": [ { "kind": "term", "text": "caf\u00e9" } ],
+        "tokens": [{ "kind": "term", "text": "caf\u00e9" }],
         "hasOperators": false
       }
     },
@@ -70,7 +67,7 @@
       "input": "hello\u200bworld",
       "expectedAst": {
         "raw": "helloworld",
-        "tokens": [ { "kind": "term", "text": "helloworld" } ],
+        "tokens": [{ "kind": "term", "text": "helloworld" }],
         "hasOperators": false
       }
     },
@@ -88,7 +85,7 @@
       "input": "\"to do list\"",
       "expectedAst": {
         "raw": "\"to do list\"",
-        "tokens": [ { "kind": "phrase", "text": "to do list" } ],
+        "tokens": [{ "kind": "phrase", "text": "to do list" }],
         "hasOperators": true
       }
     },
@@ -138,7 +135,7 @@
       "input": "Can you recommend a show or movie for me to watch tonight?",
       "expectedAst": {
         "raw": "Can you recommend a show or movie for me to watch tonight?",
-        "tokens": [ { "kind": "term", "text": "movie" } ],
+        "tokens": [{ "kind": "term", "text": "movie" }],
         "hasOperators": false
       }
     },
@@ -160,7 +157,7 @@
       "input": "What types of doctors have I seen?",
       "expectedAst": {
         "raw": "What types of doctors have I seen?",
-        "tokens": [ { "kind": "term", "text": "doctors" } ],
+        "tokens": [{ "kind": "term", "text": "doctors" }],
         "hasOperators": false
       }
     }

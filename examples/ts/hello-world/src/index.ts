@@ -10,14 +10,14 @@
  * 3. Run a BM25 query and print the top-k matches.
  */
 
-import { readFile, mkdir } from 'node:fs/promises'
+import { mkdir, readFile } from 'node:fs/promises'
 import { basename, resolve } from 'node:path'
 import {
+  type SqliteSearchIndexChunk,
   chunkMarkdown,
   createFsStore,
   createSearchIndex,
   toPath,
-  type SqliteSearchIndexChunk,
 } from '@jeffs-brain/memory'
 
 const BRAIN_ID = 'hello-world'

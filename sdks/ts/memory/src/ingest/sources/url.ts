@@ -7,7 +7,7 @@
  * elements into markdown equivalents.
  */
 
-import type { SourceFetchLike, LoadedSource, SourceLoadOptions } from './types.js'
+import type { LoadedSource, SourceFetchLike, SourceLoadOptions } from './types.js'
 
 export type LoadUrlOptions = SourceLoadOptions & {
   readonly fetch?: SourceFetchLike
@@ -70,7 +70,10 @@ export const htmlToMarkdown = (html: string): string => {
     return `\n\n${hashes} ${stripTags(String(inner)).trim()}\n\n`
   })
   // Lists
-  out = out.replace(/<li[^>]*>([\s\S]*?)<\/li>/gi, (_, inner) => `\n- ${stripTags(String(inner)).trim()}`)
+  out = out.replace(
+    /<li[^>]*>([\s\S]*?)<\/li>/gi,
+    (_, inner) => `\n- ${stripTags(String(inner)).trim()}`,
+  )
   out = out.replace(/<\/(ul|ol)>/gi, '\n')
   // Blockquotes
   out = out.replace(/<blockquote[^>]*>([\s\S]*?)<\/blockquote>/gi, (_, inner) => {
@@ -85,7 +88,10 @@ export const htmlToMarkdown = (html: string): string => {
     const body = stripTags(String(inner))
     return `\n\n\`\`\`\n${body.trim()}\n\`\`\`\n\n`
   })
-  out = out.replace(/<code[^>]*>([\s\S]*?)<\/code>/gi, (_, inner) => `\`${stripTags(String(inner)).trim()}\``)
+  out = out.replace(
+    /<code[^>]*>([\s\S]*?)<\/code>/gi,
+    (_, inner) => `\`${stripTags(String(inner)).trim()}\``,
+  )
   // Paragraphs / breaks
   out = out.replace(/<br\s*\/?>(\s*)/gi, '\n')
   out = out.replace(/<\/p>/gi, '\n\n')
@@ -139,14 +145,12 @@ export const fetchUrlSource = async (
   }
 }
 
-export const loadUrl = async (
-  url: string,
-  opts: LoadUrlOptions = {},
-): Promise<LoadedSource> => {
+export const loadUrl = async (url: string, opts: LoadUrlOptions = {}): Promise<LoadedSource> => {
   const fetched = await fetchUrlSource(url, opts)
   const contentType = fetched.mime
   const buf = fetched.content
-  const isHtml = contentType.includes('html') || /<html[\s>]/i.test(buf.slice(0, 512).toString('utf8'))
+  const isHtml =
+    contentType.includes('html') || /<html[\s>]/i.test(buf.slice(0, 512).toString('utf8'))
   if (!isHtml) {
     return {
       content: buf,

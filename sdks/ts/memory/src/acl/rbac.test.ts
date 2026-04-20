@@ -2,13 +2,7 @@
 
 import { describe, expect, it } from 'vitest'
 import type { Resource, Subject, Tuple } from './index.js'
-import {
-  createRbacProvider,
-  denyTuple,
-  grantTuple,
-  parentTuple,
-  type RbacRole,
-} from './rbac.js'
+import { type RbacRole, createRbacProvider, denyTuple, grantTuple, parentTuple } from './rbac.js'
 
 const user = (id: string): Subject => ({ kind: 'user', id })
 const workspace = (id: string): Resource => ({ type: 'workspace', id })
@@ -27,10 +21,7 @@ describe('rbac adapter', () => {
     const alice = user('alice')
     const ws = workspace('acme')
     const br = brain('notes')
-    const acl = await seed([
-      parentTuple(br, ws),
-      grantTuple(alice, 'admin', ws),
-    ])
+    const acl = await seed([parentTuple(br, ws), grantTuple(alice, 'admin', ws)])
 
     const result = await acl.check(alice, 'admin', br)
     expect(result.allowed).toBe(true)

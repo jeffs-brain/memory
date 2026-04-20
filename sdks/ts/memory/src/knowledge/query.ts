@@ -7,7 +7,7 @@
  */
 
 import type { Logger, Provider } from '../llm/index.js'
-import { pathUnder, toPath, type Path, type Store } from '../store/index.js'
+import { type Path, type Store, pathUnder, toPath } from '../store/index.js'
 import { parseFrontmatter } from './frontmatter.js'
 import { WIKI_PREFIX } from './promote.js'
 import type {
@@ -63,8 +63,14 @@ export const createQuery = (deps: QueryDeps) => {
     }
 
     const ranked =
-      (await retrieveArticles({ store, retriever, question, maxSources, sort: opts.sort, logger })) ??
-      (await rankWikiArticles({ store, question, sort: opts.sort, logger, maxSources }))
+      (await retrieveArticles({
+        store,
+        retriever,
+        question,
+        maxSources,
+        sort: opts.sort,
+        logger,
+      })) ?? (await rankWikiArticles({ store, question, sort: opts.sort, logger, maxSources }))
 
     if (ranked.articles.length === 0) {
       logger.debug('query: no relevant articles found', {
@@ -135,7 +141,9 @@ const retrieveArticles = async (input: {
     })
     const articles = await hydrateRetrievedArticles(input.store, response.chunks, input.sort)
     if (articles.length === 0) {
-      input.logger.warn('query: retrieval returned no usable wiki articles, falling back to wiki scan')
+      input.logger.warn(
+        'query: retrieval returned no usable wiki articles, falling back to wiki scan',
+      )
       return undefined
     }
     return {
@@ -196,9 +204,14 @@ const collectWikiArticles = async (store: Store): Promise<readonly QueryArticle[
     const raw = (await store.read(entry.path)).toString('utf8')
     const parsed = parseFrontmatter(raw)
     const title =
-      parsed.frontmatter.title.trim() !== '' ? parsed.frontmatter.title.trim() : wikiLinkPath(entry.path)
+      parsed.frontmatter.title.trim() !== ''
+        ? parsed.frontmatter.title.trim()
+        : wikiLinkPath(entry.path)
     const summary = parsed.frontmatter.summary.trim()
-    const modified = parsed.frontmatter.modified !== undefined ? parseIsoDate(parsed.frontmatter.modified) : entry.modTime
+    const modified =
+      parsed.frontmatter.modified !== undefined
+        ? parseIsoDate(parsed.frontmatter.modified)
+        : entry.modTime
     const body = parsed.body.trim()
     out.push({
       path: entry.path,
@@ -238,7 +251,8 @@ const hydrateRetrievedArticles = async (
     if (
       current === undefined ||
       candidate.score > current.score ||
-      (candidate.score === current.score && candidate.modified.getTime() > current.modified.getTime())
+      (candidate.score === current.score &&
+        candidate.modified.getTime() > current.modified.getTime())
     ) {
       bestByPath.set(chunk.path, candidate)
     }
@@ -251,11 +265,14 @@ const hydrateRetrievedArticles = async (
       const parsed = parseFrontmatter(raw.toString('utf8'))
       return {
         path: path as Path,
-        title: parsed.frontmatter.title.trim() !== '' ? parsed.frontmatter.title.trim() : meta.title,
+        title:
+          parsed.frontmatter.title.trim() !== '' ? parsed.frontmatter.title.trim() : meta.title,
         summary: parsed.frontmatter.summary.trim(),
         body: parsed.body.trim(),
         modified:
-          parsed.frontmatter.modified !== undefined ? parseIsoDate(parsed.frontmatter.modified) : meta.modified,
+          parsed.frontmatter.modified !== undefined
+            ? parseIsoDate(parsed.frontmatter.modified)
+            : meta.modified,
         score: meta.score,
       } satisfies QueryArticle
     }),
@@ -286,7 +303,10 @@ const rankArticles = (
   return scored
 }
 
-const orderForPrompt = (articles: readonly QueryArticle[], sort: QuerySortMode | undefined): QueryArticle[] => {
+const orderForPrompt = (
+  articles: readonly QueryArticle[],
+  sort: QuerySortMode | undefined,
+): QueryArticle[] => {
   const ordered = [...articles]
   ordered.sort((a, b) => {
     const dateDiff = a.modified.getTime() - b.modified.getTime()

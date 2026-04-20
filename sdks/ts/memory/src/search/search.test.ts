@@ -16,7 +16,7 @@
  */
 
 import { afterEach, describe, expect, it } from 'vitest'
-import { createSearchIndex, type SearchIndex } from './index.js'
+import { type SearchIndex, createSearchIndex } from './index.js'
 
 const DIM = 1024
 
@@ -31,10 +31,15 @@ function syntheticVector(seed: number, dim = DIM): Float32Array {
   }
   // L2 normalise so cosine distance maths lines up with our docs.
   let norm = 0
-  for (let i = 0; i < dim; i += 1) norm += out[i]! * out[i]!
+  for (let i = 0; i < dim; i += 1) {
+    const value = out[i] ?? 0
+    norm += value * value
+  }
   norm = Math.sqrt(norm)
   if (norm > 0) {
-    for (let i = 0; i < dim; i += 1) out[i] = out[i]! / norm
+    for (let i = 0; i < dim; i += 1) {
+      out[i] = (out[i] ?? 0) / norm
+    }
   }
   return out
 }
@@ -44,12 +49,15 @@ function perturb(vec: Float32Array, magnitude: number): Float32Array {
   let norm = 0
   for (let i = 0; i < vec.length; i += 1) {
     const noise = (Math.sin(i * 12.9898) + 1) * magnitude
-    out[i] = vec[i]! + noise
-    norm += out[i]! * out[i]!
+    const value = (vec[i] ?? 0) + noise
+    out[i] = value
+    norm += value * value
   }
   norm = Math.sqrt(norm)
   if (norm > 0) {
-    for (let i = 0; i < vec.length; i += 1) out[i] = out[i]! / norm
+    for (let i = 0; i < vec.length; i += 1) {
+      out[i] = (out[i] ?? 0) / norm
+    }
   }
   return out
 }
@@ -78,9 +86,13 @@ describe('createSearchIndex', () => {
     const second = await createSearchIndex({ connection: first.db, vectorDim: DIM })
     indices.push(second)
     // Verify the FTS and vector tables exist exactly once.
-    const tables = (first.db
-      .prepare("SELECT name FROM sqlite_master WHERE type IN ('table','index') AND name LIKE 'knowledge_%'")
-      .all() as Array<{ name: string }>).map((r) => r.name)
+    const tables = (
+      first.db
+        .prepare(
+          "SELECT name FROM sqlite_master WHERE type IN ('table','index') AND name LIKE 'knowledge_%'",
+        )
+        .all() as Array<{ name: string }>
+    ).map((r) => r.name)
     expect(tables).toContain('knowledge_chunks')
     expect(tables).toContain('knowledge_fts')
     expect(tables).toContain('knowledge_vectors')
@@ -124,9 +136,11 @@ describe('BM25 weight ordering', () => {
     const contentResult = results.find((r) => r.chunk.id === 'content-hit')
     expect(titleResult).toBeDefined()
     expect(contentResult).toBeDefined()
-    expect(titleResult!.score).toBeLessThan(contentResult!.score)
+    expect(titleResult?.score).toBeLessThan(contentResult?.score)
     // And the ordering in the returned array matches: title first.
-    const firstMatching = results.find((r) => r.chunk.id === 'title-hit' || r.chunk.id === 'content-hit')
+    const firstMatching = results.find(
+      (r) => r.chunk.id === 'title-hit' || r.chunk.id === 'content-hit',
+    )
     expect(firstMatching?.chunk.id).toBe('title-hit')
   })
 
@@ -174,9 +188,9 @@ describe('vector search', () => {
     const query = perturb(vB, 0.001)
     const results = idx.searchVector(query, 3)
     expect(results).toHaveLength(3)
-    expect(results[0]!.chunk.id).toBe('b')
+    expect(results[0]?.chunk.id).toBe('b')
     // Distance to the nearest should be strictly less than to the others.
-    expect(results[0]!.distance).toBeLessThan(results[1]!.distance)
+    expect(results[0]?.distance).toBeLessThan(results[1]?.distance)
   })
 })
 
@@ -200,14 +214,14 @@ describe('roundtrip', () => {
     const bm25 = idx.searchBM25('widgets', 50)
     expect(bm25.length).toBeGreaterThanOrEqual(50)
 
-    const nearest = idx.searchVector(chunks[42]!.embedding, 5)
-    expect(nearest[0]!.chunk.id).toBe('chunk-42')
+    const nearest = idx.searchVector(chunks[42]?.embedding, 5)
+    expect(nearest[0]?.chunk.id).toBe('chunk-42')
 
     // Spot-check hydration
     const c = idx.getChunk('chunk-7')
     expect(c).toBeDefined()
-    expect(c!.title).toBe('Document number 7')
-    expect(c!.tags).toEqual(['batch', 'parity-1'])
+    expect(c?.title).toBe('Document number 7')
+    expect(c?.tags).toEqual(['batch', 'parity-1'])
   })
 })
 
@@ -241,13 +255,15 @@ describe('deleteByPath', () => {
 
     // Prove they are all present first.
     expect(idx.searchBM25('widgets', 10)).toHaveLength(3)
-    expect(idx.searchVector(syntheticVector(222), 5).some((r) => r.chunk.id === 'goner-1')).toBe(true)
+    expect(idx.searchVector(syntheticVector(222), 5).some((r) => r.chunk.id === 'goner-1')).toBe(
+      true,
+    )
 
     idx.deleteByPath('goner.md')
 
     const bm25 = idx.searchBM25('widgets', 10)
     expect(bm25).toHaveLength(1)
-    expect(bm25[0]!.chunk.id).toBe('keep')
+    expect(bm25[0]?.chunk.id).toBe('keep')
 
     const vec = idx.searchVector(syntheticVector(222), 5)
     expect(vec.some((r) => r.chunk.id.startsWith('goner'))).toBe(false)

@@ -4,9 +4,9 @@ import { execSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { toPath } from '@jeffs-brain/memory/store'
 import postgres from 'postgres'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { toPath } from '@jeffs-brain/memory/store'
 import { createPostgresStore } from './store.js'
 import type { PgSql } from './store.js'
 
@@ -43,10 +43,7 @@ maybe('PostgresStore (testcontainers)', () => {
     superSql = postgres(uri, { max: 2, prepare: false })
 
     const here = path.dirname(fileURLToPath(import.meta.url))
-    const migration = readFileSync(
-      path.join(here, '..', 'migrations', '0001_init.sql'),
-      'utf8',
-    )
+    const migration = readFileSync(path.join(here, '..', 'migrations', '0001_init.sql'), 'utf8')
     await superSql.unsafe(migration).simple()
 
     // Seed tenants + brains as superuser.

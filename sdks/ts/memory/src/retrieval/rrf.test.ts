@@ -10,6 +10,11 @@
 import { describe, expect, it } from 'vitest'
 import { RRF_DEFAULT_K, reciprocalRankFusion } from './rrf.js'
 
+const expectDefined = <T>(value: T | undefined, message: string): T => {
+  if (value === undefined) throw new Error(message)
+  return value
+}
+
 describe('reciprocalRankFusion', () => {
   it('produces scores matching the hand-computed RRF formula', () => {
     // bm25: a, b, c   vector: b, a, d
@@ -40,10 +45,10 @@ describe('reciprocalRankFusion', () => {
     const expectD = 1 / 63
 
     const byId = new Map(fused.map((r) => [r.id, r]))
-    expect(byId.get('a')!.score).toBeCloseTo(expectA, 12)
-    expect(byId.get('b')!.score).toBeCloseTo(expectB, 12)
-    expect(byId.get('c')!.score).toBeCloseTo(expectC, 12)
-    expect(byId.get('d')!.score).toBeCloseTo(expectD, 12)
+    expect(byId.get('a')?.score).toBeCloseTo(expectA, 12)
+    expect(byId.get('b')?.score).toBeCloseTo(expectB, 12)
+    expect(byId.get('c')?.score).toBeCloseTo(expectC, 12)
+    expect(byId.get('d')?.score).toBeCloseTo(expectD, 12)
   })
 
   it('preserves title and summary from the first list that provided them', () => {
@@ -60,13 +65,19 @@ describe('reciprocalRankFusion', () => {
     ]
 
     const fused = reciprocalRankFusion([bm25, vec], RRF_DEFAULT_K)
-    const a = fused.find((r) => r.id === 'a')!
+    const a = expectDefined(
+      fused.find((r) => r.id === 'a'),
+      'expected fused result for a',
+    )
     expect(a.title).toBe('Rich title')
     expect(a.summary).toBe('Rich summary')
 
     // And a vector-only doc with no title survives with empty strings
     // rather than throwing.
-    const c = fused.find((r) => r.id === 'c')!
+    const c = expectDefined(
+      fused.find((r) => r.id === 'c'),
+      'expected fused result for c',
+    )
     expect(c.title).toBe('')
     expect(c.summary).toBe('')
   })
@@ -79,8 +90,8 @@ describe('reciprocalRankFusion', () => {
     const second = [{ id: 'a', path: 'p/a.md', title: 'Late title', summary: 'Late summary' }]
 
     const fused = reciprocalRankFusion([first, second], RRF_DEFAULT_K)
-    expect(fused[0]!.title).toBe('Late title')
-    expect(fused[0]!.summary).toBe('Late summary')
+    expect(fused[0]?.title).toBe('Late title')
+    expect(fused[0]?.summary).toBe('Late summary')
   })
 
   it('breaks score ties by path ascending for deterministic output', () => {

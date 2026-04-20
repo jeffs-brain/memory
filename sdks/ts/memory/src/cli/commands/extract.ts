@@ -3,18 +3,18 @@
 import { readFile } from 'node:fs/promises'
 import { defineCommand } from 'citty'
 import type { Message } from '../../llm/index.js'
-import { createMemory } from '../../memory/index.js'
 import { createStoreBackedCursorStore } from '../../memory/cursor.js'
+import { createMemory } from '../../memory/index.js'
 import { openBrain } from '../brain.js'
+import { readBrainConfig } from '../brain.js'
 import {
+  CliUsageError,
   buildEmbedder,
   buildProvider,
-  CliUsageError,
   embedderFromEnv,
   providerFromEnv,
   resolveBrainDir,
 } from '../config.js'
-import { readBrainConfig } from '../brain.js'
 
 export const extractCommand = defineCommand({
   meta: {
@@ -37,18 +37,13 @@ export const extractCommand = defineCommand({
       throw new CliUsageError('extract: --from <messages.json> is required')
     }
     const messages = parseMessages(await readFile(fromArg, 'utf8'))
-    const brainDir = resolveBrainDir(
-      typeof args.brain === 'string' ? args.brain : undefined,
-    )
+    const brainDir = resolveBrainDir(typeof args.brain === 'string' ? args.brain : undefined)
     const store = await openBrain(brainDir)
     try {
       const config = await readBrainConfig(brainDir)
       const provider = buildProvider(providerFromEnv())
       const embedderSettings = embedderFromEnv()
-      const embedder =
-        embedderSettings !== undefined
-          ? buildEmbedder(embedderSettings)
-          : undefined
+      const embedder = embedderSettings !== undefined ? buildEmbedder(embedderSettings) : undefined
       const memory = createMemory({
         store,
         provider,
@@ -58,9 +53,7 @@ export const extractCommand = defineCommand({
         cursorStore: createStoreBackedCursorStore(store),
       })
       const extracted = await memory.extract({ messages })
-      process.stdout.write(
-        `${JSON.stringify({ count: extracted.length, extracted })}\n`,
-      )
+      process.stdout.write(`${JSON.stringify({ count: extracted.length, extracted })}\n`)
     } finally {
       await store.close()
     }
@@ -90,11 +83,7 @@ const parseMessages = (raw: string): Message[] => {
       typeof (m as { content: unknown }).content === 'string'
     ) {
       const typed = m as { role: string; content: string }
-      if (
-        typed.role === 'system' ||
-        typed.role === 'user' ||
-        typed.role === 'assistant'
-      ) {
+      if (typed.role === 'system' || typed.role === 'user' || typed.role === 'assistant') {
         out.push({ role: typed.role, content: typed.content })
       }
     }

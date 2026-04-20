@@ -3,12 +3,8 @@
 import { describe, expect, it } from 'vitest'
 import type { Message } from '../llm/index.js'
 import { createMemStore } from '../store/memstore.js'
+import { createEpisodeRecorder, defaultEpisodeRecorderConfig, episodePath } from './episodes.js'
 import { parseFrontmatter } from './frontmatter.js'
-import {
-  createEpisodeRecorder,
-  defaultEpisodeRecorderConfig,
-  episodePath,
-} from './episodes.js'
 
 const BASE_MESSAGES: readonly Message[] = [
   { role: 'user', content: 'Please implement durable episode persistence.' },
@@ -17,19 +13,36 @@ const BASE_MESSAGES: readonly Message[] = [
     content: 'I am updating the recorder and writing the markdown file now.',
     toolCalls: [{ id: 'write-1', name: 'write', arguments: '{"path":"episodes.ts"}' }],
   },
-  { role: 'tool', name: 'write', toolCallId: 'write-1', content: 'Wrote packages/memory/src/memory/episodes.ts' },
+  {
+    role: 'tool',
+    name: 'write',
+    toolCallId: 'write-1',
+    content: 'Wrote packages/memory/src/memory/episodes.ts',
+  },
   { role: 'user', content: 'Make sure the gate stays strict and deterministic.' },
   {
     role: 'assistant',
     content: 'I edited the tests and saved the updated assertions.',
     toolCalls: [{ id: 'edit-1', name: 'edit', arguments: '{"path":"episodes.test.ts"}' }],
   },
-  { role: 'tool', name: 'edit', toolCallId: 'edit-1', content: 'Updated packages/memory/src/memory/episodes.test.ts' },
+  {
+    role: 'tool',
+    name: 'edit',
+    toolCallId: 'edit-1',
+    content: 'Updated packages/memory/src/memory/episodes.test.ts',
+  },
   { role: 'user', content: 'Confirm the reflection data is preserved too.' },
-  { role: 'assistant', content: 'The reflection fields are now included in the stored episode note.' },
+  {
+    role: 'assistant',
+    content: 'The reflection fields are now included in the stored episode note.',
+  },
 ]
 
-const reflection = (overrides: Partial<Parameters<ReturnType<typeof createEpisodeRecorder>['record']>[0]['reflection']> = {}) => ({
+const reflection = (
+  overrides: Partial<
+    Parameters<ReturnType<typeof createEpisodeRecorder>['record']>[0]['reflection']
+  > = {},
+) => ({
   outcome: 'success' as const,
   summary: 'Persisted a clean episode note for the session.',
   retryFeedback: 'Keep the gate strict and batch writes through the store.',

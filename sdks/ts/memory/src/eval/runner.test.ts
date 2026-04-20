@@ -1,19 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 
-import { describe, expect, it } from 'vitest'
 import { promises as fs } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { describe, expect, it } from 'vitest'
 import { createMemStore } from '../store/memstore.js'
 import { createLMERunner } from './index.js'
 import { ingestBulk } from './ingest-bulk.js'
-import type {
-  JudgeFn,
-  JudgeVerdict,
-  LMEExample,
-  ReaderFn,
-  RetrievalFn,
-} from './types.js'
+import type { JudgeFn, JudgeVerdict, LMEExample, ReaderFn, RetrievalFn } from './types.js'
 
 const sessionOne = [
   { role: 'user' as const, content: 'I picked blue today.' },
@@ -135,7 +129,7 @@ describe('createLMERunner', () => {
     })
     expect(report.overallAccuracy).toBeCloseTo(1, 5)
     expect(report.perCategory['single-session-user']?.accuracy).toBe(1)
-    expect(report.perCategory['abstention']?.abstainCorrect).toBe(1)
+    expect(report.perCategory.abstention?.abstainCorrect).toBe(1)
     expect(report.ingestMode).toBe('bulk')
     expect(report.datasetSha256).toBe('deadbeef')
 

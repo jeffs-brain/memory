@@ -1,10 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from 'vitest'
-import {
-  normaliseKnowledgeArticleStem,
-  normaliseWikiRelativeArticlePath,
-} from './paths.js'
+import { normaliseKnowledgeArticleStem, normaliseWikiRelativeArticlePath } from './paths.js'
 
 describe('knowledge paths', () => {
   it('normalises a safe article stem', () => {
@@ -12,9 +9,7 @@ describe('knowledge paths', () => {
   })
 
   it('normalises a safe wiki-relative path', () => {
-    expect(normaliseWikiRelativeArticlePath('wiki/topic/sub-topic')).toBe(
-      'topic/sub-topic.md',
-    )
+    expect(normaliseWikiRelativeArticlePath('wiki/topic/sub-topic')).toBe('topic/sub-topic.md')
   })
 
   it('rejects prefixed or non-canonical article stems', () => {

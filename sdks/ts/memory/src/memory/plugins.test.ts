@@ -21,7 +21,7 @@ const stubProvider = (content: string): Provider => ({
   name: () => 'stub',
   modelName: () => 'stub-model',
   async *stream() {
-    throw new Error('not implemented')
+    yield { type: 'done', stopReason: 'end_turn' as const }
   },
   complete: async (_req: CompletionRequest): Promise<CompletionResponse> => ({
     content,
@@ -83,9 +83,7 @@ describe('plugin hook ordering', () => {
     }
     const mem = createMemory({
       store,
-      provider: stubProvider(
-        JSON.stringify({ outcome: 'success', summary: 's', heuristics: [] }),
-      ),
+      provider: stubProvider(JSON.stringify({ outcome: 'success', summary: 's', heuristics: [] })),
       cursorStore,
       scope: 'project',
       actorId: 't',

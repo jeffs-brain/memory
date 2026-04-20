@@ -91,9 +91,7 @@ const flattenSessions = (examples: readonly LMEExample[]): readonly AgenticJob[]
       if (!msgs || msgs.length === 0) continue
       const date = dates[i]
       const job: AgenticJob =
-        date !== undefined && date !== ''
-          ? { id, date, messages: msgs }
-          : { id, messages: msgs }
+        date !== undefined && date !== '' ? { id, date, messages: msgs } : { id, messages: msgs }
       out.push(job)
     }
   }
@@ -136,7 +134,6 @@ const simulateSession = async (
   }
 }
 
-const clamp = (n: number, min: number, max: number): number =>
-  n < min ? min : n > max ? max : n
+const clamp = (n: number, min: number, max: number): number => (n < min ? min : n > max ? max : n)
 
 const errText = (err: unknown): string => (err instanceof Error ? err.message : String(err))

@@ -7,15 +7,14 @@
  */
 
 import { createHash } from 'node:crypto'
-import { joinPath, type Path, type Store } from '../store/index.js'
 import type { Logger } from '../llm/index.js'
+import { type Path, type Store, joinPath } from '../store/index.js'
 import { appendLogInBatch } from './log.js'
 import type { IngestOptions, IngestResult } from './types.js'
 
 export const RAW_DOCUMENTS_PREFIX = 'raw/documents'
 
-export const hashContent = (buf: Buffer): string =>
-  createHash('sha256').update(buf).digest('hex')
+export const hashContent = (buf: Buffer): string => createHash('sha256').update(buf).digest('hex')
 
 export const rawDocumentPath = (hashOrName: string): Path =>
   joinPath(RAW_DOCUMENTS_PREFIX, `${hashOrName}.md`)
@@ -28,10 +27,7 @@ type IngestDeps = {
 export const createIngest = (deps: IngestDeps) => {
   const { store, logger } = deps
 
-  return async (
-    input: string | Buffer,
-    opts: IngestOptions = {},
-  ): Promise<IngestResult> => {
+  return async (input: string | Buffer, opts: IngestOptions = {}): Promise<IngestResult> => {
     const content = typeof input === 'string' ? Buffer.from(input, 'utf8') : input
     const hash = hashContent(content)
     const name = opts.name && opts.name !== '' ? slugify(opts.name) : hash

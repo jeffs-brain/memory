@@ -1,14 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { execFile as execFileCallback } from 'node:child_process'
-import { basename, dirname, isAbsolute, join, resolve } from 'node:path'
 import * as nodeFs from 'node:fs'
 import { access, mkdir, readdir } from 'node:fs/promises'
+import { basename, dirname, isAbsolute, join, resolve } from 'node:path'
 import { promisify } from 'node:util'
 import * as git from 'isomorphic-git'
 import { ErrConflict, ErrReadOnly, StoreError } from './errors.js'
-import { createFsStore, type FsStore } from './fsstore.js'
-import type { Path } from './path.js'
+import { type FsStore, createFsStore } from './fsstore.js'
 import type {
   Batch,
   BatchOptions,
@@ -19,6 +18,7 @@ import type {
   Store,
   Unsubscribe,
 } from './index.js'
+import type { Path } from './path.js'
 
 export type GitSignature = {
   readonly name: string
@@ -71,7 +71,9 @@ export const createGitStore = async (opts: GitStoreOptions): Promise<GitStore> =
       if (remoteState === 'present') {
         await cloneRepository(abs, remoteUrl, requestedBranch)
       } else if (remoteState === 'missing-branch') {
-        throw new StoreError(`gitstore: remote ${remoteUrl} does not have branch ${requestedBranch}`)
+        throw new StoreError(
+          `gitstore: remote ${remoteUrl} does not have branch ${requestedBranch}`,
+        )
       } else {
         await initialiseRepository({
           dir: abs,
@@ -96,14 +98,7 @@ export const createGitStore = async (opts: GitStoreOptions): Promise<GitStore> =
 
   const branch = await resolveCurrentBranch(abs, requestedBranch)
   const fs = await createFsStore({ root: abs })
-  const store = new GitStore(
-    abs,
-    branch,
-    defaultAuthor,
-    fs,
-    opts.sign,
-    opts.autoPush === true,
-  )
+  const store = new GitStore(abs, branch, defaultAuthor, fs, opts.sign, opts.autoPush === true)
   await store.openSync()
   return store
 }
@@ -342,10 +337,7 @@ export class GitStore implements Store {
     try {
       await runGit(this.root, ['fetch', remote])
     } catch (err) {
-      throw new StoreError(
-        `gitstore: fetch ${remote}: ${describeGitFailure(err)}`,
-        err,
-      )
+      throw new StoreError(`gitstore: fetch ${remote}: ${describeGitFailure(err)}`, err)
     }
 
     if (!(await hasRemoteBranch(this.root, remote, branch))) return
@@ -361,20 +353,14 @@ export class GitStore implements Store {
       if (isRebaseConflict(err)) {
         throw new ErrConflict(`git pull conflicted while rebasing on ${remote}/${branch}`, err)
       }
-      throw new StoreError(
-        `gitstore: rebase ${remote}/${branch}: ${describeGitFailure(err)}`,
-        err,
-      )
+      throw new StoreError(`gitstore: rebase ${remote}/${branch}: ${describeGitFailure(err)}`, err)
     }
 
     if (!stashed) return
     try {
       await runGit(this.root, ['stash', 'pop'])
     } catch (err) {
-      throw new ErrConflict(
-        'git pull restored remote changes but local stash pop conflicted',
-        err,
-      )
+      throw new ErrConflict('git pull restored remote changes but local stash pop conflicted', err)
     }
   }
 
@@ -403,10 +389,7 @@ export class GitStore implements Store {
       if (isNonFastForward(err)) {
         throw new ErrConflict(`git push rejected by ${remote}/${branch}`, err)
       }
-      throw new StoreError(
-        `gitstore: push ${remote}/${branch}: ${describeGitFailure(err)}`,
-        err,
-      )
+      throw new StoreError(`gitstore: push ${remote}/${branch}: ${describeGitFailure(err)}`, err)
     }
   }
 
@@ -589,9 +572,10 @@ const inspectRemoteBranch = async (
 
 const lsRemote = async (remoteUrl: string, branch?: string): Promise<string> => {
   try {
-    const args = branch === undefined
-      ? ['ls-remote', '--heads', remoteUrl]
-      : ['ls-remote', '--heads', remoteUrl, branch]
+    const args =
+      branch === undefined
+        ? ['ls-remote', '--heads', remoteUrl]
+        : ['ls-remote', '--heads', remoteUrl, branch]
     const { stdout } = await execFile('git', args, { encoding: 'utf8' })
     return stdout
   } catch (err) {
@@ -600,21 +584,16 @@ const lsRemote = async (remoteUrl: string, branch?: string): Promise<string> => 
 }
 
 const runGit = async (cwd: string, args: readonly string[]): Promise<string> => {
-  try {
-    const { stdout } = await execFile('git', [...args], { cwd, encoding: 'utf8' })
-    return stdout
-  } catch (err) {
-    throw err
-  }
+  const { stdout } = await execFile('git', [...args], { cwd, encoding: 'utf8' })
+  return stdout
 }
 
 const hasRemoteBranch = async (cwd: string, remote: string, branch: string): Promise<boolean> => {
   try {
-    await execFile(
-      'git',
-      ['show-ref', '--verify', '--quiet', `refs/remotes/${remote}/${branch}`],
-      { cwd, encoding: 'utf8' },
-    )
+    await execFile('git', ['show-ref', '--verify', '--quiet', `refs/remotes/${remote}/${branch}`], {
+      cwd,
+      encoding: 'utf8',
+    })
     return true
   } catch (err) {
     if (isExitCode(err, 1)) return false
@@ -656,7 +635,9 @@ const isEmptyCommit = (err: unknown): boolean => {
 
 const isNonFastForward = (err: unknown): boolean => {
   const text = describeGitFailure(err).toLowerCase()
-  return text.includes('non-fast-forward') || text.includes('fetch first') || text.includes('stale info')
+  return (
+    text.includes('non-fast-forward') || text.includes('fetch first') || text.includes('stale info')
+  )
 }
 
 const isRebaseConflict = (err: unknown): boolean => {

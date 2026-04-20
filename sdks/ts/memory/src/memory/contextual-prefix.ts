@@ -44,10 +44,7 @@ class LiveContextualPrefixBuilder implements ContextualPrefixBuilder {
     return this.model
   }
 
-  async buildPrefix(
-    args: ContextualPrefixRequest,
-    signal?: AbortSignal,
-  ): Promise<string> {
+  async buildPrefix(args: ContextualPrefixRequest, signal?: AbortSignal): Promise<string> {
     if (!this.enabled()) return ''
     const factBody = args.factBody.trim()
     if (factBody === '') return ''
@@ -81,7 +78,9 @@ class LiveContextualPrefixBuilder implements ContextualPrefixBuilder {
     if (provider === undefined) return ''
 
     const sessionSummary =
-      args.sessionSummary.trim() !== '' ? args.sessionSummary.trim() : '(no session header supplied)'
+      args.sessionSummary.trim() !== ''
+        ? args.sessionSummary.trim()
+        : '(no session header supplied)'
     const response = await provider.complete(
       {
         ...(this.model !== '' ? { model: this.model } : {}),

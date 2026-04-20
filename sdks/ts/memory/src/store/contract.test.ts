@@ -7,9 +7,9 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { ErrInvalidPath, ErrNotFound, ErrReadOnly } from './errors.js'
 import { createFsStore } from './fsstore.js'
 import { createGitStore } from './gitstore.js'
-import { createMemStore } from './memstore.js'
-import { toPath, type Path } from './path.js'
 import type { Store } from './index.js'
+import { createMemStore } from './memstore.js'
+import { type Path, toPath } from './path.js'
 
 type Factory = {
   name: string
@@ -123,9 +123,9 @@ for (const factory of factories) {
     })
 
     it('rename missing throws ErrNotFound', async () => {
-      await expect(
-        store.rename(p('memory/nope.md'), p('memory/other.md')),
-      ).rejects.toBeInstanceOf(ErrNotFound)
+      await expect(store.rename(p('memory/nope.md'), p('memory/other.md'))).rejects.toBeInstanceOf(
+        ErrNotFound,
+      )
     })
 
     it('stat returns size and modtime', async () => {
@@ -280,9 +280,7 @@ for (const factory of factories) {
 
     it('concurrent writes do not corrupt', async () => {
       await Promise.all(
-        Array.from({ length: 20 }, (_, i) =>
-          store.write(p(`memory/race-${i}.md`), buf(`v${i}`)),
-        ),
+        Array.from({ length: 20 }, (_, i) => store.write(p(`memory/race-${i}.md`), buf(`v${i}`))),
       )
       for (let i = 0; i < 20; i++) {
         expect((await store.read(p(`memory/race-${i}.md`))).toString()).toBe(`v${i}`)
@@ -315,9 +313,7 @@ for (const factory of factories) {
 
     it('close makes the store unusable', async () => {
       await store.close()
-      await expect(store.write(p('memory/a.md'), buf('x'))).rejects.toBeInstanceOf(
-        ErrReadOnly,
-      )
+      await expect(store.write(p('memory/a.md'), buf('x'))).rejects.toBeInstanceOf(ErrReadOnly)
     })
 
     it('close is idempotent', async () => {

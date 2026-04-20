@@ -11,13 +11,33 @@ Each tool returns an MCP response with:
 
 Errors from any tool surface as a standard MCP error response via `toToolError`. The `no_brain` code is returned by every brain-scoped tool when brain resolution fails.
 
+## Namespace URIs
+
+MCP tool payloads carry canonical relative `path` values. When callers need URI-shaped references inside chat content or markdown, the following URI convention is canonical:
+
+- `memory://global/<topic-stem>` -> `memory/global/<topic-stem>.md`
+- `memory://project/<actorId>/<topic-stem>` -> `memory/project/<actorId>/<topic-stem>.md`
+- `memory://agent/<actorId>/<topic-stem>` -> `memory/agent/<actorId>/<topic-stem>.md`
+- `wiki://<article-stem>` -> `wiki/<article-stem>.md`
+- `wiki://architecture/events` -> `wiki/architecture/events.md`
+
+Rules:
+
+- Document `path` values stay relative and POSIX-normalised. They never carry a leading slash.
+- `memory://` uses the URI authority as the namespace selector. Valid authorities are `global`, `project`, and `agent`.
+- `project` and `agent` URIs require the first path segment after the authority to be the actor or project slug.
+- `wiki://` resolves the full article stem from `authority + path`. A single-segment article therefore looks like `wiki://release-checklist`, while a nested article can look like `wiki://architecture/events`.
+- URI stems omit the `.md` suffix.
+- Path segments use standard percent-encoding. Callers MUST decode before resolution and MUST re-encode reserved characters when serialising.
+- Resolution is exact. Consumers MUST NOT invent cross-scope fallbacks when resolving a URI.
+
 ---
 
 ## `memory_search`
 
 Search memory notes in a brain and return matching note content with citations.
 
-**Description**: "Search memory notes in a brain and return matching note content with citations. `scope` selects the memory namespace, and `sort` controls whether relevance or recency wins."
+**Description**: "Search memory notes in a brain and return matching note content with citations. `scope` is an exact namespace filter, and `sort` controls whether relevance or recency wins."
 
 **Input schema**
 
@@ -50,7 +70,7 @@ Text summary lists the top five hits formatted as `#N score=S path\n<first 320 c
 
 Recall memories for a query. With a `session_id`, the backend's session recall endpoint weights recent conversation context; without it, falls back to `memory_search`.
 
-**Description**: "Recall memories for a query. Pass session_id to weight recent session context; otherwise uses the dedicated memory-search surface. `scope` selects the memory namespace rather than a generic metadata filter."
+**Description**: "Recall memories for a query. Pass session_id to weight recent session context; otherwise uses the dedicated memory-search surface. `scope` is an exact namespace filter rather than a generic metadata filter."
 
 **Input schema**
 
@@ -420,7 +440,7 @@ Example:
   "id": "doc_01hxyz...",
   "brain_id": "brn_01hxyz...",
   "title": "Saturday run notes",
-  "path": "/memory/global/user-preference-running.md",
+  "path": "memory/global/user-preference-running.md",
   "source": "ingest",
   "content_type": "text/markdown",
   "byte_size": 1842,

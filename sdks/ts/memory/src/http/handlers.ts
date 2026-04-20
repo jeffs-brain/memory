@@ -6,31 +6,28 @@
  * so the wire contract stays byte-equivalent.
  */
 
+import {
+  READER_AUGMENTED_MAX_TOKENS,
+  READER_AUGMENTED_TEMPERATURE,
+  buildAugmentedReaderPrompt,
+} from '../augmented-reader/prompt.js'
+import { resolveDeterministicAugmentedAnswer } from '../augmented-reader/resolver.js'
 import { ingestDocument } from '../ingest/index.js'
 import type { Message } from '../llm/index.js'
-import type {
-  ConsolidationReport,
-  ExtractedMemory,
-  Scope,
-} from '../memory/index.js'
 import { parseFrontmatter } from '../memory/frontmatter.js'
+import type { ConsolidationReport, ExtractedMemory, Scope } from '../memory/index.js'
 import { scopeTopic } from '../memory/index.js'
 import { augmentQueryWithTemporal, resolvedTemporalHintLine } from '../query/index.js'
 import type { RetrievalFilters } from '../retrieval/index.js'
 import {
-  buildAugmentedReaderPrompt,
-  READER_AUGMENTED_MAX_TOKENS,
-  READER_AUGMENTED_TEMPERATURE,
-} from '../augmented-reader/prompt.js'
-import { resolveDeterministicAugmentedAnswer } from '../augmented-reader/resolver.js'
-import {
   ErrConflict,
   ErrInvalidPath,
   ErrNotFound,
-  StoreError,
-  joinPath,
   type FileInfo,
   type Path,
+  StoreError,
+  batchJsonBodyLimit,
+  joinPath,
   toPath,
   validatePath,
 } from '../store/index.js'
@@ -53,10 +50,6 @@ import {
 } from './problem.js'
 import { startSse } from './sse.js'
 
-/** Body-size caps documented in `spec/PROTOCOL.md`. */
-const DOC_BODY_LIMIT = 2 * 1024 * 1024
-const BATCH_BODY_LIMIT = 8 * 1024 * 1024
-const BATCH_OP_LIMIT = 1024
 const JSON_BODY_LIMIT = 1 * 1024 * 1024
 const JSON_SMALL_LIMIT = 64 * 1024
 
@@ -98,7 +91,10 @@ const readJsonBody = async <T>(req: Request, limit: number): Promise<T | Respons
   }
 }
 
-const resolveBrain = async (daemon: Daemon, brainId: string): Promise<BrainResources | Response> => {
+const resolveBrain = async (
+  daemon: Daemon,
+  brainId: string,
+): Promise<BrainResources | Response> => {
   if (brainId === '') return validationError('missing brainId')
   try {
     return await daemon.brains.get(brainId)
@@ -137,7 +133,10 @@ export const handleGetBrain = async (daemon: Daemon, brainId: string): Promise<R
 }
 
 export const handleCreateBrain = async (daemon: Daemon, req: Request): Promise<Response> => {
-  const body = await readJsonBody<{ brainId?: unknown; description?: unknown }>(req, JSON_SMALL_LIMIT)
+  const body = await readJsonBody<{ brainId?: unknown; description?: unknown }>(
+    req,
+    JSON_SMALL_LIMIT,
+  )
   if (body instanceof Response) return body
   const brainId = typeof body.brainId === 'string' ? body.brainId : ''
   if (brainId === '') return validationError('brainId required')
@@ -288,7 +287,7 @@ export const handleDocWrite = async (
   if (br instanceof Response) return br
   const path = extractPath(url)
   if (path instanceof Response) return path
-  const body = await readLimitedBody(req, DOC_BODY_LIMIT)
+  const body = await readLimitedBody(req, daemon.bodyLimits.singleDocumentBytes)
   if (body instanceof Response) return body
   try {
     await br.store.write(path, Buffer.from(body))
@@ -308,7 +307,7 @@ export const handleDocAppend = async (
   if (br instanceof Response) return br
   const path = extractPath(url)
   if (path instanceof Response) return path
-  const body = await readLimitedBody(req, DOC_BODY_LIMIT)
+  const body = await readLimitedBody(req, daemon.bodyLimits.singleDocumentBytes)
   if (body instanceof Response) return body
   try {
     await br.store.append(path, Buffer.from(body))
@@ -383,11 +382,11 @@ export const handleBatchOps = async (
     author?: unknown
     email?: unknown
     ops?: unknown
-  }>(req, BATCH_BODY_LIMIT * 2)
+  }>(req, batchJsonBodyLimit(daemon.bodyLimits))
   if (body instanceof Response) return body
   const opsRaw = Array.isArray(body.ops) ? (body.ops as BatchOpWire[]) : []
-  if (opsRaw.length > BATCH_OP_LIMIT) {
-    return payloadTooLarge(`ops length exceeds ${BATCH_OP_LIMIT}`)
+  if (opsRaw.length > daemon.bodyLimits.batchOpCount) {
+    return payloadTooLarge(`ops length exceeds ${daemon.bodyLimits.batchOpCount}`)
   }
 
   const decoded = new Array<Buffer | undefined>(opsRaw.length)
@@ -400,8 +399,10 @@ export const handleBatchOps = async (
     try {
       const buf = Buffer.from(raw, 'base64')
       decodedSize += buf.length
-      if (decodedSize > BATCH_BODY_LIMIT) {
-        return payloadTooLarge(`batch payload exceeds ${BATCH_BODY_LIMIT} bytes after decode`)
+      if (decodedSize > daemon.bodyLimits.batchDecodedBytes) {
+        return payloadTooLarge(
+          `batch payload exceeds ${daemon.bodyLimits.batchDecodedBytes} bytes after decode`,
+        )
       }
       decoded[i] = buf
     } catch {
@@ -581,9 +582,7 @@ const runSearch = async (
             summary: r.summary,
             ...(r.metadata !== undefined ? { metadata: r.metadata } : {}),
             ...(r.bm25Rank !== undefined ? { bm25Rank: r.bm25Rank } : {}),
-            ...(r.vectorSimilarity !== undefined
-              ? { vectorSimilarity: r.vectorSimilarity }
-              : {}),
+            ...(r.vectorSimilarity !== undefined ? { vectorSimilarity: r.vectorSimilarity } : {}),
             ...(r.rerankScore !== undefined ? { rerankScore: r.rerankScore } : {}),
           })),
           ...(trace !== undefined ? { trace } : {}),
@@ -771,11 +770,7 @@ export const handleAsk = async (
           ? [
               {
                 role: 'user',
-                content: buildAugmentedAskPrompt(
-                  question,
-                  augmentedEvidence ?? '',
-                  questionDate,
-                ),
+                content: buildAugmentedAskPrompt(question, augmentedEvidence ?? '', questionDate),
               },
             ]
           : [
@@ -887,10 +882,7 @@ const formatAugmentedChunks = (
   return parts.join('\n').trim()
 }
 
-const metadataValue = (
-  chunk: RetrievedChunk,
-  ...keys: readonly string[]
-): string => {
+const metadataValue = (chunk: RetrievedChunk, ...keys: readonly string[]): string => {
   for (const key of keys) {
     const value = chunk.metadata?.[key]
     if (typeof value === 'string' && value.trim() !== '') return value.trim()
@@ -928,9 +920,7 @@ const displayBody = (chunk: RetrievedChunk): string => {
   return parsed.body.trim() !== '' ? parsed.body.trim() : body
 }
 
-const clusterChunksBySession = (
-  chunks: readonly RetrievedChunk[],
-): RetrievedChunk[] => {
+const clusterChunksBySession = (chunks: readonly RetrievedChunk[]): RetrievedChunk[] => {
   if (chunks.length <= 1) return [...chunks]
   const order: string[] = []
   const groups = new Map<string, RetrievedChunk[]>()
@@ -1002,10 +992,7 @@ const hasSearchFilters = (filters: RetrievalFilters): boolean =>
   (filters.project?.trim() ?? '') !== '' ||
   (filters.tags?.length ?? 0) > 0
 
-const matchesSearchPathFilters = (
-  path: string,
-  filters: RetrievalFilters | undefined,
-): boolean => {
+const matchesSearchPathFilters = (path: string, filters: RetrievalFilters | undefined): boolean => {
   if (filters === undefined) return true
   const paths = normaliseSearchPaths(filters.paths)
   if (paths.length > 0 && !paths.includes(path)) return false
@@ -1045,7 +1032,11 @@ const matchesSearchPathFilters = (
   const project = filters.project?.trim().toLowerCase() ?? ''
   if (project !== '') {
     const segments = path.split('/')
-    if (segments[0] !== 'memory' || segments[1] !== 'project' || segments[2]?.toLowerCase() !== project) {
+    if (
+      segments[0] !== 'memory' ||
+      segments[1] !== 'project' ||
+      segments[2]?.toLowerCase() !== project
+    ) {
       return false
     }
   }
@@ -1071,7 +1062,7 @@ export const handleIngestFile = async (
 ): Promise<Response> => {
   const br = await resolveBrain(daemon, brainId)
   if (br instanceof Response) return br
-  const body = await readJsonBody<IngestFileRequest>(req, BATCH_BODY_LIMIT)
+  const body = await readJsonBody<IngestFileRequest>(req, batchJsonBodyLimit(daemon.bodyLimits))
   if (body instanceof Response) return body
   const name = typeof body.path === 'string' ? body.path : ''
   const contentB64 = typeof body.contentBase64 === 'string' ? body.contentBase64 : ''
@@ -1081,6 +1072,11 @@ export const handleIngestFile = async (
       bytes = Buffer.from(contentB64, 'base64')
     } catch {
       return validationError('invalid contentBase64')
+    }
+    if (bytes.length > daemon.bodyLimits.batchDecodedBytes) {
+      return payloadTooLarge(
+        `ingest payload exceeds ${daemon.bodyLimits.batchDecodedBytes} bytes after decode`,
+      )
     }
   } else if (name !== '') {
     // Fallback: read from the daemon's local filesystem. Keeps parity
@@ -1247,7 +1243,10 @@ export const handleRemember = async (
   const slug =
     typeof body.slug === 'string' && body.slug !== ''
       ? body.slug
-      : `note-${new Date().toISOString().replace(/[^0-9a-z]/gi, '').toLowerCase()}`
+      : `note-${new Date()
+          .toISOString()
+          .replace(/[^0-9a-z]/gi, '')
+          .toLowerCase()}`
 
   const scope = typeof body.scope === 'string' ? body.scope.trim() : ''
   let path: Path
