@@ -125,8 +125,9 @@ describe('procedural', () => {
       outcome: 'error',
     })
 
-    expect(formatProceduralRecord(record!)).toContain('name: "planner:alpha"')
-    expect(formatProceduralRecord(record!)).toContain('type: procedural')
-    expect(formatProceduralRecord(record!)).toContain('## Tool sequence')
+    if (record === undefined) throw new Error('expected a procedural record')
+    expect(formatProceduralRecord(record)).toContain('name: "planner:alpha"')
+    expect(formatProceduralRecord(record)).toContain('type: procedural')
+    expect(formatProceduralRecord(record)).toContain('## Tool sequence')
   })
 })

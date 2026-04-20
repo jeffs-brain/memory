@@ -8,18 +8,11 @@
 
 import { Server } from '@modelcontextprotocol/sdk/server/index.js'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
-import {
-  CallToolRequestSchema,
-  ListToolsRequestSchema,
-} from '@modelcontextprotocol/sdk/types.js'
+import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js'
 import { z } from 'zod'
 import { resolveConfig } from './config.js'
-import {
-  createMemoryClient,
-  type MemoryClient,
-  type ProgressEmitter,
-} from './memory-client.js'
-import { tools, type Tool, type ToolResult } from './tools/index.js'
+import { type MemoryClient, type ProgressEmitter, createMemoryClient } from './memory-client.js'
+import { type Tool, type ToolResult, tools } from './tools/index.js'
 import type { ToolContext } from './tools/types.js'
 
 export const SERVER_NAME = '@jeffs-brain/memory-mcp'

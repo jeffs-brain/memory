@@ -45,6 +45,13 @@ export class ErrSchemaVersion extends StoreError {
   }
 }
 
+export class ErrPayloadTooLarge extends StoreError {
+  override readonly name = 'ErrPayloadTooLarge'
+  constructor(message: string) {
+    super(`brain: payload too large: ${message}`)
+  }
+}
+
 export const isNotFound = (err: unknown): err is ErrNotFound => err instanceof ErrNotFound
 export const isInvalidPath = (err: unknown): err is ErrInvalidPath => err instanceof ErrInvalidPath
 export const isReadOnly = (err: unknown): err is ErrReadOnly => err instanceof ErrReadOnly

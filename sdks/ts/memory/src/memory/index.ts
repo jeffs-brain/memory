@@ -97,8 +97,7 @@ export const createMemory = (opts: MemoryOpts): Memory => {
   })
   const proceduralStore = createStoreBackedProceduralStore(opts.store)
 
-  const subscribe = (sink: (event: ChangeEvent) => void): (() => void) =>
-    opts.store.subscribe(sink)
+  const subscribe = (sink: (event: ChangeEvent) => void): (() => void) => opts.store.subscribe(sink)
 
   const unsubscribe = (handle: () => void): void => {
     handle()
@@ -127,9 +126,7 @@ export const createMemory = (opts: MemoryOpts): Memory => {
         actorId: args.actorId ?? opts.actorId,
         messages: args.messages,
         ...(args.observedAt !== undefined ? { observedAt: args.observedAt } : {}),
-        ...(args.maxContextLength !== undefined
-          ? { maxContextLength: args.maxContextLength }
-          : {}),
+        ...(args.maxContextLength !== undefined ? { maxContextLength: args.maxContextLength } : {}),
         ...(args.sessionId !== undefined ? { sessionId: args.sessionId } : {}),
         ...(args.reason !== undefined ? { reason: args.reason } : {}),
       }),
@@ -180,6 +177,8 @@ export type {
   L0BufferAppendResult,
   L0BufferCompactionResult,
   L0BufferConfig,
+  L0BufferSnapshot,
+  L0BufferSnapshotMetadata,
   L0Intent,
   L0Observation,
   L0Outcome,
@@ -203,6 +202,7 @@ export type {
   Scope,
   SearchHit,
   SearchIndex,
+  Semver,
   DetectProceduralRecordsOptions,
 } from './types.js'
 
@@ -214,7 +214,10 @@ export {
   RECALL_SELECTOR_SYSTEM_PROMPT,
   REFLECTION_SYSTEM_PROMPT,
 } from './prompts.js'
-export { createContextualPrefixBuilder, type ContextualPrefixBuilderConfig } from './contextual-prefix.js'
+export {
+  createContextualPrefixBuilder,
+  type ContextualPrefixBuilderConfig,
+} from './contextual-prefix.js'
 
 export {
   MEMORY_AGENT_PREFIX,
@@ -243,6 +246,8 @@ export {
   type RecallHitSortMode,
 } from './recall.js'
 export {
+  L0_BUFFER_SNAPSHOT_FORMAT,
+  L0_BUFFER_SNAPSHOT_VERSION,
   appendL0Observation,
   compactL0Buffer,
   defaultL0BufferConfig,
@@ -250,8 +255,10 @@ export {
   formatL0Observation,
   needsL0BufferCompaction,
   observeMessages,
+  exportL0BufferSnapshot,
   renderL0Buffer,
   renderL0Reminder,
+  restoreL0BufferSnapshot,
 } from './buffer.js'
 export { detectProceduralRecords, formatProceduralRecord } from './procedural.js'
 export {

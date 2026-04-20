@@ -112,6 +112,34 @@ describe('knowledge index', () => {
     expect(log.some((entry) => entry.kind === 'lint.fix')).toBe(true)
     expect(log.some((entry) => entry.kind === 'compile.plan')).toBe(true)
   })
+
+  it('wires semantic knowledge events through the factory', async () => {
+    const store = createMemStore()
+    const events: string[] = []
+    const draftPath = joinPath('drafts', 'foo.md')
+    await store.write(
+      draftPath,
+      Buffer.from(
+        serialiseFrontmatter(
+          { title: 'Foo', summary: 'A foo', tags: [], sources: [] },
+          'Body of foo.',
+        ),
+        'utf8',
+      ),
+    )
+
+    const knowledge = createKnowledge({
+      store,
+      provider: makeProvider(() => ''),
+      onEvent: (event) => {
+        events.push(`${event.kind}:${event.slug}:${String(event.from)}:${String(event.to)}`)
+      },
+    })
+
+    await knowledge.promote('foo')
+
+    expect(events).toEqual(['promotion.landed:foo:drafts/foo.md:wiki/foo.md'])
+  })
 })
 
 const makeWords = (count: number): string =>

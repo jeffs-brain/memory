@@ -4,12 +4,12 @@ import { execSync } from 'node:child_process'
 import { readFileSync, readdirSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { toPath } from '@jeffs-brain/memory/store'
 import postgres from 'postgres'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { toPath } from '@jeffs-brain/memory/store'
+import { createPostgresSearchIndex } from './search.js'
 import { createPostgresStore } from './store.js'
 import type { PgSql } from './store.js'
-import { createPostgresSearchIndex } from './search.js'
 
 const hasDocker = (() => {
   try {
@@ -21,6 +21,12 @@ const hasDocker = (() => {
 })()
 
 const maybe = hasDocker ? describe : describe.skip
+
+const makeUnitVector = (dimension: number, activeIndex: number): number[] => {
+  const vector = new Array<number>(dimension).fill(0)
+  vector[activeIndex] = 1
+  return vector
+}
 
 maybe('PostgresSearchIndex (testcontainers)', () => {
   type RawSql = ReturnType<typeof postgres>
@@ -100,14 +106,7 @@ maybe('PostgresSearchIndex (testcontainers)', () => {
       'cats sleep on warm radiators in winter',
       'a gentle introduction to full text search in sqlite',
     ]
-    const baseEmbeddings: number[][] = texts.map((_, i) => {
-      // Make chunk 1 (index 0) the closest to our query vector; others diverge
-      // progressively to exercise the ORDER BY.
-      const v = new Array<number>(vectorDim).fill(0)
-      // Deterministic separation: each chunk occupies its own coordinate.
-      v[i % vectorDim] = 1
-      return v
-    })
+    const baseEmbeddings: number[][] = texts.map((_, i) => makeUnitVector(vectorDim, i % vectorDim))
 
     for (let i = 0; i < texts.length; i += 1) {
       await index.upsert({
@@ -126,8 +125,7 @@ maybe('PostgresSearchIndex (testcontainers)', () => {
     expect(bm25[0]?.chunkId).toBe(3n)
 
     // Vector query equal to chunk 1's embedding → nearest is chunk 1.
-    const query = new Array<number>(vectorDim).fill(0)
-    query[0] = 1
+    const query = makeUnitVector(vectorDim, 0)
     const vec = await index.searchVector(query, 5)
     expect(vec.length).toBeGreaterThan(0)
     expect(vec[0]?.chunkId).toBe(1n)
@@ -148,6 +146,60 @@ maybe('PostgresSearchIndex (testcontainers)', () => {
       const cur = hybrid[i]?.rrfScore ?? 0
       expect(cur).toBeLessThanOrEqual(prev)
     }
+
+    await index.close()
+    await store.close()
+  }, 120_000)
+
+  it('supports the 3072-dim embedding profile', async () => {
+    const store = await createPostgresStore({
+      sql: sql as unknown as PgSql,
+      tenantId: tenantA,
+      brainId: brainA,
+    })
+    await store.write(toPath('profile-3072.md'), Buffer.from('seed'))
+
+    const rows = (await sql<{ document_id: string }[]>`
+      select document_id::text as document_id from memory.documents
+      where brain_id = ${brainA}::uuid and path = 'profile-3072.md'
+    `) as ReadonlyArray<{ document_id: string }>
+    const documentId = rows[0]?.document_id
+    expect(documentId).toBeDefined()
+
+    const index = createPostgresSearchIndex({
+      sql: sql as unknown as PgSql,
+      tenantId: tenantA,
+      brainId: brainA,
+      vectorDim: 3072,
+    })
+
+    const vectorDim = 3072
+    const query = makeUnitVector(vectorDim, 17)
+    const chunkEmbedding = makeUnitVector(vectorDim, 17)
+
+    await index.upsert({
+      chunkId: 301n,
+      documentId: documentId as string,
+      ordinal: 0,
+      content: 'large embedding profile support',
+      tokens: 4,
+      embedding: chunkEmbedding,
+    })
+
+    const hits = await index.searchVector(query, 5)
+    expect(hits.length).toBeGreaterThan(0)
+    expect(hits[0]?.chunkId).toBe(301n)
+
+    await expect(
+      index.upsert({
+        chunkId: 302n,
+        documentId: documentId as string,
+        ordinal: 1,
+        content: 'mismatched embedding',
+        tokens: 2,
+        embedding: makeUnitVector(1024, 3),
+      }),
+    ).rejects.toThrow(/3072/)
 
     await index.close()
     await store.close()

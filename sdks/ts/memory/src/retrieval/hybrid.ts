@@ -37,8 +37,8 @@ import {
   type Distiller,
   augmentQueryWithTemporal,
   compileToFTS,
-  expandTemporal,
   expandAliases,
+  expandTemporal,
   parseQuery,
   parseQuestionDate,
 } from '../query/index.js'
@@ -46,7 +46,6 @@ import type { Reranker } from '../rerank/index.js'
 import { unanimityShortcut } from '../rerank/llm-rerank.js'
 import type { SearchIndex } from '../search/index.js'
 import type { Chunk } from '../search/writer.js'
-import { type RRFCandidate, RRF_DEFAULT_K, reciprocalRankFusion } from './rrf.js'
 import {
   type TrigramHit,
   type TrigramIndex,
@@ -57,6 +56,7 @@ import {
   sanitiseQuery,
   strongestTerm,
 } from './retry.js'
+import { type RRFCandidate, RRF_DEFAULT_K, reciprocalRankFusion } from './rrf.js'
 import type {
   HybridMode,
   HybridTrace,
@@ -112,35 +112,155 @@ const SEGMENT_QUALIFIER_NOTE_RE = /\b(?:morning commute|often|some days?|sometim
 const RECENCY_QUERY_RE = /\b(?:most recent|latest|last time|current(?:ly)?|now|newest)\b/i
 const EARLIEST_QUERY_RE = /\b(?:earliest|first|initial|original|at first)\b/i
 const INLINE_DATE_TAG_RE = /\[(?:observed on|date):?\s*([^\]]+)\]/i
-const FRONTMATTER_DATE_KEYS = ['observed_on', 'observedOn', 'session_date', 'sessionDate', 'modified'] as const
+const FRONTMATTER_DATE_KEYS = [
+  'observed_on',
+  'observedOn',
+  'session_date',
+  'sessionDate',
+  'modified',
+] as const
 const COMPOSITE_CONNECTOR_RE = /\b(?:and|or|plus)\b/i
 const STALE_SUPERSEDED_TEXT_RE =
   /(?:superseded_by\s*:|superseded by\b|replaced by\b|status\s*:\s*superseded\b|no longer current\b)/i
 const QUESTION_TOKEN_STOP_WORDS: ReadonlySet<string> = new Set([
-  'the', 'and', 'for', 'with', 'what',
-  'who', 'when', 'where', 'why', 'how',
-  'did', 'does', 'was', 'were', 'are',
-  'you', 'your', 'about', 'this', 'that',
-  'have', 'has', 'had', 'from', 'into',
-  'than', 'then', 'them', 'they', 'their',
+  'the',
+  'and',
+  'for',
+  'with',
+  'what',
+  'who',
+  'when',
+  'where',
+  'why',
+  'how',
+  'did',
+  'does',
+  'was',
+  'were',
+  'are',
+  'you',
+  'your',
+  'about',
+  'this',
+  'that',
+  'have',
+  'has',
+  'had',
+  'from',
+  'into',
+  'than',
+  'then',
+  'them',
+  'they',
+  'their',
 ])
 const PHRASE_PROBE_CONNECTORS: ReadonlySet<string> = new Set(['and', 'or', 'plus'])
 const PHRASE_PROBE_BOUNDARY_WORDS: ReadonlySet<string> = new Set([
-  'a', 'an', 'the', 'and', 'or', 'plus',
-  'for', 'with', 'what', 'who', 'when', 'where', 'why', 'how',
-  'did', 'does', 'do', 'was', 'were', 'is', 'are', 'am',
-  'you', 'your', 'about', 'this', 'that', 'these', 'those',
-  'have', 'has', 'had', 'from', 'into', 'than', 'then', 'them', 'they', 'their',
-  'i', 'me', 'my', 'we', 'our', 'us', 'it', 'if', 'to', 'of', 'on', 'in', 'at', 'by',
-  'amount', 'total', 'all', 'list',
-  'finally', 'decided', 'decide', 'wondering', 'wonder',
-  'remembered', 'remember', 'thinking', 'back', 'previous', 'conversation',
-  'can', 'could', 'would', 'should', 'remind', 'follow', 'specific', 'exact',
-  'spent', 'spend', 'bought', 'buy', 'ordered', 'order',
-  'purchased', 'purchase', 'paid', 'pay', 'submitted', 'submit',
-  'many', 'much', 'long',
-  'last', 'today', 'yesterday', 'tomorrow', 'week', 'month', 'year',
-  'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday',
+  'a',
+  'an',
+  'the',
+  'and',
+  'or',
+  'plus',
+  'for',
+  'with',
+  'what',
+  'who',
+  'when',
+  'where',
+  'why',
+  'how',
+  'did',
+  'does',
+  'do',
+  'was',
+  'were',
+  'is',
+  'are',
+  'am',
+  'you',
+  'your',
+  'about',
+  'this',
+  'that',
+  'these',
+  'those',
+  'have',
+  'has',
+  'had',
+  'from',
+  'into',
+  'than',
+  'then',
+  'them',
+  'they',
+  'their',
+  'i',
+  'me',
+  'my',
+  'we',
+  'our',
+  'us',
+  'it',
+  'if',
+  'to',
+  'of',
+  'on',
+  'in',
+  'at',
+  'by',
+  'amount',
+  'total',
+  'all',
+  'list',
+  'finally',
+  'decided',
+  'decide',
+  'wondering',
+  'wonder',
+  'remembered',
+  'remember',
+  'thinking',
+  'back',
+  'previous',
+  'conversation',
+  'can',
+  'could',
+  'would',
+  'should',
+  'remind',
+  'follow',
+  'specific',
+  'exact',
+  'spent',
+  'spend',
+  'bought',
+  'buy',
+  'ordered',
+  'order',
+  'purchased',
+  'purchase',
+  'paid',
+  'pay',
+  'submitted',
+  'submit',
+  'many',
+  'much',
+  'long',
+  'last',
+  'today',
+  'yesterday',
+  'tomorrow',
+  'week',
+  'month',
+  'year',
+  'monday',
+  'tuesday',
+  'wednesday',
+  'thursday',
+  'friday',
+  'saturday',
+  'sunday',
 ])
 const PHRASE_PROBE_TRIM_WORDS: ReadonlySet<string> = new Set(['many', 'much', 'long'])
 const ACTION_DATE_PROBE_RULES: ReadonlyArray<{ pattern: RegExp; probe: string }> = [
@@ -153,13 +273,33 @@ const ACTION_DATE_PROBE_RULES: ReadonlyArray<{ pattern: RegExp; probe: string }>
   { pattern: /\baccept(?:ed|ance)?\b/i, probe: 'acceptance date' },
 ]
 const ACTION_DATE_FOCUS_SKIP_WORDS: ReadonlySet<string> = new Set([
-  'accept', 'accepted', 'acceptance',
-  'begin', 'began', 'book', 'booked', 'booking',
-  'buy', 'bought', 'complete', 'completed', 'completion',
-  'date', 'finish', 'finished',
-  'join', 'joined', 'order', 'ordered',
-  'purchase', 'purchased', 'start', 'started',
-  'submit', 'submitted', 'submission',
+  'accept',
+  'accepted',
+  'acceptance',
+  'begin',
+  'began',
+  'book',
+  'booked',
+  'booking',
+  'buy',
+  'bought',
+  'complete',
+  'completed',
+  'completion',
+  'date',
+  'finish',
+  'finished',
+  'join',
+  'joined',
+  'order',
+  'ordered',
+  'purchase',
+  'purchased',
+  'start',
+  'started',
+  'submit',
+  'submitted',
+  'submission',
 ])
 const INSPIRATION_QUERY_HINTS: ReadonlyArray<string> = [
   'inspiration',
@@ -169,17 +309,46 @@ const INSPIRATION_QUERY_HINTS: ReadonlyArray<string> = [
   'uninspired',
 ]
 const INSPIRATION_FOCUS_SKIP_WORDS: ReadonlySet<string> = new Set([
-  'find', 'finding', 'fresh', 'idea', 'ideas', 'inspiration', 'inspired',
-  'new', 'stuck', 'uninspired',
+  'find',
+  'finding',
+  'fresh',
+  'idea',
+  'ideas',
+  'inspiration',
+  'inspired',
+  'new',
+  'stuck',
+  'uninspired',
 ])
 const LOW_SIGNAL_PHRASE_PROBE_WORDS: ReadonlySet<string> = new Set([
-  'after', 'before', 'day', 'days', 'event', 'events',
-  'first', 'happen', 'happened', 'month', 'months',
-  'second', 'third', 'time', 'times', 'week', 'weeks',
-  'year', 'years',
+  'after',
+  'before',
+  'day',
+  'days',
+  'event',
+  'events',
+  'first',
+  'happen',
+  'happened',
+  'month',
+  'months',
+  'second',
+  'third',
+  'time',
+  'times',
+  'week',
+  'weeks',
+  'year',
+  'years',
 ])
 const HEAD_BIGRAM_LAST_TOKENS: ReadonlySet<string> = new Set([
-  'development', 'item', 'items', 'language', 'languages', 'product', 'products',
+  'development',
+  'item',
+  'items',
+  'language',
+  'languages',
+  'product',
+  'products',
 ])
 
 type RetrievalIntent = {
@@ -255,7 +424,7 @@ export function createRetrieval(opts: CreateRetrievalOptions): Retrieval {
       // path + title + summary + content so the payload stays small.
       const rows = opts.index.db
         .prepare(
-          `SELECT id, path, title, summary, content, tags, metadata_json FROM knowledge_chunks`,
+          'SELECT id, path, title, summary, content, tags, metadata_json FROM knowledge_chunks',
         )
         .all() as Array<{
         id: string
@@ -619,7 +788,9 @@ export function createRetrieval(opts: CreateRetrievalOptions): Retrieval {
             if (left.score !== right.score) return right.score - left.score
             return left.originalIndex - right.originalIndex
           })
-          final = reordered.map(({ originalIndex: _originalIndex, ...result }) => result).concat(tail)
+          final = reordered
+            .map(({ originalIndex: _originalIndex, ...result }) => result)
+            .concat(tail)
           trace.reranked = true
           trace.rerankProvider = opts.reranker.name()
         } catch (err) {
@@ -848,7 +1019,11 @@ function reweightTemporalRanking(
     return filteredResults
   }
 
-  let minMs = datedTimes[0]!.getTime()
+  const firstTime = datedTimes[0]
+  if (firstTime === undefined) {
+    return filteredResults
+  }
+  let minMs = firstTime.getTime()
   let maxMs = minMs
   for (const value of datedTimes.slice(1)) {
     const ms = value.getTime()
@@ -947,8 +1122,7 @@ function detectRetrievalIntent(query: string): RetrievalIntent {
       ENUMERATION_OR_TOTAL_QUERY_RE.test(normalised) ||
       deriveActionDateProbes(query).length > 0 ||
       hasSpecificRecallCue(normalised) ||
-      (FIRST_PERSON_FACT_LOOKUP_RE.test(normalised) &&
-        FACT_LOOKUP_VERB_RE.test(normalised)),
+      (FIRST_PERSON_FACT_LOOKUP_RE.test(normalised) && FACT_LOOKUP_VERB_RE.test(normalised)),
   }
 }
 
@@ -957,9 +1131,7 @@ function hasSpecificRecallCue(normalisedQuery: string): boolean {
   if (!normalisedQuery.includes('remind me') && !normalisedQuery.includes('remember')) {
     return false
   }
-  return (
-    normalisedQuery.includes('the specific') || normalisedQuery.includes('the exact')
-  )
+  return normalisedQuery.includes('the specific') || normalisedQuery.includes('the exact')
 }
 
 function retrievalIntentMultiplier(
@@ -1106,7 +1278,10 @@ function deriveSubQueries(query: string): readonly string[] {
   }
   const phrases = filteredPhraseProbes(query)
   for (const phrase of phrases) {
-    if (inspirationQuery && filterQuestionTokens(phrase, INSPIRATION_FOCUS_SKIP_WORDS).length === 0) {
+    if (
+      inspirationQuery &&
+      filterQuestionTokens(phrase, INSPIRATION_FOCUS_SKIP_WORDS).length === 0
+    ) {
       continue
     }
     if (seen.has(phrase)) continue
@@ -1251,9 +1426,7 @@ function derivePhraseHeadFocus(phrase: string): string {
 function deriveActionDateContextProbes(query: string): readonly string[] {
   const actionDateProbes = deriveActionDateProbes(query)
   if (actionDateProbes.length === 0) return []
-  const focuses = deriveActionDateFocuses(
-    filterQuestionTokens(query, ACTION_DATE_FOCUS_SKIP_WORDS),
-  )
+  const focuses = deriveActionDateFocuses(filterQuestionTokens(query, ACTION_DATE_FOCUS_SKIP_WORDS))
   if (focuses.length === 0) return []
   const out: string[] = []
   const seen = new Set<string>()
@@ -1321,10 +1494,7 @@ function deriveActionDateProbes(query: string): readonly string[] {
   return out
 }
 
-function filterQuestionTokens(
-  query: string,
-  skip: ReadonlySet<string>,
-): readonly string[] {
+function filterQuestionTokens(query: string, skip: ReadonlySet<string>): readonly string[] {
   return questionTokens(query).filter((token) => !skip.has(token))
 }
 
@@ -1387,7 +1557,12 @@ function deriveBoundarySpanProbes(tokens: readonly string[]): readonly string[] 
     segment = []
   }
   for (const token of tokens) {
-    if (token === '' || PHRASE_PROBE_BOUNDARY_WORDS.has(token) || token.length < 2 || /\d/.test(token)) {
+    if (
+      token === '' ||
+      PHRASE_PROBE_BOUNDARY_WORDS.has(token) ||
+      token.length < 2 ||
+      /\d/.test(token)
+    ) {
       flush()
       continue
     }
@@ -1421,7 +1596,9 @@ function bestSegmentPhrase(tokens: readonly string[]): string {
 
 function trimPhraseProbeTokens(tokens: readonly string[]): readonly string[] {
   let start = 0
-  while (start < tokens.length && PHRASE_PROBE_TRIM_WORDS.has(tokens[start]!)) {
+  while (start < tokens.length) {
+    const token = tokens[start]
+    if (token === undefined || !PHRASE_PROBE_TRIM_WORDS.has(token)) break
     start += 1
   }
   return tokens.slice(start)
@@ -1431,10 +1608,7 @@ function phraseProbeScore(tokens: readonly string[]): number {
   return tokens.reduce((score, token) => score + token.length, tokens.length * 100)
 }
 
-function compileBM25FanoutQueryText(
-  query: string,
-  phraseProbes: readonly string[],
-): string {
+function compileBM25FanoutQueryText(query: string, phraseProbes: readonly string[]): string {
   const trimmed = query.trim()
   if (
     trimmed !== '' &&
@@ -1555,9 +1729,7 @@ function searchBM25WithFilters(
 
   const fetchLimit = Math.max(limit * 10, 200)
   const hits = index.searchBM25Compiled(compiledQuery, fetchLimit)
-  return hits
-    .filter((hit) => matchesRetrievalFilters(hit.chunk, filters))
-    .slice(0, limit)
+  return hits.filter((hit) => matchesRetrievalFilters(hit.chunk, filters)).slice(0, limit)
 }
 
 function searchVectorCandidates(
@@ -1573,9 +1745,7 @@ function searchVectorCandidates(
 
   const fetchLimit = Math.max(limit * 10, 200)
   const hits = index.searchVector(embedding, fetchLimit)
-  return hits
-    .filter((hit) => matchesRetrievalFilters(hit.chunk, filters))
-    .slice(0, limit)
+  return hits.filter((hit) => matchesRetrievalFilters(hit.chunk, filters)).slice(0, limit)
 }
 
 function hasRetrievalFilters(filters: RetrievalFilters | undefined): boolean {
@@ -1589,10 +1759,7 @@ function hasRetrievalFilters(filters: RetrievalFilters | undefined): boolean {
   )
 }
 
-function matchesRetrievalFilters(
-  chunk: Chunk,
-  filters: RetrievalFilters | undefined,
-): boolean {
+function matchesRetrievalFilters(chunk: Chunk, filters: RetrievalFilters | undefined): boolean {
   if (!hasRetrievalFilters(filters)) return true
 
   const paths = normaliseFilterPaths(filters?.paths)
@@ -1642,7 +1809,7 @@ function parseChunkMetadata(raw: string): Readonly<Record<string, unknown>> | un
 }
 
 function resolveChunkScope(chunk: Chunk): string | undefined {
-  const metadataScope = chunk.metadata?.['scope']
+  const metadataScope = chunk.metadata?.scope
   if (typeof metadataScope === 'string' && metadataScope.trim() !== '') {
     return metadataScope.trim().toLowerCase()
   }
@@ -1657,7 +1824,7 @@ function resolveChunkScope(chunk: Chunk): string | undefined {
 }
 
 function resolveChunkProject(chunk: Chunk): string | undefined {
-  const metadataProject = chunk.metadata?.['project']
+  const metadataProject = chunk.metadata?.project
   if (typeof metadataProject === 'string' && metadataProject.trim() !== '') {
     return metadataProject.trim().toLowerCase()
   }
@@ -1725,8 +1892,7 @@ function concreteFactIntentMultiplier(
 ): number {
   const path = result.path.toLowerCase()
   const isRollUp = isRollUpNote(text)
-  const isQuestionLikeNote =
-    QUESTION_LIKE_NOTE_RE.test(text) && GENERIC_NOTE_RE.test(text)
+  const isQuestionLikeNote = QUESTION_LIKE_NOTE_RE.test(text) && GENERIC_NOTE_RE.test(text)
   const isConcreteFact = isConcreteFactLike(path, text)
 
   let multiplier = 1
@@ -1864,15 +2030,11 @@ function isCompositeConcreteQuery(query: string): boolean {
   return (
     ENUMERATION_OR_TOTAL_QUERY_RE.test(lowered) ||
     PROPERTY_LOOKUP_QUERY_RE.test(lowered) ||
-    (FIRST_PERSON_FACT_LOOKUP_RE.test(lowered) &&
-      FACT_LOOKUP_VERB_RE.test(lowered))
+    (FIRST_PERSON_FACT_LOOKUP_RE.test(lowered) && FACT_LOOKUP_VERB_RE.test(lowered))
   )
 }
 
-function bestCompositeFocusMatch(
-  text: string,
-  focuses: readonly string[],
-): CompositeFocusMatch {
+function bestCompositeFocusMatch(text: string, focuses: readonly string[]): CompositeFocusMatch {
   const loweredText = normaliseFocusAlignmentText(text)
   let best: CompositeFocusMatch = { index: -1, score: 0 }
   focuses.forEach((focus, index) => {
@@ -1916,19 +2078,11 @@ function tokenSet(tokens: readonly string[]): ReadonlySet<string> {
 }
 
 function retrievalResultText(result: RetrievalResult): string {
-  return [result.path, result.title, result.summary, result.content]
-    .join('\n')
-    .toLowerCase()
+  return [result.path, result.title, result.summary, result.content].join('\n').toLowerCase()
 }
 
-function staleSupersededNoteMultiplier(
-  result: RetrievalResult,
-  text: string,
-): number {
-  const supersededBy = retrievalMetadataString(result.metadata, [
-    'superseded_by',
-    'supersededBy',
-  ])
+function staleSupersededNoteMultiplier(result: RetrievalResult, text: string): number {
+  const supersededBy = retrievalMetadataString(result.metadata, ['superseded_by', 'supersededBy'])
   const status = retrievalMetadataString(result.metadata, ['status'])
   if (supersededBy !== undefined) return 0.18
   if (status === 'superseded' || status === 'stale' || status === 'obsolete') {

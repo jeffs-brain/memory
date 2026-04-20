@@ -8,10 +8,11 @@
  */
 
 import type { Logger } from '../llm/index.js'
-import { joinPath, lastSegment, type Path, type Store } from '../store/index.js'
+import { type Path, type Store, joinPath, lastSegment } from '../store/index.js'
+import { createKnowledgeEventEmitter } from './events.js'
 import { appendLogInBatch } from './log.js'
 import { normaliseKnowledgeArticleStem } from './paths.js'
-import type { PromoteOptions } from './types.js'
+import type { KnowledgeEventSink, PromoteOptions } from './types.js'
 
 export const DRAFTS_PREFIX = 'drafts'
 export const WIKI_PREFIX = 'wiki'
@@ -19,6 +20,7 @@ export const WIKI_PREFIX = 'wiki'
 type PromoteDeps = {
   store: Store
   logger: Logger
+  onEvent?: KnowledgeEventSink
 }
 
 export type PromoteResult = {
@@ -28,6 +30,10 @@ export type PromoteResult = {
 
 export const createPromote = (deps: PromoteDeps) => {
   const { store, logger } = deps
+  const emitEvent = createKnowledgeEventEmitter({
+    logger,
+    ...(deps.onEvent !== undefined ? { onEvent: deps.onEvent } : {}),
+  })
 
   return async (slug: string, opts: PromoteOptions = {}): Promise<PromoteResult> => {
     const articleStem = normaliseKnowledgeArticleStem(slug)
@@ -51,6 +57,15 @@ export const createPromote = (deps: PromoteDeps) => {
         detail,
         when: new Date().toISOString(),
       })
+    })
+
+    await emitEvent({
+      kind: 'promotion.landed',
+      slug: articleStem,
+      from: src,
+      to: dst,
+      detail,
+      when: new Date().toISOString(),
     })
 
     logger.info('promote', { src, dst })

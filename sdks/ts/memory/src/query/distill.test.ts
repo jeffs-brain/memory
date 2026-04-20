@@ -16,6 +16,11 @@ type StubProvider = Provider & {
   calls: CompletionRequest[]
 }
 
+const expectDefined = <T>(value: T | undefined, message: string): T => {
+  if (value === undefined) throw new Error(message)
+  return value
+}
+
 /**
  * makeStubProvider spins up a minimal Provider that records every
  * completion request and returns the next canned response. Streaming
@@ -66,7 +71,7 @@ describe('createDistiller', () => {
     const out = await distiller.distill('raw query')
     expect(out).toBe('distilled output')
     expect(provider.calls).toHaveLength(1)
-    const call = provider.calls[0]!
+    const call = expectDefined(provider.calls[0], 'expected distiller call')
     expect(call.model).toBe('gpt-test')
     expect(call.temperature).toBe(0)
     expect(call.maxTokens).toBe(256)

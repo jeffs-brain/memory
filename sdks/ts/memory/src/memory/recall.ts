@@ -186,6 +186,7 @@ export const createRecall = (deps: RecallDeps) => {
     if (k <= 0) return []
     const scope = opts.scope ?? deps.defaultScope
     const actorId = opts.actorId ?? deps.defaultActorId
+    const allowedScopes = resolveRecallAllowedScopes(scope, opts.fallbackScopes)
     const querySignals = classifyRecallQuery(opts.query)
     const excludedPaths = buildExcludedPathSet(opts)
     const candidateK = resolveCandidateK(k, querySignals, excludedPaths.size)
@@ -198,7 +199,7 @@ export const createRecall = (deps: RecallDeps) => {
       deps,
       opts.query,
       embedding,
-      scope,
+      allowedScopes,
       actorId,
       k,
       candidateK,
@@ -220,12 +221,12 @@ export const createRecall = (deps: RecallDeps) => {
     })
     const expanded = await followWikilinkHits(selected, {
       store: deps.store,
-      scope,
+      allowedScopes,
       actorId,
       excludedPaths,
       logger: deps.logger,
     })
-    return rerankRecallHits(expanded, opts.query, k, querySignals)
+    return rerankRecallHits(expanded, opts.query, k, querySignals, scope)
   }
 }
 
@@ -313,6 +314,7 @@ const rerankRecallHits = (
   query: string,
   k: number,
   querySignals: RecallQuerySignals,
+  primaryScope: Scope,
 ): RecallHit[] => {
   if (hits.length <= 1) {
     return orderRecallHitsForQuery(hits, querySignals)
@@ -328,7 +330,16 @@ const rerankRecallHits = (
   const newestTimestamp = timestamps.length > 0 ? Math.max(...timestamps) : Number.NaN
 
   const ranked = hits.map((hit) =>
-    analyseRecallHit(hit, queryTokens, querySignals, scoreScale, maxScore, oldestTimestamp, newestTimestamp),
+    analyseRecallHit(
+      hit,
+      queryTokens,
+      querySignals,
+      scoreScale,
+      maxScore,
+      oldestTimestamp,
+      newestTimestamp,
+      primaryScope,
+    ),
   )
 
   const selected: RecallHit[] = []
@@ -379,6 +390,7 @@ const analyseRecallHit = (
   maxScore: number,
   oldestTimestamp: number,
   newestTimestamp: number,
+  primaryScope: Scope,
 ): RankedRecallHit => {
   const searchableText = buildNoteSearchText(hit.note)
   const topicText = buildTopicText(hit.note)
@@ -395,16 +407,16 @@ const analyseRecallHit = (
     querySignals.recent && Number.isFinite(timestamp)
       ? normaliseRecency(timestamp, oldestTimestamp, newestTimestamp)
       : 0
-  let bonus =
-    queryCoverage * 1.4 +
-    titleCoverage * 0.8 +
-    Math.min(queryMatches, 3) * 0.15
+  let bonus = queryCoverage * 1.4 + titleCoverage * 0.8 + Math.min(queryMatches, 3) * 0.15
   if (querySignals.temporal && Number.isFinite(timestamp)) bonus += 0.8
   if (querySignals.recent) bonus += recencyScore * 0.8
   if (querySignals.concrete) bonus += concreteScore * 0.55 - genericPenalty * 0.75
   else bonus -= genericPenalty * 0.1
+  if (hit.note.scope === primaryScope) bonus += 0.25
+  else bonus -= 0.1
 
-  const baseAdjustedScore = hit.score + normaliseScore(hit.score, maxScore) * 0.35 + bonus * scoreScale
+  const baseAdjustedScore =
+    hit.score + normaliseScore(hit.score, maxScore) * 0.35 + bonus * scoreScale
 
   return {
     hit,
@@ -427,9 +439,12 @@ const scoreRecallCandidate = (
 
   let score = candidate.baseAdjustedScore
   const maxSignatureSimilarity = Math.max(
-    ...chosen.map((selected) => jaccardSimilarity(candidate.signatureTokens, selected.signatureTokens)),
+    ...chosen.map((selected) =>
+      jaccardSimilarity(candidate.signatureTokens, selected.signatureTokens),
+    ),
   )
-  score -= maxSignatureSimilarity * (querySignals.aggregate ? 1.1 : querySignals.temporal ? 0.75 : 0.35)
+  score -=
+    maxSignatureSimilarity * (querySignals.aggregate ? 1.1 : querySignals.temporal ? 0.75 : 0.35)
 
   if (querySignals.aggregate) {
     const maxTopicSimilarity = Math.max(
@@ -457,8 +472,7 @@ const classifyRecallQuery = (query: string): RecallQuerySignals => {
     trimmed !== '' &&
     (timeline || AGGREGATE_QUERY_PATTERNS.some((pattern) => pattern.test(trimmed)))
   const concrete =
-    trimmed !== '' &&
-    (temporal || CONCRETE_QUERY_PATTERNS.some((pattern) => pattern.test(trimmed)))
+    trimmed !== '' && (temporal || CONCRETE_QUERY_PATTERNS.some((pattern) => pattern.test(trimmed)))
   return { timeline, recent, temporal, aggregate, concrete }
 }
 
@@ -474,35 +488,50 @@ const resolveCandidateK = (
   querySignals: RecallQuerySignals,
   excludedCount: number,
 ): number => {
-  const multiplier = querySignals.aggregate ? AGGREGATE_FETCH_MULTIPLIER : CANDIDATE_FETCH_MULTIPLIER
+  const multiplier = querySignals.aggregate
+    ? AGGREGATE_FETCH_MULTIPLIER
+    : CANDIDATE_FETCH_MULTIPLIER
   const base = Math.max(k, k * multiplier)
   return Math.min(MAX_CANDIDATE_K, Math.max(k, base + excludedCount))
 }
 
-const resolveRecallSearchScopes = (
+const resolveRecallAllowedScopes = (
   scope: Scope,
+  fallbackScopes: readonly Scope[] | undefined,
+): readonly Scope[] => {
+  const allowed: Scope[] = [scope]
+  const seen = new Set<Scope>(allowed)
+  for (const fallbackScope of fallbackScopes ?? []) {
+    if (!seen.has(fallbackScope)) {
+      allowed.push(fallbackScope)
+      seen.add(fallbackScope)
+    }
+  }
+  return allowed
+}
+
+const resolveRecallSearchScopes = (
+  allowedScopes: readonly Scope[],
   actorId: string,
 ): readonly RecallSearchScope[] => {
-  if (scope !== 'project') {
-    return [{ scope, actorId, primary: true }]
-  }
-  return [
-    { scope: 'project', actorId, primary: true },
-    { scope: 'global', actorId, primary: false },
-  ]
+  return allowedScopes.map((scope, index) => ({
+    scope,
+    actorId,
+    primary: index === 0,
+  }))
 }
 
 const searchRecallCandidates = async (
   deps: RecallDeps,
   query: string,
   embedding: readonly number[] | undefined,
-  scope: Scope,
+  allowedScopes: readonly Scope[],
   actorId: string,
   k: number,
   candidateK: number,
   excludedPaths: ReadonlySet<string>,
 ): Promise<readonly SearchHit[]> => {
-  const searchScopes = resolveRecallSearchScopes(scope, actorId)
+  const searchScopes = resolveRecallSearchScopes(allowedScopes, actorId)
   const scopedHits = await Promise.all(
     searchScopes.map(async (searchScope) => {
       const hits = deps.searchIndex
@@ -856,8 +885,7 @@ const buildRecallSelectorUserPrompt = (
 ): string => {
   const parts = ['## User query', query, '', '## Available memories', '']
   for (const candidate of candidates) {
-    const tags =
-      candidate.hit.note.tags.length > 0 ? candidate.hit.note.tags.join(', ') : 'none'
+    const tags = candidate.hit.note.tags.length > 0 ? candidate.hit.note.tags.join(', ') : 'none'
     parts.push(`- filename: ${candidate.label}`)
     parts.push(`  name: ${candidate.hit.note.name}`)
     parts.push(`  description: ${candidate.hit.note.description || 'none'}`)
@@ -886,7 +914,7 @@ const parseRecallSelectorSelected = (raw: string): ReadonlySet<string> => {
 
 type WikilinkFollowUpInput = {
   readonly store: Store
-  readonly scope: Scope
+  readonly allowedScopes: readonly Scope[]
   readonly actorId: string
   readonly excludedPaths: ReadonlySet<string>
   readonly logger: Logger
@@ -898,10 +926,7 @@ const followWikilinkHits = async (
 ): Promise<readonly RecallHit[]> => {
   if (hits.length === 0) return hits
 
-  const blockedPaths = new Set<string>([
-    ...input.excludedPaths,
-    ...hits.map((hit) => hit.path),
-  ])
+  const blockedPaths = new Set<string>([...input.excludedPaths, ...hits.map((hit) => hit.path)])
   const linkedHits: RecallHit[] = []
 
   for (const hit of hits) {
@@ -909,7 +934,12 @@ const followWikilinkHits = async (
     const links = extractWikilinks(hit.content)
     for (const link of links) {
       if (linkedHits.length >= RECALL_WIKILINK_FOLLOW_UP_LIMIT) break
-      const resolved = await resolveWikilinkPath(input.store, link, input.scope, input.actorId)
+      const resolved = await resolveWikilinkPath(
+        input.store,
+        link,
+        input.allowedScopes,
+        input.actorId,
+      )
       if (resolved === undefined || blockedPaths.has(resolved)) continue
       try {
         const linked = await hydrateRecallHit(
@@ -918,7 +948,7 @@ const followWikilinkHits = async (
             path: resolved,
             score: Math.max(hit.score * 0.85, 0.001),
           },
-          input.scope,
+          input.allowedScopes[0] ?? 'global',
         )
         if (linked === undefined) continue
         linkedHits.push(linked)
@@ -940,36 +970,34 @@ const followWikilinkHits = async (
 const extractWikilinks = (content: string): readonly string[] => {
   const matches = [...content.matchAll(WIKILINK_PATTERN)]
   if (matches.length === 0) return []
-  return matches
-    .map((match) => match[1]?.trim() ?? '')
-    .filter((match) => match !== '')
+  return matches.map((match) => match[1]?.trim() ?? '').filter((match) => match !== '')
 }
 
 const resolveWikilinkPath = async (
   store: Store,
   link: string,
-  scope: Scope,
+  allowedScopes: readonly Scope[],
   actorId: string,
 ): Promise<Path | undefined> => {
   const rawTarget = link.includes('|') ? link.slice(0, link.indexOf('|')) : link
   const trimmedTarget = rawTarget.trim()
   if (trimmedTarget === '') return undefined
 
-  if (trimmedTarget.startsWith('global:')) {
-    const globalTarget = normaliseWikilinkTarget(trimmedTarget.slice('global:'.length))
-    return resolveTopicPath(store, 'global', actorId, globalTarget)
-  }
-
-  if (scope === 'project') {
-    const projectTarget = normaliseWikilinkTarget(trimmedTarget)
-    return (
-      (await resolveTopicPath(store, 'project', actorId, projectTarget)) ??
-      (await resolveTopicPath(store, 'global', actorId, projectTarget))
-    )
+  const separatorIndex = trimmedTarget.indexOf(':')
+  const explicitScope =
+    separatorIndex === -1 ? undefined : coerceScope(trimmedTarget.slice(0, separatorIndex))
+  if (explicitScope !== undefined) {
+    if (!allowedScopes.includes(explicitScope)) return undefined
+    const scopedTarget = normaliseWikilinkTarget(trimmedTarget.slice(separatorIndex + 1))
+    return resolveTopicPath(store, explicitScope, actorId, scopedTarget)
   }
 
   const target = normaliseWikilinkTarget(trimmedTarget)
-  return resolveTopicPath(store, scope, actorId, target)
+  for (const scope of allowedScopes) {
+    const resolved = await resolveTopicPath(store, scope, actorId, target)
+    if (resolved !== undefined) return resolved
+  }
+  return undefined
 }
 
 const resolveTopicPath = async (
@@ -1037,19 +1065,13 @@ const stemToken = (token: string): string => {
   return token
 }
 
-const countOverlap = (
-  left: readonly string[],
-  right: readonly string[],
-): number => {
+const countOverlap = (left: readonly string[], right: readonly string[]): number => {
   if (left.length === 0 || right.length === 0) return 0
   const rightSet = new Set(right)
   return left.reduce((count, token) => count + (rightSet.has(token) ? 1 : 0), 0)
 }
 
-const jaccardSimilarity = (
-  left: readonly string[],
-  right: readonly string[],
-): number => {
+const jaccardSimilarity = (left: readonly string[], right: readonly string[]): number => {
   if (left.length === 0 || right.length === 0) return 0
   const leftSet = new Set(left)
   const rightSet = new Set(right)
@@ -1077,8 +1099,7 @@ const normaliseRecency = (
   return (timestamp - oldestTimestamp) / (newestTimestamp - oldestTimestamp)
 }
 
-const dateBucket = (timestamp: number): string =>
-  new Date(timestamp).toISOString().slice(0, 10)
+const dateBucket = (timestamp: number): string => new Date(timestamp).toISOString().slice(0, 10)
 
 const countOccurrences = (haystack: string, needle: string): number => {
   if (!needle) return 0

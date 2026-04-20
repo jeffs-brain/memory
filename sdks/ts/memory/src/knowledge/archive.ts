@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import {
-  joinPath,
-  pathUnder,
-  toPath,
   type FileInfo,
   type Path,
   type Store,
+  joinPath,
+  pathUnder,
+  toPath,
 } from '../store/index.js'
 import { RAW_DOCUMENTS_PREFIX } from './ingest.js'
 
@@ -65,9 +65,7 @@ export const createSourceArchive = (deps: SourceArchiveDeps) => {
       }
     },
 
-    prune: async (
-      opts: PruneArchivedSourcesOptions,
-    ): Promise<PruneArchivedSourcesResult> => {
+    prune: async (opts: PruneArchivedSourcesOptions): Promise<PruneArchivedSourcesResult> => {
       if (!Number.isFinite(opts.retentionMs) || opts.retentionMs <= 0) {
         throw new Error(
           `archive: retentionMs must be a positive number, got ${String(opts.retentionMs)}`,
@@ -102,9 +100,7 @@ export const createSourceArchive = (deps: SourceArchiveDeps) => {
   }
 }
 
-const listArchivedSourceEntries = async (
-  store: Store,
-): Promise<readonly FileInfo[]> => {
+const listArchivedSourceEntries = async (store: Store): Promise<readonly FileInfo[]> => {
   const root = toPath(RAW_DOCUMENTS_ARCHIVE_PREFIX)
   const exists = await store.exists(root).catch(() => false)
   if (!exists) return []

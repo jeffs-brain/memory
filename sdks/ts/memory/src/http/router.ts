@@ -42,7 +42,7 @@ import {
   handleRemember,
   handleSearch,
 } from './handlers.js'
-import { notFound, unauthorized, forbidden } from './problem.js'
+import { forbidden, notFound, unauthorized } from './problem.js'
 
 export type Handler = (req: Request) => Promise<Response> | Response
 

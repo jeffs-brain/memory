@@ -17,6 +17,7 @@ export {
   ErrConflict,
   ErrReadOnly,
   ErrInvalidPath,
+  ErrPayloadTooLarge,
   ErrSchemaVersion,
   isNotFound,
   isInvalidPath,
@@ -107,3 +108,9 @@ export type {
 export { autodetectStore } from './autodetect.js'
 export { HttpStore, createHttpStore } from './http.js'
 export type { HttpStoreOptions, HttpStoreCapabilities } from './http.js'
+export {
+  DEFAULT_DOCUMENT_BODY_LIMITS,
+  batchJsonBodyLimit,
+  normaliseDocumentBodyLimits,
+} from './limits.js'
+export type { DocumentBodyLimits } from './limits.js'

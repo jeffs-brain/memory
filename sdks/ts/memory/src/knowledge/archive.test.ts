@@ -6,11 +6,7 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { createFsStore } from '../store/fsstore.js'
 import { createMemStore } from '../store/memstore.js'
-import {
-  archivedSourcePath,
-  createSourceArchive,
-  RAW_DOCUMENTS_ARCHIVE_PREFIX,
-} from './archive.js'
+import { RAW_DOCUMENTS_ARCHIVE_PREFIX, archivedSourcePath, createSourceArchive } from './archive.js'
 
 const createdDirs: string[] = []
 

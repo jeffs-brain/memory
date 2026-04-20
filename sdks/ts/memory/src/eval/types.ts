@@ -151,7 +151,11 @@ export type RetrievedPassage = {
 export type JudgeFn = (args: {
   readonly example: LMEExample
   readonly predicted: string
-}) => Promise<{ readonly verdict: JudgeVerdict; readonly rationale: string; readonly rawResponse?: string }>
+}) => Promise<{
+  readonly verdict: JudgeVerdict
+  readonly rationale: string
+  readonly rawResponse?: string
+}>
 
 /**
  * Reader LLM. Given the question and the rendered retrieval context,

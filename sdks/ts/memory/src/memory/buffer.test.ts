@@ -3,14 +3,17 @@
 import { describe, expect, it } from 'vitest'
 import type { Message } from '../llm/index.js'
 import {
+  L0_BUFFER_SNAPSHOT_VERSION,
   appendL0Observation,
   compactL0Buffer,
   defaultL0BufferConfig,
   estimateL0BufferTokens,
+  exportL0BufferSnapshot,
   formatL0Observation,
   needsL0BufferCompaction,
   observeMessages,
   renderL0Reminder,
+  restoreL0BufferSnapshot,
 } from './buffer.js'
 
 describe('buffer', () => {
@@ -100,9 +103,7 @@ describe('buffer', () => {
       keepRecentPercent: 50,
     })
 
-    expect(renderL0Reminder(observations.slice(0, 2), config)).toContain(
-      '<system-reminder>',
-    )
+    expect(renderL0Reminder(observations.slice(0, 2), config)).toContain('<system-reminder>')
     expect(formatL0Observation(observations[1])).toContain('[partial]')
     expect(estimateL0BufferTokens(observations, config)).toBeGreaterThan(config.tokenBudget)
     expect(needsL0BufferCompaction(observations, config)).toBe(true)
@@ -153,6 +154,9 @@ describe('buffer', () => {
       outcome: 'partial',
       entities: ['docs/plan.md', 'docs/notes.md'],
     })
+    if (observation === undefined) {
+      throw new Error('Expected an observation to be produced')
+    }
 
     const appended = appendL0Observation(
       [
@@ -165,7 +169,7 @@ describe('buffer', () => {
         },
       ],
       {
-        ...observation!,
+        ...observation,
         entities: ['docs/plan.md', 'docs/plan.md', 'docs/notes.md'],
         summary:
           'Can you inspect the docs and follow up? This should stay concise once the observation is sanitised for the rolling buffer.',
@@ -181,9 +185,69 @@ describe('buffer', () => {
       /^Can you inspect the docs and follow up\? This should stay concise /,
     )
     expect(appended.observations[1]?.summary).toHaveLength(70)
-    expect(appended.observations[1]?.entities).toEqual([
-      'docs/plan.md',
-      'docs/notes.md',
+    expect(appended.observations[1]?.entities).toEqual(['docs/plan.md', 'docs/notes.md'])
+  })
+
+  it('exports a versioned snapshot and restores it without mutating the source buffer', () => {
+    const observations = [
+      {
+        at: '2026-04-18T09:00:00.000Z',
+        intent: 'chat',
+        outcome: 'ok',
+        summary: 'Started the session.',
+        entities: ['docs/plan.md'],
+      },
+    ] as const
+
+    const snapshot = exportL0BufferSnapshot(observations, {
+      createdAt: '2026-04-19T10:11:12Z',
+    })
+
+    expect(snapshot.metadata).toEqual({
+      format: 'l0-buffer-snapshot',
+      version: L0_BUFFER_SNAPSHOT_VERSION,
+      createdAt: '2026-04-19T10:11:12.000Z',
+      observationCount: 1,
+    })
+    expect(snapshot.observations).toEqual(observations)
+    expect(snapshot.observations).not.toBe(observations)
+    expect(snapshot.observations[0]).not.toBe(observations[0])
+
+    const restored = restoreL0BufferSnapshot(snapshot)
+    expect(restored).toEqual(observations)
+    expect(restored).not.toBe(snapshot.observations)
+    expect(restored[0]).not.toBe(snapshot.observations[0])
+  })
+
+  it('rejects incompatible snapshot versions and mismatched observation counts', () => {
+    const snapshot = exportL0BufferSnapshot([
+      {
+        at: '2026-04-18T09:00:00.000Z',
+        intent: 'chat',
+        outcome: 'ok',
+        summary: 'Started the session.',
+        entities: [],
+      },
     ])
+
+    expect(() =>
+      restoreL0BufferSnapshot({
+        ...snapshot,
+        metadata: {
+          ...snapshot.metadata,
+          version: '2.0.0',
+        },
+      }),
+    ).toThrow('Invalid L0 buffer snapshot version: 2.0.0')
+
+    expect(() =>
+      restoreL0BufferSnapshot({
+        ...snapshot,
+        metadata: {
+          ...snapshot.metadata,
+          observationCount: 2,
+        },
+      }),
+    ).toThrow('expected 2 observations, got 1')
   })
 })

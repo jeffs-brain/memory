@@ -60,11 +60,7 @@ describe('SingleFlight', () => {
       await new Promise((resolve) => setTimeout(resolve, 5))
       return 42
     }
-    const [a, b, c] = await Promise.all([
-      sf.do('k', fn),
-      sf.do('k', fn),
-      sf.do('k', fn),
-    ])
+    const [a, b, c] = await Promise.all([sf.do('k', fn), sf.do('k', fn), sf.do('k', fn)])
     expect(a).toBe(42)
     expect(b).toBe(42)
     expect(c).toBe(42)

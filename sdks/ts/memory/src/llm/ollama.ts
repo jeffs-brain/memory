@@ -115,14 +115,9 @@ export class OllamaProvider implements Provider {
 
   async complete(req: CompletionRequest, signal?: AbortSignal): Promise<CompletionResponse> {
     const body = this.buildBody(req, false)
-    const { response, text } = await postForText(
-      this.http,
-      `${this.baseURL}/api/chat`,
-      body,
-      {
-        ...(signal ? { signal } : {}),
-      },
-    )
+    const { response, text } = await postForText(this.http, `${this.baseURL}/api/chat`, body, {
+      ...(signal ? { signal } : {}),
+    })
     if (!response.ok) {
       if (isContextTooLong(text)) {
         throw new PromptTooLongError(`ollama: ${text}`)
@@ -146,12 +141,9 @@ export class OllamaProvider implements Provider {
         err,
       )
     }
-    const maxRetries =
-      req.maxRetries !== undefined && req.maxRetries > 0 ? req.maxRetries : 5
+    const maxRetries = req.maxRetries !== undefined && req.maxRetries > 0 ? req.maxRetries : 5
     const runner = {
-      call: async (
-        messages: ReadonlyArray<{ role: string; content: string }>,
-      ): Promise<string> => {
+      call: async (messages: ReadonlyArray<{ role: string; content: string }>): Promise<string> => {
         const runReq: CompletionRequest = {
           messages: messages.map((m) => ({
             role: m.role as Message['role'],
@@ -225,16 +217,19 @@ export class OllamaProvider implements Provider {
     // object.
     let lastSeen = Date.now()
     let idleTripped = false
-    const idleTimer = setInterval(() => {
-      if (Date.now() - lastSeen > this.streamIdleTimeoutMs) {
-        idleTripped = true
-        try {
-          body.cancel().catch(() => {})
-        } catch {
-          // Ignored.
+    const idleTimer = setInterval(
+      () => {
+        if (Date.now() - lastSeen > this.streamIdleTimeoutMs) {
+          idleTripped = true
+          try {
+            body.cancel().catch(() => {})
+          } catch {
+            // Ignored.
+          }
         }
-      }
-    }, Math.min(1000, this.streamIdleTimeoutMs))
+      },
+      Math.min(1000, this.streamIdleTimeoutMs),
+    )
 
     const reader = body.getReader()
     const decoder = new TextDecoder('utf-8')
@@ -483,18 +478,12 @@ export class OllamaEmbedder implements Embedder {
   private async fetchOne(text: string, signal: AbortSignal | undefined): Promise<number[]> {
     const vectors = await this.fetchBatch([text], signal)
     if (vectors.length !== 1) {
-      throw new ProviderError(
-        `ollama: embed returned ${vectors.length} vectors for 1 input`,
-        0,
-      )
+      throw new ProviderError(`ollama: embed returned ${vectors.length} vectors for 1 input`, 0)
     }
     return vectors[0] as number[]
   }
 
-  private async fetchBatch(
-    texts: string[],
-    signal: AbortSignal | undefined,
-  ): Promise<number[][]> {
+  private async fetchBatch(texts: string[], signal: AbortSignal | undefined): Promise<number[][]> {
     if (this.batchSupported !== false) {
       const result = await this.tryBatch(texts, signal)
       if (result !== null) {
@@ -541,7 +530,12 @@ export class OllamaEmbedder implements Embedder {
     try {
       parsed = JSON.parse(text)
     } catch (err) {
-      throw new ProviderError('ollama: /api/embed returned invalid JSON', response.status, text, err)
+      throw new ProviderError(
+        'ollama: /api/embed returned invalid JSON',
+        response.status,
+        text,
+        err,
+      )
     }
     if (typeof parsed.error === 'string' && parsed.error !== '') {
       throw new ProviderError(`ollama: /api/embed error: ${parsed.error}`, response.status, text)

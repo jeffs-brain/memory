@@ -83,6 +83,24 @@ export type Operation = {
   when: string
 }
 
+export type KnowledgeEventMap = {
+  readonly 'promotion.landed': {
+    readonly slug: string
+    readonly from: Path
+    readonly to: Path
+    readonly detail: string
+  }
+}
+
+export type KnowledgeEventKind = keyof KnowledgeEventMap
+
+export type KnowledgeEvent<K extends KnowledgeEventKind = KnowledgeEventKind> = {
+  readonly kind: K
+  readonly when: string
+} & KnowledgeEventMap[K]
+
+export type KnowledgeEventSink = (event: KnowledgeEvent) => Promise<void> | void
+
 export type IngestResult = {
   path: Path
   hash: string

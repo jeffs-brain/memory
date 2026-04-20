@@ -45,7 +45,8 @@ const makeRequest = (
 
 afterEach(async () => {
   while (fixtures.length > 0) {
-    const fixture = fixtures.pop()!
+    const fixture = fixtures.pop()
+    if (fixture === undefined) break
     await fixture.daemon.close()
     await rm(fixture.tempDir, { recursive: true, force: true })
   }
@@ -67,7 +68,14 @@ describe('handleSearch raw_lme scope', () => {
     await brain.store.write(
       'raw/lme/session-1.md',
       Buffer.from(
-        ['---', 'session_id: sess-1', 'session_date: 2024-03-08', '---', '[user]: I bought apples.', ''].join('\n'),
+        [
+          '---',
+          'session_id: sess-1',
+          'session_date: 2024-03-08',
+          '---',
+          '[user]: I bought apples.',
+          '',
+        ].join('\n'),
       ),
     )
     await brain.store.write(
@@ -90,7 +98,7 @@ describe('handleSearch raw_lme scope', () => {
     expect(resp.status).toBe(200)
     const payload = (await resp.json()) as { chunks: Array<{ path: string; text: string }> }
     expect(payload.chunks.length).toBe(1)
-    expect(payload.chunks[0]!.path).toBe('raw/lme/session-1.md')
-    expect(payload.chunks[0]!.text).toContain('[user]: I bought apples.')
+    expect(payload.chunks[0]?.path).toBe('raw/lme/session-1.md')
+    expect(payload.chunks[0]?.text).toContain('[user]: I bought apples.')
   })
 })

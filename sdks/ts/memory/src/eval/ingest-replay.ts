@@ -10,8 +10,8 @@
 
 import type { Logger, Message } from '../llm/index.js'
 import type { Memory } from '../memory/types.js'
-import type { IngestOutcome, LMEExample, LMESessionMessage } from './types.js'
 import { deduplicateSessions } from './ingest-bulk.js'
+import type { IngestOutcome, LMEExample, LMESessionMessage } from './types.js'
 
 export type ReplayOpts = {
   readonly concurrency?: number
@@ -55,9 +55,7 @@ export const ingestReplay = async (
             await memory.extract({
               messages: job.messages,
               sessionId: job.id,
-              ...(job.date !== undefined && job.date !== ''
-                ? { sessionDate: job.date }
-                : {}),
+              ...(job.date !== undefined && job.date !== '' ? { sessionDate: job.date } : {}),
             })
             processed++
           } catch (err) {
@@ -113,9 +111,7 @@ export const ingestReplayFromSessions = async (
             await memory.extract({
               messages,
               sessionId: job.id,
-              ...(job.date !== undefined && job.date !== ''
-                ? { sessionDate: job.date }
-                : {}),
+              ...(job.date !== undefined && job.date !== '' ? { sessionDate: job.date } : {}),
             })
             processed++
           } catch (err) {
@@ -168,10 +164,7 @@ export const sessionTextToMessages = (text: string, date?: string): Message[] =>
   }
   flush()
 
-  if (
-    messages.length === 0 ||
-    (messages.length === 1 && messages[0]?.role === 'system')
-  ) {
+  if (messages.length === 0 || (messages.length === 1 && messages[0]?.role === 'system')) {
     // Session lacked role markers; fall back to a single user message so
     // extraction still receives the raw transcript.
     messages.push({ role: 'user', content: text.trim() })
@@ -179,8 +172,7 @@ export const sessionTextToMessages = (text: string, date?: string): Message[] =>
   return messages
 }
 
-const clamp = (n: number, min: number, max: number): number =>
-  n < min ? min : n > max ? max : n
+const clamp = (n: number, min: number, max: number): number => (n < min ? min : n > max ? max : n)
 
 const compareReplayDates = (left?: string, right?: string): number =>
   normaliseReplayDate(left).localeCompare(normaliseReplayDate(right))

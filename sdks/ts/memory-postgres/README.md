@@ -12,7 +12,7 @@ npm i @jeffs-brain/memory @jeffs-brain/memory-postgres
 bun add @jeffs-brain/memory @jeffs-brain/memory-postgres
 ```
 
-The package requires Postgres 15 or later with the `vector` (pgvector) extension enabled.
+The package requires Postgres 15 or later with the `vector` (pgvector) extension enabled. The shipped schema includes both the default 1024-dim halfvec path and an optional 3072-dim profile; pass `vectorDim: 3072` when creating the search index or retriever if your embeddings use the larger schema column.
 
 ## Usage
 
@@ -36,12 +36,14 @@ const index = createPostgresSearchIndex({
   sql,
   tenantId: process.env.TENANT_ID!,
   brainId: process.env.BRAIN_ID!,
+  vectorDim: 3072,
 })
 
 const retriever = createPostgresRetriever({
   pg: sql,
   tenantId: process.env.TENANT_ID!,
   brainId: process.env.BRAIN_ID!,
+  vectorDim: 3072,
   env: process.env,
 })
 
@@ -51,7 +53,7 @@ const hits = await retriever.retrieve({
 })
 ```
 
-`tenantId` and `brainId` must be UUIDs; the adapter enforces this at construction time and pins `app.tenant_id` per transaction so Row Level Security policies stay honoured.
+`tenantId` and `brainId` must be UUIDs; the adapter enforces this at construction time and pins `app.tenant_id` per transaction so Row Level Security policies stay honoured. `vectorDim` selects the schema profile for both the search index and retriever. Embedding lengths are validated against the selected profile before any insert or vector query runs.
 
 ## Migrations
 
@@ -60,7 +62,7 @@ SQL migrations live in [`migrations/`](./migrations). Apply them in order with y
 ## Feature support
 
 - Postgres `Store` implementation matching the `spec/STORAGE.md` contract.
-- Hybrid index: tsvector BM25 plus halfvec cosine fused with Reciprocal Rank Fusion at `k=60`.
+- Hybrid index: tsvector BM25 plus halfvec cosine fused with Reciprocal Rank Fusion at `k=60`, with runtime selection between the 1024-dim and 3072-dim embedding columns.
 - `createPostgresRetriever` returns a retriever compatible with the cross-SDK `spec/PROTOCOL.md` ask and search endpoints.
 
 ## Documentation

@@ -9,7 +9,7 @@
  */
 
 import type { Logger } from '../llm/index.js'
-import { pathUnder, toPath, type Path, type Store } from '../store/index.js'
+import { type Path, type Store, pathUnder, toPath } from '../store/index.js'
 import { RAW_DOCUMENTS_PREFIX } from './ingest.js'
 import { appendLogInBatch } from './log.js'
 import type { ScrubOptions, ScrubPattern, ScrubResult } from './types.js'
@@ -70,12 +70,7 @@ export const createScrub = (deps: ScrubDeps) => {
         kind: 'scrub',
         title: `${mutations.length} files scrubbed`,
         detail: results
-          .map(
-            (r) =>
-              `${r.path}: ${r.matches
-                .map((m) => `${m.name}=${m.count}`)
-                .join(', ')}`,
-          )
+          .map((r) => `${r.path}: ${r.matches.map((m) => `${m.name}=${m.count}`).join(', ')}`)
           .join('\n'),
         when: new Date().toISOString(),
       })

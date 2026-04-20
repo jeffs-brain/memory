@@ -26,9 +26,7 @@ const splitArticleSegments = (value: string): string[] => {
   const segments = stem.split('/')
   for (const segment of segments) {
     if (!ARTICLE_SEGMENT_RE.test(segment)) {
-      throw new ErrInvalidPath(
-        `article path segment must be lowercase kebab-case: ${segment}`,
-      )
+      throw new ErrInvalidPath(`article path segment must be lowercase kebab-case: ${segment}`)
     }
   }
   return segments
@@ -37,9 +35,7 @@ const splitArticleSegments = (value: string): string[] => {
 export const normaliseKnowledgeArticleStem = (value: string): string =>
   splitArticleSegments(value).join('/')
 
-export const tryNormaliseKnowledgeArticleStem = (
-  value: string,
-): string | undefined => {
+export const tryNormaliseKnowledgeArticleStem = (value: string): string | undefined => {
   try {
     return normaliseKnowledgeArticleStem(value)
   } catch (error) {
@@ -58,9 +54,7 @@ export const normaliseWikiRelativeArticlePath = (value: string): string => {
   return `${normaliseKnowledgeArticleStem(relative)}.md`
 }
 
-export const tryNormaliseWikiRelativeArticlePath = (
-  value: string,
-): string | undefined => {
+export const tryNormaliseWikiRelativeArticlePath = (value: string): string | undefined => {
   try {
     return normaliseWikiRelativeArticlePath(value)
   } catch (error) {

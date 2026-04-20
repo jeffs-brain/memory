@@ -5,18 +5,18 @@
  * input + the raw bytes (or URL) and get a `LoadedSource` back.
  */
 
-import { detectSource, type DetectInput, type SourceKind } from './detect.js'
+import { type DetectInput, type SourceKind, detectSource } from './detect.js'
 import { loadJsonTranscript } from './json-transcript.js'
+import { loadMarkdown } from './markdown.js'
 import {
+  type MarkitdownServiceConfig,
   isMarkitdownCandidate,
   loadMarkitdownFile,
-  type MarkitdownServiceConfig,
 } from './markitdown.js'
-import { loadMarkdown } from './markdown.js'
 import { loadPdf } from './pdf.js'
 import { loadText } from './text.js'
-import type { LoadedSource, SourceLoadOptions, SourceFetchLike } from './types.js'
-import { fetchUrlSource, htmlToMarkdown, type LoadUrlOptions } from './url.js'
+import type { LoadedSource, SourceFetchLike, SourceLoadOptions } from './types.js'
+import { type LoadUrlOptions, fetchUrlSource, htmlToMarkdown } from './url.js'
 
 export type { DetectInput, SourceKind } from './detect.js'
 export { detectSource } from './detect.js'
@@ -92,7 +92,13 @@ export const loadSource = async (
   }
   const { bytes, filename, mime } = input
   const kind =
-    opts.forceKind ?? detectSource({ kind: 'bytes', bytes, ...(filename !== undefined ? { filename } : {}), ...(mime !== undefined ? { mime } : {}) })
+    opts.forceKind ??
+    detectSource({
+      kind: 'bytes',
+      bytes,
+      ...(filename !== undefined ? { filename } : {}),
+      ...(mime !== undefined ? { mime } : {}),
+    })
   const sub: SourceLoadOptions = {
     ...(opts.title !== undefined ? { title: opts.title } : {}),
     ...(filename !== undefined ? { filename } : {}),
@@ -117,9 +123,7 @@ export const loadSource = async (
       const body = htmlToMarkdown(html)
       const resolvedTitle = opts.title
       const content =
-        resolvedTitle !== undefined && resolvedTitle !== ''
-          ? `# ${resolvedTitle}\n\n${body}`
-          : body
+        resolvedTitle !== undefined && resolvedTitle !== '' ? `# ${resolvedTitle}\n\n${body}` : body
       return {
         content: Buffer.from(content, 'utf8'),
         mime: 'text/markdown',

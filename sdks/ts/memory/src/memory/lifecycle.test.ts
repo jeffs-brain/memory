@@ -414,4 +414,54 @@ describe('createMemoryLifecycle', () => {
     })
     expect(afterReset.systemReminder).toBe('')
   })
+
+  it('exports and restores the L0 buffer snapshot through the lifecycle API', async () => {
+    const lifecycle = createMemoryLifecycle({
+      memory: {
+        contextualise: vi.fn<Memory['contextualise']>().mockResolvedValue({
+          userMessage: 'What should I remember?',
+          memories: [],
+          systemReminder: '',
+        }),
+        extract: vi.fn<Memory['extract']>().mockResolvedValue([]),
+        reflect: vi.fn<Memory['reflect']>().mockResolvedValue(undefined),
+        consolidate: vi.fn<Memory['consolidate']>().mockResolvedValue({
+          merged: 0,
+          deleted: 0,
+          promoted: 0,
+          ops: [],
+          errors: [],
+        }),
+      },
+    })
+
+    await lifecycle.afterTurn({
+      messages: [{ role: 'user', content: 'Keep the first note only.' }],
+      sessionId: 'session-1',
+    })
+
+    const snapshot = lifecycle.exportL0BufferSnapshot({
+      createdAt: '2026-04-20T08:00:00Z',
+    })
+
+    await lifecycle.afterTurn({
+      messages: [{ role: 'user', content: 'This note should be discarded after restore.' }],
+      sessionId: 'session-1',
+    })
+
+    lifecycle.restoreL0BufferSnapshot(snapshot)
+
+    const prompt = await lifecycle.beforeTurn({
+      message: 'What should I remember?',
+    })
+
+    expect(snapshot.metadata).toEqual({
+      format: 'l0-buffer-snapshot',
+      version: '1.0.0',
+      createdAt: '2026-04-20T08:00:00.000Z',
+      observationCount: 1,
+    })
+    expect(prompt.systemReminder).toContain('Keep the first note only.')
+    expect(prompt.systemReminder).not.toContain('This note should be discarded after restore.')
+  })
 })

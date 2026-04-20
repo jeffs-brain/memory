@@ -82,6 +82,8 @@ export type RecallOpts = {
   readonly k?: number
   readonly scope?: Scope
   readonly actorId?: string
+  /** Optional extra scopes searched after the primary scope, in order. */
+  readonly fallbackScopes?: readonly Scope[]
   readonly excludedPaths?: readonly Path[]
   readonly surfacedPaths?: readonly Path[]
   readonly selector?: RecallSelectorMode
@@ -138,6 +140,20 @@ export type L0Observation = {
   readonly summary: string
 }
 
+export type Semver = `${number}.${number}.${number}`
+
+export type L0BufferSnapshotMetadata = {
+  readonly format: 'l0-buffer-snapshot'
+  readonly version: Semver
+  readonly createdAt: string
+  readonly observationCount: number
+}
+
+export type L0BufferSnapshot = {
+  readonly metadata: L0BufferSnapshotMetadata
+  readonly observations: readonly L0Observation[]
+}
+
 export type L0BufferConfig = {
   readonly tokenBudget: number
   readonly compactThresholdPercent: number
@@ -153,10 +169,7 @@ export type ObserveMessagesOptions = {
   readonly maxEntities?: number
 }
 
-export type MemoryPersistProceduralRecordsArgs = Omit<
-  PersistProceduralRecordsArgs,
-  'actorId'
-> & {
+export type MemoryPersistProceduralRecordsArgs = Omit<PersistProceduralRecordsArgs, 'actorId'> & {
   readonly actorId?: string
 }
 
@@ -335,6 +348,8 @@ export type ContextualiseArgs = {
   readonly topK?: number
   readonly scope?: Scope
   readonly actorId?: string
+  /** Optional extra scopes recalled after the primary scope, in order. */
+  readonly fallbackScopes?: readonly Scope[]
   readonly excludedPaths?: readonly Path[]
   readonly surfacedPaths?: readonly Path[]
   readonly selector?: RecallSelectorMode

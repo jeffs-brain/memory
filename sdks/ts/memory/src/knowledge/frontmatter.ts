@@ -112,7 +112,11 @@ export const parseFrontmatter = (content: string): ParsedFrontmatter => {
     }
   }
 
-  const body = lines.slice(closeIdx + 1).join('\n').replace(/^\n+/, '').replace(/\n+$/, '')
+  const body = lines
+    .slice(closeIdx + 1)
+    .join('\n')
+    .replace(/^\n+/, '')
+    .replace(/\n+$/, '')
   const fm: Frontmatter = {
     title,
     summary,

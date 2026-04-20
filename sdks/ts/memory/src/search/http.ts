@@ -109,7 +109,9 @@ const assertOk = async (resp: Response, ctx: string): Promise<void> => {
   } catch {
     detail = resp.statusText
   }
-  throw new StoreError(`http-search: ${ctx} returned HTTP ${resp.status}${detail ? `: ${detail}` : ''}`)
+  throw new StoreError(
+    `http-search: ${ctx} returned HTTP ${resp.status}${detail ? `: ${detail}` : ''}`,
+  )
 }
 
 const brainPath = (brainId: string, suffix: string): string =>
@@ -121,10 +123,7 @@ export type HttpSearchIndex = {
   deleteByPath(path: string): Promise<void>
   getChunk(id: string): Promise<Chunk | undefined>
   searchBM25(query: string, limit: number): Promise<HttpSearchResult[]>
-  searchVector(
-    embedding: Float32Array | number[],
-    limit: number,
-  ): Promise<HttpSearchResult[]>
+  searchVector(embedding: Float32Array | number[], limit: number): Promise<HttpSearchResult[]>
   searchHybrid(
     query: string,
     embedding: Float32Array | number[],

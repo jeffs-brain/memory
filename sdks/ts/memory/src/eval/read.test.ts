@@ -8,8 +8,8 @@ import type {
   StreamEvent,
   StructuredRequest,
 } from '../llm/index.js'
-import type { LMEExample } from './types.js'
 import { createProviderReader, runRead, truncateSmartly } from './read.js'
+import type { LMEExample } from './types.js'
 
 const throwingProvider: Provider = {
   name: () => 'stub',
@@ -48,7 +48,9 @@ describe('reader helpers', () => {
     expect(captured).toContain('Never use a fact dated after the current date.')
     expect(captured).toContain('For habit and routine questions')
     expect(captured).toContain('avoid double counting the roll-up')
-    expect(captured).toContain('include all confirmed historical amounts for the same subject across sessions')
+    expect(captured).toContain(
+      'include all confirmed historical amounts for the same subject across sessions',
+    )
     expect(captured).toContain('Infer durable preferences from concrete desired features')
     expect(captured).toContain('Ignore unrelated hostel, budget, or solo-travel examples')
   })

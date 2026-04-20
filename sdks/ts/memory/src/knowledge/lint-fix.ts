@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
-import { pathUnder, type Path, type Store } from '../store/index.js'
+import { type Path, type Store, pathUnder } from '../store/index.js'
 import { parseFrontmatter, serialiseFrontmatter } from './frontmatter.js'
 import { RAW_DOCUMENTS_PREFIX } from './ingest.js'
 import { appendLogInBatch } from './log.js'
@@ -62,7 +62,8 @@ export const createLintFix = (deps: LintFixDeps) => {
         skipped,
         summary: {
           stubRehydrates: actions.filter((action) => action.kind === 'rehydrate_stub').length,
-          duplicateGroups: actions.filter((action) => action.kind === 'archive_duplicate_title').length,
+          duplicateGroups: actions.filter((action) => action.kind === 'archive_duplicate_title')
+            .length,
           skipped: skipped.length,
         },
       }
@@ -168,7 +169,8 @@ export const createLintFix = (deps: LintFixDeps) => {
             reopenedSources,
             clearedMarkers,
             archivedDuplicates,
-            duplicateGroups: applied.filter((action) => action.kind === 'archive_duplicate_title').length,
+            duplicateGroups: applied.filter((action) => action.kind === 'archive_duplicate_title')
+              .length,
           }),
           when: new Date().toISOString(),
         })
@@ -428,10 +430,14 @@ const readArticleFromBatch = async (
 }
 
 const pickCanonicalArticle = (articles: readonly LoadedArticle[]): LoadedArticle => {
-  return [...articles].sort((left, right) => {
+  const [canonical] = [...articles].sort((left, right) => {
     if (right.body.length !== left.body.length) return right.body.length - left.body.length
     return left.path.localeCompare(right.path)
-  })[0]!
+  })
+  if (canonical === undefined) {
+    throw new Error('lint-fix: pickCanonicalArticle requires at least one article')
+  }
+  return canonical
 }
 
 const isSupersededArticle = (frontmatter: LoadedArticle['frontmatter']): boolean =>

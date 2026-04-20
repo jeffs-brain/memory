@@ -18,8 +18,8 @@
 
 import { afterEach, describe, expect, it } from 'vitest'
 import type { Embedder } from '../llm/types.js'
-import type { Reranker, RerankRequest, RerankResult } from '../rerank/index.js'
-import { createSearchIndex, type SearchIndex } from '../search/index.js'
+import type { RerankRequest, RerankResult, Reranker } from '../rerank/index.js'
+import { type SearchIndex, createSearchIndex } from '../search/index.js'
 import { createRetrieval } from './hybrid.js'
 
 const DIM = 16
@@ -33,10 +33,15 @@ function syntheticVector(seed: number, dim = DIM): Float32Array {
     out[i] = (s / 0xffffffff) * 2 - 1
   }
   let norm = 0
-  for (let i = 0; i < dim; i += 1) norm += out[i]! * out[i]!
+  for (let i = 0; i < dim; i += 1) {
+    const value = out[i] ?? 0
+    norm += value * value
+  }
   norm = Math.sqrt(norm)
   if (norm > 0) {
-    for (let i = 0; i < dim; i += 1) out[i] = out[i]! / norm
+    for (let i = 0; i < dim; i += 1) {
+      out[i] = (out[i] ?? 0) / norm
+    }
   }
   return out
 }
@@ -127,9 +132,9 @@ describe('createRetrieval happy path', () => {
     expect(trace.fusedCount).toBeGreaterThan(0)
     // "a" is the clear winner: title + summary + body hits on BM25,
     // and its vector is the query embedding.
-    expect(results[0]!.id).toBe('a')
+    expect(results[0]?.id).toBe('a')
     // RRF produces a positive score.
-    expect(results[0]!.score).toBeGreaterThan(0)
+    expect(results[0]?.score).toBeGreaterThan(0)
   })
 })
 
@@ -256,15 +261,15 @@ describe('createRetrieval reusable request surface', () => {
         hydratedLookupCalls += 1
         return [
           {
-          path: paths[0] ?? '',
-          title: 'Orchid fertiliser note',
-          summary: 'Precise feeding guidance',
-          content:
-            '---\nname: Orchid fertiliser note\ndescription: Precise feeding guidance\n---\n\nUse the 12-6-8 orchid fertiliser every second Saturday.',
-          metadata: {
-            sessionId: 'orchid-session',
-            sessionDate: '2024/03/02 (Sat) 10:00',
-          },
+            path: paths[0] ?? '',
+            title: 'Orchid fertiliser note',
+            summary: 'Precise feeding guidance',
+            content:
+              '---\nname: Orchid fertiliser note\ndescription: Precise feeding guidance\n---\n\nUse the 12-6-8 orchid fertiliser every second Saturday.',
+            metadata: {
+              sessionId: 'orchid-session',
+              sessionDate: '2024/03/02 (Sat) 10:00',
+            },
           },
         ]
       },
@@ -280,7 +285,7 @@ describe('createRetrieval reusable request surface', () => {
     expect(results[0]?.content).toContain('Use the 12-6-8 orchid fertiliser every second Saturday.')
     expect(results[0]?.title).toBe('Orchid fertiliser note')
     expect(results[0]?.summary).toBe('Precise feeding guidance')
-    expect(results[0]?.metadata?.['sessionId']).toBe('orchid-session')
+    expect(results[0]?.metadata?.sessionId).toBe('orchid-session')
   })
 
   it('boosts the most recent dated hit for recency questions', async () => {
@@ -291,13 +296,15 @@ describe('createRetrieval reusable request surface', () => {
         id: 'older',
         path: 'memory/global/a-older.md',
         title: 'Market visit',
-        content: '[Observed on 2024/03/01 (Fri) 09:00]\nEarned $220 at the Downtown Farmers Market.',
+        content:
+          '[Observed on 2024/03/01 (Fri) 09:00]\nEarned $220 at the Downtown Farmers Market.',
       },
       {
         id: 'newer',
         path: 'memory/global/z-newer.md',
         title: 'Market visit',
-        content: '[Observed on 2024/03/08 (Fri) 09:00]\nEarned $420 at the Downtown Farmers Market.',
+        content:
+          '[Observed on 2024/03/08 (Fri) 09:00]\nEarned $420 at the Downtown Farmers Market.',
       },
     ])
 
@@ -350,13 +357,15 @@ describe('createRetrieval reusable request surface', () => {
         id: 'past',
         path: 'memory/global/past.md',
         title: 'Supplier visit',
-        content: '[Observed on 2024/03/10 (Sun) 09:00]\nMet the supplier and agreed the next steps.',
+        content:
+          '[Observed on 2024/03/10 (Sun) 09:00]\nMet the supplier and agreed the next steps.',
       },
       {
         id: 'future',
         path: 'memory/global/future.md',
         title: 'Supplier visit',
-        content: '[Observed on 2024/03/20 (Wed) 09:00]\nMet the supplier and agreed the next steps.',
+        content:
+          '[Observed on 2024/03/20 (Wed) 09:00]\nMet the supplier and agreed the next steps.',
       },
       {
         id: 'undated',
@@ -434,7 +443,8 @@ describe('createRetrieval reusable request surface', () => {
     ).toBe(true)
     expect(
       trace.bm25Queries.some(
-        (query) => query.includes('products') && (query.includes('high-end') || query.includes('highend')),
+        (query) =>
+          query.includes('products') && (query.includes('high-end') || query.includes('highend')),
       ),
     ).toBe(true)
     expect(
@@ -671,8 +681,8 @@ describe('createRetrieval intent-aware reweighting', () => {
     })
 
     expect(results.length).toBeGreaterThan(1)
-    expect(results[0]!.id).toBe('preference')
-    expect(results[1]!.id).toBe('guide')
+    expect(results[0]?.id).toBe('preference')
+    expect(results[1]?.id).toBe('guide')
   })
 
   it('prioritises concrete pickup facts over generic tracking notes', async () => {
@@ -720,11 +730,13 @@ describe('createRetrieval intent-aware reweighting', () => {
     })
 
     expect(results.length).toBeGreaterThan(2)
-    expect(results.slice(0, 2).map((result) => result.id).sort()).toEqual([
-      'blazer',
-      'boots',
-    ])
-    expect(results[2]!.id).toBe('tracking')
+    expect(
+      results
+        .slice(0, 2)
+        .map((result) => result.id)
+        .sort(),
+    ).toEqual(['blazer', 'boots'])
+    expect(results[2]?.id).toBe('tracking')
   })
 
   it('prioritises atomic trip facts over roll-up notes for total queries', async () => {
@@ -774,11 +786,13 @@ describe('createRetrieval intent-aware reweighting', () => {
     })
 
     expect(results.length).toBeGreaterThan(2)
-    expect(results.slice(0, 2).map((result) => result.id).sort()).toEqual([
-      'scotland',
-      'yorkshire',
-    ])
-    expect(results[2]!.id).toBe('rollup')
+    expect(
+      results
+        .slice(0, 2)
+        .map((result) => result.id)
+        .sort(),
+    ).toEqual(['scotland', 'yorkshire'])
+    expect(results[2]?.id).toBe('rollup')
   })
 
   it('demotes advice-shaped user-fact notes for exact property lookups', async () => {
@@ -793,7 +807,8 @@ describe('createRetrieval intent-aware reweighting', () => {
         path: 'memory/global/user-fact-commute-question.md',
         title: 'Commute question',
         summary: 'Tips for staying awake during a 30-minute train commute',
-        content: 'What are some tips for staying awake during morning commutes, especially when I am stuck on the train for 30 minutes?',
+        content:
+          'What are some tips for staying awake during morning commutes, especially when I am stuck on the train for 30 minutes?',
         embedding: vQuestion,
       },
       {
@@ -808,9 +823,7 @@ describe('createRetrieval intent-aware reweighting', () => {
 
     const retrieval = createRetrieval({
       index: idx,
-      embedder: makeStubEmbedder(
-        new Map([['How long is my daily commute to work?', vQuestion]]),
-      ),
+      embedder: makeStubEmbedder(new Map([['How long is my daily commute to work?', vQuestion]])),
     })
 
     const { results } = await retrieval.searchRaw({
@@ -818,7 +831,7 @@ describe('createRetrieval intent-aware reweighting', () => {
       topK: 5,
     })
 
-    expect(results[0]!.id).toBe('direct')
+    expect(results[0]?.id).toBe('direct')
   })
 
   it('prefers routine user facts over project tips for first-person duration lookups', async () => {
@@ -868,7 +881,7 @@ describe('createRetrieval intent-aware reweighting', () => {
       topK: 5,
     })
 
-    expect(results[0]!.id).toBe('routine')
+    expect(results[0]?.id).toBe('routine')
   })
 
   it('treats first-person cadence lookups as concrete fact queries', async () => {
@@ -914,7 +927,7 @@ describe('createRetrieval intent-aware reweighting', () => {
       topK: 5,
     })
 
-    expect(results[0]!.id).toBe('cadence')
+    expect(results[0]?.id).toBe('cadence')
   })
 
   it('prefers direct global transport facts over project reference notes', async () => {
@@ -962,7 +975,7 @@ describe('createRetrieval intent-aware reweighting', () => {
       topK: 5,
     })
 
-    expect(results[0]!.id).toBe('direct')
+    expect(results[0]?.id).toBe('direct')
   })
 
   it('prefers direct project facts over generic project guides for first-person location lookups', async () => {
@@ -978,8 +991,7 @@ describe('createRetrieval intent-aware reweighting', () => {
         path: 'memory/project/eval-lme/blanket-storage-guide.md',
         title: 'Blanket storage guide',
         summary: 'Tips for storing spare blankets under the bed',
-        content:
-          'Tips and ideas for storing spare blankets under the bed or in hallway cupboards.',
+        content: 'Tips and ideas for storing spare blankets under the bed or in hallway cupboards.',
         embedding: vGuide,
       },
       {
@@ -1005,7 +1017,7 @@ describe('createRetrieval intent-aware reweighting', () => {
       topK: 5,
     })
 
-    expect(results[0]!.id).toBe('direct')
+    expect(results[0]?.id).toBe('direct')
   })
 
   it('diversifies first-person comparison lookups connected with or', async () => {
@@ -1064,10 +1076,15 @@ describe('createRetrieval intent-aware reweighting', () => {
       topK: 5,
     })
 
-    expect(results.slice(0, 2).map((result) => result.id).sort()).toEqual(['run', 'walk'])
     expect(
-      trace.bm25Queries.some((query) => query.includes('walk') && query.includes('run')),
-    ).toBe(true)
+      results
+        .slice(0, 2)
+        .map((result) => result.id)
+        .sort(),
+    ).toEqual(['run', 'walk'])
+    expect(trace.bm25Queries.some((query) => query.includes('walk') && query.includes('run'))).toBe(
+      true,
+    )
   })
 
   it('demotes superseded notes when metadata marks them stale', async () => {
@@ -1113,7 +1130,7 @@ describe('createRetrieval intent-aware reweighting', () => {
       topK: 5,
     })
 
-    expect(results[0]!.id).toBe('current')
+    expect(results[0]?.id).toBe('current')
   })
 
   it('diversifies composite total queries across the requested focuses', async () => {
@@ -1131,7 +1148,8 @@ describe('createRetrieval intent-aware reweighting', () => {
         path: 'memory/global/coach-handbag-800.md',
         title: 'Coach handbag purchase',
         summary: 'Coach handbag cost $800',
-        content: 'User recently treated themself to a Coach handbag which cost $800 and they are really loving the quality.',
+        content:
+          'User recently treated themself to a Coach handbag which cost $800 and they are really loving the quality.',
         embedding: vCoach,
       },
       {
@@ -1139,7 +1157,8 @@ describe('createRetrieval intent-aware reweighting', () => {
         path: 'memory/global/user-fact-2023-05-28-recently-invested-some-high-end-products.md',
         title: 'High-end products purchase',
         summary: 'Invested $500 in high-end products',
-        content: "I've recently invested $500 in some high-end products during the Nordstrom anniversary sale.",
+        content:
+          "I've recently invested $500 in some high-end products during the Nordstrom anniversary sale.",
         embedding: vNordstrom,
       },
       {
@@ -1147,7 +1166,8 @@ describe('createRetrieval intent-aware reweighting', () => {
         path: 'memory/global/user_ebay_handbag_deal.md',
         title: 'Designer handbag eBay deal',
         summary: 'Designer handbag bought for $200',
-        content: 'The user bought a designer handbag on eBay that originally retailed for $1,500 for $200.',
+        content:
+          'The user bought a designer handbag on eBay that originally retailed for $1,500 for $200.',
         embedding: vEbay,
       },
       {
@@ -1174,11 +1194,12 @@ describe('createRetrieval intent-aware reweighting', () => {
     })
 
     const { results } = await retrieval.searchRaw({
-      query: 'What is the total amount I spent on the designer handbag and high-end skincare products?',
+      query:
+        'What is the total amount I spent on the designer handbag and high-end skincare products?',
       topK: 5,
     })
 
-    expect([results[0]!.id, results[1]!.id].sort()).toEqual(['coach', 'nordstrom'])
+    expect([results[0]?.id, results[1]?.id].sort()).toEqual(['coach', 'nordstrom'])
   })
 
   it('treats specific remind-me recalls as concrete fact lookups', async () => {
@@ -1226,7 +1247,7 @@ describe('createRetrieval intent-aware reweighting', () => {
       topK: 5,
     })
 
-    expect(results[0]!.id).toBe('focused')
+    expect(results[0]?.id).toBe('focused')
   })
 
   it('boosts explicit dated facts for action-date questions', async () => {
@@ -1267,7 +1288,7 @@ describe('createRetrieval intent-aware reweighting', () => {
       topK: 5,
     })
 
-    expect(results[0]!.id).toBe('dated')
+    expect(results[0]?.id).toBe('dated')
   })
 })
 
@@ -1517,7 +1538,7 @@ describe('createRetrieval retry ladder', () => {
     })
 
     expect(results.length).toBeGreaterThan(0)
-    expect(results[0]!.id).toBe('a')
+    expect(results[0]?.id).toBe('a')
     const strategies = trace.attempts.map((a) => a.strategy)
     expect(strategies[0]).toBe('initial')
     expect(strategies).not.toContain('strongest_term')
@@ -1549,7 +1570,7 @@ describe('createRetrieval retry ladder', () => {
     expect(strategies).toContain('trigram_fuzzy')
     const fuzzy = trace.attempts.find((a) => a.strategy === 'trigram_fuzzy')
     expect(fuzzy?.hits).toBeGreaterThan(0)
-    expect(results[0]!.path).toBe('notes/photosynthesis.md')
+    expect(results[0]?.path).toBe('notes/photosynthesis.md')
   })
 
   it('applies exact path-list filters to the trigram fuzzy rung', async () => {
@@ -1588,9 +1609,7 @@ describe('createRetrieval retry ladder', () => {
 
   it('leaves the ladder alone when skipRetryLadder is set', async () => {
     const idx = await fresh()
-    idx.upsertChunks([
-      { id: 'a', path: 'a.md', title: 'alpha', content: 'alpha body' },
-    ])
+    idx.upsertChunks([{ id: 'a', path: 'a.md', title: 'alpha', content: 'alpha body' }])
     const retrieval = createRetrieval({ index: idx })
 
     const { results, trace } = await retrieval.searchRaw({
@@ -1610,12 +1629,15 @@ function perturb(vec: Float32Array, magnitude: number, seed: number): Float32Arr
   for (let i = 0; i < vec.length; i += 1) {
     s = (s * 1664525 + 1013904223) >>> 0
     const noise = ((s / 0xffffffff) * 2 - 1) * magnitude
-    out[i] = vec[i]! + noise
-    norm += out[i]! * out[i]!
+    const value = (vec[i] ?? 0) + noise
+    out[i] = value
+    norm += value * value
   }
   norm = Math.sqrt(norm)
   if (norm > 0) {
-    for (let i = 0; i < vec.length; i += 1) out[i] = out[i]! / norm
+    for (let i = 0; i < vec.length; i += 1) {
+      out[i] = (out[i] ?? 0) / norm
+    }
   }
   return out
 }

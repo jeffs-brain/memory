@@ -1,12 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from 'vitest'
+import { compareReports, compareResultSets, compareResults } from './compare.js'
 import { buildReport } from './report.js'
-import {
-  compareReports,
-  compareResultSets,
-  compareResults,
-} from './compare.js'
 import type { LMEResult } from './types.js'
 
 const result = (

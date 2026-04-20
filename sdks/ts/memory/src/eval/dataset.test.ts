@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
-import { describe, expect, it } from 'vitest'
 import { promises as fs } from 'node:fs'
-import path from 'node:path'
 import os from 'node:os'
+import path from 'node:path'
+import { describe, expect, it } from 'vitest'
 import { DatasetLoadError, loadDataset, parseDatasetText } from './dataset.js'
 
 const sampleExample = {
@@ -51,11 +51,7 @@ describe('loadDataset', () => {
   })
 
   it('accepts numeric answers', () => {
-    const ds = parseDatasetText(
-      JSON.stringify([{ ...sampleExample, answer: 42 }]),
-      'inline',
-      'sha',
-    )
+    const ds = parseDatasetText(JSON.stringify([{ ...sampleExample, answer: 42 }]), 'inline', 'sha')
     expect(ds.examples[0]?.answer).toBe('42')
   })
 
@@ -86,11 +82,7 @@ describe('loadDataset', () => {
 
   it('rejects examples missing required fields', () => {
     expect(() =>
-      parseDatasetText(
-        JSON.stringify([{ ...sampleExample, answer: '' }]),
-        'inline',
-        'sha',
-      ),
+      parseDatasetText(JSON.stringify([{ ...sampleExample, answer: '' }]), 'inline', 'sha'),
     ).toThrow(/empty answer/)
   })
 })

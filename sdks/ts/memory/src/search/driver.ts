@@ -126,7 +126,9 @@ async function openBetter(path: string): Promise<SqlDb> {
   }
   // The constructor accepts an options bag; `allowExtension` must be true
   // for loadExtension to work in better-sqlite3 >= 11.
-  const db = new Better(path, { allowExtension: true } as unknown as ConstructorParameters<typeof Better>[1])
+  const db = new Better(path, { allowExtension: true } as unknown as ConstructorParameters<
+    typeof Better
+  >[1])
   db.pragma('journal_mode = WAL')
   db.pragma('busy_timeout = 10000')
   db.pragma('synchronous = NORMAL')

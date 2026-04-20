@@ -20,7 +20,7 @@ const stubProvider = (content: string): Provider => ({
   name: () => 'stub',
   modelName: () => 'stub-model',
   async *stream() {
-    throw new Error('not implemented')
+    yield { type: 'done', stopReason: 'end_turn' as const }
   },
   complete: async (_req: CompletionRequest): Promise<CompletionResponse> => ({
     content,
@@ -83,9 +83,7 @@ describe('reflect', () => {
     expect(res).toBeDefined()
     expect(res?.outcome).toBe('success')
     expect(res?.summary).toBe('Shipped the port.')
-    expect(res?.retryFeedback).toBe(
-      'Start with store injection and keep the write path batched.',
-    )
+    expect(res?.retryFeedback).toBe('Start with store injection and keep the write path batched.')
     expect(res?.shouldRecordEpisode).toBe(true)
     expect(res?.heuristics).toHaveLength(1)
     expect(res?.openQuestions).toEqual(['What about plugins for Postgres?'])
@@ -120,9 +118,9 @@ describe('reflect', () => {
     )
     expect(heuristicNote.body).toContain('Rule: Always inject stores')
     expect(heuristicNote.body).toContain('How to apply: Use this when memory pipelines.')
-    expect((await store.read(scopeTopic('global', 'tenant-a', 'MEMORY.md'))).toString('utf8')).toContain(
-      'heuristic-architecture-always-inject-stores.md',
-    )
+    expect(
+      (await store.read(scopeTopic('global', 'tenant-a', 'MEMORY.md'))).toString('utf8'),
+    ).toContain('heuristic-architecture-always-inject-stores.md')
   })
 
   it('parses retry feedback and episode recording flags from either JSON casing', () => {
@@ -145,7 +143,9 @@ describe('reflect', () => {
       openQuestions: [],
     })
 
-    expect(parseReflectionJson(JSON.stringify({ outcome: 'success', summary: 'ok' }))).toMatchObject({
+    expect(
+      parseReflectionJson(JSON.stringify({ outcome: 'success', summary: 'ok' })),
+    ).toMatchObject({
       retryFeedback: '',
       shouldRecordEpisode: false,
     })
@@ -202,7 +202,10 @@ describe('reflect', () => {
 
     const entries = await store.list(toPath('memory/project/tenant-a'), { recursive: true })
     const heuristicFiles = entries.filter(
-      (entry) => !entry.isDir && entry.path.endsWith('.md') && entry.path.includes('heuristic-testing-keep-tests-narrow.md'),
+      (entry) =>
+        !entry.isDir &&
+        entry.path.endsWith('.md') &&
+        entry.path.includes('heuristic-testing-keep-tests-narrow.md'),
     )
     expect(heuristicFiles).toHaveLength(1)
 

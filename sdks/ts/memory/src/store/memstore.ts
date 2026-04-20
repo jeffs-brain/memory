@@ -1,13 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { ErrNotFound, ErrReadOnly } from './errors.js'
-import {
-  isGenerated as pathIsGenerated,
-  lastSegment,
-  matchGlob,
-  validatePath,
-  type Path,
-} from './path.js'
 import type {
   Batch,
   BatchOptions,
@@ -18,6 +11,13 @@ import type {
   Store,
   Unsubscribe,
 } from './index.js'
+import {
+  type Path,
+  lastSegment,
+  matchGlob,
+  isGenerated as pathIsGenerated,
+  validatePath,
+} from './path.js'
 
 type Entry = {
   content: Buffer
@@ -87,9 +87,7 @@ export class MemStore implements Store {
     validatePath(p)
     const existing = this.files.get(p)
     const existed = existing !== undefined
-    const merged = existing
-      ? Buffer.concat([existing.content, content])
-      : Buffer.from(content)
+    const merged = existing ? Buffer.concat([existing.content, content]) : Buffer.from(content)
     this.files.set(p, { content: merged, modTime: new Date() })
     this.emit({
       kind: existed ? 'updated' : 'created',
@@ -128,12 +126,7 @@ export class MemStore implements Store {
       working.set(k, { content: Buffer.from(v.content), modTime: v.modTime })
     }
     const batch = new MemBatch(working)
-    try {
-      await fn(batch)
-    } catch (err) {
-      // working copy is discarded; live map untouched
-      throw err
-    }
+    await fn(batch)
     const events = diffEvents(snapshot, working, opts.reason)
     this.files = working
     for (const e of events) this.emit(e)
@@ -183,9 +176,7 @@ class MemBatch implements Batch {
   async append(p: Path, content: Buffer): Promise<void> {
     validatePath(p)
     const existing = this.files.get(p)
-    const merged = existing
-      ? Buffer.concat([existing.content, content])
-      : Buffer.from(content)
+    const merged = existing ? Buffer.concat([existing.content, content]) : Buffer.from(content)
     this.files.set(p, { content: merged, modTime: new Date() })
   }
 
@@ -224,11 +215,7 @@ class MemBatch implements Batch {
   }
 }
 
-const listFrom = (
-  files: ReadonlyMap<Path, Entry>,
-  dir: Path | '',
-  opts: ListOpts,
-): FileInfo[] => {
+const listFrom = (files: ReadonlyMap<Path, Entry>, dir: Path | '', opts: ListOpts): FileInfo[] => {
   const prefix = dir === '' ? '' : dir.endsWith('/') ? dir : `${dir}/`
   const recursive = opts.recursive === true
   const includeGenerated = opts.includeGenerated === true

@@ -13,12 +13,13 @@
  * is enough to dedup concurrent open attempts on the same brain.
  */
 
-import { access, mkdir, readdir, rm, stat as fsStat } from 'node:fs/promises'
+import { access, stat as fsStat, mkdir, readdir, rm } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { resolve as resolvePath, join as joinFs } from 'node:path'
+import { join as joinFs, resolve as resolvePath } from 'node:path'
 
 import type { Embedder, Logger, Provider } from '../llm/index.js'
 import { noopLogger } from '../llm/index.js'
+import { parseFrontmatter } from '../memory/frontmatter.js'
 import {
   type ConsolidationReport,
   type ContextualPrefixBuilder,
@@ -30,20 +31,21 @@ import {
   createMemory,
   createStoreBackedCursorStore,
 } from '../memory/index.js'
-import { parseFrontmatter } from '../memory/frontmatter.js'
 import { dateSearchTokens } from '../query/index.js'
 import type { Reranker } from '../rerank/index.js'
-import { createRetrieval, type Retrieval } from '../retrieval/index.js'
+import { type Retrieval, createRetrieval } from '../retrieval/index.js'
 import type { SearchIndex as SqliteSearchIndex } from '../search/index.js'
-import { createSearchIndex, type Chunk } from '../search/index.js'
+import { type Chunk, createSearchIndex } from '../search/index.js'
 import {
   type ChangeEvent,
+  type DocumentBodyLimits,
   type FileInfo,
   type ListOpts,
   type Path,
   type Store,
   createFsStore,
   joinPath,
+  normaliseDocumentBodyLimits,
 } from '../store/index.js'
 import { toPath } from '../store/path.js'
 import { backfillVectors, resolveEmbedModel } from './daemon-vectors.js'
@@ -64,6 +66,8 @@ export type DaemonConfig = {
    * can override explicitly.
    */
   readonly embedModel?: string
+  /** Optional request-size ceilings for document writes and batch ops. */
+  readonly bodyLimits?: Partial<DocumentBodyLimits>
 }
 
 export type BrainResources = {
@@ -109,6 +113,7 @@ export class Daemon {
   readonly reranker: Reranker | undefined
   readonly contextualPrefixBuilder: ContextualPrefixBuilder | undefined
   readonly embedModel: string
+  readonly bodyLimits: DocumentBodyLimits
   readonly logger: Logger
   readonly brains: BrainManager
 
@@ -122,6 +127,7 @@ export class Daemon {
     this.embedModel =
       config.embedModel ??
       resolveEmbedModel(process.env as Readonly<Record<string, string | undefined>>, this.embedder)
+    this.bodyLimits = normaliseDocumentBodyLimits(config.bodyLimits)
     this.logger = config.logger ?? noopLogger
     this.brains = new BrainManager(this)
   }
@@ -174,9 +180,7 @@ const chunkFromIndexedFile = (path: string, raw: string): Chunk => {
     ...(frontmatter.scope !== undefined ? { scope: frontmatter.scope } : {}),
     ...(frontmatter.type !== undefined ? { type: frontmatter.type } : {}),
     ...(frontmatter.session_id !== undefined ? { sessionId: frontmatter.session_id } : {}),
-    ...(frontmatter.session_date !== undefined
-      ? { sessionDate: frontmatter.session_date }
-      : {}),
+    ...(frontmatter.session_date !== undefined ? { sessionDate: frontmatter.session_date } : {}),
     ...(frontmatter.observed_on !== undefined ? { observedOn: frontmatter.observed_on } : {}),
     ...(frontmatter.modified !== undefined ? { modified: frontmatter.modified } : {}),
   }
@@ -376,10 +380,11 @@ export class BrainManager {
     let pendingIndexUpdate: Promise<void> = Promise.resolve()
     let unsubscribe: (() => void) | undefined
     if (index !== undefined) {
+      const subscribedIndex = index
       unsubscribe = store.subscribe((evt) => {
         pendingIndexUpdate = pendingIndexUpdate
           .catch(() => undefined)
-          .then(() => this.handleStoreEvent(index!, store, evt))
+          .then(() => this.handleStoreEvent(subscribedIndex, store, evt))
       })
     }
 
@@ -492,12 +497,8 @@ export class BrainManager {
    * request can return BM25 hits promptly while embeddings are
    * populated in the background, mirroring the Go daemon.
    */
-  private async scanBrain(
-    index: SqliteSearchIndex,
-    store: Store,
-    brainId: string,
-  ): Promise<void> {
-    let entries
+  private async scanBrain(index: SqliteSearchIndex, store: Store, brainId: string): Promise<void> {
+    let entries: Awaited<ReturnType<Store['list']>>
     try {
       entries = await store.list('', { recursive: true, includeGenerated: true })
     } catch (err) {
@@ -522,7 +523,6 @@ export class BrainManager {
       if (currentPaths.has(path)) continue
       index.deleteByPath(path)
     }
-
   }
 }
 
@@ -548,7 +548,7 @@ const fallbackProvider: Provider = {
 }
 
 export const defaultRoot = (): string => {
-  const fromEnv = process.env['JB_HOME']
+  const fromEnv = process.env.JB_HOME
   if (fromEnv !== undefined && fromEnv !== '') return fromEnv
   return joinFs(homedir(), '.jeffs-brain')
 }

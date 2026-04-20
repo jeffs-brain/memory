@@ -8,10 +8,7 @@
 
 import { ProviderError, TransportError } from './errors.js'
 
-export type FetchLike = (
-  input: string | URL | Request,
-  init?: RequestInit,
-) => Promise<Response>
+export type FetchLike = (input: string | URL | Request, init?: RequestInit) => Promise<Response>
 
 export type HttpClient = {
   /** Injected fetch. Defaults to the global fetch when not provided. */
@@ -43,12 +40,7 @@ export async function postJSON<T>(
   try {
     return JSON.parse(text) as T
   } catch (err) {
-    throw new ProviderError(
-      `failed to parse response from ${url}`,
-      response.status,
-      text,
-      err,
-    )
+    throw new ProviderError(`failed to parse response from ${url}`, response.status, text, err)
   }
 }
 

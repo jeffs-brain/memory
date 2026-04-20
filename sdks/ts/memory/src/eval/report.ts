@@ -27,7 +27,17 @@ export type BuildReportArgs = {
 }
 
 export const buildReport = (args: BuildReportArgs): LMEReport => {
-  const perCategory: Record<string, { run: number; correct: number; incorrect: number; abstainCorrect: number; abstainIncorrect: number; errors: number }> = {}
+  const perCategory: Record<
+    string,
+    {
+      run: number
+      correct: number
+      incorrect: number
+      abstainCorrect: number
+      abstainIncorrect: number
+      errors: number
+    }
+  > = {}
 
   let overallCorrect = 0
   for (const r of args.results) {
@@ -174,8 +184,7 @@ export const writeReport = async (
   return result
 }
 
-const sanitiseRunId = (id: string): string =>
-  id.replace(/[^A-Za-z0-9._-]/g, '_')
+const sanitiseRunId = (id: string): string => id.replace(/[^A-Za-z0-9._-]/g, '_')
 
 const removeIfExists = async (p: string): Promise<void> => {
   try {

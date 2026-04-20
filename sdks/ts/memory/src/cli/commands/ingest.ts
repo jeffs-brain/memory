@@ -29,9 +29,7 @@ export const ingestCommand = defineCommand({
     if (typeof fileArg !== 'string' || fileArg === '') {
       throw new CliUsageError('ingest: <file> is required')
     }
-    const brainDir = resolveBrainDir(
-      typeof args.brain === 'string' ? args.brain : undefined,
-    )
+    const brainDir = resolveBrainDir(typeof args.brain === 'string' ? args.brain : undefined)
     const filePath = resolve(fileArg)
     const content = await readFile(filePath)
     const store = await openBrain(brainDir)

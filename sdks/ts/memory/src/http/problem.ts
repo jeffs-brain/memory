@@ -14,6 +14,7 @@ import {
   ErrConflict,
   ErrInvalidPath,
   ErrNotFound,
+  ErrPayloadTooLarge,
   ErrReadOnly,
   StoreError,
 } from '../store/errors.js'
@@ -110,6 +111,9 @@ export const storeProblem = (err: unknown): Response | undefined => {
   }
   if (err instanceof ErrInvalidPath) {
     return validationError(err.message)
+  }
+  if (err instanceof ErrPayloadTooLarge) {
+    return payloadTooLarge(err.message)
   }
   if (err instanceof ErrConflict) {
     return conflict(err.message)

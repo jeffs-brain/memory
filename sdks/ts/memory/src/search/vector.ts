@@ -119,12 +119,11 @@ export function chunkIdsWithVectorForModel(db: SqlDb, model: string): string[] {
  * rowid mapping so future embeddings for the same chunk get a fresh rowid.
  */
 export function deleteVector(db: SqlDb, chunkId: string): void {
-  const row = db.prepare('SELECT vec_rowid FROM knowledge_vec_map WHERE chunk_id = ?').get(chunkId) as
-    | { vec_rowid: number | bigint }
-    | undefined
+  const row = db
+    .prepare('SELECT vec_rowid FROM knowledge_vec_map WHERE chunk_id = ?')
+    .get(chunkId) as { vec_rowid: number | bigint } | undefined
   if (row === undefined) return
-  const vecRowidBig =
-    typeof row.vec_rowid === 'bigint' ? row.vec_rowid : BigInt(row.vec_rowid)
+  const vecRowidBig = typeof row.vec_rowid === 'bigint' ? row.vec_rowid : BigInt(row.vec_rowid)
   db.prepare('DELETE FROM knowledge_vectors WHERE rowid = ?').run(vecRowidBig)
   db.prepare('DELETE FROM knowledge_vec_map WHERE chunk_id = ?').run(chunkId)
 }
@@ -135,7 +134,9 @@ export function deleteVector(db: SqlDb, chunkId: string): void {
  * transaction-adjacent sweep.
  */
 export function deleteVectorsByPath(db: SqlDb, path: string): void {
-  const rows = db.prepare('SELECT id FROM knowledge_chunks WHERE path = ?').all(path) as Array<{ id: string }>
+  const rows = db.prepare('SELECT id FROM knowledge_chunks WHERE path = ?').all(path) as Array<{
+    id: string
+  }>
   for (const { id } of rows) {
     deleteVector(db, id)
   }

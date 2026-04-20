@@ -19,6 +19,7 @@ import {
 } from './errors.js'
 import { type HttpClient, defaultHttpClient, postForStream, postForText } from './http.js'
 import { iterateSSE } from './sse.js'
+import { validateAgainstSchema } from './structured.js'
 import type {
   CompletionRequest,
   CompletionResponse,
@@ -32,7 +33,6 @@ import type {
   Usage,
 } from './types.js'
 import { noopLogger } from './types.js'
-import { validateAgainstSchema } from './structured.js'
 
 const DEFAULT_BASE_URL = 'https://api.anthropic.com'
 const DEFAULT_VERSION = '2023-06-01'
@@ -119,15 +119,10 @@ export class AnthropicProvider implements Provider {
 
   async complete(req: CompletionRequest, signal?: AbortSignal): Promise<CompletionResponse> {
     const body = this.buildBody(req, false)
-    const { response, text } = await postForText(
-      this.http,
-      `${this.baseURL}/v1/messages`,
-      body,
-      {
-        headers: this.headers(),
-        ...(signal ? { signal } : {}),
-      },
-    )
+    const { response, text } = await postForText(this.http, `${this.baseURL}/v1/messages`, body, {
+      headers: this.headers(),
+      ...(signal ? { signal } : {}),
+    })
     if (!response.ok) {
       if (isPromptTooLong(text)) {
         throw new PromptTooLongError(`anthropic: ${text}`)
@@ -278,16 +273,19 @@ export class AnthropicProvider implements Provider {
     // window, abort with a StreamIdleTimeoutError.
     let lastSeen = Date.now()
     let idleTripped = false
-    const idleTimer = setInterval(() => {
-      if (Date.now() - lastSeen > this.streamIdleTimeoutMs) {
-        idleTripped = true
-        try {
-          body.cancel().catch(() => {})
-        } catch {
-          // Ignore; the iterator will throw on the next read.
+    const idleTimer = setInterval(
+      () => {
+        if (Date.now() - lastSeen > this.streamIdleTimeoutMs) {
+          idleTripped = true
+          try {
+            body.cancel().catch(() => {})
+          } catch {
+            // Ignore; the iterator will throw on the next read.
+          }
         }
-      }
-    }, Math.min(1000, this.streamIdleTimeoutMs))
+      },
+      Math.min(1000, this.streamIdleTimeoutMs),
+    )
 
     const active = new Map<number, ToolCall>()
     const activeInput = new Map<number, string>()
@@ -459,9 +457,7 @@ export class AnthropicProvider implements Provider {
 }
 
 function isPromptTooLong(body: string): boolean {
-  return (
-    body.includes('prompt is too long') || body.includes('prompt_too_long')
-  )
+  return body.includes('prompt is too long') || body.includes('prompt_too_long')
 }
 
 function mergeUsage(acc: Usage, extra: Partial<Usage>): void {
@@ -515,12 +511,7 @@ function parseCompleteResponse(text: string): CompletionResponse {
   try {
     raw = JSON.parse(text) as AnthropicRawResponse
   } catch (err) {
-    throw new ProviderError(
-      'anthropic: failed to parse completion response',
-      0,
-      text,
-      err,
-    )
+    throw new ProviderError('anthropic: failed to parse completion response', 0, text, err)
   }
   const textParts: string[] = []
   const toolCalls: ToolCall[] = []
@@ -531,8 +522,7 @@ function parseCompleteResponse(text: string): CompletionResponse {
       toolCalls.push({
         id: block.id,
         name: block.name,
-        arguments:
-          block.input !== undefined ? JSON.stringify(block.input) : '{}',
+        arguments: block.input !== undefined ? JSON.stringify(block.input) : '{}',
       })
     }
   }
@@ -556,10 +546,7 @@ function parseCompleteResponse(text: string): CompletionResponse {
 
 function buildSystemBlocks(
   req: CompletionRequest,
-):
-  | string
-  | Array<{ type: 'text'; text: string; cache_control?: { type: 'ephemeral' } }>
-  | null {
+): string | Array<{ type: 'text'; text: string; cache_control?: { type: 'ephemeral' } }> | null {
   const staticSys = req.systemStatic ?? ''
   const dynamicSys = req.systemDynamic ?? ''
   if (staticSys !== '' || dynamicSys !== '') {

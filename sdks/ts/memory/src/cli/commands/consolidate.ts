@@ -4,11 +4,7 @@ import { defineCommand } from 'citty'
 import { createStoreBackedCursorStore } from '../../memory/cursor.js'
 import { createMemory } from '../../memory/index.js'
 import { openBrain, readBrainConfig } from '../brain.js'
-import {
-  buildProvider,
-  providerFromEnv,
-  resolveBrainDir,
-} from '../config.js'
+import { buildProvider, providerFromEnv, resolveBrainDir } from '../config.js'
 
 export const consolidateCommand = defineCommand({
   meta: {
@@ -22,9 +18,7 @@ export const consolidateCommand = defineCommand({
     },
   },
   run: async ({ args }) => {
-    const brainDir = resolveBrainDir(
-      typeof args.brain === 'string' ? args.brain : undefined,
-    )
+    const brainDir = resolveBrainDir(typeof args.brain === 'string' ? args.brain : undefined)
     const store = await openBrain(brainDir)
     try {
       const cfg = await readBrainConfig(brainDir)

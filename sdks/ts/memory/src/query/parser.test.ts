@@ -100,9 +100,7 @@ describe('parseQuery', () => {
       { kind: 'term', text: 'store' },
     ])
 
-    const movie = parseQuery(
-      'Can you recommend a show or movie for me to watch tonight?',
-    )
+    const movie = parseQuery('Can you recommend a show or movie for me to watch tonight?')
     expect(movie.tokens).toEqual([{ kind: 'term', text: 'movie' }])
 
     const battery = parseQuery(

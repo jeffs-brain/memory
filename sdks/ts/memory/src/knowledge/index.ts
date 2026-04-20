@@ -11,17 +11,18 @@ import type { Embedder, Logger, Provider } from '../llm/index.js'
 import { noopLogger } from '../llm/index.js'
 import type { Store } from '../store/index.js'
 import {
-  createSourceArchive,
   type PruneArchivedSourcesOptions,
   type PruneArchivedSourcesResult,
   type SourceArchiveStats,
+  createSourceArchive,
 } from './archive.js'
 import { createCompile } from './compile.js'
-import { createDedup, type DedupOptions } from './dedup.js'
+import { type DedupOptions, createDedup } from './dedup.js'
 import { createIngest } from './ingest.js'
-import { createLint } from './lint.js'
 import { createLintFix } from './lint-fix.js'
+import { createLint } from './lint.js'
 import { createPromote } from './promote.js'
+import type { PromoteResult } from './promote.js'
 import { createQuery } from './query.js'
 import { createScrub } from './scrub.js'
 import type {
@@ -30,6 +31,7 @@ import type {
   DedupReport,
   IngestOptions,
   IngestResult,
+  KnowledgeEventSink,
   LintReport,
   PromoteOptions,
   QueryOptions,
@@ -37,7 +39,6 @@ import type {
   ScrubOptions,
   ScrubResult,
 } from './types.js'
-import type { PromoteResult } from './promote.js'
 
 export * from './types.js'
 export { parseFrontmatter, serialiseFrontmatter } from './frontmatter.js'
@@ -45,6 +46,7 @@ export { appendLog, appendLogInBatch, formatEntry, LOG_PATH, parseLog, readLog }
 export { DEFAULT_PATTERNS, applyPatterns } from './scrub.js'
 export { createIngest, hashContent, rawDocumentPath, RAW_DOCUMENTS_PREFIX } from './ingest.js'
 export { DRAFTS_PREFIX } from './compile.js'
+export { createKnowledgeEventEmitter } from './events.js'
 export { WIKI_PREFIX } from './promote.js'
 export { createLintFix } from './lint-fix.js'
 export {
@@ -77,6 +79,8 @@ export type KnowledgeOptions = {
    * accepted so future semantic dedup can be wired up without changing
    * the public factory signature. */
   embedder?: Embedder
+  /** Optional semantic event sink for knowledge operations. */
+  onEvent?: KnowledgeEventSink
   retriever?: import('./types.js').KnowledgeQueryRetriever
   logger?: Logger
 }
@@ -111,7 +115,11 @@ export const createKnowledge = (opts: KnowledgeOptions): Knowledge => {
       logger,
       ...(opts.retriever !== undefined ? { retriever: opts.retriever } : {}),
     }),
-    promote: createPromote({ store, logger }),
+    promote: createPromote({
+      store,
+      logger,
+      ...(opts.onEvent !== undefined ? { onEvent: opts.onEvent } : {}),
+    }),
     lint: createLint({ store }),
     lintFix,
     dedup: createDedup({ store }),

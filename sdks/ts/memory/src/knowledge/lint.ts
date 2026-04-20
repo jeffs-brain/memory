@@ -6,7 +6,7 @@
  * simplified) from apps/jeff/internal/knowledge/lint.go.
  */
 
-import { lastSegment, pathUnder, toPath, type Path, type Store } from '../store/index.js'
+import { type Path, type Store, lastSegment, pathUnder, toPath } from '../store/index.js'
 import { parseFrontmatter } from './frontmatter.js'
 import type { LintIssue, LintReport } from './types.js'
 
@@ -152,7 +152,10 @@ export const createLint = (deps: LintDeps) => {
   }
 }
 
-const collectArticles = async (store: Store, prefix: string): Promise<readonly CollectedArticle[]> => {
+const collectArticles = async (
+  store: Store,
+  prefix: string,
+): Promise<readonly CollectedArticle[]> => {
   const root = toPath(prefix)
   const exists = await store.exists(root).catch(() => false)
   if (!exists) return []

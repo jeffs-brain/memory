@@ -3,7 +3,7 @@
 import { createHash } from 'node:crypto'
 import { mkdir } from 'node:fs/promises'
 import { dirname } from 'node:path'
-import { openDatabase, type DriverKind, type SqlDb } from '../search/driver.js'
+import { type DriverKind, type SqlDb, openDatabase } from '../search/driver.js'
 
 const EMBED_CACHE_SCHEMA = `
 CREATE TABLE IF NOT EXISTS lme_embed_cache (
@@ -48,8 +48,7 @@ export class LMEEmbedCache {
       | undefined
     if (row === undefined || row === null) return undefined
     if (row.dim === null || row.vector === null) return undefined
-    const dim =
-      typeof row.dim === 'bigint' ? Number(row.dim) : row.dim
+    const dim = typeof row.dim === 'bigint' ? Number(row.dim) : row.dim
     const vector = unpackVector(Buffer.from(row.vector), dim)
     return vector
   }
@@ -75,11 +74,7 @@ export class LMEEmbedCache {
 }
 
 export const embedChecksum = (model: string, text: string): string =>
-  createHash('sha256')
-    .update(model)
-    .update('\x1f')
-    .update(text)
-    .digest('hex')
+  createHash('sha256').update(model).update('\x1f').update(text).digest('hex')
 
 const packVector = (vector: readonly number[]): Buffer => {
   const floats = Float32Array.from(vector)

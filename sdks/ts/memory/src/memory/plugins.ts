@@ -8,12 +8,7 @@
  */
 
 import type { Logger } from '../llm/index.js'
-import type {
-  ConsolidationPayload,
-  ExtractionPayload,
-  Plugin,
-  ReflectionPayload,
-} from './types.js'
+import type { ConsolidationPayload, ExtractionPayload, Plugin, ReflectionPayload } from './types.js'
 
 type HookPayload = ExtractionPayload | ReflectionPayload | ConsolidationPayload
 
@@ -45,40 +40,34 @@ export const fireExtractionStart = (
   plugins: readonly Plugin[],
   payload: ExtractionPayload,
   logger: Logger,
-): Promise<void> =>
-  runHook(plugins, (p) => p.onExtractionStart, payload, logger, false)
+): Promise<void> => runHook(plugins, (p) => p.onExtractionStart, payload, logger, false)
 
 export const fireExtractionEnd = (
   plugins: readonly Plugin[],
   payload: ExtractionPayload,
   logger: Logger,
-): Promise<void> =>
-  runHook(plugins, (p) => p.onExtractionEnd, payload, logger, true)
+): Promise<void> => runHook(plugins, (p) => p.onExtractionEnd, payload, logger, true)
 
 export const fireReflectionStart = (
   plugins: readonly Plugin[],
   payload: ReflectionPayload,
   logger: Logger,
-): Promise<void> =>
-  runHook(plugins, (p) => p.onReflectionStart, payload, logger, false)
+): Promise<void> => runHook(plugins, (p) => p.onReflectionStart, payload, logger, false)
 
 export const fireReflectionEnd = (
   plugins: readonly Plugin[],
   payload: ReflectionPayload,
   logger: Logger,
-): Promise<void> =>
-  runHook(plugins, (p) => p.onReflectionEnd, payload, logger, true)
+): Promise<void> => runHook(plugins, (p) => p.onReflectionEnd, payload, logger, true)
 
 export const fireConsolidationStart = (
   plugins: readonly Plugin[],
   payload: ConsolidationPayload,
   logger: Logger,
-): Promise<void> =>
-  runHook(plugins, (p) => p.onConsolidationStart, payload, logger, false)
+): Promise<void> => runHook(plugins, (p) => p.onConsolidationStart, payload, logger, false)
 
 export const fireConsolidationEnd = (
   plugins: readonly Plugin[],
   payload: ConsolidationPayload,
   logger: Logger,
-): Promise<void> =>
-  runHook(plugins, (p) => p.onConsolidationEnd, payload, logger, true)
+): Promise<void> => runHook(plugins, (p) => p.onConsolidationEnd, payload, logger, true)

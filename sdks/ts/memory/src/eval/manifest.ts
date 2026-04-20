@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
+import { type LMECacheKeyInput, createLMECacheKey } from './cache-key.js'
 import type { LoadedDataset } from './dataset.js'
-import { createLMECacheKey, type LMECacheKeyInput } from './cache-key.js'
 import type { IngestMode } from './types.js'
 import type {
   LMEOfficialRepoFetchResult,
@@ -95,9 +95,7 @@ export type BuildLMEManifestArgs = {
   readonly createdAt?: Date
 }
 
-export const buildLMEManifest = (
-  args: BuildLMEManifestArgs,
-): LMEManifest => {
+export const buildLMEManifest = (args: BuildLMEManifestArgs): LMEManifest => {
   const key = createLMECacheKey(manifestCacheKeyInput(args))
   return {
     version: 1,
@@ -145,15 +143,9 @@ export const manifestCacheKeyInput = (
   judgeConcurrency: args.run.judgeConcurrency,
   embeddingBatchSize: args.run.embeddingBatchSize,
   readerBudgetChars: args.run.readerBudgetChars,
-  ...(args.models.extractModel !== undefined
-    ? { extractModel: args.models.extractModel }
-    : {}),
-  ...(args.models.readerModel !== undefined
-    ? { readerModel: args.models.readerModel }
-    : {}),
-  ...(args.models.judgeModel !== undefined
-    ? { judgeModel: args.models.judgeModel }
-    : {}),
+  ...(args.models.extractModel !== undefined ? { extractModel: args.models.extractModel } : {}),
+  ...(args.models.readerModel !== undefined ? { readerModel: args.models.readerModel } : {}),
+  ...(args.models.judgeModel !== undefined ? { judgeModel: args.models.judgeModel } : {}),
   ...(args.models.embedder !== undefined ? { embedder: args.models.embedder } : {}),
   ...(args.models.reranker !== undefined ? { reranker: args.models.reranker } : {}),
 })

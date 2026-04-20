@@ -6,14 +6,7 @@
  * dependency-free.
  */
 
-export type SourceKind =
-  | 'markdown'
-  | 'text'
-  | 'url'
-  | 'pdf'
-  | 'json-transcript'
-  | 'html'
-  | 'binary'
+export type SourceKind = 'markdown' | 'text' | 'url' | 'pdf' | 'json-transcript' | 'html' | 'binary'
 
 export type DetectInput =
   | { readonly kind: 'url'; readonly url: string }

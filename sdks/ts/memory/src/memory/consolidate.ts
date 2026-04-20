@@ -14,8 +14,8 @@
 import type { Logger, Provider } from '../llm/index.js'
 import { ErrNotFound } from '../store/errors.js'
 import type { Batch, FileInfo, ListOpts, Store } from '../store/index.js'
-import { lastSegment, type Path } from '../store/path.js'
-import { buildFrontmatter, parseFrontmatter, type Frontmatter } from './frontmatter.js'
+import { type Path, lastSegment } from '../store/path.js'
+import { type Frontmatter, buildFrontmatter, parseFrontmatter } from './frontmatter.js'
 import { scopeIndex, scopePrefix } from './paths.js'
 import { fireConsolidationEnd, fireConsolidationStart } from './plugins.js'
 import { DEDUPLICATION_SYSTEM_PROMPT } from './prompts.js'
@@ -159,9 +159,7 @@ export const createConsolidate = (deps: ConsolidateDeps) => {
         errors.push(...maintenance.errors)
       })
     } catch (err) {
-      errors.push(
-        `consolidate batch failed: ${err instanceof Error ? err.message : String(err)}`,
-      )
+      errors.push(`consolidate batch failed: ${err instanceof Error ? err.message : String(err)}`)
     }
 
     const report: ConsolidationReport = {
@@ -371,14 +369,15 @@ const rewriteNote = (
   const stale = isStale(note.observedAt, now)
   nextTags = stale ? upsertTag(nextTags, STALE_TAG) : removeTag(nextTags, STALE_TAG)
 
-  const nextExtra = { ...note.frontmatter.extra }
+  let nextExtra = { ...note.frontmatter.extra }
   if (stale) {
     if (!nextExtra.stale_since) {
       nextExtra.stale_since = now.toISOString()
       changed = true
     }
   } else if (nextExtra.stale_since) {
-    delete nextExtra.stale_since
+    const { stale_since: _staleSince, ...remainingExtra } = nextExtra
+    nextExtra = remainingExtra
     changed = true
   }
 

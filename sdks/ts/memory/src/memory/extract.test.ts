@@ -22,7 +22,7 @@ const stubProvider = (content: string): Provider => ({
   name: () => 'stub',
   modelName: () => 'stub-model',
   async *stream() {
-    throw new Error('not implemented')
+    yield { type: 'done', stopReason: 'end_turn' as const }
   },
   complete: async (_req: CompletionRequest): Promise<CompletionResponse> => ({
     content,
@@ -116,9 +116,9 @@ describe('extract', () => {
     expect(await cursorStore.get('tenant-a')).toBe(8)
 
     // Index files populated for each scope.
-    expect(
-      (await store.read(toPath('memory/global/MEMORY.md'))).toString('utf8'),
-    ).toContain('feedback-testing.md')
+    expect((await store.read(toPath('memory/global/MEMORY.md'))).toString('utf8')).toContain(
+      'feedback-testing.md',
+    )
     expect(
       (await store.read(toPath('memory/project/tenant-a/MEMORY.md'))).toString('utf8'),
     ).toContain('project-auth.md')
@@ -325,9 +325,9 @@ describe('extract', () => {
   })
 
   it('repairs trailing commas in extraction JSON', () => {
-    expect(
-      parseExtractionJson('{"memories":[{"filename":"x.md","content":"hi",}]}'),
-    ).toHaveLength(1)
+    expect(parseExtractionJson('{"memories":[{"filename":"x.md","content":"hi",}]}')).toHaveLength(
+      1,
+    )
   })
 
   it('accepts a bare extraction array', () => {
@@ -626,9 +626,7 @@ describe('extract', () => {
       sessionDate: '2023/05/22 (Mon) 19:18',
     })
 
-    const heuristic = extracted.find((memory) =>
-      memory.content.includes('30 miles per gallon'),
-    )
+    const heuristic = extracted.find((memory) => memory.content.includes('30 miles per gallon'))
     expect(heuristic).toBeDefined()
     expect(heuristic?.scope).toBe('global')
     expect(heuristic?.type).toBe('user')
@@ -652,8 +650,7 @@ describe('extract', () => {
       messages: [
         {
           role: 'user',
-          content:
-            "I see Dr. Smith every week. I've been keeping the spare blankets under my bed.",
+          content: "I see Dr. Smith every week. I've been keeping the spare blankets under my bed.",
         },
         {
           role: 'assistant',
@@ -706,9 +703,7 @@ describe('extract', () => {
       sessionDate: '2024/03/25 (Mon) 09:15',
     })
 
-    const heuristic = extracted.find((memory) =>
-      memory.content.includes('bi-weekly'),
-    )
+    const heuristic = extracted.find((memory) => memory.content.includes('bi-weekly'))
     expect(heuristic).toBeDefined()
     expect(heuristic?.scope).toBe('global')
     expect(heuristic?.type).toBe('user')
@@ -731,8 +726,7 @@ describe('extract', () => {
       messages: [
         {
           role: 'user',
-          content:
-            "I've upgraded my line to 500 Mbps and the backup sync now runs at 1.5 GB/s.",
+          content: "I've upgraded my line to 500 Mbps and the backup sync now runs at 1.5 GB/s.",
         },
         {
           role: 'assistant',
@@ -748,9 +742,7 @@ describe('extract', () => {
     expect(bandwidth).toBeDefined()
     expect(bandwidth?.scope).toBe('global')
     expect(bandwidth?.type).toBe('user')
-    expect(bandwidth?.tags).toEqual(
-      expect.arrayContaining(['500 Mbps', '1.5 GB/s']),
-    )
+    expect(bandwidth?.tags).toEqual(expect.arrayContaining(['500 Mbps', '1.5 GB/s']))
   })
 
   it('creates assistant row memories from weekday markdown tables', async () => {
@@ -781,9 +773,7 @@ describe('extract', () => {
       sessionDate: '2023/08/13 (Sun) 09:00',
     })
 
-    const sunday = extracted.find((memory) =>
-      memory.content.includes('Sunday roster:'),
-    )
+    const sunday = extracted.find((memory) => memory.content.includes('Sunday roster:'))
 
     expect(sunday).toBeDefined()
     expect(sunday?.scope).toBe('project')
@@ -823,9 +813,7 @@ describe('extract', () => {
       sessionDate: '2023/07/15 (Sat) 22:42',
     })
 
-    const heuristic = extracted.find((memory) =>
-      memory.content.includes('fifth issue'),
-    )
+    const heuristic = extracted.find((memory) => memory.content.includes('fifth issue'))
     expect(heuristic).toBeDefined()
     expect(heuristic?.filename).toContain('2023-07-15')
   })
@@ -857,9 +845,7 @@ describe('extract', () => {
       sessionId: 'session-fallback',
     })
 
-    const heuristic = extracted.find((memory) =>
-      memory.content.includes('fifth issue'),
-    )
+    const heuristic = extracted.find((memory) => memory.content.includes('fifth issue'))
     expect(heuristic).toBeDefined()
     expect(heuristic?.filename).toContain('2023-07-15')
     expect(heuristic?.observedOn).toBe('2023-07-15T22:42:00.000Z')
@@ -974,9 +960,10 @@ describe('extract', () => {
       sessionDate: '2023/05/27 (Sat) 03:04',
     })
 
-    const heuristic = extracted.find((memory) =>
-      memory.content.includes('Airbnb') &&
-      memory.content.includes('book three months in advance'),
+    const heuristic = extracted.find(
+      (memory) =>
+        memory.content.includes('Airbnb') &&
+        memory.content.includes('book three months in advance'),
     )
     expect(heuristic).toBeDefined()
     expect(heuristic?.filename).toContain('session-airbnb')
@@ -1026,12 +1013,10 @@ describe('extract', () => {
             action: 'create',
             filename: 'user-car-fuel-efficiency.md',
             name: "User's Car Fuel Efficiency",
-            description:
-              "User's car was getting 30 miles per gallon in the city a few months ago.",
+            description: "User's car was getting 30 miles per gallon in the city a few months ago.",
             type: 'user',
             scope: 'global',
-            content:
-              "The user's car was getting 30 miles per gallon in the city a few months ago.",
+            content: "The user's car was getting 30 miles per gallon in the city a few months ago.",
             index_entry: "User's car was getting 30 miles per gallon in the city a few months ago.",
           },
         ],
@@ -1046,7 +1031,7 @@ describe('extract', () => {
             type: 'user',
             scope: 'global',
             content:
-              "The user has been getting around 28 miles per gallon in the city with their car.",
+              'The user has been getting around 28 miles per gallon in the city with their car.',
             index_entry: "User's car fuel efficiency is 28 mpg in the city.",
           },
         ],
@@ -1121,11 +1106,7 @@ describe('extract', () => {
     expect(noteBodies.some((body) => body.includes('30 miles per gallon'))).toBe(true)
     expect(noteBodies.some((body) => body.includes('28 miles per gallon'))).toBe(true)
     expect(
-      files.some(
-        (entry) =>
-          !entry.isDir &&
-          entry.path.includes('user-fact-2023-05-22-session-a'),
-      ),
+      files.some((entry) => !entry.isDir && entry.path.includes('user-fact-2023-05-22-session-a')),
     ).toBe(true)
   })
 
@@ -1305,8 +1286,7 @@ describe('extract', () => {
       messages: [
         {
           role: 'user',
-          content:
-            `I'm feeling a bit tired today, just got back from the "24-Hour Bike Ride" charity event, where I cycled for 4 hours non-stop to raise money for a local children's hospital.`,
+          content: `I'm feeling a bit tired today, just got back from the "24-Hour Bike Ride" charity event, where I cycled for 4 hours non-stop to raise money for a local children's hospital.`,
         },
         {
           role: 'assistant',
@@ -1317,9 +1297,9 @@ describe('extract', () => {
       sessionDate: '2023/02/14 (Tue) 19:50',
     })
 
-    expect(
-      extracted.some((memory) => memory.description.includes('medical appointment')),
-    ).toBe(false)
+    expect(extracted.some((memory) => memory.description.includes('medical appointment'))).toBe(
+      false,
+    )
   })
 
   it('adds heuristic event notes for religious services', async () => {
@@ -1468,9 +1448,7 @@ describe('extract', () => {
     })
 
     expect(
-      extracted.some((memory) =>
-        memory.content.includes('prefers books with these constraints'),
-      ),
+      extracted.some((memory) => memory.content.includes('prefers books with these constraints')),
     ).toBe(false)
   })
 
@@ -1512,5 +1490,4 @@ describe('extract', () => {
     expect(heuristic?.type).toBe('user')
     expect(heuristic?.filename).toContain('user-preference-2023-05-20-session-d')
   })
-
 })

@@ -72,11 +72,7 @@ const findHeadings = (lines: readonly string[]): readonly HeadingLine[] => {
     }
     // Setext: the heading title is on line i, underline on line i+1.
     const next = lines[i + 1]
-    if (
-      next !== undefined &&
-      line.trim() !== '' &&
-      /^[=-]{2,}\s*$/.test(next)
-    ) {
+    if (next !== undefined && line.trim() !== '' && /^[=-]{2,}\s*$/.test(next)) {
       const level = next.trimEnd().startsWith('=') ? 1 : 2
       out.push({ line: i, level, title: line.trim() })
     }
@@ -89,7 +85,10 @@ const findHeadings = (lines: readonly string[]): readonly HeadingLine[] => {
  * the cumulative heading path at each point. A section runs from the
  * heading line until the next heading of equal or shallower depth.
  */
-const splitSections = (lines: readonly string[], headings: readonly HeadingLine[]): readonly Section[] => {
+const splitSections = (
+  lines: readonly string[],
+  headings: readonly HeadingLine[],
+): readonly Section[] => {
   if (headings.length === 0) {
     return [
       {
@@ -127,8 +126,7 @@ const splitSections = (lines: readonly string[], headings: readonly HeadingLine[
     const next = headings[i + 1]
     // Setext headings span two lines; include both in the content so the
     // chunker renders the heading + underline intact.
-    const endExclusive =
-      next?.line ?? lines.length
+    const endExclusive = next?.line ?? lines.length
     const contentLines = lines.slice(h.line, endExclusive)
     sections.push({
       headingPath: stack.map((s) => s.title),

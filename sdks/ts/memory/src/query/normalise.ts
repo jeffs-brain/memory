@@ -8,7 +8,7 @@
  * preserved verbatim so the parser can detect them.
  */
 
-const INVISIBLES = /[\u200B-\u200D\uFEFF]/g
+const INVISIBLES = /\u200B|\u200C|\u200D|\uFEFF/g
 const NBSP = /\u00A0/g
 const WHITESPACE_RUN = /\s+/g
 

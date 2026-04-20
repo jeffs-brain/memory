@@ -16,8 +16,8 @@ import {
   filterPassagesByQuestionDate,
   rankReplayPassagesForQuestion,
   renderRetrievedPassages,
-  selectReplayPassagesForReader,
   runStandaloneLMEEval,
+  selectReplayPassagesForReader,
 } from './run.js'
 
 const createdDirs: string[] = []
@@ -105,12 +105,8 @@ describe('runStandaloneLMEEval', () => {
       readonly version: number
     }
     expect(manifestRaw.version).toBe(1)
-    expect(await readFile(outcome.officialHypothesesPath, 'utf8')).toContain(
-      '"question_id":"q1"',
-    )
-    expect(await readFile(outcome.officialEvalLogPath, 'utf8')).toContain(
-      '"autoeval_label"',
-    )
+    expect(await readFile(outcome.officialHypothesesPath, 'utf8')).toContain('"question_id":"q1"')
+    expect(await readFile(outcome.officialEvalLogPath, 'utf8')).toContain('"autoeval_label"')
   })
 
   it('keeps the default bm25 path free of vector side effects', async () => {

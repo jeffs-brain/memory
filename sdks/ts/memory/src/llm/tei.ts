@@ -170,10 +170,7 @@ export class TEIReranker implements Reranker {
 
   async isAvailable(signal?: AbortSignal): Promise<boolean> {
     const cached = this.availabilityMemo
-    if (
-      cached !== undefined &&
-      Date.now() - cached.checkedAt < this.probeTtlMs
-    ) {
+    if (cached !== undefined && Date.now() - cached.checkedAt < this.probeTtlMs) {
       return cached.value
     }
     if (this.availabilityProbe !== undefined) {

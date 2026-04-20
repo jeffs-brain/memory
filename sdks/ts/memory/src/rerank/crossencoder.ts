@@ -9,7 +9,7 @@
 
 import type { Reranker as TEIRerankerContract } from '../llm/types.js'
 import { runWithSharedRerankConcurrency } from './concurrency.js'
-import type { Reranker, RerankRequest, RerankResult } from './index.js'
+import type { RerankRequest, RerankResult, Reranker } from './index.js'
 
 export type CrossEncoderRerankerConfig = {
   /** Underlying TEI rerank client (typically TEIReranker from ../llm). */

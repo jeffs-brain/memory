@@ -63,7 +63,9 @@ const makePathPreferringReranker = (pathFragment: string): Reranker => ({
 
 type RunnableCommand = {
   readonly run?: (ctx: { readonly args: Record<string, unknown> }) => Promise<void> | void
-  readonly subCommands?: Record<string, RunnableCommand> | ((...args: readonly unknown[]) => unknown)
+  readonly subCommands?:
+    | Record<string, RunnableCommand>
+    | ((...args: readonly unknown[]) => unknown)
 }
 
 const pickSub = (parent: RunnableCommand, name: string): RunnableCommand => {
@@ -99,10 +101,9 @@ describe('memory init + ingest + search', () => {
     const ingestStore = await openBrain(brainDir)
     try {
       const ingest = createIngest({ store: ingestStore, logger: noopLogger })
-      const result = await ingest(
-        await (await import('node:fs/promises')).readFile(filePath),
-        { name: 'hedgehog.md' },
-      )
+      const result = await ingest(await (await import('node:fs/promises')).readFile(filePath), {
+        name: 'hedgehog.md',
+      })
       expect(result.path).toContain('raw/documents/')
     } finally {
       await ingestStore.close()

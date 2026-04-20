@@ -7,9 +7,9 @@
 
 import { afterEach, describe, expect, it } from 'vitest'
 import { createHashEmbedder } from '../llm/hashembed.js'
+import { type SearchIndex, createSearchIndex } from '../search/index.js'
 import { createMemStore } from '../store/memstore.js'
-import { createSearchIndex, type SearchIndex } from '../search/index.js'
-import { ingestDocument, type IngestProgress } from './pipeline.js'
+import { type IngestProgress, ingestDocument } from './pipeline.js'
 
 const indices: SearchIndex[] = []
 

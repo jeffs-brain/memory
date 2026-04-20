@@ -8,8 +8,8 @@
 import { AGENT_META } from '../detect.js'
 import type { InstallConfig, WriteOutcome } from '../types.js'
 import {
-  buildServerSpec,
   type Fs,
+  buildServerSpec,
   isObject,
   nodeFs,
   readJsonOrEmpty,
@@ -17,15 +17,9 @@ import {
   writeJsonWithBackup,
 } from './shared.js'
 
-export const writeZed = (
-  target: string,
-  config: InstallConfig,
-  fs: Fs = nodeFs,
-): WriteOutcome => {
+export const writeZed = (target: string, config: InstallConfig, fs: Fs = nodeFs): WriteOutcome => {
   const current = readJsonOrEmpty(fs, target)
-  const servers = isObject(current.context_servers)
-    ? { ...current.context_servers }
-    : {}
+  const servers = isObject(current.context_servers) ? { ...current.context_servers } : {}
   const spec = toPlainSpec(buildServerSpec(config))
   servers['jeffs-brain'] = {
     source: 'custom',

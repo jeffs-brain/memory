@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from 'vitest'
-import type { LMEExample, LMEResult } from './types.js'
 import {
   parseOfficialEvalLog,
   resultsToOfficialEvalLog,
@@ -9,6 +8,7 @@ import {
   serialiseOfficialEvalLog,
   serialiseOfficialHypotheses,
 } from './scorer.js'
+import type { LMEExample, LMEResult } from './types.js'
 
 const refs: readonly LMEExample[] = [
   {

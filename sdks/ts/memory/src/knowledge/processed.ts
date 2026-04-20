@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
-import { joinPath, pathUnder, type Path, type Store } from '../store/index.js'
-import { hashContent, RAW_DOCUMENTS_PREFIX } from './ingest.js'
+import { type Path, type Store, joinPath, pathUnder } from '../store/index.js'
+import { RAW_DOCUMENTS_PREFIX, hashContent } from './ingest.js'
 
 export const RAW_DOCUMENTS_PROCESSED_PREFIX = joinPath(RAW_DOCUMENTS_PREFIX, '_processed')
 

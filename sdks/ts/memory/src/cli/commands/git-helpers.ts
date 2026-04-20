@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { execFile as execFileCallback } from 'node:child_process'
-import { access, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import * as nodeFs from 'node:fs'
+import { access, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
 import { basename, join } from 'node:path'
 import { promisify } from 'node:util'
 import * as git from 'isomorphic-git'
@@ -97,10 +97,7 @@ export const requireGitBrain = async (brainDir: string): Promise<void> => {
   }
 }
 
-export const runGit = async (
-  brainDir: string,
-  args: readonly string[],
-): Promise<string> => {
+export const runGit = async (brainDir: string, args: readonly string[]): Promise<string> => {
   try {
     const { stdout } = await execFile('git', ['-C', brainDir, ...args], { encoding: 'utf8' })
     return stdout
@@ -114,7 +111,12 @@ export const tryReadAheadBehind = async (
   branch: string,
 ): Promise<{ readonly ahead: number | null; readonly behind: number | null }> => {
   try {
-    const raw = await runGit(brainDir, ['rev-list', '--left-right', '--count', `HEAD...origin/${branch}`])
+    const raw = await runGit(brainDir, [
+      'rev-list',
+      '--left-right',
+      '--count',
+      `HEAD...origin/${branch}`,
+    ])
     const [aheadRaw, behindRaw] = raw.trim().split(/\s+/, 2)
     const ahead = Number.parseInt(aheadRaw ?? '0', 10)
     const behind = Number.parseInt(behindRaw ?? '0', 10)
@@ -251,7 +253,9 @@ export const readFormattedLog = async (args: {
   readonly reasonFilter: string
 }): Promise<readonly GitLogEntry[]> => {
   const fetchDepth =
-    args.reasonFilter === '' ? args.limit : Math.max(args.limit * MAX_REASON_FILTER_MULTIPLIER, args.limit)
+    args.reasonFilter === ''
+      ? args.limit
+      : Math.max(args.limit * MAX_REASON_FILTER_MULTIPLIER, args.limit)
   const now = new Date()
   const out: GitLogEntry[] = []
   for (const entry of await readGitLog(args.brainDir, fetchDepth)) {
@@ -284,7 +288,14 @@ export const listChangedFiles = async (
   brainDir: string,
   oid: string,
 ): Promise<readonly string[]> => {
-  const raw = await runGit(brainDir, ['diff-tree', '--root', '--no-commit-id', '--name-only', '-r', oid])
+  const raw = await runGit(brainDir, [
+    'diff-tree',
+    '--root',
+    '--no-commit-id',
+    '--name-only',
+    '-r',
+    oid,
+  ])
   return raw
     .split('\n')
     .map((line) => line.trim())
@@ -347,11 +358,15 @@ export const listBrainFiles = async (
   return out
 }
 
-export const readSectionStats = async (brainDir: string): Promise<readonly {
-  readonly name: string
-  readonly count: number
-  readonly bytes: number
-}[]> => {
+export const readSectionStats = async (
+  brainDir: string,
+): Promise<
+  readonly {
+    readonly name: string
+    readonly count: number
+    readonly bytes: number
+  }[]
+> => {
   const sections = [
     { name: 'memory', prefixes: ['memory'] },
     { name: 'reflections', prefixes: ['reflections'] },
@@ -425,15 +440,15 @@ export const runVerifyChecks = async (brainDir: string): Promise<readonly Verify
   checks.push({
     name: 'path-validation',
     ok: invalid === 0,
-    detail: invalid === 0 ? `${String(files.length)} valid path(s)` : `${String(invalid)} invalid path(s)`,
+    detail:
+      invalid === 0
+        ? `${String(files.length)} valid path(s)`
+        : `${String(invalid)} invalid path(s)`,
   })
   return checks
 }
 
-export const readCleanReport = (
-  files: readonly BrainFile[],
-  maxSizeBytes: number,
-): CleanReport => {
+export const readCleanReport = (files: readonly BrainFile[], maxSizeBytes: number): CleanReport => {
   const junkDirs: string[] = []
   const lockfiles: string[] = []
   const generated: string[] = []
@@ -485,7 +500,9 @@ export const scopePrefixes = (scopeRaw: string): readonly string[] => {
     case 'reflections':
       return ['reflections']
     default:
-      throw new CliError(`unknown scope '${scopeRaw}'; expected all|raw|wiki|drafts|memory|reflections`)
+      throw new CliError(
+        `unknown scope '${scopeRaw}'; expected all|raw|wiki|drafts|memory|reflections`,
+      )
   }
 }
 
@@ -508,7 +525,9 @@ export const stageAndCommit = async (args: {
   const unique = [...new Set(args.paths)].sort()
   if (unique.length === 0) return false
   await runGit(args.brainDir, ['add', '-A', '--', ...unique])
-  const diff = (await runGit(args.brainDir, ['diff', '--cached', '--name-only', '--', ...unique])).trim()
+  const diff = (
+    await runGit(args.brainDir, ['diff', '--cached', '--name-only', '--', ...unique])
+  ).trim()
   if (diff === '') return false
   await runGit(args.brainDir, ['commit', '-m', args.message, '--', ...unique])
   return true
@@ -521,7 +540,7 @@ const walkFiles = async (
   out: BrainFile[],
   seen: Set<string>,
 ): Promise<void> => {
-  let entries
+  let entries: nodeFs.Dirent[]
   try {
     entries = await readdir(currentAbs, { withFileTypes: true })
   } catch (err) {

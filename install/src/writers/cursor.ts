@@ -8,8 +8,8 @@
 import { AGENT_META } from '../detect.js'
 import type { InstallConfig, WriteOutcome } from '../types.js'
 import {
-  buildServerSpec,
   type Fs,
+  buildServerSpec,
   isObject,
   nodeFs,
   readJsonOrEmpty,

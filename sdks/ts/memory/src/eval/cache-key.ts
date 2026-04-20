@@ -2,10 +2,7 @@
 
 import { createHash } from 'node:crypto'
 import type { IngestMode } from './types.js'
-import type {
-  LMEUpstreamBundleName,
-  LMEUpstreamDatasetName,
-} from './upstream.js'
+import type { LMEUpstreamBundleName, LMEUpstreamDatasetName } from './upstream.js'
 
 export type LMECacheKeyInput = {
   readonly datasetName: LMEUpstreamDatasetName

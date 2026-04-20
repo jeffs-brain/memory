@@ -11,14 +11,14 @@
 
 import type { Logger, Message, Provider } from '../llm/index.js'
 import { expandTemporal } from '../query/temporal.js'
-import { lastSegment } from '../store/path.js'
 import type { Store } from '../store/index.js'
-import { CONTEXTUAL_PREFIX_MARKER } from './prompts.js'
-import { EXTRACTION_SYSTEM_PROMPT } from './prompts.js'
+import { lastSegment } from '../store/path.js'
 import { buildFrontmatter } from './frontmatter.js'
 import { parseFrontmatter } from './frontmatter.js'
 import { ensureMarkdown, scopeIndex, scopePrefix, scopeTopic } from './paths.js'
 import { fireExtractionEnd, fireExtractionStart } from './plugins.js'
+import { CONTEXTUAL_PREFIX_MARKER } from './prompts.js'
+import { EXTRACTION_SYSTEM_PROMPT } from './prompts.js'
 import type {
   ContextualPrefixBuilder,
   CursorStore,
@@ -36,8 +36,7 @@ const EXISTING_MEMORY_LIMIT = 24
 const EXISTING_MEMORY_PREVIEW_LIMIT = 400
 const TRAILING_COMMA_RE = /,(\s*[}\]])/g
 const DATE_TAG_RE = /\b\d{4}[-/]\d{2}[-/]\d{2}\b/g
-const WEEKDAY_TAG_RE =
-  /\b(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/gi
+const WEEKDAY_TAG_RE = /\b(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/gi
 const QUANTITY_TAG_RE = /\b\d{1,6}(?:\.\d+)?\b/g
 const PROPER_NOUN_TAG_RE = /\b[A-Z][a-zA-Z]+\b/g
 const MONEY_TAG_RE = /[\$£€]\s?\d{1,3}(?:,\d{3})*(?:\.\d+)?/g
@@ -66,8 +65,7 @@ const HEURISTIC_STORAGE_LOCATION_FACT_RE =
   /\b(?:i|i'm|i’ve|i've|i have)\s+(?:been\s+)?(?:keep(?:ing)?|kept|stor(?:e|ing|ed)|stash(?:ed|ing)?|leave|left|put|placed)\b[^.!?\n]*\b(?:under|inside|in|on|at|behind|beside|next to)\b/i
 const HEURISTIC_QUESTION_LEAD_RE =
   /^\s*(?:what|when|where|why|how|which|who|can|could|should|would|do|did|does|is|are|am|have|has|had)\b/i
-const SYSTEM_SESSION_ID_RE =
-  /\bsession[_ ]id\s*[:=]\s*([A-Za-z0-9._-]+)\b/im
+const SYSTEM_SESSION_ID_RE = /\bsession[_ ]id\s*[:=]\s*([A-Za-z0-9._-]+)\b/im
 const SENTENCE_SPLIT_PROTECTED_ABBREVIATIONS: ReadonlyArray<readonly [RegExp, string]> = [
   [/\bDr\./g, 'Dr__DOT__'],
   [/\bMr\./g, 'Mr__DOT__'],
@@ -85,19 +83,13 @@ const HEURISTIC_PREFERENCE_BESIDES_LIKE_RE =
   /\bbesides\s+([^.!?]+?),\s*i\s+(?:also\s+)?like\s+([^.!?]+?)(?:[.!?]|$)/i
 const HEURISTIC_PREFERENCE_LIKE_RE =
   /\bi\s+(?:also\s+)?(?:like|love|prefer|enjoy)\s+([^.!?]+?)(?:[.!?]|$)/i
-const HEURISTIC_PREFERENCE_COMPATIBLE_RE =
-  /\bcompatible with (?:my|the)\s+([^.!?,\n]+)/i
-const HEURISTIC_PREFERENCE_DESIGNED_FOR_RE =
-  /\bspecifically designed for\s+([^.!?,\n]+)/i
-const HEURISTIC_PREFERENCE_AS_USER_RE =
-  /\bas a[n]?\s+([^.!?,\n]+?)\s+user\b/i
-const HEURISTIC_PREFERENCE_FIELD_RE =
-  /\bfield of\s+([^.!?,\n]+)/i
-const HEURISTIC_PREFERENCE_ADVANCED_RE =
-  /\badvanced topics in\s+([^.!?,\n]+)/i
+const HEURISTIC_PREFERENCE_COMPATIBLE_RE = /\bcompatible with (?:my|the)\s+([^.!?,\n]+)/i
+const HEURISTIC_PREFERENCE_DESIGNED_FOR_RE = /\bspecifically designed for\s+([^.!?,\n]+)/i
+const HEURISTIC_PREFERENCE_AS_USER_RE = /\bas a[n]?\s+([^.!?,\n]+?)\s+user\b/i
+const HEURISTIC_PREFERENCE_FIELD_RE = /\bfield of\s+([^.!?,\n]+)/i
+const HEURISTIC_PREFERENCE_ADVANCED_RE = /\badvanced topics in\s+([^.!?,\n]+)/i
 const HEURISTIC_PREFERENCE_SKIP_BASICS_RE = /\bskip the basics\b/i
-const HEURISTIC_PREFERENCE_WORKING_IN_FIELD_RE =
-  /\b(?:i am|i'm)\s+working in the field\b/i
+const HEURISTIC_PREFERENCE_WORKING_IN_FIELD_RE = /\b(?:i am|i'm)\s+working in the field\b/i
 const HEURISTIC_PENDING_ACTION_LEAD_RE =
   /^\s*(?:i(?:'ve)?(?:\s+still)?\s+(?:need|have)\s+to|i(?:'ve)?\s+got\s+to|i\s+must|i\s+should|i\s+need\s+to\s+remember\s+to|remember\s+to|don't\s+let\s+me\s+forget\s+to)\s+([^.!?]+)/i
 const HEURISTIC_PENDING_ACTION_START_RE =
@@ -117,8 +109,7 @@ const HEURISTIC_EVENT_TITLE_RE =
 const HEURISTIC_WITH_PERSON_RE = /\bwith\s+(Dr\.?\s+[A-Z][a-zA-Z'-]+)\b/
 const HEURISTIC_RELATIVE_DATE_RE =
   /\b(?:today|tomorrow|tonight|this morning|this afternoon|this evening|this weekend|next weekend|next week|next month|coming week|next\s+(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)|this\s+(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)|coming\s+(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)|(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday))\b/i
-const HEURISTIC_CLOCK_TIME_RE =
-  /\b(?:at\s+)?(\d{1,2}(?::\d{2})?\s?(?:am|pm)|\d{1,2}:\d{2})\b/i
+const HEURISTIC_CLOCK_TIME_RE = /\b(?:at\s+)?(\d{1,2}(?::\d{2})?\s?(?:am|pm)|\d{1,2}:\d{2})\b/i
 const HEURISTIC_DURATION_FACT_RE =
   /\b(?:\d{1,4}-day|[a-z]+-day|[a-z]+-week|[a-z]+-month|[a-z]+-year|week-long|month-long|year-long)\b/i
 const HEURISTIC_RECOMMENDATION_REQUEST_RE =
@@ -126,24 +117,19 @@ const HEURISTIC_RECOMMENDATION_REQUEST_RE =
 const HEURISTIC_RECOMMENDATION_UNDER_RE =
   /\bunder\s+(\d{1,4}(?:\.\d+)?\s*(?:minutes?|mins?|hours?|hrs?|pages?|£|€|\$))\b/i
 const HEURISTIC_RECOMMENDATION_NOT_TOO_RE = /\b(?:nothing|not)\s+too\s+([^,.!?;\n]+)/i
-const HEURISTIC_RECOMMENDATION_WITHOUT_RE =
-  /\bwithout\s+([^,.!?;\n]+)/i
-const HEURISTIC_RECOMMENDATION_FAMILY_RE =
-  /\b(?:family-friendly|kid-friendly)\b/i
-const HEURISTIC_RECOMMENDATION_LIGHT_RE =
-  /\b(?:light-hearted|feel-good|cosy|cozy)\b/i
+const HEURISTIC_RECOMMENDATION_WITHOUT_RE = /\bwithout\s+([^,.!?;\n]+)/i
+const HEURISTIC_RECOMMENDATION_FAMILY_RE = /\b(?:family-friendly|kid-friendly)\b/i
+const HEURISTIC_RECOMMENDATION_LIGHT_RE = /\b(?:light-hearted|feel-good|cosy|cozy)\b/i
 const RELATIVE_TEMPORAL_TAG_RE =
   /\b(?:today|tomorrow|tonight|this morning|this afternoon|this evening|this weekend|next weekend|next week|next month|coming week|next\s+(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)|this\s+(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)|coming\s+(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday))\b/gi
-const CLOCK_TIME_TAG_RE =
-  /\b\d{1,2}(?::\d{2})?\s?(?:am|pm)\b|\b\d{1,2}:\d{2}\b/gi
+const CLOCK_TIME_TAG_RE = /\b\d{1,2}(?::\d{2})?\s?(?:am|pm)\b|\b\d{1,2}:\d{2}\b/gi
 const PENDING_ACTION_TAG_RE =
   /\b(?:pick\s+up|drop\s+off|return|exchange|collect|book|schedule|renew|cancel|follow\s+up)\b/gi
 const MEDICAL_TAG_RE =
   /\b(?:appointment|check-?up|consultation|follow-?up|doctor|gp|dentist|dermatologist|orthodontist|hygienist|therapist|physio(?:therapist)?|optometrist|ophthalmologist|paediatrician|pediatrician|gynaecologist|gynecologist|cardiologist|neurologist|oncologist|surgeon|vet|veterinarian|clinic|hospital|prescription)\b/gi
 const EVENT_TAG_RE =
   /\b(?:workshop|conference|concert|gig|show|screening|play|musical|exhibition|festival|meetup|class|course|webinar|lecture|seminar)\b/gi
-const ENTERTAINMENT_TAG_RE =
-  /\b(?:film|movie|show|series|book|novel|game|podcast|cinema)\b/gi
+const ENTERTAINMENT_TAG_RE = /\b(?:film|movie|show|series|book|novel|game|podcast|cinema)\b/gi
 const MONTH_NAME_VALUES = [
   'January',
   'February',
@@ -285,42 +271,17 @@ const runExtract = async (
       windowed,
       [
         ...normalised,
-        ...deriveHeuristicUserFacts(
-          windowed,
-          normalised,
-          args.sessionId,
-          args.sessionDate,
-        ),
-        ...deriveHeuristicPreferenceFacts(
-          windowed,
-          normalised,
-          args.sessionId,
-          args.sessionDate,
-        ),
-        ...deriveHeuristicPendingFacts(
-          windowed,
-          normalised,
-          args.sessionId,
-          args.sessionDate,
-        ),
-        ...deriveHeuristicEventFacts(
-          windowed,
-          normalised,
-          args.sessionId,
-          args.sessionDate,
-        ),
+        ...deriveHeuristicUserFacts(windowed, normalised, args.sessionId, args.sessionDate),
+        ...deriveHeuristicPreferenceFacts(windowed, normalised, args.sessionId, args.sessionDate),
+        ...deriveHeuristicPendingFacts(windowed, normalised, args.sessionId, args.sessionDate),
+        ...deriveHeuristicEventFacts(windowed, normalised, args.sessionId, args.sessionDate),
         ...deriveHeuristicAssistantTableFacts(
           windowed,
           normalised,
           args.sessionId,
           args.sessionDate,
         ),
-        ...deriveHeuristicMilestoneFacts(
-          windowed,
-          normalised,
-          args.sessionId,
-          args.sessionDate,
-        ),
+        ...deriveHeuristicMilestoneFacts(windowed, normalised, args.sessionId, args.sessionDate),
       ],
       args.sessionId,
       args.sessionDate,
@@ -414,7 +375,9 @@ const listExistingMemories = async (
         name: parsed.frontmatter.name?.trim() ?? '',
         description: parsed.frontmatter.description?.trim() ?? '',
         type: parsed.frontmatter.type?.trim() ?? '',
-        ...(parsed.frontmatter.modified !== undefined ? { modified: parsed.frontmatter.modified } : {}),
+        ...(parsed.frontmatter.modified !== undefined
+          ? { modified: parsed.frontmatter.modified }
+          : {}),
         content: preview,
       })
     }
@@ -555,14 +518,13 @@ const normaliseExtracted = (
       ? raw.session_id.trim()
       : typeof raw.sessionId === 'string' && raw.sessionId.trim() !== ''
         ? raw.sessionId.trim()
-        : sessionId?.trim() ?? ''
+        : (sessionId?.trim() ?? '')
   const scopeRaw = typeof raw.scope === 'string' ? raw.scope : ''
   const scope: Scope =
     scopeRaw === 'global' || scopeRaw === 'project' || scopeRaw === 'agent'
       ? scopeRaw
       : defaultScope
-  const action =
-    raw.action === 'update' || raw.action === 'create' ? raw.action : 'create'
+  const action = raw.action === 'update' || raw.action === 'create' ? raw.action : 'create'
   const type =
     raw.type === 'user' ||
     raw.type === 'feedback' ||
@@ -591,9 +553,7 @@ const normaliseExtracted = (
           ? raw.index_entry
           : '',
     scope,
-    ...(typeof raw.supersedes === 'string' && raw.supersedes
-      ? { supersedes: raw.supersedes }
-      : {}),
+    ...(typeof raw.supersedes === 'string' && raw.supersedes ? { supersedes: raw.supersedes } : {}),
     ...(tags && tags.length > 0 ? { tags } : {}),
     ...(rawSessionId !== '' ? { sessionId: rawSessionId } : {}),
     ...(typeof raw.observed_on === 'string' && raw.observed_on
@@ -823,11 +783,7 @@ const deriveHeuristicUserFacts = (
   return out
 }
 
-const buildHeuristicFilename = (
-  prefix: string,
-  iso: string,
-  slug: string,
-): string => {
+const buildHeuristicFilename = (prefix: string, iso: string, slug: string): string => {
   const parts = [prefix]
   if (iso !== '') parts.push(iso)
   parts.push(slug)
@@ -840,17 +796,13 @@ const buildHeuristicSessionFilename = (
   sessionId: string | undefined,
   slug: string,
 ): string =>
-  rewriteHeuristicFilenameForSession(
-    buildHeuristicFilename(prefix, iso, slug),
-    sessionId,
-  )
+  rewriteHeuristicFilenameForSession(buildHeuristicFilename(prefix, iso, slug), sessionId)
 
 const buildHeuristicUserFactFilename = (args: {
   readonly iso: string
   readonly sessionId?: string
   readonly slug: string
-}): string =>
-  buildHeuristicSessionFilename('user-fact', args.iso, args.sessionId, args.slug)
+}): string => buildHeuristicSessionFilename('user-fact', args.iso, args.sessionId, args.slug)
 
 const deriveHeuristicMilestoneFacts = (
   messages: readonly Message[],
@@ -919,8 +871,7 @@ const deriveHeuristicPreferenceFacts = (
       ...existing
         .filter((memory) => isHeuristicPreferenceFact(memory))
         .map((memory) => heuristicPreferenceSummary(memory.content).toLowerCase()),
-    ]
-      .filter((value) => value !== ''),
+    ].filter((value) => value !== ''),
   )
   const resolvedSessionDate = resolveHeuristicSessionDate(messages, sessionDate)
   const stamp = parseSessionDateRfc3339(resolvedSessionDate)
@@ -1025,9 +976,7 @@ const deriveHeuristicEventFacts = (
     if (message.role !== 'user') continue
     const sentences = splitIntoFactSentences(message.content ?? '')
     for (const sentence of sentences) {
-      const summary =
-        inferAppointmentSummary(sentence) ??
-        inferEventSummary(sentence)
+      const summary = inferAppointmentSummary(sentence) ?? inferEventSummary(sentence)
       if (summary === undefined) continue
       const canonical = normaliseMemoryText(summary)
       if (seen.has(canonical)) continue
@@ -1252,10 +1201,7 @@ const hasHeuristicUserFactSignal = (sentence: string): boolean => {
 const heuristicUserFactCandidates = (content: string): readonly string[] => {
   const candidates = splitIntoFactSentences(content)
   const trimmed = content.trim()
-  if (
-    trimmed === '' ||
-    (!hasCadenceFact(trimmed) && !hasStorageLocationFact(trimmed))
-  ) {
+  if (trimmed === '' || (!hasCadenceFact(trimmed) && !hasStorageLocationFact(trimmed))) {
     return candidates
   }
   const canonical = trimmed.toLowerCase()
@@ -1265,8 +1211,7 @@ const heuristicUserFactCandidates = (content: string): readonly string[] => {
   return [...candidates, trimmed]
 }
 
-const hasCadenceFact = (sentence: string): boolean =>
-  HEURISTIC_CADENCE_FACT_RE.test(sentence)
+const hasCadenceFact = (sentence: string): boolean => HEURISTIC_CADENCE_FACT_RE.test(sentence)
 
 const hasStorageLocationFact = (sentence: string): boolean =>
   HEURISTIC_STORAGE_LOCATION_FACT_RE.test(sentence)
@@ -1281,10 +1226,7 @@ const hasMilestoneFact = (sentence: string): boolean => {
   if (!FIRST_PERSON_FACT_RE.test(sentence)) return false
   if (hasQuantifiedFact(sentence)) return false
   if (!HEURISTIC_MILESTONE_TOPIC_RE.test(sentence)) return false
-  return (
-    HEURISTIC_MILESTONE_EVENT_RE.test(sentence) ||
-    HEURISTIC_MILESTONE_TIME_RE.test(sentence)
-  )
+  return HEURISTIC_MILESTONE_EVENT_RE.test(sentence) || HEURISTIC_MILESTONE_TIME_RE.test(sentence)
 }
 
 const heuristicFactSlug = (sentence: string): string => {
@@ -1311,9 +1253,7 @@ const buildHeuristicPreferenceCandidates = (
   return out
 }
 
-const inferHeuristicPreference = (
-  content: string,
-): HeuristicPreferenceCandidate | undefined => {
+const inferHeuristicPreference = (content: string): HeuristicPreferenceCandidate | undefined => {
   const text = normalisePreferenceText(content)
   if (text === '') return undefined
 
@@ -1332,9 +1272,7 @@ const inferHeuristicPreference = (
   return undefined
 }
 
-const inferExplicitPreference = (
-  text: string,
-): HeuristicPreferenceCandidate | undefined => {
+const inferExplicitPreference = (text: string): HeuristicPreferenceCandidate | undefined => {
   const besides = HEURISTIC_PREFERENCE_BESIDES_LIKE_RE.exec(text)
   if (besides !== null) {
     const first = cleanPreferenceFragment(besides[1] ?? '')
@@ -1360,9 +1298,7 @@ const inferExplicitPreference = (
   return undefined
 }
 
-const inferCompatibilityPreference = (
-  text: string,
-): HeuristicPreferenceCandidate | undefined => {
+const inferCompatibilityPreference = (text: string): HeuristicPreferenceCandidate | undefined => {
   const rawSubject =
     captureGroup(HEURISTIC_PREFERENCE_COMPATIBLE_RE, text) ??
     captureGroup(HEURISTIC_PREFERENCE_DESIGNED_FOR_RE, text) ??
@@ -1377,9 +1313,7 @@ const inferCompatibilityPreference = (
   }
 }
 
-const inferConstraintPreference = (
-  text: string,
-): HeuristicPreferenceCandidate | undefined => {
+const inferConstraintPreference = (text: string): HeuristicPreferenceCandidate | undefined => {
   const category = inferRecommendationCategory(text)
   if (category === undefined) return undefined
   if (!HEURISTIC_RECOMMENDATION_REQUEST_RE.test(text)) return undefined
@@ -1393,9 +1327,7 @@ const inferConstraintPreference = (
   }
 }
 
-const inferAdvancedPreference = (
-  text: string,
-): HeuristicPreferenceCandidate | undefined => {
+const inferAdvancedPreference = (text: string): HeuristicPreferenceCandidate | undefined => {
   const topic =
     captureGroup(HEURISTIC_PREFERENCE_FIELD_RE, text) ??
     captureGroup(HEURISTIC_PREFERENCE_ADVANCED_RE, text)
@@ -1513,8 +1445,7 @@ const collectRecommendationConstraints = (text: string): readonly string[] => {
   return out
 }
 
-const normalisePreferenceText = (value: string): string =>
-  value.replace(/\s+/g, ' ').trim()
+const normalisePreferenceText = (value: string): string => value.replace(/\s+/g, ' ').trim()
 
 const cleanPreferenceFragment = (value: string): string =>
   value
@@ -1527,12 +1458,10 @@ const buildHeuristicPreferenceFilename = (args: {
   readonly iso: string
   readonly sessionId?: string
   readonly slug: string
-}): string =>
-  buildHeuristicSessionFilename('user-preference', args.iso, args.sessionId, args.slug)
+}): string => buildHeuristicSessionFilename('user-preference', args.iso, args.sessionId, args.slug)
 
-const buildHeuristicPreferenceContent = (
-  candidate: HeuristicPreferenceCandidate,
-): string => `${candidate.summary}\n\nEvidence: ${candidate.evidence}`
+const buildHeuristicPreferenceContent = (candidate: HeuristicPreferenceCandidate): string =>
+  `${candidate.summary}\n\nEvidence: ${candidate.evidence}`
 
 const heuristicPreferenceSummary = (content: string): string => {
   const marker = '\n\nEvidence:'
@@ -1547,7 +1476,10 @@ const isHeuristicPreferenceFact = (memory: ExtractedMemory): boolean =>
   memory.filename.startsWith('user-preference-')
 
 const sanitiseHeuristicFileSegment = (value: string): string =>
-  value.replace(/[^A-Za-z0-9._-]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '')
+  value
+    .replace(/[^A-Za-z0-9._-]/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '')
 
 const truncateOneLine = (value: string, max: number): string =>
   value.length <= max ? value : `${value.slice(0, Math.max(1, max - 3)).trimEnd()}...`
@@ -1610,10 +1542,7 @@ const postProcessSessionExtractions = (
 ): readonly ExtractedMemory[] => {
   if (extracted.length === 0) return extracted
 
-  const { sessionRaw, modifiedOverride } = resolveHeuristicSessionMetadata(
-    messages,
-    sessionDate,
-  )
+  const { sessionRaw, modifiedOverride } = resolveHeuristicSessionMetadata(messages, sessionDate)
   const resolvedSessionId = resolveHeuristicSessionId(messages, extracted, sessionId)
   const sessionDateIso = shortIsoDate(modifiedOverride)
   const dateTokens = buildDateTokens(modifiedOverride)
@@ -1623,9 +1552,7 @@ const postProcessSessionExtractions = (
     const currentSessionId = shaped.sessionId?.trim() ?? ''
     const nextSessionId = currentSessionId !== '' ? currentSessionId : resolvedSessionId
     const content =
-      sessionRaw !== '' &&
-      shaped.content.trim() !== '' &&
-      !shaped.content.startsWith('[Date:')
+      sessionRaw !== '' && shaped.content.trim() !== '' && !shaped.content.startsWith('[Date:')
         ? `${dateTokens}[Observed on ${sessionRaw}]\n\n${shaped.content}`
         : shaped.content
     const tags = mergeTags(shaped.tags, autoFactTags(content))
@@ -1638,8 +1565,7 @@ const postProcessSessionExtractions = (
       (shaped.modifiedOverride === undefined || shaped.modifiedOverride === '')
         ? { modifiedOverride }
         : {}),
-      ...(modifiedOverride !== '' &&
-      (shaped.observedOn === undefined || shaped.observedOn === '')
+      ...(modifiedOverride !== '' && (shaped.observedOn === undefined || shaped.observedOn === '')
         ? { observedOn: modifiedOverride }
         : {}),
       ...(sessionDateIso !== '' ? { sessionDate: sessionDateIso } : {}),
@@ -1887,10 +1813,7 @@ const parseDateInput = (value: string): Date | undefined => {
   return Number.isNaN(parsed.getTime()) ? undefined : parsed
 }
 
-const resolveHeuristicObservedOn = (
-  sentence: string,
-  sessionDate: string | undefined,
-): string => {
+const resolveHeuristicObservedOn = (sentence: string, sessionDate: string | undefined): string => {
   const anchor = parseDateInput(sessionDate?.trim() ?? '')
   if (anchor === undefined) return ''
 
@@ -2020,7 +1943,10 @@ const autoFactTags = (content: string): string[] => {
   if (HEURISTIC_APPOINTMENT_RE.test(body)) {
     add('appointment')
   }
-  if (HEURISTIC_MEDICAL_ENTITY_RE.test(body) || /\b(?:clinic|hospital|prescription)\b/i.test(body)) {
+  if (
+    HEURISTIC_MEDICAL_ENTITY_RE.test(body) ||
+    /\b(?:clinic|hospital|prescription)\b/i.test(body)
+  ) {
     add('medical')
   }
   if (HEURISTIC_EVENT_RE.test(body)) {
@@ -2036,9 +1962,7 @@ const autoFactTags = (content: string): string[] => {
   return [...seen]
 }
 
-const buildExistingMemoryTextSet = (
-  existing: readonly ExtractedMemory[],
-): Set<string> =>
+const buildExistingMemoryTextSet = (existing: readonly ExtractedMemory[]): Set<string> =>
   new Set(
     existing
       .flatMap((memory) => [
@@ -2183,8 +2107,7 @@ const prefixEventPhrase = (value: string): string => {
 
 const extractTemporalAnchor = (text: string): string => {
   const dateAnchor =
-    captureWholeMatch(DATE_TAG_RE, text) ??
-    captureWholeMatch(HEURISTIC_RELATIVE_DATE_RE, text)
+    captureWholeMatch(DATE_TAG_RE, text) ?? captureWholeMatch(HEURISTIC_RELATIVE_DATE_RE, text)
   const timeAnchor = captureGroup(HEURISTIC_CLOCK_TIME_RE, text)
   const parts: string[] = []
   if (dateAnchor !== undefined) parts.push(`on ${dateAnchor}`)
@@ -2195,11 +2118,9 @@ const extractTemporalAnchor = (text: string): string => {
 const ensureTrailingFullStop = (value: string): string =>
   /[.!?]$/.test(value) ? value : `${value}.`
 
-const stripTrailingFullStop = (value: string): string =>
-  value.replace(/[.!?]+$/, '')
+const stripTrailingFullStop = (value: string): string => value.replace(/[.!?]+$/, '')
 
-const withIndefiniteArticle = (value: string): string =>
-  /^[aeiou]/i.test(value) ? 'an' : 'a'
+const withIndefiniteArticle = (value: string): string => (/^[aeiou]/i.test(value) ? 'an' : 'a')
 
 const weekdayName = (date: Date): string =>
   ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][
@@ -2215,8 +2136,7 @@ const WEEKDAY_NAMES = [
   'Friday',
   'Saturday',
 ] as const
-const HEURISTIC_FILENAME_DATED_RE =
-  /^(user-(?:fact|preference))-(\d{4}-\d{2}-\d{2})-(.+)\.md$/
+const HEURISTIC_FILENAME_DATED_RE = /^(user-(?:fact|preference))-(\d{4}-\d{2}-\d{2})-(.+)\.md$/
 const HEURISTIC_FILENAME_RE = /^(user-(?:fact|preference))-(.+)\.md$/
 
 const monthName = (date: Date): string =>

@@ -18,9 +18,30 @@
  * rely on the application filtering by tenant_id.
  */
 
-import { expandAliases, parseQuery, type AliasTable, type Token } from '@jeffs-brain/memory/query'
+import { type AliasTable, type Token, expandAliases, parseQuery } from '@jeffs-brain/memory/query'
 import type { TrigramSourceChunk } from '@jeffs-brain/memory/retrieval'
 import type { PgSql } from './store.js'
+
+export const POSTGRES_EMBEDDING_DIMS = [1024, 3072] as const
+export type PostgresEmbeddingDim = (typeof POSTGRES_EMBEDDING_DIMS)[number]
+
+type PostgresEmbeddingProfile = {
+  readonly vectorDim: PostgresEmbeddingDim
+  readonly embeddingColumn: 'embedding' | 'embedding_3072'
+}
+
+const POSTGRES_EMBEDDING_PROFILES: Readonly<
+  Record<PostgresEmbeddingDim, PostgresEmbeddingProfile>
+> = {
+  1024: {
+    vectorDim: 1024,
+    embeddingColumn: 'embedding',
+  },
+  3072: {
+    vectorDim: 3072,
+    embeddingColumn: 'embedding_3072',
+  },
+}
 
 export type PostgresChunk = {
   readonly chunkId: bigint
@@ -30,7 +51,7 @@ export type PostgresChunk = {
   readonly content: string
   readonly tokens: number
   readonly metadata?: Readonly<Record<string, string | number | boolean | null>>
-  readonly embedding?: Float32Array | number[]
+  readonly embedding?: Float32Array | readonly number[]
 }
 
 export type PostgresBM25Result = {
@@ -65,8 +86,8 @@ export type PostgresSearchIndexOptions = {
    * dictionary or the index will miss.
    */
   readonly tsConfig?: string
-  /** Vector dimension. Matches `halfvec(N)` in the schema (default 1024). */
-  readonly vectorDim?: number
+  /** Vector dimension. Matches the schema profile (1024 default, 3072 supported). */
+  readonly vectorDim?: PostgresEmbeddingDim
   /** RRF constant k (defaults to 60 per Jeff's pipeline). */
   readonly rrfK?: number
 }
@@ -74,11 +95,11 @@ export type PostgresSearchIndexOptions = {
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 const assertUuid = (value: string, label: string): void => {
-  if (!UUID_RE.test(value)) throw new Error(`postgres-search: ${label} must be a uuid, got ${value}`)
+  if (!UUID_RE.test(value))
+    throw new Error(`postgres-search: ${label} must be a uuid, got ${value}`)
 }
 
-const sanitiseLexeme = (value: string): string =>
-  value.replace(/[^\p{L}\p{N}_]+/gu, '').trim()
+const sanitiseLexeme = (value: string): string => value.replace(/[^\p{L}\p{N}_]+/gu, '').trim()
 
 const renderTsQueryToken = (token: Token): string => {
   switch (token.kind) {
@@ -99,6 +120,18 @@ const renderTsQueryToken = (token: Token): string => {
       return sanitiseLexeme(token.text)
     }
   }
+}
+
+const resolveEmbeddingProfile = (vectorDim?: number): PostgresEmbeddingProfile => {
+  if (vectorDim === undefined) return POSTGRES_EMBEDDING_PROFILES[1024]
+  if (!Number.isInteger(vectorDim)) {
+    throw new Error(`postgres-search: vectorDim must be an integer, got ${vectorDim}`)
+  }
+  const profile = POSTGRES_EMBEDDING_PROFILES[vectorDim as PostgresEmbeddingDim]
+  if (profile === undefined) {
+    throw new Error(`postgres-search: vectorDim must be one of 1024 or 3072, got ${vectorDim}`)
+  }
+  return profile
 }
 
 /**
@@ -136,15 +169,28 @@ const compileTsQuery = (query: string, aliases?: AliasTable): string => {
   return pieces.join(' ').trim()
 }
 
-const serialiseHalfvec = (embedding: Float32Array | number[]): string => {
-  const values: number[] = embedding instanceof Float32Array ? Array.from(embedding) : embedding
+const serialiseHalfvec = (embedding: Float32Array | readonly number[]): string => {
+  const values = Array.from(embedding)
   return `[${values.join(',')}]`
+}
+
+const assertEmbeddingDim = (
+  embedding: Float32Array | readonly number[],
+  profile: PostgresEmbeddingProfile,
+): void => {
+  if (embedding.length !== profile.vectorDim) {
+    throw new Error(
+      `postgres-search: embedding length ${embedding.length} does not match schema profile ${profile.vectorDim}`,
+    )
+  }
 }
 
 /**
  * Create a Postgres search index bound to (tenantId, brainId).
  */
-export const createPostgresSearchIndex = (opts: PostgresSearchIndexOptions): PostgresSearchIndex => {
+export const createPostgresSearchIndex = (
+  opts: PostgresSearchIndexOptions,
+): PostgresSearchIndex => {
   assertUuid(opts.tenantId, 'tenantId')
   assertUuid(opts.brainId, 'brainId')
   return new PostgresSearchIndex(opts)
@@ -157,7 +203,9 @@ export class PostgresSearchIndex {
   readonly aliases: AliasTable | undefined
   readonly tsConfig: string
   readonly vectorDim: number
+  readonly embeddingColumn: 'embedding' | 'embedding_3072'
   readonly rrfK: number
+  private readonly embeddingProfile: PostgresEmbeddingProfile
   private closed = false
 
   constructor(opts: PostgresSearchIndexOptions) {
@@ -166,45 +214,16 @@ export class PostgresSearchIndex {
     this.brainId = opts.brainId
     this.aliases = opts.aliases
     this.tsConfig = opts.tsConfig ?? 'english'
-    this.vectorDim = opts.vectorDim ?? 1024
+    this.embeddingProfile = resolveEmbeddingProfile(opts.vectorDim)
+    this.vectorDim = this.embeddingProfile.vectorDim
+    this.embeddingColumn = this.embeddingProfile.embeddingColumn
     this.rrfK = opts.rrfK ?? 60
   }
 
   async upsert(chunk: PostgresChunk): Promise<void> {
     this.ensureOpen()
-    const embeddingLiteral =
-      chunk.embedding === undefined ? null : serialiseHalfvec(chunk.embedding)
     await this.withTenant(async (tx) => {
-      if (embeddingLiteral === null) {
-        await tx`
-          insert into memory.chunks
-            (chunk_id, tenant_id, document_id, ordinal, content, tokens, embedding)
-          values
-            (${chunk.chunkId}, ${this.tenantId}::uuid, ${chunk.documentId}::uuid,
-             ${chunk.ordinal}, ${chunk.content}, ${chunk.tokens}, null)
-          on conflict (chunk_id, tenant_id) do update set
-            document_id = excluded.document_id,
-            ordinal     = excluded.ordinal,
-            content     = excluded.content,
-            tokens      = excluded.tokens,
-            embedding   = excluded.embedding
-        `
-      } else {
-        await tx`
-          insert into memory.chunks
-            (chunk_id, tenant_id, document_id, ordinal, content, tokens, embedding)
-          values
-            (${chunk.chunkId}, ${this.tenantId}::uuid, ${chunk.documentId}::uuid,
-             ${chunk.ordinal}, ${chunk.content}, ${chunk.tokens},
-             ${embeddingLiteral}::halfvec)
-          on conflict (chunk_id, tenant_id) do update set
-            document_id = excluded.document_id,
-            ordinal     = excluded.ordinal,
-            content     = excluded.content,
-            tokens      = excluded.tokens,
-            embedding   = excluded.embedding
-        `
-      }
+      await this.upsertChunk(tx, chunk)
     })
   }
 
@@ -219,38 +238,7 @@ export class PostgresSearchIndex {
     this.ensureOpen()
     await this.withTenant(async (tx) => {
       for (const chunk of chunks) {
-        const embeddingLiteral =
-          chunk.embedding === undefined ? null : serialiseHalfvec(chunk.embedding)
-        if (embeddingLiteral === null) {
-          await tx`
-            insert into memory.chunks
-              (chunk_id, tenant_id, document_id, ordinal, content, tokens, embedding)
-            values
-              (${chunk.chunkId}, ${this.tenantId}::uuid, ${chunk.documentId}::uuid,
-               ${chunk.ordinal}, ${chunk.content}, ${chunk.tokens}, null)
-            on conflict (chunk_id, tenant_id) do update set
-              document_id = excluded.document_id,
-              ordinal     = excluded.ordinal,
-              content     = excluded.content,
-              tokens      = excluded.tokens,
-              embedding   = excluded.embedding
-          `
-        } else {
-          await tx`
-            insert into memory.chunks
-              (chunk_id, tenant_id, document_id, ordinal, content, tokens, embedding)
-            values
-              (${chunk.chunkId}, ${this.tenantId}::uuid, ${chunk.documentId}::uuid,
-               ${chunk.ordinal}, ${chunk.content}, ${chunk.tokens},
-               ${embeddingLiteral}::halfvec)
-            on conflict (chunk_id, tenant_id) do update set
-              document_id = excluded.document_id,
-              ordinal     = excluded.ordinal,
-              content     = excluded.content,
-              tokens      = excluded.tokens,
-              embedding   = excluded.embedding
-          `
-        }
+        await this.upsertChunk(tx, chunk)
       }
     })
   }
@@ -318,25 +306,40 @@ export class PostgresSearchIndex {
   }
 
   async searchVector(
-    embedding: Float32Array | number[],
+    embedding: Float32Array | readonly number[],
     limit: number,
   ): Promise<PostgresVectorResult[]> {
     this.ensureOpen()
     if (limit <= 0) return []
+    assertEmbeddingDim(embedding, this.embeddingProfile)
     const literal = serialiseHalfvec(embedding)
     return this.withTenant(async (tx) => {
-      const rows = (await tx<{ chunk_id: string; distance: number }>`
-        select c.chunk_id::text as chunk_id,
-               (c.embedding <=> ${literal}::halfvec) as distance
-        from memory.chunks c
-        join memory.documents d on d.document_id = c.document_id
-        where c.tenant_id = ${this.tenantId}::uuid
-          and d.tenant_id = ${this.tenantId}::uuid
-          and d.brain_id  = ${this.brainId}::uuid
-          and c.embedding is not null
-        order by c.embedding <=> ${literal}::halfvec, c.chunk_id asc
-        limit ${limit}
-      `) as ReadonlyArray<{ chunk_id: string; distance: number }>
+      const rows =
+        this.embeddingColumn === 'embedding'
+          ? ((await tx<{ chunk_id: string; distance: number }>`
+              select c.chunk_id::text as chunk_id,
+                     (c.embedding <=> ${literal}::halfvec) as distance
+              from memory.chunks c
+              join memory.documents d on d.document_id = c.document_id
+              where c.tenant_id = ${this.tenantId}::uuid
+                and d.tenant_id = ${this.tenantId}::uuid
+                and d.brain_id  = ${this.brainId}::uuid
+                and c.embedding is not null
+              order by c.embedding <=> ${literal}::halfvec, c.chunk_id asc
+              limit ${limit}
+            `) as ReadonlyArray<{ chunk_id: string; distance: number }>)
+          : ((await tx<{ chunk_id: string; distance: number }>`
+              select c.chunk_id::text as chunk_id,
+                     (c.embedding_3072 <=> ${literal}::halfvec) as distance
+              from memory.chunks c
+              join memory.documents d on d.document_id = c.document_id
+              where c.tenant_id = ${this.tenantId}::uuid
+                and d.tenant_id = ${this.tenantId}::uuid
+                and d.brain_id  = ${this.brainId}::uuid
+                and c.embedding_3072 is not null
+              order by c.embedding_3072 <=> ${literal}::halfvec, c.chunk_id asc
+              limit ${limit}
+            `) as ReadonlyArray<{ chunk_id: string; distance: number }>)
       return rows.map((r) => ({
         chunkId: BigInt(r.chunk_id),
         distance: Number(r.distance),
@@ -348,17 +351,30 @@ export class PostgresSearchIndex {
   async hasEmbeddings(): Promise<boolean> {
     this.ensureOpen()
     return this.withTenant(async (tx) => {
-      const rows = (await tx<{ present: boolean }>`
-        select exists(
-          select 1
-          from memory.chunks c
-          join memory.documents d on d.document_id = c.document_id
-          where c.tenant_id = ${this.tenantId}::uuid
-            and d.tenant_id = ${this.tenantId}::uuid
-            and d.brain_id  = ${this.brainId}::uuid
-            and c.embedding is not null
-        ) as present
-      `) as ReadonlyArray<{ present: boolean }>
+      const rows =
+        this.embeddingColumn === 'embedding'
+          ? ((await tx<{ present: boolean }>`
+              select exists(
+                select 1
+                from memory.chunks c
+                join memory.documents d on d.document_id = c.document_id
+                where c.tenant_id = ${this.tenantId}::uuid
+                  and d.tenant_id = ${this.tenantId}::uuid
+                  and d.brain_id  = ${this.brainId}::uuid
+                  and c.embedding is not null
+              ) as present
+            `) as ReadonlyArray<{ present: boolean }>)
+          : ((await tx<{ present: boolean }>`
+              select exists(
+                select 1
+                from memory.chunks c
+                join memory.documents d on d.document_id = c.document_id
+                where c.tenant_id = ${this.tenantId}::uuid
+                  and d.tenant_id = ${this.tenantId}::uuid
+                  and d.brain_id  = ${this.brainId}::uuid
+                  and c.embedding_3072 is not null
+              ) as present
+            `) as ReadonlyArray<{ present: boolean }>)
       return rows[0]?.present ?? false
     })
   }
@@ -373,7 +389,7 @@ export class PostgresSearchIndex {
    */
   async searchHybrid(opts: {
     readonly query: string
-    readonly embedding: Float32Array | number[]
+    readonly embedding: Float32Array | readonly number[]
     readonly limit: number
     readonly bm25Limit?: number
     readonly vectorLimit?: number
@@ -383,6 +399,7 @@ export class PostgresSearchIndex {
     const expr = compileTsQuery(opts.query, this.aliases)
     const bm25Limit = opts.bm25Limit ?? 60
     const vectorLimit = opts.vectorLimit ?? 60
+    assertEmbeddingDim(opts.embedding, this.embeddingProfile)
     const literal = serialiseHalfvec(opts.embedding)
     const k = this.rrfK
 
@@ -441,77 +458,150 @@ export class PostgresSearchIndex {
     }
 
     return this.withTenant(async (tx) => {
-      const rows = (await tx<{
-        chunk_id: string
-        rrf_score: number
-        document_id: string
-        path: string
-        ordinal: number
-        content: string
-        metadata: Record<string, string | number | boolean | null> | null
-      }>`
-        with bm25 as (
-          select c.chunk_id,
-                 ts_rank_cd(c.fts_vector, to_tsquery(${this.tsConfig}, ${expr})) as score,
-                 row_number() over (
-                   order by ts_rank_cd(c.fts_vector, to_tsquery(${this.tsConfig}, ${expr})) desc, c.chunk_id asc
-                 ) as rn
-          from memory.chunks c
-          join memory.documents d on d.document_id = c.document_id
-          where c.tenant_id = ${this.tenantId}::uuid
-            and d.tenant_id = ${this.tenantId}::uuid
-            and d.brain_id  = ${this.brainId}::uuid
-            and c.fts_vector @@ to_tsquery(${this.tsConfig}, ${expr})
-          order by score desc
-          limit ${bm25Limit}
-        ),
-        vec as (
-          select c.chunk_id,
-                 1 - (c.embedding <=> ${literal}::halfvec) as score,
-                 row_number() over (
-                   order by c.embedding <=> ${literal}::halfvec, c.chunk_id asc
-                 ) as rn
-          from memory.chunks c
-          join memory.documents d on d.document_id = c.document_id
-          where c.tenant_id = ${this.tenantId}::uuid
-            and d.tenant_id = ${this.tenantId}::uuid
-            and d.brain_id  = ${this.brainId}::uuid
-            and c.embedding is not null
-          order by c.embedding <=> ${literal}::halfvec
-          limit ${vectorLimit}
-        ),
-        fused as (
-          select coalesce(b.chunk_id, v.chunk_id) as chunk_id,
-                 coalesce(1.0 / (${k} + b.rn), 0) + coalesce(1.0 / (${k} + v.rn), 0) as rrf_score
-          from bm25 b
-          full outer join vec v using (chunk_id)
-        )
-        select c.chunk_id::text as chunk_id,
-               f.rrf_score,
-               c.document_id::text as document_id,
-               d.path,
-               c.ordinal,
-               c.content,
-               d.metadata
-        from fused f
-        join memory.chunks c
-          on c.chunk_id = f.chunk_id
-         and c.tenant_id = ${this.tenantId}::uuid
-        join memory.documents d
-          on d.document_id = c.document_id
-         and d.tenant_id = ${this.tenantId}::uuid
-         and d.brain_id = ${this.brainId}::uuid
-        order by f.rrf_score desc, c.chunk_id asc
-        limit ${opts.limit}
-      `) as ReadonlyArray<{
-        chunk_id: string
-        rrf_score: number
-        document_id: string
-        path: string
-        ordinal: number
-        content: string
-        metadata: Record<string, string | number | boolean | null> | null
-      }>
+      const rows =
+        this.embeddingColumn === 'embedding'
+          ? ((await tx<{
+              chunk_id: string
+              rrf_score: number
+              document_id: string
+              path: string
+              ordinal: number
+              content: string
+              metadata: Record<string, string | number | boolean | null> | null
+            }>`
+              with bm25 as (
+                select c.chunk_id,
+                       ts_rank_cd(c.fts_vector, to_tsquery(${this.tsConfig}, ${expr})) as score,
+                       row_number() over (
+                         order by ts_rank_cd(c.fts_vector, to_tsquery(${this.tsConfig}, ${expr})) desc, c.chunk_id asc
+                       ) as rn
+                from memory.chunks c
+                join memory.documents d on d.document_id = c.document_id
+                where c.tenant_id = ${this.tenantId}::uuid
+                  and d.tenant_id = ${this.tenantId}::uuid
+                  and d.brain_id  = ${this.brainId}::uuid
+                  and c.fts_vector @@ to_tsquery(${this.tsConfig}, ${expr})
+                order by score desc
+                limit ${bm25Limit}
+              ),
+              vec as (
+                select c.chunk_id,
+                       1 - (c.embedding <=> ${literal}::halfvec) as score,
+                       row_number() over (
+                         order by c.embedding <=> ${literal}::halfvec, c.chunk_id asc
+                       ) as rn
+                from memory.chunks c
+                join memory.documents d on d.document_id = c.document_id
+                where c.tenant_id = ${this.tenantId}::uuid
+                  and d.tenant_id = ${this.tenantId}::uuid
+                  and d.brain_id  = ${this.brainId}::uuid
+                  and c.embedding is not null
+                order by c.embedding <=> ${literal}::halfvec
+                limit ${vectorLimit}
+              ),
+              fused as (
+                select coalesce(b.chunk_id, v.chunk_id) as chunk_id,
+                       coalesce(1.0 / (${k} + b.rn), 0) + coalesce(1.0 / (${k} + v.rn), 0) as rrf_score
+                from bm25 b
+                full outer join vec v using (chunk_id)
+              )
+              select c.chunk_id::text as chunk_id,
+                     f.rrf_score,
+                     c.document_id::text as document_id,
+                     d.path,
+                     c.ordinal,
+                     c.content,
+                     d.metadata
+              from fused f
+              join memory.chunks c
+                on c.chunk_id = f.chunk_id
+               and c.tenant_id = ${this.tenantId}::uuid
+              join memory.documents d
+                on d.document_id = c.document_id
+               and d.tenant_id = ${this.tenantId}::uuid
+               and d.brain_id = ${this.brainId}::uuid
+              order by f.rrf_score desc, c.chunk_id asc
+              limit ${opts.limit}
+            `) as ReadonlyArray<{
+              chunk_id: string
+              rrf_score: number
+              document_id: string
+              path: string
+              ordinal: number
+              content: string
+              metadata: Record<string, string | number | boolean | null> | null
+            }>)
+          : ((await tx<{
+              chunk_id: string
+              rrf_score: number
+              document_id: string
+              path: string
+              ordinal: number
+              content: string
+              metadata: Record<string, string | number | boolean | null> | null
+            }>`
+              with bm25 as (
+                select c.chunk_id,
+                       ts_rank_cd(c.fts_vector, to_tsquery(${this.tsConfig}, ${expr})) as score,
+                       row_number() over (
+                         order by ts_rank_cd(c.fts_vector, to_tsquery(${this.tsConfig}, ${expr})) desc, c.chunk_id asc
+                       ) as rn
+                from memory.chunks c
+                join memory.documents d on d.document_id = c.document_id
+                where c.tenant_id = ${this.tenantId}::uuid
+                  and d.tenant_id = ${this.tenantId}::uuid
+                  and d.brain_id  = ${this.brainId}::uuid
+                  and c.fts_vector @@ to_tsquery(${this.tsConfig}, ${expr})
+                order by score desc
+                limit ${bm25Limit}
+              ),
+              vec as (
+                select c.chunk_id,
+                       1 - (c.embedding_3072 <=> ${literal}::halfvec) as score,
+                       row_number() over (
+                         order by c.embedding_3072 <=> ${literal}::halfvec, c.chunk_id asc
+                       ) as rn
+                from memory.chunks c
+                join memory.documents d on d.document_id = c.document_id
+                where c.tenant_id = ${this.tenantId}::uuid
+                  and d.tenant_id = ${this.tenantId}::uuid
+                  and d.brain_id  = ${this.brainId}::uuid
+                  and c.embedding_3072 is not null
+                order by c.embedding_3072 <=> ${literal}::halfvec
+                limit ${vectorLimit}
+              ),
+              fused as (
+                select coalesce(b.chunk_id, v.chunk_id) as chunk_id,
+                       coalesce(1.0 / (${k} + b.rn), 0) + coalesce(1.0 / (${k} + v.rn), 0) as rrf_score
+                from bm25 b
+                full outer join vec v using (chunk_id)
+              )
+              select c.chunk_id::text as chunk_id,
+                     f.rrf_score,
+                     c.document_id::text as document_id,
+                     d.path,
+                     c.ordinal,
+                     c.content,
+                     d.metadata
+              from fused f
+              join memory.chunks c
+                on c.chunk_id = f.chunk_id
+               and c.tenant_id = ${this.tenantId}::uuid
+              join memory.documents d
+                on d.document_id = c.document_id
+               and d.tenant_id = ${this.tenantId}::uuid
+               and d.brain_id = ${this.brainId}::uuid
+              order by f.rrf_score desc, c.chunk_id asc
+              limit ${opts.limit}
+            `) as ReadonlyArray<{
+              chunk_id: string
+              rrf_score: number
+              document_id: string
+              path: string
+              ordinal: number
+              content: string
+              metadata: Record<string, string | number | boolean | null> | null
+            }>)
       return rows.map((r) => ({
         chunkId: BigInt(r.chunk_id),
         rrfScore: Number(r.rrf_score),
@@ -614,6 +704,80 @@ export class PostgresSearchIndex {
       await tx`select set_config('app.tenant_id', ${this.tenantId}, true)`
       return fn(tx)
     })
+  }
+
+  private async upsertChunk(tx: PgSql, chunk: PostgresChunk): Promise<void> {
+    const embeddingLiteral =
+      chunk.embedding === undefined ? null : this.serialiseEmbedding(chunk.embedding)
+    if (this.embeddingColumn === 'embedding') {
+      if (embeddingLiteral === null) {
+        await tx`
+          insert into memory.chunks
+            (chunk_id, tenant_id, document_id, ordinal, content, tokens, embedding)
+          values
+            (${chunk.chunkId}, ${this.tenantId}::uuid, ${chunk.documentId}::uuid,
+             ${chunk.ordinal}, ${chunk.content}, ${chunk.tokens}, null)
+          on conflict (chunk_id, tenant_id) do update set
+            document_id = excluded.document_id,
+            ordinal     = excluded.ordinal,
+            content     = excluded.content,
+            tokens      = excluded.tokens,
+            embedding   = excluded.embedding
+        `
+        return
+      }
+      await tx`
+        insert into memory.chunks
+          (chunk_id, tenant_id, document_id, ordinal, content, tokens, embedding)
+        values
+          (${chunk.chunkId}, ${this.tenantId}::uuid, ${chunk.documentId}::uuid,
+           ${chunk.ordinal}, ${chunk.content}, ${chunk.tokens},
+           ${embeddingLiteral}::halfvec)
+        on conflict (chunk_id, tenant_id) do update set
+          document_id = excluded.document_id,
+          ordinal     = excluded.ordinal,
+          content     = excluded.content,
+          tokens      = excluded.tokens,
+          embedding   = excluded.embedding
+      `
+      return
+    }
+
+    if (embeddingLiteral === null) {
+      await tx`
+        insert into memory.chunks
+          (chunk_id, tenant_id, document_id, ordinal, content, tokens, embedding_3072)
+        values
+          (${chunk.chunkId}, ${this.tenantId}::uuid, ${chunk.documentId}::uuid,
+           ${chunk.ordinal}, ${chunk.content}, ${chunk.tokens}, null)
+        on conflict (chunk_id, tenant_id) do update set
+          document_id    = excluded.document_id,
+          ordinal        = excluded.ordinal,
+          content        = excluded.content,
+          tokens         = excluded.tokens,
+          embedding_3072 = excluded.embedding_3072
+      `
+      return
+    }
+    await tx`
+      insert into memory.chunks
+        (chunk_id, tenant_id, document_id, ordinal, content, tokens, embedding_3072)
+      values
+        (${chunk.chunkId}, ${this.tenantId}::uuid, ${chunk.documentId}::uuid,
+         ${chunk.ordinal}, ${chunk.content}, ${chunk.tokens},
+         ${embeddingLiteral}::halfvec)
+      on conflict (chunk_id, tenant_id) do update set
+        document_id    = excluded.document_id,
+        ordinal        = excluded.ordinal,
+        content        = excluded.content,
+        tokens         = excluded.tokens,
+        embedding_3072 = excluded.embedding_3072
+    `
+  }
+
+  private serialiseEmbedding(embedding: Float32Array | readonly number[]): string {
+    assertEmbeddingDim(embedding, this.embeddingProfile)
+    return serialiseHalfvec(embedding)
   }
 
   private ensureOpen(): void {

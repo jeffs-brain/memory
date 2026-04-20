@@ -10,35 +10,24 @@ import {
 
 describe('temporal helpers', () => {
   it('normalises the reader date anchor', () => {
-    expect(readerTodayAnchor('2023/09/30 (Sat) 18:36')).toBe(
-      '2023-09-30 (Saturday)',
-    )
+    expect(readerTodayAnchor('2023/09/30 (Sat) 18:36')).toBe('2023-09-30 (Saturday)')
   })
 
   it('augments relative temporal queries with concrete dates', () => {
     expect(
-      augmentQueryWithTemporal(
-        'What did I do 3 weeks ago?',
-        '2023/09/30 (Sat) 18:36',
-      ),
+      augmentQueryWithTemporal('What did I do 3 weeks ago?', '2023/09/30 (Sat) 18:36'),
     ).toContain('2023/09/09')
   })
 
   it('augments number-word relative temporal queries with concrete dates', () => {
     expect(
-      augmentQueryWithTemporal(
-        'What did I do two weeks ago?',
-        '2023/09/30 (Sat) 18:36',
-      ),
+      augmentQueryWithTemporal('What did I do two weeks ago?', '2023/09/30 (Sat) 18:36'),
     ).toContain('2023/09/16')
   })
 
   it('augments yesterday with a concrete date', () => {
     expect(
-      augmentQueryWithTemporal(
-        'What did I do yesterday?',
-        '2023/09/30 (Sat) 18:36',
-      ),
+      augmentQueryWithTemporal('What did I do yesterday?', '2023/09/30 (Sat) 18:36'),
     ).toContain('2023/09/29')
   })
 
@@ -52,20 +41,14 @@ describe('temporal helpers', () => {
   })
 
   it('renders resolved temporal hints for the reader context', () => {
-    expect(
-      resolvedTemporalHintLine(
-        'What did I do 3 weeks ago?',
-        '2023/09/30 (Sat) 18:36',
-      ),
-    ).toBe('[Resolved temporal references: 2023/09/09]')
+    expect(resolvedTemporalHintLine('What did I do 3 weeks ago?', '2023/09/30 (Sat) 18:36')).toBe(
+      '[Resolved temporal references: 2023/09/09]',
+    )
   })
 
   it('renders the full last-week hint range for the reader context', () => {
     expect(
-      resolvedTemporalHintLine(
-        'Where did I volunteer last week?',
-        '2023/09/30 (Sat) 18:36',
-      ),
+      resolvedTemporalHintLine('Where did I volunteer last week?', '2023/09/30 (Sat) 18:36'),
     ).toBe(
       '[Resolved temporal references: 2023/09/23, 2023/09/24, 2023/09/25, 2023/09/26, 2023/09/27, 2023/09/28, 2023/09/29]',
     )

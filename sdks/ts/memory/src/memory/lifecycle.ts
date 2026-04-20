@@ -1,5 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 
+import {
+  appendL0Observation,
+  defaultL0BufferConfig,
+  exportL0BufferSnapshot,
+  observeMessages,
+  renderL0Reminder,
+  restoreL0BufferSnapshot,
+} from './buffer.js'
 import type { RecordEpisodeResult } from './episodes.js'
 import type {
   ConsolidateArgs,
@@ -8,18 +16,20 @@ import type {
   ExtractArgs,
   ExtractedMemory,
   L0BufferConfig,
+  L0BufferSnapshot,
   L0Observation,
   Memory,
   PromptContext,
   ReflectArgs,
   ReflectionResult,
 } from './types.js'
-import { appendL0Observation, defaultL0BufferConfig, renderL0Reminder, observeMessages } from './buffer.js'
 
 export type MemoryLifecycle = {
   beforeTurn(args: ContextualiseArgs): Promise<PromptContext>
   afterTurn(args: ExtractArgs): Promise<readonly ExtractedMemory[]>
   endSession(args: MemoryLifecycleEndSessionArgs): Promise<MemoryLifecycleEndSessionResult>
+  exportL0BufferSnapshot(args?: { readonly createdAt?: Date | string }): L0BufferSnapshot
+  restoreL0BufferSnapshot(snapshot: unknown): void
 }
 
 export type MemoryLifecycleEndSessionArgs = ReflectArgs & {
@@ -45,9 +55,7 @@ export type CreateMemoryLifecycleOptions = {
   readonly l0Buffer?: boolean | Partial<L0BufferConfig>
 }
 
-export const createMemoryLifecycle = (
-  opts: CreateMemoryLifecycleOptions,
-): MemoryLifecycle => {
+export const createMemoryLifecycle = (opts: CreateMemoryLifecycleOptions): MemoryLifecycle => {
   const l0Enabled = opts.l0Buffer !== false
   const l0Config =
     typeof opts.l0Buffer === 'object'
@@ -102,14 +110,17 @@ export const createMemoryLifecycle = (
       return extracted
     },
 
+    exportL0BufferSnapshot: (args = {}) => exportL0BufferSnapshot(observations, args),
+
+    restoreL0BufferSnapshot: (snapshot) => {
+      observations = restoreL0BufferSnapshot(snapshot)
+    },
+
     endSession: async (args) => {
       try {
         const reflection = await opts.memory.reflect(args)
         let episode: RecordEpisodeResult | undefined
-        if (
-          opts.memory.recordEpisode !== undefined &&
-          reflection?.shouldRecordEpisode !== false
-        ) {
+        if (opts.memory.recordEpisode !== undefined && reflection?.shouldRecordEpisode !== false) {
           try {
             episode = await opts.memory.recordEpisode({
               messages: args.messages,

@@ -8,9 +8,7 @@ export type SampleExamplesArgs = {
   readonly seed: number
 }
 
-export const sampleExamples = (
-  args: SampleExamplesArgs,
-): readonly LMEExample[] => {
+export const sampleExamples = (args: SampleExamplesArgs): readonly LMEExample[] => {
   if (args.size <= 0 || args.size >= args.examples.length) {
     return [...args.examples]
   }
@@ -25,9 +23,7 @@ export const sampleExamples = (
     byCategory.set(example.category, [example])
   }
 
-  const categories = [...byCategory.keys()].sort((left, right) =>
-    left.localeCompare(right),
-  )
+  const categories = [...byCategory.keys()].sort((left, right) => left.localeCompare(right))
   const allocations = new Map<string, number>()
   let assigned = 0
 
@@ -58,18 +54,11 @@ export const sampleExamples = (
   return out
 }
 
-const deterministicShuffle = <T>(
-  input: readonly T[],
-  seed: number,
-): T[] => {
+const deterministicShuffle = <T>(input: readonly T[], seed: number): T[] => {
   const out = [...input]
   let state = BigInt.asUintN(64, BigInt(seed))
   for (let index = out.length - 1; index > 0; index--) {
-    state =
-      BigInt.asUintN(
-        64,
-        state * 6364136223846793005n + 1442695040888963407n,
-      )
+    state = BigInt.asUintN(64, state * 6364136223846793005n + 1442695040888963407n)
     const swapIndex = Number((state >> 33n) % BigInt(index + 1))
     const current = out[index]
     out[index] = out[swapIndex] as T

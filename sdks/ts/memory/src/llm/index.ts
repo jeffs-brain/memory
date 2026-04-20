@@ -50,7 +50,12 @@ export {
   type OpenAIConfig,
   type OpenAIEmbedderConfig,
 } from './openai.js'
-export { OllamaProvider, OllamaEmbedder, type OllamaConfig, type OllamaEmbedderConfig } from './ollama.js'
+export {
+  OllamaProvider,
+  OllamaEmbedder,
+  type OllamaConfig,
+  type OllamaEmbedderConfig,
+} from './ollama.js'
 export { TEIEmbedder, TEIReranker, type TEIEmbedderConfig, type TEIRerankerConfig } from './tei.js'
 
 export {

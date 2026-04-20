@@ -13,12 +13,7 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 import { createHashEmbedder } from '../llm/index.js'
-import type {
-  CompletionRequest,
-  CompletionResponse,
-  Provider,
-  StreamEvent,
-} from '../llm/index.js'
+import type { CompletionRequest, CompletionResponse, Provider, StreamEvent } from '../llm/index.js'
 
 import { Daemon, createRouter } from './index.js'
 
@@ -119,7 +114,10 @@ const seedBrain = async (handler: Fixture['handler'], brainId: string): Promise<
   expect(ingest.status).toBe(200)
 }
 
-const drainAsk = async (handler: Fixture['handler'], body: Record<string, unknown>): Promise<string> => {
+const drainAsk = async (
+  handler: Fixture['handler'],
+  body: Record<string, unknown>,
+): Promise<string> => {
   const resp = await handler(
     makeRequest('POST', '/v1/brains/lme/ask', {
       body: JSON.stringify(body),
@@ -128,6 +126,16 @@ const drainAsk = async (handler: Fixture['handler'], body: Record<string, unknow
   )
   expect(resp.status).toBe(200)
   return resp.text()
+}
+
+const expectDefined = <T>(value: T | undefined, message: string): T => {
+  if (value === undefined) throw new Error(message)
+  return value
+}
+
+const expectString = (value: unknown, message: string): string => {
+  if (typeof value !== 'string') throw new Error(message)
+  return value
 }
 
 beforeEach(() => {
@@ -150,7 +158,7 @@ describe('handleAsk reader modes', () => {
     const brain = await daemon.brains.get('lme')
     expect(brain.retrieval).toBeDefined()
     const capture: { request?: Record<string, unknown> } = {}
-    const originalSearchRaw = brain.retrieval!.searchRaw.bind(brain.retrieval)
+    const originalSearchRaw = brain.retrieval?.searchRaw.bind(brain.retrieval)
     ;(
       brain.retrieval as {
         searchRaw: (request: Record<string, unknown>) => ReturnType<typeof originalSearchRaw>
@@ -183,13 +191,16 @@ describe('handleAsk reader modes', () => {
     await drainAsk(handler, { question: 'where does the hedgehog live', topK: 3 })
 
     expect(provider.calls.length).toBe(1)
-    const call = provider.calls[0]!
+    const call = expectDefined(provider.calls[0], 'expected provider call')
     expect(call.request.maxTokens).toBe(1024)
     expect(call.request.temperature).toBe(0.2)
     expect(call.request.messages.length).toBe(2)
-    expect(call.request.messages[0]!.role).toBe('system')
-    expect(call.request.messages[1]!.role).toBe('user')
-    const userPrompt = call.request.messages[1]!.content!
+    expect(call.request.messages[0]?.role).toBe('system')
+    expect(call.request.messages[1]?.role).toBe('user')
+    const userPrompt = expectString(
+      call.request.messages[1]?.content,
+      'expected user prompt content',
+    )
     expect(userPrompt).toContain('## Evidence')
     expect(userPrompt).toContain('## Question')
     expect(userPrompt).not.toContain('Answer (step by step)')
@@ -207,12 +218,15 @@ describe('handleAsk reader modes', () => {
     })
 
     expect(provider.calls.length).toBe(1)
-    const call = provider.calls[0]!
+    const call = expectDefined(provider.calls[0], 'expected provider call')
     expect(call.request.maxTokens).toBe(800)
     expect(call.request.temperature).toBe(0.0)
     expect(call.request.messages.length).toBe(1)
-    expect(call.request.messages[0]!.role).toBe('user')
-    const prompt = call.request.messages[0]!.content!
+    expect(call.request.messages[0]?.role).toBe('user')
+    const prompt = expectString(
+      call.request.messages[0]?.content,
+      'expected augmented prompt content',
+    )
 
     // CoT framing
     expect(prompt).toContain('Answer the question step by step: first extract')
@@ -258,8 +272,11 @@ describe('handleAsk reader modes', () => {
       readerMode: 'augmented',
     })
 
-    const call = provider.calls[0]!
-    const prompt = call.request.messages[0]!.content!
+    const call = expectDefined(provider.calls[0], 'expected provider call')
+    const prompt = expectString(
+      call.request.messages[0]?.content,
+      'expected augmented prompt content',
+    )
     expect(prompt).toContain('Today is unknown')
     expect(prompt).toContain('Current Date: unknown')
   })
@@ -341,7 +358,7 @@ describe('handleAsk reader modes', () => {
     const brain = await daemon.brains.get('lme')
     expect(brain.retrieval).toBeDefined()
     const capture: { request?: Record<string, unknown> } = {}
-    const originalSearchRaw = brain.retrieval!.searchRaw.bind(brain.retrieval)
+    const originalSearchRaw = brain.retrieval?.searchRaw.bind(brain.retrieval)
     ;(
       brain.retrieval as {
         searchRaw: (request: Record<string, unknown>) => ReturnType<typeof originalSearchRaw>

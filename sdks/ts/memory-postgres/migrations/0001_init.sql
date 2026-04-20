@@ -12,7 +12,8 @@
 --
 -- pgvectorscale (StreamingDiskANN) is likewise an extra build step; enable it
 -- once we have the proper pg image in deploy. Until then HNSW on halfvec is
--- the retrieval index.
+-- the retrieval index. We keep both 1024-dim and 3072-dim embedding columns so
+-- the adapter can select the matching profile at runtime.
 --
 -- Note: no explicit BEGIN/COMMIT in this file. drizzle-kit wraps each
 -- migration in a single transaction automatically, and for test harnesses
@@ -208,6 +209,7 @@ CREATE TABLE memory.chunks (
   tokens       int NOT NULL,
   fts_vector   tsvector GENERATED ALWAYS AS (to_tsvector('english', content)) STORED,
   embedding    halfvec(1024),
+  embedding_3072 halfvec(3072),
   created_at   timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (chunk_id, tenant_id)
 ) PARTITION BY HASH (tenant_id);
@@ -239,7 +241,7 @@ CREATE INDEX chunks_tenant_document_idx ON memory.chunks (tenant_id, document_id
 CREATE INDEX chunks_fts_idx ON memory.chunks USING GIN (fts_vector);
 CREATE INDEX chunks_content_trgm_idx ON memory.chunks USING GIN (content gin_trgm_ops);
 
--- HNSW per partition for halfvec cosine distance.
+-- HNSW per partition for each halfvec profile.
 DO $$
 DECLARE
   i int;
@@ -247,6 +249,10 @@ BEGIN
   FOR i IN 0..63 LOOP
     EXECUTE format(
       'CREATE INDEX chunks_p%1$s_embedding_hnsw ON memory.chunks_p%1$s USING hnsw (embedding halfvec_cosine_ops);',
+      i
+    );
+    EXECUTE format(
+      'CREATE INDEX chunks_p%1$s_embedding_3072_hnsw ON memory.chunks_p%1$s USING hnsw (embedding_3072 halfvec_cosine_ops);',
       i
     );
   END LOOP;

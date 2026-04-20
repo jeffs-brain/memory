@@ -9,8 +9,8 @@ import {
 } from '../llm/index.js'
 import { joinPath } from '../store/index.js'
 import { createMemStore } from '../store/memstore.js'
-import { createKnowledge } from './index.js'
 import { serialiseFrontmatter } from './frontmatter.js'
+import { createKnowledge } from './index.js'
 import { WIKI_PREFIX } from './promote.js'
 import type { KnowledgeQueryRetriever } from './types.js'
 
@@ -123,7 +123,9 @@ describe('query', () => {
     expect(result.sourcePaths).toEqual([articlePath])
     expect(result.searchHits).toBe(1)
     expect(captured?.messages[0]?.content).toContain('What is the otter situation?')
-    expect(captured?.messages[0]?.content).toContain('Otters have returned to several wetland areas.')
+    expect(captured?.messages[0]?.content).toContain(
+      'Otters have returned to several wetland areas.',
+    )
   })
 
   it('returns the empty knowledge message when there are no wiki articles', async () => {
@@ -161,7 +163,9 @@ describe('query', () => {
     const knowledge = createKnowledge({ store, provider, logger: noopLogger })
     const result = await knowledge.query('How does transport work?')
 
-    expect(result.answer).toContain('LLM synthesis unavailable (stub/stub-model): provider unavailable')
+    expect(result.answer).toContain(
+      'LLM synthesis unavailable (stub/stub-model): provider unavailable',
+    )
     expect(result.answer).toContain('[[transport]]')
     expect(result.sourcePaths).toEqual([articlePath])
     expect(result.searchHits).toBe(1)

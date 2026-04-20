@@ -5,15 +5,20 @@
  * callers can swap backends via config without branching.
  */
 
+import { type AnthropicConfig, AnthropicProvider } from './anthropic.js'
 import { LLMError } from './errors.js'
-import { AnthropicProvider, type AnthropicConfig } from './anthropic.js'
 import { HashEmbedder, type HashEmbedderOptions } from './hashembed.js'
-import { OllamaProvider, OllamaEmbedder, type OllamaConfig, type OllamaEmbedderConfig } from './ollama.js'
 import {
-  OpenAIProvider,
-  OpenAIEmbedder,
+  type OllamaConfig,
+  OllamaEmbedder,
+  type OllamaEmbedderConfig,
+  OllamaProvider,
+} from './ollama.js'
+import {
   type OpenAIConfig,
+  OpenAIEmbedder,
   type OpenAIEmbedderConfig,
+  OpenAIProvider,
 } from './openai.js'
 import { TEIEmbedder, type TEIEmbedderConfig } from './tei.js'
 import type { Embedder, Provider } from './types.js'

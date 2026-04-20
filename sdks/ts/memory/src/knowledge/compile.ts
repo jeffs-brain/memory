@@ -1,15 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
-import { extractJSON, type Logger, type Provider } from '../llm/index.js'
-import { joinPath, pathUnder, toPath, type Path, type Store } from '../store/index.js'
-import { archivedSourcePath, RAW_DOCUMENTS_ARCHIVE_PREFIX } from './archive.js'
+import { type Logger, type Provider, extractJSON } from '../llm/index.js'
+import { type Path, type Store, joinPath, pathUnder, toPath } from '../store/index.js'
+import { RAW_DOCUMENTS_ARCHIVE_PREFIX, archivedSourcePath } from './archive.js'
 import { parseFrontmatter, serialiseFrontmatter } from './frontmatter.js'
-import { hashContent, RAW_DOCUMENTS_PREFIX } from './ingest.js'
+import { RAW_DOCUMENTS_PREFIX, hashContent } from './ingest.js'
 import { appendLogInBatch } from './log.js'
-import {
-  tryNormaliseKnowledgeArticleStem,
-  tryNormaliseWikiRelativeArticlePath,
-} from './paths.js'
+import { tryNormaliseKnowledgeArticleStem, tryNormaliseWikiRelativeArticlePath } from './paths.js'
 import {
   isProcessedSourceContent,
   processedMarkerPath,
@@ -229,7 +226,11 @@ export const createCompile = (deps: CompileDeps) => {
       temperature: 0.1,
       maxTokens: 4096,
     })
-    const plan = parsePlan(planRaw.content, max, ingested.map((source) => source.sourceId))
+    const plan = parsePlan(
+      planRaw.content,
+      max,
+      ingested.map((source) => source.sourceId),
+    )
     const pendingWrites: PendingWrite[] = []
     const pendingArticleRewrites = new Map<Path, PendingArticleRewrite>()
 
@@ -271,7 +272,7 @@ export const createCompile = (deps: CompileDeps) => {
             path: existingWikiPath,
             reason: [
               `A planned new article already exists at ${existingWikiPath}.`,
-              `Merge the new source material into the existing article instead of creating a duplicate draft.`,
+              'Merge the new source material into the existing article instead of creating a duplicate draft.',
               `Planned title: ${article.title}`,
             ].join('\n'),
             sourceHashes: article.sourceHashes,
@@ -280,7 +281,9 @@ export const createCompile = (deps: CompileDeps) => {
         )
         continue
       }
-      const sourceBodies = article.sourceHashes.map((sourceId) => ingestedById.get(sourceId)?.body ?? '')
+      const sourceBodies = article.sourceHashes.map(
+        (sourceId) => ingestedById.get(sourceId)?.body ?? '',
+      )
       const writePrompt = buildCreatePrompt(article, sourceBodies)
       const resp = await provider.complete({
         ...(opts.model !== undefined ? { model: opts.model } : {}),
@@ -319,7 +322,9 @@ export const createCompile = (deps: CompileDeps) => {
     const ingestedBodies = new Map(ingested.map((source) => [source.sourceId, source.body]))
     for (const rewrite of pendingArticleRewrites.values()) {
       const sourceIds =
-        rewrite.sourceHashes.length > 0 ? rewrite.sourceHashes : ingested.map((source) => source.sourceId)
+        rewrite.sourceHashes.length > 0
+          ? rewrite.sourceHashes
+          : ingested.map((source) => source.sourceId)
       const sourceBodies = sourceIds.map((sourceId) => ingestedBodies.get(sourceId) ?? '')
       const prompt =
         rewrite.mode === 'crossref'
@@ -342,9 +347,13 @@ export const createCompile = (deps: CompileDeps) => {
           rewrite.existing.frontmatter.sources,
           sourceIds.map((sourceId) => archivedSourcePath(sourceId)),
         ),
-        ...(rewrite.existing.frontmatter.created !== undefined ? { created: rewrite.existing.frontmatter.created } : {}),
+        ...(rewrite.existing.frontmatter.created !== undefined
+          ? { created: rewrite.existing.frontmatter.created }
+          : {}),
         modified: new Date().toISOString(),
-        ...(rewrite.existing.frontmatter.archived !== undefined ? { archived: rewrite.existing.frontmatter.archived } : {}),
+        ...(rewrite.existing.frontmatter.archived !== undefined
+          ? { archived: rewrite.existing.frontmatter.archived }
+          : {}),
         ...(rewrite.existing.frontmatter.supersededBy !== undefined
           ? { supersededBy: rewrite.existing.frontmatter.supersededBy }
           : {}),
@@ -500,7 +509,9 @@ const buildPlanPrompt = (
         `Title: ${article.title}`,
         `Summary: ${article.summary}`,
         article.tags.length > 0 ? `Tags: ${article.tags.join(', ')}` : 'Tags: []',
-        article.body.length > 1200 ? `${article.body.slice(0, 1200)}\n[...truncated]` : article.body,
+        article.body.length > 1200
+          ? `${article.body.slice(0, 1200)}\n[...truncated]`
+          : article.body,
         '',
       )
     }
@@ -515,7 +526,10 @@ const buildPlanPrompt = (
   return parts.join('\n')
 }
 
-const buildCreatePrompt = (article: CompilePlanArticle, sourceBodies: readonly string[]): string => {
+const buildCreatePrompt = (
+  article: CompilePlanArticle,
+  sourceBodies: readonly string[],
+): string => {
   const parts: string[] = [
     `Title: ${article.title}`,
     `Summary: ${article.summary}`,
@@ -630,7 +644,9 @@ const parseCreateList = (raw: RawPlan, max: number): CompilePlanArticle[] => {
     const hashes = a.source_hashes ?? a.sourceHashes ?? []
     if (slug === '' || title === '' || slugs.has(slug)) continue
     const clean = uniqueStrings(
-      hashes.filter((h): h is string => typeof h === 'string' && h.trim() !== '').map((h) => h.trim()),
+      hashes
+        .filter((h): h is string => typeof h === 'string' && h.trim() !== '')
+        .map((h) => h.trim()),
     )
     if (clean.length === 0) continue
     slugs.add(slug)
@@ -686,8 +702,8 @@ const parseProcessedSources = (
   },
 ): readonly string[] => {
   const available = new Set(availableSourceIds)
-  const explicit = parseSourceIds(raw.processed_hashes ?? raw.processedHashes ?? []).filter((sourceId) =>
-    available.has(sourceId),
+  const explicit = parseSourceIds(raw.processed_hashes ?? raw.processedHashes ?? []).filter(
+    (sourceId) => available.has(sourceId),
   )
   const inferred = uniqueStrings([
     ...plan.newArticles.flatMap((article) => article.sourceHashes),
@@ -695,9 +711,7 @@ const parseProcessedSources = (
       update.sourceHashes.length > 0 ? update.sourceHashes : availableSourceIds,
     ),
     ...plan.crossReferences.flatMap((crossReference) =>
-      crossReference.sourceHashes.length > 0
-        ? crossReference.sourceHashes
-        : availableSourceIds,
+      crossReference.sourceHashes.length > 0 ? crossReference.sourceHashes : availableSourceIds,
     ),
   ]).filter((sourceId) => available.has(sourceId))
   return uniqueStrings([...explicit, ...inferred])
@@ -716,7 +730,9 @@ const parseConcepts = (raw: RawPlan): readonly string[] => {
   return concepts
 }
 
-const parseWrite = (content: string): { title: string; summary: string; tags: readonly string[]; body: string } => {
+const parseWrite = (
+  content: string,
+): { title: string; summary: string; tags: readonly string[]; body: string } => {
   let raw: RawWrite
   try {
     raw = JSON.parse(extractJSON(content)) as RawWrite
@@ -724,7 +740,9 @@ const parseWrite = (content: string): { title: string; summary: string; tags: re
     return { title: '', summary: '', tags: [], body: content.trim() }
   }
   const tags = Array.isArray(raw.tags)
-    ? raw.tags.filter((t): t is string => typeof t === 'string' && t.trim() !== '').map((t) => t.trim())
+    ? raw.tags
+        .filter((t): t is string => typeof t === 'string' && t.trim() !== '')
+        .map((t) => t.trim())
     : []
   return {
     title: (raw.title ?? '').trim(),
@@ -744,7 +762,9 @@ const normaliseWikiRelativePath = (value: string): string => {
 
 const parseSourceIds = (values: readonly string[]): readonly string[] =>
   uniqueStrings(
-    values.filter((value): value is string => typeof value === 'string' && value.trim() !== '').map((value) => value.trim()),
+    values
+      .filter((value): value is string => typeof value === 'string' && value.trim() !== '')
+      .map((value) => value.trim()),
   )
 
 const uniqueStrings = (values: readonly string[]): string[] => {

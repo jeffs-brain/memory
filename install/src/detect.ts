@@ -30,13 +30,7 @@ export const AGENT_META: Readonly<Record<AgentId, AgentMeta>> = {
     candidatePaths: (home, platform) => {
       if (platform === 'darwin') {
         return [
-          joinHome(
-            home,
-            'Library',
-            'Application Support',
-            'Claude',
-            'claude_desktop_config.json',
-          ),
+          joinHome(home, 'Library', 'Application Support', 'Claude', 'claude_desktop_config.json'),
         ]
       }
       if (platform === 'win32') {

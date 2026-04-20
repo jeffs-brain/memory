@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
-import { defineConfig } from 'astro/config'
 import starlight from '@astrojs/starlight'
+import { defineConfig } from 'astro/config'
 
 export default defineConfig({
   site: 'https://docs.jeffsbrain.com',

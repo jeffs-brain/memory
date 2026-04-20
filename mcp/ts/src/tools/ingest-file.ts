@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { z } from 'zod'
-import { jsonContent, type Tool } from './types.js'
+import { type Tool, jsonContent } from './types.js'
 
 const schema = z.object({
   path: z.string().min(1).describe('Absolute or relative local path.'),

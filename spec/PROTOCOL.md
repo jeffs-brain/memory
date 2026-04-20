@@ -296,7 +296,7 @@ Example:
 
 ## Body size limits
 
-The following limits are part of the wire contract. Servers MAY enforce stricter limits and surface `413 payload_too_large`; clients MUST NOT send requests that exceed the values below.
+The following values are the interoperable defaults for v1.0. Servers MAY enforce stricter ceilings, and deployments MAY be configured with higher ceilings. Clients that do not know a deployment-specific ceiling MUST assume the defaults below. Clients that are explicitly configured with deployment-specific ceilings MUST honour those configured ceilings.
 
 | Endpoint | Limit | Field |
 | --- | --- | --- |
@@ -307,7 +307,7 @@ The following limits are part of the wire contract. Servers MAY enforce stricter
 | `GET /documents` listing | `10000` items | `items` array length in the response; callers that need more MUST paginate with `glob` + recursive flags |
 | `GET /documents/read` | No client-enforced upper bound | Reference server streams arbitrarily large documents back |
 
-Servers that choose to honour larger limits MUST still produce `413 payload_too_large` at their own ceiling. Servers that choose stricter limits MUST produce `413 payload_too_large` rather than silently truncating. Byte counts are measured after decompression when a `Content-Encoding` is applied.
+Servers MUST produce `413 payload_too_large` at the configured ceiling rather than silently truncating. SDKs SHOULD raise a client-side error before sending a request when they can determine that the configured ceiling would be exceeded. Byte counts are measured after decompression when a `Content-Encoding` is applied.
 
 ## Tenant and workspace scoping
 

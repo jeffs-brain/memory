@@ -10,8 +10,7 @@ const RELATIVE_DAY_RE = /\b(yesterday|today)\b/gi
 
 const LAST_WEEK_RE = /\blast\s+week\b/gi
 
-const LAST_WEEKDAY_RE =
-  /last\s+(monday|tuesday|wednesday|thursday|friday|saturday|sunday)/gi
+const LAST_WEEKDAY_RE = /last\s+(monday|tuesday|wednesday|thursday|friday|saturday|sunday)/gi
 
 const WEEKDAY_NAMES = [
   'Sunday',
@@ -55,9 +54,7 @@ const RELATIVE_TIME_NUMBER_WORDS = new Map<string, number>([
   ['twelve', 12],
 ])
 
-const WEEKDAY_BY_NAME = new Map(
-  WEEKDAY_NAMES.map((name, index) => [name.toLowerCase(), index]),
-)
+const WEEKDAY_BY_NAME = new Map(WEEKDAY_NAMES.map((name, index) => [name.toLowerCase(), index]))
 
 export type TemporalExpansion = {
   readonly originalQuery: string
@@ -168,11 +165,7 @@ export const dateSearchTokens = (value: string | undefined): readonly string[] =
     const year = match[1] ?? ''
     const month = match[2] ?? ''
     const day = match[3] ?? ''
-    return dedupeStrings([
-      `${year}-${month}-${day}`,
-      `${year}/${month}/${day}`,
-      year,
-    ])
+    return dedupeStrings([`${year}-${month}-${day}`, `${year}/${month}/${day}`, year])
   }
 
   return dedupeStrings([
@@ -184,11 +177,7 @@ export const dateSearchTokens = (value: string | undefined): readonly string[] =
   ])
 }
 
-const resolveRelativeTime = (
-  question: string,
-  anchor: Date,
-  hints: string[],
-): string =>
+const resolveRelativeTime = (question: string, anchor: Date, hints: string[]): string =>
   question.replaceAll(RELATIVE_TIME_RE, (match, countRaw, unitRaw) => {
     const count = parseRelativeTimeCount(String(countRaw))
     if (!Number.isFinite(count)) return match
@@ -215,11 +204,7 @@ const parseRelativeTimeCount = (value: string): number => {
   return RELATIVE_TIME_NUMBER_WORDS.get(trimmed) ?? Number.NaN
 }
 
-const resolveRelativeDay = (
-  question: string,
-  anchor: Date,
-  hints: string[],
-): string =>
+const resolveRelativeDay = (question: string, anchor: Date, hints: string[]): string =>
   question.replaceAll(RELATIVE_DAY_RE, (match, dayRaw) => {
     const day = String(dayRaw).toLowerCase()
     const resolved = new Date(anchor.getTime())
@@ -233,11 +218,7 @@ const resolveRelativeDay = (
     return `${match} (${slash})`
   })
 
-const resolveLastWeek = (
-  question: string,
-  anchor: Date,
-  hints: string[],
-): string =>
+const resolveLastWeek = (question: string, anchor: Date, hints: string[]): string =>
   question.replaceAll(LAST_WEEK_RE, (match) => {
     const start = new Date(anchor.getTime())
     start.setUTCDate(start.getUTCDate() - 7)
@@ -251,11 +232,7 @@ const resolveLastWeek = (
     return `${match} (${formatSlashDate(start)} to ${formatSlashDate(end)})`
   })
 
-const resolveLastWeekday = (
-  question: string,
-  anchor: Date,
-  hints: string[],
-): string =>
+const resolveLastWeekday = (question: string, anchor: Date, hints: string[]): string =>
   question.replaceAll(LAST_WEEKDAY_RE, (match, weekdayRaw) => {
     const target = WEEKDAY_BY_NAME.get(String(weekdayRaw).toLowerCase())
     if (target === undefined) return match
@@ -273,27 +250,20 @@ const resolveLastWeekday = (
 
 const annotateOrdering = (question: string): string => {
   const lower = question.toLowerCase()
-  if (
-    lower.includes('first') ||
-    lower.includes('earlier') ||
-    lower.includes('before')
-  ) {
+  if (lower.includes('first') || lower.includes('earlier') || lower.includes('before')) {
     return `${question} [Note: look for the earliest dated event]`
   }
-  if (
-    lower.includes('most recent') ||
-    lower.includes('latest') ||
-    lower.includes('last time')
-  ) {
+  if (lower.includes('most recent') || lower.includes('latest') || lower.includes('last time')) {
     return `${question} [Note: look for the most recently dated event]`
   }
   return question
 }
 
 const formatIsoDate = (date: Date): string =>
-  `${String(date.getUTCFullYear()).padStart(4, '0')}-${String(
-    date.getUTCMonth() + 1,
-  ).padStart(2, '0')}-${String(date.getUTCDate()).padStart(2, '0')}`
+  `${String(date.getUTCFullYear()).padStart(4, '0')}-${String(date.getUTCMonth() + 1).padStart(
+    2,
+    '0',
+  )}-${String(date.getUTCDate()).padStart(2, '0')}`
 
 const formatSlashDate = (date: Date): string => formatIsoDate(date).replaceAll('-', '/')
 

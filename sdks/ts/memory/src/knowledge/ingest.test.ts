@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from 'vitest'
+import { noopLogger } from '../llm/index.js'
 import { createMemStore } from '../store/memstore.js'
 import { createIngest, hashContent, rawDocumentPath } from './ingest.js'
-import { noopLogger } from '../llm/index.js'
 import { LOG_PATH, readLog } from './log.js'
 
 describe('ingest', () => {

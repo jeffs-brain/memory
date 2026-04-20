@@ -37,16 +37,16 @@ export function resolveEmbedModel(
   embedder: Embedder | undefined,
 ): string {
   if (embedder === undefined) return ''
-  const explicit = (env['JB_EMBED_MODEL'] ?? '').trim()
+  const explicit = (env.JB_EMBED_MODEL ?? '').trim()
   if (explicit !== '') return explicit
-  const provider = (env['JB_EMBED_PROVIDER'] ?? '').trim().toLowerCase()
+  const provider = (env.JB_EMBED_PROVIDER ?? '').trim().toLowerCase()
   if (provider === 'openai') return 'text-embedding-3-small'
   if (provider === 'ollama') return 'bge-m3'
   if (provider === 'tei') return embedder.model() !== '' ? embedder.model() : 'tei'
   if (provider === 'hash') return embedder.model() !== '' ? embedder.model() : 'hash'
   // Auto-detect: OpenAI wins when an API key is present, matching the
   // Go fallback order.
-  if ((env['OPENAI_API_KEY'] ?? '').trim() !== '') return 'text-embedding-3-small'
+  if ((env.OPENAI_API_KEY ?? '').trim() !== '') return 'text-embedding-3-small'
   // Last resort: lean on whatever the embedder reports. OllamaEmbedder
   // reports its bge-m3 default, HashEmbedder returns `hash-<dim>`.
   const fromEmbedder = embedder.model()
@@ -181,7 +181,7 @@ export async function backfillVectors(args: BackfillVectorsArgs): Promise<void> 
           title: existing?.title ?? path,
           summary: existing?.summary ?? '',
           tags: existing?.tags ?? [],
-          content: existing?.content ?? (texts[j] ?? ''),
+          content: existing?.content ?? texts[j] ?? '',
           embedding: vec,
           embeddingModel: model,
         })

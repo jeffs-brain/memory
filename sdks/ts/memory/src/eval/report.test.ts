@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
-import { describe, expect, it } from 'vitest'
 import { promises as fs } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { describe, expect, it } from 'vitest'
 import { buildReport, writeReport } from './report.js'
 import type { LMEResult } from './types.js'
 
@@ -51,7 +51,7 @@ describe('buildReport', () => {
       incorrect: 1,
       accuracy: 0.5,
     })
-    expect(report.perCategory['abstention']?.abstainCorrect).toBe(1)
+    expect(report.perCategory.abstention?.abstainCorrect).toBe(1)
     expect(report.perCategory['temporal-reasoning']?.errors).toBe(1)
     // Task-average: mean of (0.5, 1.0, 0.0) = 0.5
     expect(report.taskAvgAccuracy).toBeCloseTo(0.5, 5)

@@ -145,7 +145,10 @@ export const createRbacProvider = (opts: RbacOptions = {}): AccessControlProvide
     return chain
   }
 
-  const highestGrantedRole = (subject: Subject, chain: readonly Resource[]): RbacRole | undefined => {
+  const highestGrantedRole = (
+    subject: Subject,
+    chain: readonly Resource[],
+  ): RbacRole | undefined => {
     let best: RbacRole | undefined
     for (const resource of chain) {
       for (const role of ROLES) {

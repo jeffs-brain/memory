@@ -6,7 +6,13 @@
  * single factory call.
  */
 
-export { Daemon, BrainManager, BrainNotFoundError, BrainConflictError, defaultRoot } from './daemon.js'
+export {
+  Daemon,
+  BrainManager,
+  BrainNotFoundError,
+  BrainConflictError,
+  defaultRoot,
+} from './daemon.js'
 export type { BrainResources, DaemonConfig } from './daemon.js'
 export { createRouter, type Handler } from './router.js'
 export {

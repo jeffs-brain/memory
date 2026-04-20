@@ -12,11 +12,7 @@ import { createMemStore } from '../store/memstore.js'
 import { type Path, toPath } from '../store/path.js'
 import { createStoreBackedCursorStore } from './cursor.js'
 import { createMemory } from './index.js'
-import {
-  isRecentMemoryQuery,
-  isTimeSensitiveMemoryQuery,
-  mergeRecallHits,
-} from './recall.js'
+import { isRecentMemoryQuery, isTimeSensitiveMemoryQuery, mergeRecallHits } from './recall.js'
 import type { RecallHit, SearchIndex } from './types.js'
 
 const dummyProvider = (): Provider => ({
@@ -164,7 +160,7 @@ describe('recall', () => {
     expect(seen).toEqual(['what is known?'])
   })
 
-  it('mixes project and global candidate recall for project scope', async () => {
+  it('keeps project-scope recall strict by default', async () => {
     const store = createMemStore()
     const cursorStore = createStoreBackedCursorStore(store)
     const { embedder } = recordingEmbedder()
@@ -206,6 +202,57 @@ describe('recall', () => {
     })
 
     const hits = await mem.recall({ query: 'how do I like to plan work in this repo?', k: 2 })
+
+    expect(seenScopes).toEqual([{ scope: 'project', actorId: 'tenant-a' }])
+    expect(hits.map((hit) => hit.path)).toEqual([projectPath])
+  })
+
+  it('includes explicit fallback scopes after the primary scope', async () => {
+    const store = createMemStore()
+    const cursorStore = createStoreBackedCursorStore(store)
+    const { embedder } = recordingEmbedder()
+    const seenScopes: Array<{ scope: string | undefined; actorId: string | undefined }> = []
+
+    const projectPath = toPath('memory/project/tenant-a/repo-conventions.md')
+    const globalPath = toPath('memory/global/planning-style.md')
+    await writeProjectNote({
+      store,
+      path: projectPath,
+      name: 'Repo conventions',
+      body: 'The repo uses strict types and small focused modules.',
+    })
+    await writeGlobalNote({
+      store,
+      path: globalPath,
+      name: 'Planning style',
+      body: 'Prefer explicit plans and closing out work thoroughly.',
+    })
+
+    const searchIndex: SearchIndex = {
+      search: async (_query, _embedding, opts) => {
+        seenScopes.push({ scope: opts.scope, actorId: opts.actorId })
+        if (opts.scope === 'global') {
+          return [{ path: globalPath, score: 0.86 }]
+        }
+        return [{ path: projectPath, score: 0.82 }]
+      },
+    }
+
+    const mem = createMemory({
+      store,
+      provider: dummyProvider(),
+      embedder,
+      cursorStore,
+      scope: 'project',
+      actorId: 'tenant-a',
+      searchIndex,
+    })
+
+    const hits = await mem.recall({
+      query: 'how do I like to plan work in this repo?',
+      k: 2,
+      fallbackScopes: ['global'],
+    })
 
     expect(seenScopes).toEqual([
       { scope: 'project', actorId: 'tenant-a' },
@@ -565,7 +612,7 @@ describe('recall', () => {
     expect(hits.map((hit) => hit.path)).toEqual([beta])
   })
 
-  it('follows wikilinks without resurfacing already surfaced memories', async () => {
+  it('keeps wikilink follow-ups inside the allowed scopes', async () => {
     const store = createMemStore()
     const cursorStore = createStoreBackedCursorStore(store)
     const { embedder } = recordingEmbedder()
@@ -610,10 +657,60 @@ describe('recall', () => {
     const hits = await mem.recall({
       query: 'what should I remember before the release?',
       k: 2,
-      surfacedPaths: [linkedGlobal],
     })
 
     expect(hits.map((hit) => hit.path)).toEqual([primary, linkedProject])
+  })
+
+  it('follows fallback-scope wikilinks when the caller opts in', async () => {
+    const store = createMemStore()
+    const cursorStore = createStoreBackedCursorStore(store)
+    const { embedder } = recordingEmbedder()
+
+    const primary = toPath('memory/project/tenant-a/release-notes.md')
+    const linkedProject = toPath('memory/project/tenant-a/deployment-checklist.md')
+    const linkedGlobal = toPath('memory/global/working-style.md')
+    await writeProjectNote({
+      store,
+      path: primary,
+      name: 'Release notes',
+      body: 'See [[deployment-checklist]] and [[global:working-style]] before shipping.',
+    })
+    await writeProjectNote({
+      store,
+      path: linkedProject,
+      name: 'Deployment checklist',
+      body: 'Check migrations and smoke tests.',
+    })
+    await writeGlobalNote({
+      store,
+      path: linkedGlobal,
+      name: 'Working style',
+      body: 'Prefer thorough plans and explicit verification.',
+    })
+
+    const searchIndex: SearchIndex = {
+      search: async (_query, _embedding, opts) =>
+        opts.scope === 'project' ? [{ path: primary, score: 0.9 }] : [],
+    }
+
+    const mem = createMemory({
+      store,
+      provider: dummyProvider(),
+      embedder,
+      cursorStore,
+      scope: 'project',
+      actorId: 'tenant-a',
+      searchIndex,
+    })
+
+    const hits = await mem.recall({
+      query: 'what should I remember before the release?',
+      k: 3,
+      fallbackScopes: ['global'],
+    })
+
+    expect(hits.map((hit) => hit.path)).toEqual([primary, linkedProject, linkedGlobal])
   })
 
   it('falls back to embedding-aware recall when no search index is configured', async () => {
