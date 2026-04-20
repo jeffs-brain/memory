@@ -49,6 +49,7 @@ service-account*.json
 
 # Claude Code / AI tooling
 .claude/
+.agents/
 AGENTS.md
 CLAUDE.md
 .worktrees/
