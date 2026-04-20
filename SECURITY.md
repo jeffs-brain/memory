@@ -6,7 +6,7 @@ Until v1.0, only the latest minor release of each SDK is supported. Check the Gi
 
 ## Reporting a Vulnerability
 
-Report vulnerabilities privately to `alex@lleverage.ai`, or via GitHub's private vulnerability reporting at https://github.com/jeffs-brain/memory/security/advisories/new.
+Report vulnerabilities privately to `jeff@jeffsbrain.com`, or via GitHub's private vulnerability reporting at https://github.com/jeffs-brain/memory/security/advisories/new.
 
 Do not open public issues for security problems.
 

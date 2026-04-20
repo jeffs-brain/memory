@@ -1,13 +1,93 @@
+# Dependencies
 node_modules/
+.venv/
+vendor/
+
+# Build output
 dist/
+build/
+out/
 .turbo/
 coverage/
+tsconfig.tsbuildinfo
+
+# Python artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+*.egg
+.eggs/
+*.so
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.pytype/
+.pyre/
+htmlcov/
+.coverage
+.coverage.*
+
+# Go artifacts
+*.exe
+*.dll
+
+# Environment and secrets
 .env
 .env.*
-.eval/
-*.log
-tsconfig.tsbuildinfo
-.DS_Store
+.env.local
+.env.*.local
+*.pem
+*.key
+*.cert
+*.p12
+*.jks
+credentials.json
+service-account*.json
+*-credentials.json
+*.secret
 
-# LongMemEval datasets (downloaded via scripts/fetch-lme.sh, not committed)
+# Claude Code / AI tooling
+.claude/
+AGENTS.md
+CLAUDE.md
+.worktrees/
+
+# Research and planning (local only)
+research/
+plans/
+
+# Eval datasets (downloaded via scripts/fetch-lme.sh)
 eval/datasets/longmemeval_*.json
+.eval/
+
+# IDE and editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.project
+.classpath
+.settings/
+
+# OS files
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Logs and debug
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+debug.log
+
+# Misc
+*.tgz
+*.tar.gz
+*.zip
+.cache/
+tmp/
+temp/
