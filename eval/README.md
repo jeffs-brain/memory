@@ -40,11 +40,13 @@ memory ingest ./corpus --brain eval
 ```
 
 Override the brain via `--brain <id>` on the runner when you want to target
-something else. `smoke.jsonl` is for fast scenario checks; `lme.jsonl` is the
-shared corpus-grounded daemon dataset used for `ask-augmented` and
-`search-retrieve-only` once the `eval` brain has been populated. The
-tri-SDK replay script does its own shared extract step and does not require a
-pre-populated daemon brain.
+something else. `smoke.jsonl` is for fast offline checks and is typically run
+with `--seed-reference-brain`, which deletes and recreates the target brain
+then ingests one markdown file per dataset row using that row's
+`reference_answer`. `lme.jsonl` is the shared corpus-grounded daemon dataset
+used for `ask-augmented` and `search-retrieve-only` once the `eval` brain has
+been populated. The tri-SDK replay script does its own shared extract step and
+does not require a pre-populated daemon brain.
 
 ## Local run
 
@@ -52,14 +54,17 @@ pre-populated daemon brain.
 cd ~/code/jeffs-brain/memory/eval
 uv sync
 
-# Fast parity check for the basic ask path
+# Fast offline parity check using a seeded reference brain
 for sdk in ts go py; do
   uv run python runner.py \
     --sdk "$sdk" \
     --dataset datasets/smoke.jsonl \
     --scorer exact \
-    --scenario ask-basic \
-    --output results/ask-basic
+    --scenario search-retrieve-only \
+    --mode bm25 \
+    --brain eval \
+    --seed-reference-brain \
+    --output results/smoke-search
 done
 
 # Corpus-grounded parity checks, against a populated `eval` brain
@@ -84,7 +89,7 @@ for sdk in ts go py; do
 done
 ```
 
-Use a separate `--output` root per scenario when comparing SDKs on the same day. The runner writes one `<sdk>.json` under `<output>/<YYYY-MM-DD>/`, so in practice you want roots such as `results/ask-basic`, `results/ask-augmented`, and `results/search-retrieve-only`.
+Use a separate `--output` root per scenario when comparing SDKs on the same day. The runner writes one `<sdk>.json` under `<output>/<YYYY-MM-DD>/`, so in practice you want roots such as `results/smoke-search`, `results/ask-augmented`, and `results/search-retrieve-only`.
 
 ### CLI flags
 
@@ -103,6 +108,7 @@ Use a separate `--output` root per scenario when comparing SDKs on the same day.
 | `--top-k`    | `5`                     | Forwarded as `topK` on `/ask` or `/search`.                           |
 | `--candidate-k` | `0`                  | Forwarded as `candidateK` on `search-retrieve-only`. `0` defers to the daemon default. |
 | `--rerank-top-n` | `0`                 | Forwarded as `rerankTopN` on `search-retrieve-only`. `0` defers to the daemon default. |
+| `--seed-reference-brain` | off         | Deletes and recreates `--brain`, then ingests one markdown document per dataset row using `reference_answer`. Intended for offline retrieval smoke checks. |
 
 ### What each scenario exercises
 
@@ -321,7 +327,7 @@ Benchmark notes:
 
 ## CI
 
-- `eval-smoke` runs on every PR across `{ts, go, py}` on the shared runner's default daemon scenario, `ask-basic`, with the `exact` scorer.
+- `eval-smoke` runs on every PR across `{ts, go, py}` as an offline retrieval check: it seeds a small reference brain from `smoke.jsonl`, then scores `search-retrieve-only` in `bm25` mode with the `exact` scorer.
 - `eval-nightly` is reserved for broader benchmark coverage; native LongMemEval parity still lives with the SDK-specific runners.
 
 ## Cost model

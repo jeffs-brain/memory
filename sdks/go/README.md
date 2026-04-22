@@ -210,7 +210,7 @@ To compare Go against the other SDKs on one shared scenario, use the runner in `
 
 ```bash
 cd eval
-uv run python runner.py --sdk go --dataset datasets/smoke.jsonl --scorer exact --scenario ask-basic --output results/ask-basic
+uv run python runner.py --sdk go --dataset datasets/smoke.jsonl --scorer exact --scenario search-retrieve-only --mode bm25 --brain eval --seed-reference-brain --output results/smoke-search
 OPENAI_API_KEY=sk-... uv run python runner.py --sdk go --dataset datasets/lme.jsonl --scorer judge --scenario ask-augmented --brain eval --output results/ask-augmented
 OPENAI_API_KEY=sk-... uv run python runner.py --sdk go --dataset datasets/lme.jsonl --scorer judge --scenario search-retrieve-only --brain eval --output results/search-retrieve-only
 ```

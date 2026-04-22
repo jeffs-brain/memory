@@ -6,6 +6,7 @@ import { access, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises
 import { basename, join } from 'node:path'
 import { promisify } from 'node:util'
 import * as git from 'isomorphic-git'
+import { DEFAULT_GIT_SIGNATURE, buildGitExecEnv } from '../../store/git-author.js'
 import { readGitLog, validatePath } from '../../store/index.js'
 import { CliError } from '../config.js'
 
@@ -99,7 +100,11 @@ export const requireGitBrain = async (brainDir: string): Promise<void> => {
 
 export const runGit = async (brainDir: string, args: readonly string[]): Promise<string> => {
   try {
-    const { stdout } = await execFile('git', ['-C', brainDir, ...args], { encoding: 'utf8' })
+    const env = await buildGitExecEnv(brainDir, args, DEFAULT_GIT_SIGNATURE)
+    const { stdout } = await execFile('git', ['-C', brainDir, ...args], {
+      encoding: 'utf8',
+      ...(env !== undefined ? { env } : {}),
+    })
     return stdout
   } catch (err) {
     throw new CliError(`git ${args.join(' ')}: ${describeExecFailure(err)}`)

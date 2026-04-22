@@ -8,6 +8,7 @@ only validates CLI parsing, dataset loading, scorer selection, and the
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -28,6 +29,7 @@ from runner import (
     _load_dataset,
     _parse_sse_frame,
     _search_path,
+    _seed_reference_brain,
     main,
     write_result,
 )
@@ -361,6 +363,79 @@ class TestAskHelpers:
             {"chunkId": "c2", "path": "wiki/b.md", "title": "B", "score": 0.7},
         ]
 
+    def test_seed_reference_brain_resets_and_populates_target_brain(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        ds = tmp_path / "ds.jsonl"
+        ds.write_text(
+            (
+                '{"id": "alpha one", "question": "What is SQLite?", '
+                '"reference_answer": "SQLite is an embedded SQL database."}\n'
+                '{"id": "beta/two", "question": "What is HTTP?", '
+                '"reference_answer": "HTTP stands for Hypertext Transfer Protocol."}\n'
+            ),
+            encoding="utf-8",
+        )
+        captured: list[tuple[str, str, dict[str, object] | None, str | None]] = []
+        create_calls = 0
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            nonlocal create_calls
+            payload = (
+                json.loads(request.content.decode("utf-8"))
+                if request.content not in (b"", None)
+                else None
+            )
+            captured.append(
+                (
+                    request.method,
+                    request.url.path,
+                    payload if isinstance(payload, dict) else None,
+                    request.headers.get("x-confirm-delete"),
+                )
+            )
+            if request.method == "POST" and request.url.path == "/v1/brains":
+                create_calls += 1
+                return httpx.Response(409 if create_calls == 1 else 201)
+            if request.method == "DELETE":
+                return httpx.Response(204)
+            if request.method == "POST" and request.url.path == "/v1/brains/eval/ingest/file":
+                return httpx.Response(200)
+            raise AssertionError(f"unexpected request: {request.method} {request.url.path}")
+
+        transport = httpx.MockTransport(handler)
+        client = httpx.AsyncClient(base_url="http://test", transport=transport)
+        monkeypatch.setattr(runner_module.httpx, "AsyncClient", lambda **_: client)
+
+        asyncio.run(_seed_reference_brain(endpoint="http://test", dataset=ds, brain="eval"))
+
+        assert captured[0] == ("POST", "/v1/brains", {"brainId": "eval"}, None)
+        assert captured[1] == ("DELETE", "/v1/brains/eval", None, "yes")
+        assert captured[2] == ("POST", "/v1/brains", {"brainId": "eval"}, None)
+        assert [entry[1] for entry in captured[3:]] == [
+            "/v1/brains/eval/ingest/file",
+            "/v1/brains/eval/ingest/file",
+        ]
+
+        first_payload = captured[3][2]
+        second_payload = captured[4][2]
+        assert first_payload == {
+            "path": "smoke/alpha-one.md",
+            "contentType": "text/markdown",
+            "contentBase64": base64.b64encode(
+                b"# What is SQLite?\n\nSQLite is an embedded SQL database.\n"
+            ).decode("ascii"),
+        }
+        assert second_payload == {
+            "path": "smoke/beta-two.md",
+            "contentType": "text/markdown",
+            "contentBase64": base64.b64encode(
+                b"# What is HTTP?\n\nHTTP stands for Hypertext Transfer Protocol.\n"
+            ).decode("ascii"),
+        }
+
 
 class TestCli:
     def test_help_exits_zero(self) -> None:
@@ -370,6 +445,7 @@ class TestCli:
         assert "--scenario" in result.output
         assert "--candidate-k" in result.output
         assert "--rerank-top-n" in result.output
+        assert "--seed-reference-brain" in result.output
         assert "--scorer" in result.output
         assert "default: auto" in result.output
 
@@ -554,3 +630,86 @@ class TestCli:
         assert captured["top_k"] == 20
         assert captured["candidate_k"] == 80
         assert captured["rerank_top_n"] == 40
+
+    def test_main_seeds_reference_brain_before_eval(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        ds = tmp_path / "ds.jsonl"
+        ds.write_text(
+            '{"id": "x", "question": "q", "reference_answer": "a", "expected_substrings": ["a"]}\n',
+            encoding="utf-8",
+        )
+        calls: list[tuple[str, object]] = []
+
+        class _StubRunner(SdkRunner):
+            @property
+            def name(self) -> str:
+                return "stub"
+
+            @property
+            def workdir(self) -> Path:
+                return tmp_path
+
+            def build_command(self, port: int) -> list[str]:
+                return ["true"]
+
+            def start(self, *, port: int = 0) -> None:
+                self._resolved_port = port or 4321
+
+            def stop(self) -> None:
+                return None
+
+        async def _fake_seed_reference_brain(**kwargs: object) -> None:
+            calls.append(("seed", kwargs))
+
+        def _fake_run_eval(**kwargs: object) -> EvalScore:
+            calls.append(("eval", kwargs))
+            return EvalScore(
+                sdk="ts",
+                dataset=str(ds),
+                scorer="exact",
+                total=1,
+                passed=1,
+                pass_rate=1.0,
+                mean_score=1.0,
+                started_at="s",
+                finished_at="e",
+                scenario="search-retrieve-only",
+                mode="bm25",
+            )
+
+        monkeypatch.setattr(runner_module, "get_runner", lambda _name: _StubRunner())
+        monkeypatch.setattr(runner_module, "_seed_reference_brain", _fake_seed_reference_brain)
+        monkeypatch.setattr(runner_module, "run_eval", _fake_run_eval)
+
+        result = CliRunner().invoke(
+            main,
+            [
+                "--sdk",
+                "ts",
+                "--dataset",
+                str(ds),
+                "--scenario",
+                "search-retrieve-only",
+                "--mode",
+                "bm25",
+                "--scorer",
+                "exact",
+                "--output",
+                str(tmp_path / "out"),
+                "--floor",
+                "0",
+                "--brain",
+                "eval",
+                "--seed-reference-brain",
+            ],
+        )
+
+        assert result.exit_code == 0
+        assert calls[0] == (
+            "seed",
+            {"endpoint": "http://127.0.0.1:4321", "dataset": ds, "brain": "eval"},
+        )
+        assert calls[1][0] == "eval"
