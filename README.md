@@ -81,14 +81,17 @@ To compare one scenario across all three SDKs, run the shared runner from [`eval
 cd eval
 uv sync
 
-# Fast parity check for the basic ask path
+# Fast offline parity check using a seeded reference brain
 for sdk in ts go py; do
   uv run python runner.py \
     --sdk "$sdk" \
     --dataset datasets/smoke.jsonl \
     --scorer exact \
-    --scenario ask-basic \
-    --output results/ask-basic
+    --scenario search-retrieve-only \
+    --mode bm25 \
+    --brain eval \
+    --seed-reference-brain \
+    --output results/smoke-search
 done
 
 # Corpus-grounded parity checks, using a populated `eval` brain

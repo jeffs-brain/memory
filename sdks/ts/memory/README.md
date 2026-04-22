@@ -26,10 +26,45 @@ The published `memory` binary runs on Node 20+ (its shebang is `#!/usr/bin/env n
 - Retrieval: hybrid BM25 + vector, five-rung retry ladder, intent reweight, cross-encoder rerank, opt-in query distill.
 - Memory stages: extract, reflect, consolidate, recall, session buffers, episode recorder.
 - Knowledge: markdown chunker, URL/file/PDF ingest, wikilinks, compile passes.
+- SSE utilities: framework-agnostic frame formatting and heartbeat helpers via `@jeffs-brain/memory/sse`.
 - Authorisation: pluggable `AccessControlProvider` contract (`@jeffs-brain/memory/acl`), in-process RBAC (workspace -> brain -> collection -> document hierarchy, `admin`/`writer`/`reader` roles, `deny:<role>` overrides), `withAccessControl(store, provider, subject, ...)` Store wrapper, optional `close()` lifecycle hook. Pair with [`@jeffs-brain/memory-openfga`](https://www.npmjs.com/package/@jeffs-brain/memory-openfga) for production tuple-store backed checks.
 - Conformance: 28/29 cases green against `spec/conformance/http-contract.json`.
 - Cross-SDK daemon scenarios: `ask-basic`, `ask-augmented`, `search-retrieve-only`.
 - CLI: `memory init|ingest|search|extract|reflect|consolidate|eval|serve|acl|git`.
+
+## SSE utilities
+
+```ts
+import { createSseHeartbeat, formatSseFrame } from '@jeffs-brain/memory/sse'
+
+const write = (chunk: string): void => {
+  response.write(chunk)
+}
+
+let nextEventId = 1
+
+write(
+  formatSseFrame({
+    event: 'change',
+    id: String(nextEventId++),
+    data: JSON.stringify({ kind: 'updated', path: 'memory/notes.md' }),
+  }),
+)
+
+const stopHeartbeat = createSseHeartbeat(25_000, () => {
+  write(
+    formatSseFrame({
+      event: 'ping',
+      id: String(nextEventId++),
+      data: 'keepalive',
+    }),
+  )
+})
+
+request.on('close', stopHeartbeat)
+```
+
+These helpers expose the framing layer separately from the built-in `Response`-based daemon transport, so Express, Fastify, Hono, or plain Node handlers can emit SSE frames without reimplementing the wire format. They format `event`, `id`, and `data` lines for you, while protocol-specific sequencing such as the daemon's monotonic `/events` ids stays under the caller's control.
 
 ## Conformance runner
 
@@ -131,7 +166,7 @@ To compare TypeScript against the other SDKs on one shared scenario, use the run
 
 ```bash
 cd eval
-uv run python runner.py --sdk ts --dataset datasets/smoke.jsonl --scorer exact --scenario ask-basic --output results/ask-basic
+uv run python runner.py --sdk ts --dataset datasets/smoke.jsonl --scorer exact --scenario search-retrieve-only --mode bm25 --brain eval --seed-reference-brain --output results/smoke-search
 OPENAI_API_KEY=sk-... uv run python runner.py --sdk ts --dataset datasets/lme.jsonl --scorer judge --scenario ask-augmented --brain eval --output results/ask-augmented
 OPENAI_API_KEY=sk-... uv run python runner.py --sdk ts --dataset datasets/lme.jsonl --scorer judge --scenario search-retrieve-only --brain eval --output results/search-retrieve-only
 ```

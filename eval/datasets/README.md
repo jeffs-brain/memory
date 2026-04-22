@@ -35,8 +35,9 @@ Scenario parity expects the same dataset row to work across all three SDKs. The 
 ## Files
 
 - `smoke.jsonl` - 20 provider-agnostic factual questions. Cheap, fast,
-  deterministic (`exact` scorer). Runs on every PR; used for fast
-  `ask-basic` parity checks.
+  deterministic (`exact` scorer). Runs on every PR; used for fast offline
+  `search-retrieve-only` parity checks when the runner seeds a reference
+  brain from `reference_answer`.
 - `lme.jsonl` - 100-question benchmark spanning facts, definitional,
   temporal, procedural, comparison, and memory-retrieval-specific prompts
   (SQLite FTS5, BM25, embeddings, RAG, vector search). Used for the
@@ -57,6 +58,7 @@ changes required.
 meaningful once the target SDK has a populated `eval` brain, or once the
 replay-backed tri-SDK flow has extracted the shared brain cache first.
 
-`smoke.jsonl` is the provider-agnostic empty-brain dataset. `longmemeval_s.json`
-is the upstream 500-question replay dataset used by the native Go LME runner
-and the replay-backed tri-SDK script. It is a JSON array, not JSONL.
+`smoke.jsonl` is the provider-agnostic reference-answer dataset used by the
+offline smoke flow with `--seed-reference-brain`. `longmemeval_s.json` is the
+upstream 500-question replay dataset used by the native Go LME runner and the
+replay-backed tri-SDK script. It is a JSON array, not JSONL.

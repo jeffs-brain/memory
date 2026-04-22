@@ -46,6 +46,10 @@
       "import": "./dist/store/index.js",
       "types": "./dist/store/index.d.ts"
     },
+    "./sse": {
+      "import": "./dist/sse.js",
+      "types": "./dist/sse.d.ts"
+    },
     "./search": {
       "import": "./dist/search/index.js",
       "types": "./dist/search/index.d.ts"

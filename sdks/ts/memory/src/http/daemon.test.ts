@@ -9,7 +9,7 @@
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { MEMORY_PACKAGE } from '../index.js'
 import type {
@@ -632,6 +632,40 @@ describe('memory daemon integration', () => {
     expect(collected).toContain('"path":"evt.md"')
 
     await reader.cancel()
+  })
+
+  it('6b. /events emits ping heartbeats and stops them on disconnect', async () => {
+    vi.useFakeTimers()
+    try {
+      const { handler } = await makeDaemon()
+      await createBrain(handler, 'eventsping')
+
+      const resp = await handler(makeRequest('GET', '/v1/brains/eventsping/events'))
+      expect(resp.status).toBe(200)
+      const reader = resp.body?.getReader()
+      expect(reader).toBeDefined()
+      if (reader === undefined) throw new Error('expected response body')
+      const decoder = new TextDecoder('utf-8')
+
+      const ready = await reader.read()
+      expect(ready.done).toBe(false)
+      expect(decoder.decode(ready.value, { stream: true })).toBe(
+        'event: ready\nid: 1\ndata: ok\n\n',
+      )
+
+      await vi.advanceTimersByTimeAsync(25_000)
+      const ping = await reader.read()
+      expect(ping.done).toBe(false)
+      expect(decoder.decode(ping.value, { stream: true })).toBe(
+        'event: ping\nid: 2\ndata: keepalive\n\n',
+      )
+
+      await reader.cancel()
+      await Promise.resolve()
+      expect(vi.getTimerCount()).toBe(0)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('7. maps not-found and oversized body to Problem+JSON', async () => {

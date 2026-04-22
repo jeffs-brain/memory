@@ -7,6 +7,8 @@
  * the abort signal released by the runtime drains the stream cleanly.
  */
 
+import { formatSseFrame } from '../sse.js'
+
 export type SseWriter = {
   sendRaw: (event: string, data: string) => boolean
   sendJson: (event: string, payload: unknown) => boolean
@@ -23,16 +25,6 @@ export type SseSession = {
 
 const encoder = new TextEncoder()
 
-const formatFrame = (event: string, data: string): string => {
-  const lines: string[] = []
-  lines.push(`event: ${event}`)
-  for (const line of data.split('\n')) {
-    lines.push(`data: ${line}`)
-  }
-  lines.push('', '')
-  return lines.join('\n')
-}
-
 /**
  * Start an SSE stream. The caller receives a Response pre-configured
  * with the correct headers plus a writer that pushes frames.
@@ -43,6 +35,7 @@ const formatFrame = (event: string, data: string): string => {
 export const startSse = (signal: AbortSignal | undefined): SseSession => {
   let controllerRef: ReadableStreamDefaultController<Uint8Array> | undefined
   let closed = false
+  let nextEventId = 1
   let resolveDone: (() => void) | undefined
   const done = new Promise<void>((resolve) => {
     resolveDone = resolve
@@ -61,7 +54,15 @@ export const startSse = (signal: AbortSignal | undefined): SseSession => {
   const send = (event: string, data: string): boolean => {
     if (closed) return false
     try {
-      controllerRef?.enqueue(encoder.encode(formatFrame(event, data)))
+      controllerRef?.enqueue(
+        encoder.encode(
+          formatSseFrame({
+            event,
+            id: String(nextEventId++),
+            data,
+          }),
+        ),
+      )
       return true
     } catch {
       closed = true

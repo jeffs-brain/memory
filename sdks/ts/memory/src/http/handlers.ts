@@ -19,6 +19,7 @@ import type { ConsolidationReport, ExtractedMemory, Scope } from '../memory/inde
 import { scopeTopic } from '../memory/index.js'
 import { augmentQueryWithTemporal, resolvedTemporalHintLine } from '../query/index.js'
 import type { RetrievalFilters } from '../retrieval/index.js'
+import { createSseHeartbeat } from '../sse.js'
 import {
   ErrConflict,
   ErrInvalidPath,
@@ -1487,19 +1488,15 @@ export const handleEvents = async (
     writer.sendJson('change', payload)
   })
 
-  // Periodic keep-alive so proxies do not close the stream.
-  const ping = setInterval(() => {
-    if (writer.closed) {
-      clearInterval(ping)
-      return
+  let stopPing = (): void => undefined
+  stopPing = createSseHeartbeat(25_000, () => {
+    if (writer.closed || !writer.sendRaw('ping', 'keepalive')) {
+      stopPing()
     }
-    if (!writer.sendRaw('ping', 'keepalive')) {
-      clearInterval(ping)
-    }
-  }, 25_000)
+  })
 
   void session.done.then(() => {
-    clearInterval(ping)
+    stopPing()
     unsubscribe()
   })
 
