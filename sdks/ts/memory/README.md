@@ -31,6 +31,28 @@ The published `memory` binary runs on Node 20+ (its shebang is `#!/usr/bin/env n
 - Cross-SDK daemon scenarios: `ask-basic`, `ask-augmented`, `search-retrieve-only`.
 - CLI: `memory init|ingest|search|extract|reflect|consolidate|eval|serve|acl|git`.
 
+## Conformance runner
+
+```ts
+import { runConformanceSuite } from '@jeffs-brain/memory/conformance'
+
+const result = await runConformanceSuite({
+  baseUrl: 'http://127.0.0.1:18844/v1',
+  authToken: process.env.JB_AUTH_TOKEN,
+})
+
+if (result.failed > 0) {
+  throw new Error(
+    result.cases
+      .filter((testCase) => !testCase.ok)
+      .map((testCase) => `${testCase.name}: ${testCase.error}`)
+      .join('\n'),
+  )
+}
+```
+
+The runner packages the shared `spec/conformance/http-contract.json` fixture, provisions an isolated brain per case, replays the full HTTP store contract, and deletes every test brain afterwards.
+
 ## Embedded usage
 
 ```ts
