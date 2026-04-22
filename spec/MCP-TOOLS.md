@@ -13,23 +13,15 @@ Errors from any tool surface as a standard MCP error response via `toToolError`.
 
 ## Namespace URIs
 
-MCP tool payloads carry canonical relative `path` values. When callers need URI-shaped references inside chat content or markdown, the following URI convention is canonical:
+MCP tool payloads carry canonical relative `path` values. The canonical URI syntax and resolution rules live in `spec/PROTOCOL.md` under "URI conventions". When callers need URI-shaped references inside chat content or markdown, the common forms are:
 
 - `memory://global/<topic-stem>` -> `memory/global/<topic-stem>.md`
-- `memory://project/<actorId>/<topic-stem>` -> `memory/project/<actorId>/<topic-stem>.md`
-- `memory://agent/<actorId>/<topic-stem>` -> `memory/agent/<actorId>/<topic-stem>.md`
+- `memory://project/<project-slug>/<topic-stem>` -> `memory/project/<project-slug>/<topic-stem>.md`
+- `memory://agent/<actor-id>/<topic-stem>` -> `memory/agent/<actor-id>/<topic-stem>.md`
 - `wiki://<article-stem>` -> `wiki/<article-stem>.md`
 - `wiki://architecture/events` -> `wiki/architecture/events.md`
 
-Rules:
-
-- Document `path` values stay relative and POSIX-normalised. They never carry a leading slash.
-- `memory://` uses the URI authority as the namespace selector. Valid authorities are `global`, `project`, and `agent`.
-- `project` and `agent` URIs require the first path segment after the authority to be the actor or project slug.
-- `wiki://` resolves the full article stem from `authority + path`. A single-segment article therefore looks like `wiki://release-checklist`, while a nested article can look like `wiki://architecture/events`.
-- URI stems omit the `.md` suffix.
-- Path segments use standard percent-encoding. Callers MUST decode before resolution and MUST re-encode reserved characters when serialising.
-- Resolution is exact. Consumers MUST NOT invent cross-scope fallbacks when resolving a URI.
+Apply the normalisation, percent-encoding, and exact-resolution rules from `spec/PROTOCOL.md` when converting these URIs into relative document `path` values.
 
 ---
 
