@@ -26,10 +26,37 @@ The published `memory` binary runs on Node 20+ (its shebang is `#!/usr/bin/env n
 - Retrieval: hybrid BM25 + vector, five-rung retry ladder, intent reweight, cross-encoder rerank, opt-in query distill.
 - Memory stages: extract, reflect, consolidate, recall, session buffers, episode recorder.
 - Knowledge: markdown chunker, URL/file/PDF ingest, wikilinks, compile passes.
+- SSE utilities: framework-agnostic frame formatting and heartbeat helpers via `@jeffs-brain/memory/sse`.
 - Authorisation: pluggable `AccessControlProvider` contract (`@jeffs-brain/memory/acl`), in-process RBAC (workspace -> brain -> collection -> document hierarchy, `admin`/`writer`/`reader` roles, `deny:<role>` overrides), `withAccessControl(store, provider, subject, ...)` Store wrapper, optional `close()` lifecycle hook. Pair with [`@jeffs-brain/memory-openfga`](https://www.npmjs.com/package/@jeffs-brain/memory-openfga) for production tuple-store backed checks.
 - Conformance: 28/29 cases green against `spec/conformance/http-contract.json`.
 - Cross-SDK daemon scenarios: `ask-basic`, `ask-augmented`, `search-retrieve-only`.
 - CLI: `memory init|ingest|search|extract|reflect|consolidate|eval|serve|acl|git`.
+
+## SSE utilities
+
+```ts
+import { createSseHeartbeat, formatSseFrame } from '@jeffs-brain/memory/sse'
+
+const write = (chunk: string): void => {
+  response.write(chunk)
+}
+
+write(
+  formatSseFrame({
+    event: 'change',
+    id: '42',
+    data: JSON.stringify({ kind: 'updated', path: 'memory/notes.md' }),
+  }),
+)
+
+const stopHeartbeat = createSseHeartbeat(25_000, () => {
+  write(formatSseFrame({ event: 'ping', data: 'keepalive' }))
+})
+
+request.on('close', stopHeartbeat)
+```
+
+These helpers expose the framing layer separately from the built-in `Response`-based daemon transport, so Express, Fastify, Hono, or plain Node handlers can emit spec-compliant SSE frames without reimplementing the wire format.
 
 ## Embedded usage
 
