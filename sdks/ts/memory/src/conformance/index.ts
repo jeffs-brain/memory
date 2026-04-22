@@ -96,6 +96,7 @@ type SseWaiter = {
 }
 
 type SseSubscriber = {
+  readonly ready: Promise<void>
   waitFor(event: string, timeoutMs?: number): Promise<string>
   close(): Promise<void>
 }
@@ -453,16 +454,22 @@ const assertStreamAssertions = async (
   const decoder = new TextDecoder('utf-8')
   const parser = new SSEParser()
   const deadline = Date.now() + timeoutMs
+  let readPromise: ReturnType<typeof reader.read> | undefined = reader.read()
   try {
     while (seen.size < wanted.size && Date.now() < deadline) {
       const remaining = Math.max(1, deadline - Date.now())
+      if (readPromise === undefined) {
+        readPromise = reader.read()
+      }
+      const pendingRead = readPromise
       const outcome = await Promise.race([
-        reader.read(),
+        pendingRead,
         new Promise<{ readonly timedOut: true }>((resolve) => {
           setTimeout(() => resolve({ timedOut: true }), Math.min(remaining, 200))
         }),
       ])
       if ('timedOut' in outcome) continue
+      readPromise = undefined
       if (outcome.done) {
         for (const event of parser.flush()) {
           if (wanted.has(event.event)) {
@@ -481,6 +488,7 @@ const assertStreamAssertions = async (
     }
   } finally {
     await reader.cancel().catch(() => undefined)
+    await readPromise?.catch(() => undefined)
     reader.releaseLock()
   }
 
@@ -540,11 +548,36 @@ const assertEventPayload = (rawExpected: ConformanceExpectedResponse, payload: s
   }
 }
 
-const createSseSubscriber = (url: string, headers: Headers): SseSubscriber => {
+const createSseSubscriber = (
+  url: string,
+  headers: Headers,
+  readyTimeoutMs: number,
+): SseSubscriber => {
   const controller = new AbortController()
   const events: SSEEvent[] = []
   const waiters = new Map<string, SseWaiter[]>()
   let terminalError: Error | undefined
+  let readySettled = false
+  let resolveReady = (): void => undefined
+  let rejectReady = (_error: Error): void => undefined
+  const ready = new Promise<void>((resolve, reject) => {
+    resolveReady = (): void => {
+      if (readySettled) return
+      readySettled = true
+      resolve()
+    }
+    rejectReady = (error: Error): void => {
+      if (readySettled) return
+      readySettled = true
+      reject(error)
+    }
+  })
+
+  const settleTerminalError = (error: Error): void => {
+    terminalError = error
+    rejectReady(error)
+    rejectWaiters(error)
+  }
 
   const rejectWaiters = (error: Error): void => {
     for (const [event, pending] of waiters.entries()) {
@@ -567,6 +600,10 @@ const createSseSubscriber = (url: string, headers: Headers): SseSubscriber => {
   }
 
   const run = (async (): Promise<void> => {
+    const readyTimer = setTimeout(() => {
+      controller.abort()
+      settleTerminalError(new Error(`SSE subscribe timed out after ${readyTimeoutMs} ms`))
+    }, readyTimeoutMs)
     try {
       const response = await fetch(url, {
         method: 'GET',
@@ -579,22 +616,24 @@ const createSseSubscriber = (url: string, headers: Headers): SseSubscriber => {
       if (response.body === null) {
         throw new Error('SSE subscribe failed: response body missing')
       }
+      clearTimeout(readyTimer)
+      resolveReady()
       for await (const event of iterateSSE(response.body)) {
         events.push(event)
         resolveWaiters(event)
       }
       if (!controller.signal.aborted) {
-        terminalError = new Error('SSE stream closed before the case finished')
-        rejectWaiters(terminalError)
+        settleTerminalError(new Error('SSE stream closed before the case finished'))
       }
     } catch (error) {
+      clearTimeout(readyTimer)
       if (controller.signal.aborted) return
-      terminalError = asError(error)
-      rejectWaiters(terminalError)
+      settleTerminalError(asError(error))
     }
   })()
 
   return {
+    ready,
     waitFor: async (eventName: string, timeoutMs = DEFAULT_SSE_TIMEOUT_MS): Promise<string> => {
       const existing = events.find((event) => event.event === eventName)
       if (existing !== undefined) return existing.data
@@ -621,6 +660,7 @@ const createSseSubscriber = (url: string, headers: Headers): SseSubscriber => {
     },
     close: async (): Promise<void> => {
       controller.abort()
+      rejectReady(new Error('SSE subscriber closed'))
       rejectWaiters(new Error('SSE subscriber closed'))
       await run.catch(() => undefined)
     },
@@ -680,10 +720,18 @@ const runStep = async (rawStep: ConformanceStep, context: RunCaseContext): Promi
         context.substitute,
         context.authToken,
       )
-      context.ssePool.set(
-        name,
-        createSseSubscriber(resolveRequestUrl(context.baseUrl, path), headers),
+      const subscriber = createSseSubscriber(
+        resolveRequestUrl(context.baseUrl, path),
+        headers,
+        context.requestTimeoutMs,
       )
+      try {
+        await subscriber.ready
+      } catch (error) {
+        await subscriber.close().catch(() => undefined)
+        throw error
+      }
+      context.ssePool.set(name, subscriber)
       return
     }
     case 'await-sse-event': {
