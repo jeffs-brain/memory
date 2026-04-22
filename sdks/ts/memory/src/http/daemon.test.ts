@@ -649,12 +649,16 @@ describe('memory daemon integration', () => {
 
       const ready = await reader.read()
       expect(ready.done).toBe(false)
-      expect(decoder.decode(ready.value, { stream: true })).toBe('event: ready\ndata: ok\n\n')
+      expect(decoder.decode(ready.value, { stream: true })).toBe(
+        'event: ready\nid: 1\ndata: ok\n\n',
+      )
 
       await vi.advanceTimersByTimeAsync(25_000)
       const ping = await reader.read()
       expect(ping.done).toBe(false)
-      expect(decoder.decode(ping.value, { stream: true })).toBe('event: ping\ndata: keepalive\n\n')
+      expect(decoder.decode(ping.value, { stream: true })).toBe(
+        'event: ping\nid: 2\ndata: keepalive\n\n',
+      )
 
       await reader.cancel()
       await Promise.resolve()

@@ -41,22 +41,30 @@ const write = (chunk: string): void => {
   response.write(chunk)
 }
 
+let nextEventId = 1
+
 write(
   formatSseFrame({
     event: 'change',
-    id: '42',
+    id: String(nextEventId++),
     data: JSON.stringify({ kind: 'updated', path: 'memory/notes.md' }),
   }),
 )
 
 const stopHeartbeat = createSseHeartbeat(25_000, () => {
-  write(formatSseFrame({ event: 'ping', data: 'keepalive' }))
+  write(
+    formatSseFrame({
+      event: 'ping',
+      id: String(nextEventId++),
+      data: 'keepalive',
+    }),
+  )
 })
 
 request.on('close', stopHeartbeat)
 ```
 
-These helpers expose the framing layer separately from the built-in `Response`-based daemon transport, so Express, Fastify, Hono, or plain Node handlers can emit spec-compliant SSE frames without reimplementing the wire format.
+These helpers expose the framing layer separately from the built-in `Response`-based daemon transport, so Express, Fastify, Hono, or plain Node handlers can emit SSE frames without reimplementing the wire format. They format `event`, `id`, and `data` lines for you, while protocol-specific sequencing such as the daemon's monotonic `/events` ids stays under the caller's control.
 
 ## Embedded usage
 
