@@ -65,6 +65,35 @@ Paths are POSIX-style, relative, and validated client-side before reaching the w
 
 Paths travel as the `path` query parameter (or `dir` for listing) and are URL-encoded using standard `URLSearchParams` semantics. See `spec/STORAGE.md` for the full validation rules.
 
+## URI conventions
+
+Some consumers reference stored documents via URIs instead of raw relative paths. These URIs are an overlay on the path-based document protocol: `/documents/*` endpoints still accept only canonical relative `path` values, and callers MUST resolve any URI to such a path before issuing an HTTP request.
+
+Canonical URI forms:
+
+- `memory://global/<topic-stem>` -> `memory/global/<topic-stem>.md`
+- `memory://project/<project-slug>/<topic-stem>` -> `memory/project/<project-slug>/<topic-stem>.md`
+- `memory://agent/<actor-id>/<topic-stem>` -> `memory/agent/<actor-id>/<topic-stem>.md`
+- `wiki://<article-stem>` -> `wiki/<article-stem>.md`
+- `wiki://architecture/events` -> `wiki/architecture/events.md`
+
+Rules:
+
+- Resolved document paths stay relative and POSIX-normalised. They never carry a leading slash.
+- `memory://` uses the URI authority as the namespace selector. Valid authorities are `global`, `project`, and `agent`.
+- `project` and `agent` URIs require the first path segment after the authority to be the project or actor slug.
+- `wiki://` resolves the full article stem from `authority + path`. A single-segment article therefore looks like `wiki://release-checklist`, while a nested article can look like `wiki://architecture/events`.
+- URI stems omit the `.md` suffix.
+- Path segments use standard percent-encoding. Callers MUST decode before resolution and MUST re-encode reserved characters when serialising.
+- Resolution is exact. Consumers MUST NOT invent cross-scope fallbacks when resolving a URI.
+
+Server-side URI resolution:
+
+- A surface that accepts these URIs MUST resolve them to a canonical relative path, run the normal path validation rules from this spec and `spec/STORAGE.md`, and then authorise the read exactly as if the caller had requested that path directly.
+- Resolution MUST preserve the same ACL and auth checks as `GET /v1/brains/{brainId}/documents/read` on the resolved path.
+- Missing targets return `404 Not Found`.
+- Callers that lack read access return `403 Forbidden`.
+
 ## Endpoints
 
 ### `GET /v1/brains/{brainId}/documents/read`
