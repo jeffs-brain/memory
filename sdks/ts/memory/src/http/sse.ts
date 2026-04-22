@@ -35,6 +35,7 @@ const encoder = new TextEncoder()
 export const startSse = (signal: AbortSignal | undefined): SseSession => {
   let controllerRef: ReadableStreamDefaultController<Uint8Array> | undefined
   let closed = false
+  let nextEventId = 1
   let resolveDone: (() => void) | undefined
   const done = new Promise<void>((resolve) => {
     resolveDone = resolve
@@ -53,7 +54,15 @@ export const startSse = (signal: AbortSignal | undefined): SseSession => {
   const send = (event: string, data: string): boolean => {
     if (closed) return false
     try {
-      controllerRef?.enqueue(encoder.encode(formatSseFrame({ event, data })))
+      controllerRef?.enqueue(
+        encoder.encode(
+          formatSseFrame({
+            event,
+            id: String(nextEventId++),
+            data,
+          }),
+        ),
+      )
       return true
     } catch {
       closed = true

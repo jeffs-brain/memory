@@ -14,7 +14,8 @@ describe('http/sse', () => {
 
     await expect(session.done).resolves.toBeUndefined()
     await expect(session.response.text()).resolves.toBe(
-      'event: ready\ndata: ok\n\n' + 'event: change\ndata: {"path":"memory/a.md"}\n\n',
+      'event: ready\nid: 1\ndata: ok\n\n' +
+        'event: change\nid: 2\ndata: {"path":"memory/a.md"}\n\n',
     )
   })
 })
