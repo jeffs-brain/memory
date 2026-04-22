@@ -8,6 +8,7 @@ import { promisify } from 'node:util'
 import * as git from 'isomorphic-git'
 import { ErrConflict, ErrReadOnly, StoreError } from './errors.js'
 import { type FsStore, createFsStore } from './fsstore.js'
+import { DEFAULT_GIT_SIGNATURE, type GitSignature, buildGitExecEnv } from './git-author.js'
 import type {
   Batch,
   BatchOptions,
@@ -19,11 +20,6 @@ import type {
   Unsubscribe,
 } from './index.js'
 import type { Path } from './path.js'
-
-export type GitSignature = {
-  readonly name: string
-  readonly email: string
-}
 
 export type GitSignPayload = {
   readonly payload: string
@@ -41,10 +37,7 @@ export type GitStoreOptions = {
   readonly autoPush?: boolean
 }
 
-const DEFAULT_AUTHOR: GitSignature = {
-  name: 'jeffs-brain',
-  email: 'noreply@jeffsbrain.com',
-}
+const DEFAULT_AUTHOR = DEFAULT_GIT_SIGNATURE
 
 const DEFAULT_BRANCH = 'main'
 const DEFAULT_REMOTE = 'origin'
@@ -584,7 +577,12 @@ const lsRemote = async (remoteUrl: string, branch?: string): Promise<string> => 
 }
 
 const runGit = async (cwd: string, args: readonly string[]): Promise<string> => {
-  const { stdout } = await execFile('git', [...args], { cwd, encoding: 'utf8' })
+  const env = await buildGitExecEnv(cwd, args, DEFAULT_AUTHOR)
+  const { stdout } = await execFile('git', [...args], {
+    cwd,
+    encoding: 'utf8',
+    ...(env !== undefined ? { env } : {}),
+  })
   return stdout
 }
 
@@ -714,6 +712,8 @@ export const listCommitFiles = async (dir: string, oid: string): Promise<string[
   out.sort()
   return out
 }
+
+export type { GitSignature }
 
 const walkCommitTree = async (
   dir: string,

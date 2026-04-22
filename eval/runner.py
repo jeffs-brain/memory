@@ -30,8 +30,11 @@ answer blob and records chunk metadata as citations.
 from __future__ import annotations
 
 import asyncio
+import base64
 import datetime as _dt
 import json
+import os
+import tempfile
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
@@ -130,12 +133,71 @@ def _search_path(brain: str) -> str:
     return f"/v1/brains/{quote(brain, safe='')}/search"
 
 
+def _brain_path(brain: str) -> str:
+    return f"/v1/brains/{quote(brain, safe='')}"
+
+
+def _ingest_file_path(brain: str) -> str:
+    return f"{_brain_path(brain)}/ingest/file"
+
+
 def _question_date(item: dict[str, Any]) -> str | None:
     for key in ("questionDate", "question_date"):
         value = item.get(key)
         if isinstance(value, str) and value != "":
             return value
     return None
+
+
+def _safe_doc_stem(raw: str) -> str:
+    chars = [ch.lower() if ch.isalnum() else "-" for ch in raw]
+    stem = "".join(chars).strip("-")
+    while "--" in stem:
+        stem = stem.replace("--", "-")
+    return stem or "item"
+
+
+async def _seed_reference_brain(*, endpoint: str, dataset: Path, brain: str) -> None:
+    items = _load_dataset(dataset, limit=None)
+
+    async with httpx.AsyncClient(base_url=endpoint, timeout=ASK_TIMEOUT_S) as client:
+        create_resp = await client.post("/v1/brains", json={"brainId": brain})
+        if create_resp.status_code == 409:
+            delete_resp = await client.delete(
+                _brain_path(brain),
+                headers={"x-confirm-delete": "yes"},
+            )
+            if delete_resp.status_code != 204:
+                delete_resp.raise_for_status()
+            create_resp = await client.post("/v1/brains", json={"brainId": brain})
+
+        if create_resp.status_code != 201:
+            create_resp.raise_for_status()
+
+        for item in items:
+            question = item.get("question")
+            reference_answer = item.get("reference_answer")
+            if not isinstance(question, str) or question.strip() == "":
+                raise click.ClickException(
+                    f"Cannot seed reference brain: dataset row {item.get('id', '<missing id>')} lacks a question"
+                )
+            if not isinstance(reference_answer, str) or reference_answer.strip() == "":
+                raise click.ClickException(
+                    f"Cannot seed reference brain: dataset row {item.get('id', '<missing id>')} lacks reference_answer"
+                )
+
+            stem = _safe_doc_stem(str(item.get("id") or question))
+            document = f"# {question.strip()}\n\n{reference_answer.strip()}\n"
+            ingest_resp = await client.post(
+                _ingest_file_path(brain),
+                json={
+                    "path": f"smoke/{stem}.md",
+                    "contentType": "text/markdown",
+                    "contentBase64": base64.b64encode(document.encode("utf-8")).decode("ascii"),
+                },
+            )
+            if ingest_resp.status_code != 200:
+                ingest_resp.raise_for_status()
 
 
 def _build_request_spec(
@@ -494,6 +556,14 @@ def write_result(output_dir: Path, sdk: str, score: EvalScore) -> Path:
     show_default=True,
     help="rerankTopN value forwarded on retrieve-only /search calls. Zero defers to the daemon default.",
 )
+@click.option(
+    "--seed-reference-brain",
+    is_flag=True,
+    help=(
+        "Delete and recreate the target brain, then ingest one markdown document per dataset row "
+        "using that row's reference_answer. Intended for offline retrieval smoke checks."
+    ),
+)
 def main(
     sdk: str,
     scenario: str,
@@ -508,10 +578,19 @@ def main(
     top_k: int,
     candidate_k: int,
     rerank_top_n: int,
+    seed_reference_brain: bool,
 ) -> None:
+    scratch_home: tempfile.TemporaryDirectory[str] | None = None
+    prior_jb_home = os.environ.get("JB_HOME")
+    if seed_reference_brain:
+        scratch_home = tempfile.TemporaryDirectory(prefix="jeffs-brain-eval-")
+        os.environ["JB_HOME"] = scratch_home.name
+
     runner: SdkRunner = get_runner(sdk)
-    runner.start(port=port)
     try:
+        runner.start(port=port)
+        if seed_reference_brain:
+            asyncio.run(_seed_reference_brain(endpoint=runner.endpoint, dataset=dataset, brain=brain))
         score = run_eval(
             endpoint=runner.endpoint,
             scenario=scenario,
@@ -536,6 +615,12 @@ def main(
             raise SystemExit(1)
     finally:
         runner.stop()
+        if prior_jb_home is None:
+            os.environ.pop("JB_HOME", None)
+        else:
+            os.environ["JB_HOME"] = prior_jb_home
+        if scratch_home is not None:
+            scratch_home.cleanup()
 
 
 if __name__ == "__main__":
