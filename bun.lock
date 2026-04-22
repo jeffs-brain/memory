@@ -47,7 +47,7 @@
     },
     "sdks/ts/memory": {
       "name": "@jeffs-brain/memory",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "bin": {
         "memory": "./dist/cli.js",
       },

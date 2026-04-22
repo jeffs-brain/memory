@@ -13,7 +13,7 @@ Local-first, hosted-optional. Apache-2.0.
 
 | Language   | Package                        | Version | Install                                |
 | ---------- | ------------------------------ | ------- | -------------------------------------- |
-| TypeScript | `@jeffs-brain/memory`          | 0.1.0   | `npm i -g @jeffs-brain/memory`         |
+| TypeScript | `@jeffs-brain/memory`          | 0.2.0   | `npm i -g @jeffs-brain/memory`         |
 | TypeScript | `@jeffs-brain/memory-postgres` | 0.1.0   | `npm i @jeffs-brain/memory-postgres`   |
 | TypeScript | `@jeffs-brain/memory-openfga`  | 0.1.0   | `npm i @jeffs-brain/memory-openfga`    |
 | TypeScript | `@jeffs-brain/memory-mcp`      | 0.1.0   | `npx -y @jeffs-brain/memory-mcp`       |

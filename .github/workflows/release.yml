@@ -32,28 +32,23 @@ jobs:
       - name: Build
         run: bun run build
       - name: Publish @jeffs-brain/memory
-        run: npm publish --access public --provenance
-        working-directory: sdks/ts/memory
+        run: bash scripts/publish-if-needed.sh sdks/ts/memory
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
       - name: Publish @jeffs-brain/memory-postgres
-        run: npm publish --access public --provenance
-        working-directory: sdks/ts/memory-postgres
+        run: bash scripts/publish-if-needed.sh sdks/ts/memory-postgres
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
       - name: Publish @jeffs-brain/memory-openfga
-        run: npm publish --access public --provenance
-        working-directory: sdks/ts/memory-openfga
+        run: bash scripts/publish-if-needed.sh sdks/ts/memory-openfga
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
       - name: Publish @jeffs-brain/memory-mcp
-        run: npm publish --access public --provenance
-        working-directory: mcp/ts
+        run: bash scripts/publish-if-needed.sh mcp/ts
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
       - name: Publish @jeffs-brain/install
-        run: npm publish --access public --provenance
-        working-directory: install
+        run: bash scripts/publish-if-needed.sh install
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
       - uses: softprops/action-gh-release@v2

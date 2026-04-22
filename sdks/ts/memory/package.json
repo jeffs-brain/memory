@@ -1,6 +1,6 @@
 {
   "name": "@jeffs-brain/memory",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Local-first memory and hybrid retrieval library for LLM agents with pluggable stores, BM25 plus vector search, and a four-stage memory pipeline.",
   "license": "Apache-2.0",
   "author": "Alex J <alex@lleverage.ai>",
