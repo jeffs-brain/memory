@@ -66,6 +66,28 @@ request.on('close', stopHeartbeat)
 
 These helpers expose the framing layer separately from the built-in `Response`-based daemon transport, so Express, Fastify, Hono, or plain Node handlers can emit SSE frames without reimplementing the wire format. They format `event`, `id`, and `data` lines for you, while protocol-specific sequencing such as the daemon's monotonic `/events` ids stays under the caller's control.
 
+## Conformance runner
+
+```ts
+import { runConformanceSuite } from '@jeffs-brain/memory/conformance'
+
+const result = await runConformanceSuite({
+  baseUrl: 'http://127.0.0.1:18844/v1',
+  authToken: process.env.JB_AUTH_TOKEN,
+})
+
+if (result.failed > 0) {
+  throw new Error(
+    result.cases
+      .filter((testCase) => !testCase.ok)
+      .map((testCase) => `${testCase.name}: ${testCase.error}`)
+      .join('\n'),
+  )
+}
+```
+
+The runner packages the shared `spec/conformance/http-contract.json` fixture, provisions an isolated brain per case, replays the full HTTP store contract, and deletes every test brain afterwards.
+
 ## Embedded usage
 
 ```ts

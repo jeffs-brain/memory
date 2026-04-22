@@ -38,6 +38,10 @@
       "import": "./dist/index.js",
       "types": "./dist/index.d.ts"
     },
+    "./conformance": {
+      "import": "./dist/conformance/index.js",
+      "types": "./dist/conformance/index.d.ts"
+    },
     "./store": {
       "import": "./dist/store/index.js",
       "types": "./dist/store/index.d.ts"
@@ -102,7 +106,7 @@
     "access": "public"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json && node ./scripts/copy-conformance-fixture.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run --passWithNoTests",
     "prepublishOnly": "bun run typecheck && bun run test && bun run build"
