@@ -2,7 +2,7 @@
   "name": "jeffs-brain-memory",
   "private": true,
   "type": "module",
-  "workspaces": ["sdks/ts/*", "mcp/ts", "install"],
+  "workspaces": ["sdks/ts/*", "sdks/rn/*", "mcp/ts", "install"],
   "packageManager": "bun@1.3.8",
   "scripts": {
     "test": "vitest run --passWithNoTests",
