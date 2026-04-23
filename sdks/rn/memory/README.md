@@ -37,7 +37,18 @@ const { memory, isReady, error } = useMemory({
 })
 ```
 
-Once ready, the returned client exposes the same main memory pipeline surface as the other SDKs.
+That initialises the local store and search index. Provider-backed stages such as `extract()` and `reflect()` require a configured provider. Local on-device inference also requires your app to register native inference and embedding modules before constructing a local provider.
+
+## Supported Paths
+
+- `Expo + expo-file-system + @op-engineering/op-sqlite`: supported and covered by the example app
+- OpenAI-compatible cloud provider and embedder: supported out of the box through `OpenAIProvider` and `OpenAIEmbedder`
+- Local on-device inference: supported at the TypeScript bridge level, but your app must supply the native modules
+- When `vec0` is unavailable, the local search index falls back to BM25-only mode instead of failing startup
+
+## Example App
+
+A runnable Expo example lives at [`examples/rn/hello-world`](../../../examples/rn/hello-world). It uses the RN SDK with local brain storage and an OpenAI-compatible cloud provider.
 
 ## Model Hosting
 

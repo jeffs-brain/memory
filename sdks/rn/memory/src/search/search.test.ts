@@ -118,4 +118,37 @@ describe('createSearchIndex', () => {
     expect(index.chunkIdsWithVectorForModel('minilm')).toEqual(['alpha', 'bravo'])
     expect(index.indexedChunks().map((chunk) => chunk.id)).toEqual(['alpha', 'bravo', 'charlie'])
   })
+
+  it('falls back to BM25-only mode when vector support is unavailable', async () => {
+    const baseOpenDb = createBetterSqliteOpenDb()
+    const index = await createSearchIndex({
+      dbPath: ':memory:',
+      openDb: async (dbPath) => {
+        const db = await baseOpenDb(dbPath)
+        return {
+          ...db,
+          loadVectorSupport: async () => {
+            throw new Error('vec0 unavailable')
+          },
+        }
+      },
+      vectorDim: 4,
+    })
+    indices.push(index)
+
+    expect(index.vectorEnabled).toBe(false)
+
+    index.upsertChunk({
+      id: 'bm25-only',
+      path: 'notes/bm25-only.md',
+      title: 'Offline breakfast note',
+      content: 'Eggs on sourdough with chilli oil.',
+      embedding: syntheticVector(7, 4),
+      embeddingModel: 'minilm',
+    })
+
+    expect(index.searchBm25('breakfast', 5).map((result) => result.chunk.id)).toEqual(['bm25-only'])
+    expect(index.searchVector(syntheticVector(7, 4), 5)).toEqual([])
+    expect(index.chunkIdsWithVectorForModel('minilm')).toEqual([])
+  })
 })

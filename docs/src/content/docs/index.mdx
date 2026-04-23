@@ -1,9 +1,9 @@
 ---
 title: jeffs-brain/memory
-description: Cross-language memory library for LLM agents. Local-first, hosted-optional, Apache-2.0.
+description: Cross-language memory library for LLM agents across TypeScript, React Native, Go, and Python. Local-first, hosted-optional, Apache-2.0.
 template: splash
 hero:
-  tagline: One memory library. Three languages. One spec.
+  tagline: One memory library. Four SDK surfaces. One spec.
   actions:
     - text: Get started (TypeScript)
       link: /getting-started/typescript/
@@ -16,7 +16,7 @@ hero:
 
 import { Tabs, TabItem, Card, CardGrid } from '@astrojs/starlight/components'
 
-`jeffs-brain/memory` is a cross-language memory library for LLM agents, driven by a shared HTTP and storage specification so every SDK behaves the same. Local-first, hosted-optional, Apache-2.0.
+`jeffs-brain/memory` is a cross-language memory library for LLM agents, driven by a shared HTTP and storage specification so every SDK behaves the same. TypeScript, React Native, Go, and Python all share the same on-disk brain format. Local-first, hosted-optional, Apache-2.0.
 
 Cross-SDK eval parity today is the shared daemon surface in three scenarios: `ask-basic`, `ask-augmented`, and `search-retrieve-only`. The shared runner defaults retrieval mode to `auto`, so each daemon resolves it locally. Full LongMemEval replay and agentic runs stay in the native SDK runners.
 
@@ -82,6 +82,7 @@ That registers a stdio MCP server with Claude Code. The same package works with 
 | Language   | Package                            | Status                                      |
 | ---------- | ---------------------------------- | ------------------------------------------- |
 | TypeScript | `@jeffs-brain/memory`              | v0.2.0                                      |
+| React Native | `@jeffs-brain/memory-react-native` | v0.1.0: mobile client SDK, local store, retrieval, and provider routing |
 | TypeScript | `@jeffs-brain/memory-mcp`          | v0.1.0                                      |
 | TypeScript | `@jeffs-brain/memory-postgres`     | v0.1.0                                      |
 | TypeScript | `@jeffs-brain/memory-openfga`      | v0.1.0                                      |

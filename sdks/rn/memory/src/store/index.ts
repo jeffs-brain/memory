@@ -15,6 +15,9 @@ export type ListOpts = {
 
 export type BatchOptions = {
   readonly reason: string
+  readonly message?: string
+  readonly author?: string
+  readonly email?: string
 }
 
 export type ChangeKind = 'created' | 'updated' | 'deleted' | 'renamed'
@@ -163,6 +166,15 @@ export const validatePathSegment = (segment: string): void => {
 export const joinPath = (...parts: readonly string[]): Path => {
   const joined = parts.filter((part) => part.length > 0).join('/')
   return toPath(cleanPosix(joined))
+}
+
+export const pathUnder = (p: string, dir: string, recursive: boolean): boolean => {
+  if (dir === '') return true
+  if (p === dir) return true
+  if (!(p.length > dir.length && p.startsWith(dir) && p[dir.length] === '/')) return false
+  if (recursive) return true
+  const rest = p.slice(dir.length + 1)
+  return !rest.includes('/')
 }
 
 export const lastSegment = (p: string): string => {

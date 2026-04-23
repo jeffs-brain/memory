@@ -14,16 +14,21 @@ export type Chunk = {
   readonly embeddingModel?: string
 }
 
+export type ChunkWriteOptions = {
+  readonly vectorEnabled?: boolean
+}
+
 const normaliseTags = (tags: readonly string[] | string | undefined): string => {
   if (tags === undefined) return ''
   if (typeof tags === 'string') return tags
   return tags.join(' ')
 }
 
-const upsertChunkInner = (db: SqlDb, chunk: Chunk): void => {
+const upsertChunkInner = (db: SqlDb, chunk: Chunk, opts: ChunkWriteOptions = {}): void => {
+  const vectorEnabled = opts.vectorEnabled !== false
   const tags = normaliseTags(chunk.tags)
   const metadataJson = chunk.metadata === undefined ? null : JSON.stringify(chunk.metadata)
-  const dimension = chunk.embedding === undefined ? null : chunk.embedding.length
+  const dimension = chunk.embedding === undefined || !vectorEnabled ? null : chunk.embedding.length
   const ordinal = chunk.ordinal ?? 0
   const title = chunk.title ?? ''
   const summary = chunk.summary ?? ''
@@ -49,38 +54,48 @@ const upsertChunkInner = (db: SqlDb, chunk: Chunk): void => {
      VALUES (?, ?, ?, ?, ?, ?)`,
   ).run(chunk.path, title, summary, tags, chunk.content, chunk.id)
 
-  if (chunk.embedding !== undefined) {
+  if (vectorEnabled && chunk.embedding !== undefined) {
     upsertVector(db, chunk.id, chunk.embedding, chunk.embeddingModel)
   }
 }
 
-export const upsertChunk = (db: SqlDb, chunk: Chunk): void => {
+export const upsertChunk = (db: SqlDb, chunk: Chunk, opts: ChunkWriteOptions = {}): void => {
   db.transaction(() => {
-    upsertChunkInner(db, chunk)
+    upsertChunkInner(db, chunk, opts)
   })
 }
 
-export const upsertChunksBatch = (db: SqlDb, chunks: readonly Chunk[]): void => {
+export const upsertChunksBatch = (
+  db: SqlDb,
+  chunks: readonly Chunk[],
+  opts: ChunkWriteOptions = {},
+): void => {
   if (chunks.length === 0) return
   db.transaction(() => {
     for (const chunk of chunks) {
-      upsertChunkInner(db, chunk)
+      upsertChunkInner(db, chunk, opts)
     }
   })
 }
 
-export const deleteChunk = (db: SqlDb, id: string): void => {
+export const deleteChunk = (db: SqlDb, id: string, opts: ChunkWriteOptions = {}): void => {
+  const vectorEnabled = opts.vectorEnabled !== false
   db.transaction(() => {
     db.prepare('DELETE FROM knowledge_fts WHERE chunk_id = ?').run(id)
-    deleteVector(db, id)
+    if (vectorEnabled) {
+      deleteVector(db, id)
+    }
     db.prepare('DELETE FROM knowledge_chunks WHERE id = ?').run(id)
   })
 }
 
-export const deleteByPath = (db: SqlDb, path: string): void => {
+export const deleteByPath = (db: SqlDb, path: string, opts: ChunkWriteOptions = {}): void => {
+  const vectorEnabled = opts.vectorEnabled !== false
   db.transaction(() => {
     db.prepare('DELETE FROM knowledge_fts WHERE path = ?').run(path)
-    deleteVectorsByPath(db, path)
+    if (vectorEnabled) {
+      deleteVectorsByPath(db, path)
+    }
     db.prepare('DELETE FROM knowledge_chunks WHERE path = ?').run(path)
   })
 }

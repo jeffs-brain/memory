@@ -69,10 +69,13 @@ CREATE INDEX IF NOT EXISTS idx_knowledge_vec_map_model ON knowledge_vec_map(mode
 `
 }
 
-export const applyDdl = (exec: (sql: string) => void, vectorDim: number): void => {
+export const applyCoreDdl = (exec: (sql: string) => void): void => {
   exec(META_SCHEMA)
   exec(CHUNK_SCHEMA)
   exec(FTS_SCHEMA)
+}
+
+export const applyVectorDdl = (exec: (sql: string) => void, vectorDim: number): void => {
   exec(buildVectorSchema(vectorDim))
   try {
     exec('ALTER TABLE knowledge_vec_map ADD COLUMN model TEXT')
@@ -81,6 +84,13 @@ export const applyDdl = (exec: (sql: string) => void, vectorDim: number): void =
     if (!message.includes('duplicate column name')) throw error
   }
   exec('CREATE INDEX IF NOT EXISTS idx_knowledge_vec_map_model ON knowledge_vec_map(model)')
+}
+
+export const writeSchemaMeta = (
+  exec: (sql: string) => void,
+  vectorDim: number,
+  vectorEnabled: boolean,
+): void => {
   exec(`INSERT INTO knowledge_fts(knowledge_fts, rank) VALUES('rank', ${buildRankExpr()})`)
   exec(
     `INSERT INTO knowledge_meta(key, value) VALUES ('schema_version', '${SCHEMA_VERSION}') ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
@@ -88,4 +98,20 @@ export const applyDdl = (exec: (sql: string) => void, vectorDim: number): void =
   exec(
     `INSERT INTO knowledge_meta(key, value) VALUES ('vector_dim', '${vectorDim}') ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
   )
+  exec(
+    `INSERT INTO knowledge_meta(key, value) VALUES ('vector_enabled', '${vectorEnabled ? 'true' : 'false'}') ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+  )
+}
+
+export const applyDdl = (
+  exec: (sql: string) => void,
+  vectorDim: number,
+  opts: { readonly vectorEnabled?: boolean } = {},
+): void => {
+  const vectorEnabled = opts.vectorEnabled !== false
+  applyCoreDdl(exec)
+  if (vectorEnabled) {
+    applyVectorDdl(exec, vectorDim)
+  }
+  writeSchemaMeta(exec, vectorDim, vectorEnabled)
 }

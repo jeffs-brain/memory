@@ -1,7 +1,7 @@
 import type { Embedder, Logger, Message, Provider } from '../llm/types.js'
 import type { Retrieval } from '../retrieval/index.js'
 import type { SearchIndex } from '../search/index.js'
-import type { Path, Store } from '../store/index.js'
+import type { ChangeEvent, Path, Store } from '../store/index.js'
 import type {
   EpisodeListOptions,
   EpisodeQueryHit,
@@ -33,10 +33,14 @@ export type StoredMemoryNote = {
   readonly content: string
   readonly created: string
   readonly modified: string
+  readonly indexEntry?: string
+  readonly supersedes?: string
   readonly sessionId?: string
   readonly sessionDate?: string
   readonly observedOn?: string
 }
+
+export type MemoryNote = StoredMemoryNote
 
 export type RememberArgs = {
   readonly filename: string
@@ -49,6 +53,8 @@ export type RememberArgs = {
   readonly tags?: readonly string[]
   readonly created?: string
   readonly modified?: string
+  readonly indexEntry?: string
+  readonly supersedes?: string
   readonly sessionId?: string
   readonly sessionDate?: string
   readonly observedOn?: string
@@ -57,20 +63,42 @@ export type RememberArgs = {
 export type RecallArgs = {
   readonly query: string
   readonly topK?: number
+  readonly k?: number
   readonly scope?: Scope
   readonly actorId?: string
+  readonly fallbackScopes?: readonly Scope[]
+  readonly excludedPaths?: readonly Path[]
+  readonly surfacedPaths?: readonly Path[]
+  readonly selector?: RecallSelectorMode
 }
 
 export type RecallHit = {
   readonly path: Path
   readonly score: number
-  readonly note: StoredMemoryNote
+  readonly content: string
+  readonly note: MemoryNote
 }
 
 export type ExtractArgs = {
   readonly messages: readonly Message[]
   readonly scope?: Scope
   readonly actorId?: string
+  readonly sessionId?: string
+  readonly sessionDate?: string
+  readonly observedOn?: string
+}
+
+export type ExtractedMemory = {
+  readonly action: 'create' | 'update'
+  readonly filename: string
+  readonly name: string
+  readonly description: string
+  readonly type: Exclude<MemoryNoteType, 'reflection'>
+  readonly content: string
+  readonly indexEntry: string
+  readonly scope: Scope
+  readonly supersedes?: string
+  readonly tags?: readonly string[]
   readonly sessionId?: string
   readonly sessionDate?: string
   readonly observedOn?: string
@@ -134,10 +162,67 @@ export type ConsolidationReport = {
   readonly errors: readonly string[]
 }
 
+export type RecallSelectorMode = 'off' | 'auto'
+
 export type PromptContext = {
   readonly userMessage: string
   readonly memories: readonly RecallHit[]
   readonly systemReminder: string
+}
+
+export type ContextualiseArgs = {
+  readonly message: string
+  readonly topK?: number
+  readonly scope?: Scope
+  readonly actorId?: string
+  readonly fallbackScopes?: readonly Scope[]
+  readonly excludedPaths?: readonly Path[]
+  readonly surfacedPaths?: readonly Path[]
+  readonly selector?: RecallSelectorMode
+}
+
+export type LegacyContextualiseArgs = RecallArgs & {
+  readonly userMessage: string
+}
+
+export type ContextualiseInput = ContextualiseArgs | LegacyContextualiseArgs
+
+export type CursorScope = {
+  readonly sessionId?: string
+}
+
+export type CursorStore = {
+  get(actorId: string, scope?: CursorScope): Promise<number>
+  set(actorId: string, cursor: number, scope?: CursorScope): Promise<void>
+}
+
+export type ExtractionPayload = {
+  readonly actorId: string
+  readonly scope: Scope
+  readonly messages: readonly Message[]
+  readonly extracted: readonly ExtractedMemory[]
+}
+
+export type ReflectionPayload = {
+  readonly actorId: string
+  readonly scope: Scope
+  readonly messages: readonly Message[]
+  readonly result?: ReflectionResult
+}
+
+export type ConsolidationPayload = {
+  readonly scope: Scope
+  readonly report?: ConsolidationReport
+}
+
+export type Plugin = {
+  readonly name: string
+  onExtractionStart?: (ctx: ExtractionPayload) => Promise<void> | void
+  onExtractionEnd?: (ctx: ExtractionPayload) => Promise<void> | void
+  onReflectionStart?: (ctx: ReflectionPayload) => Promise<void> | void
+  onReflectionEnd?: (ctx: ReflectionPayload) => Promise<void> | void
+  onConsolidationStart?: (ctx: ConsolidationPayload) => Promise<void> | void
+  onConsolidationEnd?: (ctx: ConsolidationPayload) => Promise<void> | void
 }
 
 export type MemoryPersistProceduralRecordsArgs = Omit<PersistProceduralRecordsArgs, 'actorId'> & {
@@ -171,8 +256,9 @@ export type MemoryClient = {
   >
   rebuildIndex(args?: { readonly scope?: Scope; readonly actorId?: string }): Promise<void>
   recall(args: RecallArgs): Promise<readonly RecallHit[]>
-  contextualise(args: RecallArgs & { readonly userMessage: string }): Promise<PromptContext>
+  contextualise(args: ContextualiseInput): Promise<PromptContext>
   extract(args: ExtractArgs): Promise<ExtractResult>
+  previewExtract(args: ExtractArgs): Promise<readonly ExtractedMemory[]>
   reflect(args: ExtractArgs): Promise<ReflectionResult | null>
   consolidate(args?: {
     readonly scope?: Scope
@@ -194,6 +280,8 @@ export type MemoryClient = {
   queryProceduralRecords(
     args: MemoryQueryProceduralRecordsArgs,
   ): Promise<readonly ProceduralQueryHit[]>
+  subscribe(sink: (event: ChangeEvent) => void): () => void
+  unsubscribe(handle: () => void): void
   close(): Promise<void>
 }
 
@@ -207,4 +295,8 @@ export type CreateMemoryClientOptions = {
   readonly logger?: Logger
   readonly defaultScope?: Scope
   readonly defaultActorId?: string
+  readonly plugins?: readonly Plugin[]
+  readonly cursorStore?: CursorStore
+  readonly extractMinMessages?: number
+  readonly extractMaxRecent?: number
 }

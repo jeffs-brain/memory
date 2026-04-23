@@ -334,4 +334,226 @@ describe('createMemoryClient', () => {
       '- second-note.md: The second extracted note',
     )
   })
+
+  it('supports previewExtract without persisting notes or advancing the cursor', async () => {
+    let extractCalls = 0
+    const provider: Provider = {
+      name: () => 'preview-provider',
+      modelName: () => 'preview-provider-model',
+      supportsStructuredDecoding: () => true,
+      complete: async () => {
+        throw new Error('not used in tests')
+      },
+      structured: async (request: StructuredRequest) => {
+        if (request.taskType !== 'memory-extract') {
+          throw new Error(`unexpected task type: ${request.taskType ?? 'unknown'}`)
+        }
+        extractCalls += 1
+        return JSON.stringify({
+          notes: [
+            {
+              filename: 'preview-note',
+              name: 'Preview note',
+              description: 'Previewed note',
+              type: 'user',
+              content: 'Preview content.',
+            },
+          ],
+        })
+      },
+    }
+
+    const { client, store } = await freshClient(provider)
+    const messages = [{ role: 'user', content: 'Please remember the previewed note.' }] as const
+
+    const preview = await client.previewExtract({
+      messages,
+      sessionId: 'preview-session',
+    })
+
+    expect(preview).toHaveLength(1)
+    expect(preview[0]).toMatchObject({
+      filename: 'preview-note.md',
+      indexEntry: '- preview-note.md: Previewed note',
+      scope: 'global',
+    })
+    expect(await store.exists(toPath('memory/global/preview-note.md'))).toBe(false)
+
+    const extract = await client.extract({
+      messages,
+      sessionId: 'preview-session',
+    })
+
+    expect(extract.created.map((note) => note.path)).toEqual(['memory/global/preview-note.md'])
+    expect(extractCalls).toBe(2)
+  })
+
+  it('tracks extraction progress with a session cursor', async () => {
+    let extractCalls = 0
+    const store = await createMobileStore({
+      root: '/brains/cursor',
+      adapter: createMemoryFileAdapter(),
+    })
+    const searchIndex = await createSearchIndex({
+      dbPath: ':memory:',
+      openDb: createBetterSqliteOpenDb(),
+      vectorDim: 2,
+    })
+    const retrieval = createRetrieval({
+      index: searchIndex,
+      embedder: fakeEmbedder,
+    })
+    const client = createMemoryClient({
+      brainId: 'cursor',
+      store,
+      searchIndex,
+      retrieval,
+      embedder: fakeEmbedder,
+      extractMinMessages: 2,
+      provider: {
+        name: () => 'cursor-provider',
+        modelName: () => 'cursor-provider-model',
+        supportsStructuredDecoding: () => true,
+        complete: async () => {
+          throw new Error('not used in tests')
+        },
+        structured: async (request: StructuredRequest) => {
+          if (request.taskType !== 'memory-extract') {
+            throw new Error(`unexpected task type: ${request.taskType ?? 'unknown'}`)
+          }
+          extractCalls += 1
+          return JSON.stringify({
+            notes: [
+              {
+                filename: 'cursor-note',
+                name: 'Cursor note',
+                description: 'Created after enough unseen messages',
+                type: 'user',
+                content: 'Cursor-backed extraction persisted this note.',
+              },
+            ],
+          })
+        },
+      },
+    })
+
+    resources.push({ client, store, searchIndex })
+
+    const first = await client.extract({
+      messages: [{ role: 'user', content: 'First message only.' }],
+      sessionId: 'cursor-session',
+    })
+    expect(first).toEqual({
+      created: [],
+      skipped: true,
+      reason: 'extract threshold not reached',
+    })
+
+    const secondMessages = [
+      { role: 'user', content: 'First message only.' },
+      { role: 'assistant', content: 'Second message arrives.' },
+    ] as const
+    const second = await client.extract({
+      messages: secondMessages,
+      sessionId: 'cursor-session',
+    })
+    expect(second.created.map((note) => note.path)).toEqual(['memory/global/cursor-note.md'])
+
+    const third = await client.extract({
+      messages: secondMessages,
+      sessionId: 'cursor-session',
+    })
+    expect(third).toEqual({
+      created: [],
+      skipped: true,
+      reason: 'no new messages to extract',
+    })
+    expect(extractCalls).toBe(1)
+  })
+
+  it('supports richer recall and contextualise args with scope fallbacks', async () => {
+    const provider: Provider = {
+      name: () => 'selector-provider',
+      modelName: () => 'selector-provider-model',
+      supportsStructuredDecoding: () => true,
+      complete: async () => {
+        throw new Error('not used in tests')
+      },
+      structured: async (request: StructuredRequest) => {
+        if (request.taskType !== 'memory-recall-selector') {
+          throw new Error(`unexpected task type: ${request.taskType ?? 'unknown'}`)
+        }
+        return JSON.stringify({
+          selected: ['memory/global/working-style.md'],
+        })
+      },
+    }
+
+    const { client } = await freshClient(provider)
+    await client.remember({
+      filename: 'working-style',
+      name: 'Working style',
+      description: 'Plans work carefully before editing',
+      content: 'Prefers to plan work carefully before editing.',
+    })
+    await client.remember({
+      filename: 'project-plan',
+      name: 'Project plan',
+      description: 'Repo-specific planning note',
+      content: 'Use the repo plan when changing auth behaviour.',
+      scope: 'project',
+      actorId: 'repo',
+    })
+
+    const hits = await client.recall({
+      query: 'plan work',
+      scope: 'project',
+      actorId: 'repo',
+      fallbackScopes: ['global'],
+      selector: 'auto',
+      k: 1,
+    })
+    expect(hits.map((hit) => hit.path)).toEqual(['memory/global/working-style.md'])
+
+    const context = await client.contextualise({
+      message: 'How should I plan work?',
+      scope: 'project',
+      actorId: 'repo',
+      topK: 1,
+      excludedPaths: [toPath('memory/project/repo/project-plan.md')],
+    })
+    expect(context.userMessage).toBe('How should I plan work?')
+    expect(context.memories[0]?.path).toBe('memory/global/working-style.md')
+    expect(context.systemReminder).toContain('<system-reminder>')
+    expect(context.systemReminder).toContain('Global memory: working-style.md')
+  })
+
+  it('exposes store subscriptions on the memory client', async () => {
+    const { client } = await freshClient()
+    const events: string[] = []
+
+    const handle = client.subscribe((event) => {
+      events.push(`${event.kind}:${event.path}`)
+    })
+
+    await client.remember({
+      filename: 'subscribed-note',
+      name: 'Subscribed note',
+      description: 'Triggers store events',
+      content: 'This note should surface through the subscription.',
+    })
+
+    const eventCountBeforeUnsubscribe = events.length
+    client.unsubscribe(handle)
+
+    await client.remember({
+      filename: 'after-unsubscribe',
+      name: 'After unsubscribe',
+      description: 'Should not be observed',
+      content: 'No more store events should be captured.',
+    })
+
+    expect(events.some((event) => event.includes('memory/global/subscribed-note.md'))).toBe(true)
+    expect(events).toHaveLength(eventCountBeforeUnsubscribe)
+  })
 })

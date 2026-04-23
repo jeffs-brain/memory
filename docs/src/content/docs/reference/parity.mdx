@@ -1,46 +1,56 @@
 ---
 title: SDK parity matrix
-description: Feature parity across the TypeScript, Go, and Python SDKs.
+description: Feature parity across the TypeScript, React Native, Go, and Python SDKs.
 sidebar:
   order: 3
 ---
 
-`jeffs-brain/memory` ships three SDKs that share the same `spec/`. They are not identical. This page tracks where they diverge so users can pick the right one for the job.
+`jeffs-brain/memory` ships four SDK surfaces that share the same `spec/`. They are not identical. This page tracks where they diverge so users can pick the right one for the job.
 
 ## Matrix
 
-| Feature                                                  | TypeScript                            | Go                                | Python                            |
-| -------------------------------------------------------- | ------------------------------------- | --------------------------------- | --------------------------------- |
-| `FsStore` / `MemStore` / `GitStore` / `HttpStore`        | Yes                                   | Yes                               | Yes                               |
-| `PostgresStore`                                          | Yes (`@jeffs-brain/memory-postgres`)  | No                                | No                                |
-| Search index (FTS / trigram + vector)                    | Yes (FTS5 + cosine vectors)           | Yes (trigram + cosine vectors)    | Yes (trigram + cosine vectors)    |
-| Hybrid retrieval (RRF, retry ladder, intent reweighting) | Yes                                   | Yes                               | Yes                               |
-| Embedder: OpenAI                                         | Yes                                   | Yes                               | Yes                               |
-| Embedder: Ollama                                         | Yes                                   | Yes                               | Yes                               |
-| Embedder: TEI                                            | Yes                                   | No                                | No                                |
-| Embedder: Hash (deterministic)                           | Yes                                   | No                                | No                                |
-| Embedder: Fake (deterministic test stub)                 | No                                    | Yes                               | Yes                               |
-| Embedder: Anthropic                                      | n/a (no first-party API)              | n/a (no first-party API)          | n/a (no first-party API)          |
-| LLM provider: OpenAI                                     | Yes                                   | Yes                               | Yes                               |
-| LLM provider: Anthropic                                  | Yes                                   | Yes                               | Yes                               |
-| LLM provider: Ollama                                     | Yes                                   | Yes                               | Yes                               |
-| LLM provider: Fake                                       | No                                    | Yes                               | Yes                               |
-| Reranker: cross-encoder (in-process)                     | Yes                                   | No                                | Stub only                         |
-| Reranker: HTTP / TEI                                     | Yes                                   | Yes                               | Yes                               |
-| Reranker: LLM-based                                      | Yes                                   | Yes                               | Yes                               |
-| Reranker: Auto (primary + fallback)                      | Yes                                   | Yes                               | Yes                               |
-| Reranker: pluggable interface                            | Yes                                   | Yes                               | Yes                               |
-| Knowledge: ingest / compile / search                     | Yes                                   | Yes                               | Yes                               |
-| Memory stages: extract / reflect / recall / consolidate  | Yes (full + lifecycle wrapper)        | Yes (no lifecycle wrapper)        | Yes (no lifecycle wrapper)        |
-| L0 rolling buffer                                        | Yes                                   | Yes                               | Yes                               |
-| Procedural records                                       | Yes                                   | Yes                               | Yes                               |
-| Episode recorder                                         | Yes                                   | Yes                               | Yes                               |
-| ACL: in-process RBAC                                     | Yes                                   | Yes                               | Yes                               |
-| ACL: OpenFGA adapter                                     | Yes (`@jeffs-brain/memory-openfga`)   | Yes (`aclopenfga`)                | Yes (`acl_openfga`)               |
-| HTTP daemon (`memory serve`)                             | Yes                                   | Yes                               | Yes                               |
-| MCP server                                               | Yes (`@jeffs-brain/memory-mcp`)       | Yes (`cmd/memory-mcp`)            | Yes (`jeffs-brain-memory-mcp` and the daemon) |
-| LongMemEval native runner                                | Yes                                   | Yes                               | No (use the daemon-only runner)   |
-| CLI coverage                                             | Broad local CLI                       | `version`, `serve`, `eval lme`    | `serve`                           |
+| Feature                                                  | TypeScript                            | React Native                      | Go                                | Python                            |
+| -------------------------------------------------------- | ------------------------------------- | --------------------------------- | --------------------------------- | --------------------------------- |
+| `FsStore` / `MemStore` / `GitStore` / `HttpStore`        | Yes                                   | Local mobile store + `HttpStore`  | Yes                               | Yes                               |
+| `PostgresStore`                                          | Yes (`@jeffs-brain/memory-postgres`)  | No                                | No                                | No                                |
+| Search index (FTS / trigram + vector)                    | Yes (FTS5 + cosine vectors)           | Yes (FTS5 + sqlite-vec, BM25 fallback) | Yes (trigram + cosine vectors)    | Yes (trigram + cosine vectors)    |
+| Hybrid retrieval (RRF, retry ladder, intent reweighting) | Yes                                   | Yes                               | Yes                               | Yes                               |
+| Embedder: OpenAI-compatible                              | Yes                                   | Yes                               | Yes                               | Yes                               |
+| Embedder: Ollama                                         | Yes                                   | Pending                           | Yes                               | Yes                               |
+| Embedder: TEI                                            | Yes                                   | Pending                           | No                                | No                                |
+| Embedder: Hash (deterministic)                           | Yes                                   | Pending                           | No                                | No                                |
+| Embedder: Fake (deterministic test stub)                 | No                                    | No                                | Yes                               | Yes                               |
+| Embedder: Anthropic                                      | n/a (no first-party API)              | n/a (no first-party API)          | n/a (no first-party API)          | n/a (no first-party API)          |
+| LLM provider: OpenAI-compatible                          | Yes                                   | Yes                               | Yes                               | Yes                               |
+| LLM provider: Anthropic                                  | Yes                                   | Pending                           | Yes                               | Yes                               |
+| LLM provider: Ollama                                     | Yes                                   | Pending                           | Yes                               | Yes                               |
+| LLM provider: Local on-device                            | No                                    | Yes (requires app-provided native modules) | No                                | No                                |
+| LLM provider: Fake                                       | No                                    | No                                | Yes                               | Yes                               |
+| Reranker: cross-encoder (in-process)                     | Yes                                   | No                                | No                                | Stub only                         |
+| Reranker: HTTP / TEI                                     | Yes                                   | Pending                           | Yes                               | Yes                               |
+| Reranker: LLM-based                                      | Yes                                   | Yes                               | Yes                               | Yes                               |
+| Reranker: Auto (primary + fallback)                      | Yes                                   | Yes                               | Yes                               | Yes                               |
+| Reranker: pluggable interface                            | Yes                                   | Yes                               | Yes                               | Yes                               |
+| Knowledge: ingest / compile / search                     | Yes                                   | Yes                               | Yes                               | Yes                               |
+| Memory stages: extract / reflect / recall / consolidate  | Yes (full + lifecycle wrapper)        | Yes (`createMemoryClient` / `createMemory`) | Yes (no lifecycle wrapper)        | Yes (no lifecycle wrapper)        |
+| L0 rolling buffer                                        | Yes                                   | No                                | Yes                               | Yes                               |
+| Procedural records                                       | Yes                                   | Yes                               | Yes                               | Yes                               |
+| Episode recorder                                         | Yes                                   | Yes                               | Yes                               | Yes                               |
+| ACL: in-process RBAC                                     | Yes                                   | Yes                               | Yes                               | Yes                               |
+| ACL: OpenFGA adapter                                     | Yes (`@jeffs-brain/memory-openfga`)   | No                                | Yes (`aclopenfga`)                | Yes (`acl_openfga`)               |
+| HTTP daemon (`memory serve`)                             | Yes                                   | No                                | Yes                               | Yes                               |
+| MCP server                                               | Yes (`@jeffs-brain/memory-mcp`)       | No                                | Yes (`cmd/memory-mcp`)            | Yes (`jeffs-brain-memory-mcp` and the daemon) |
+| LongMemEval native runner                                | Yes                                   | No                                | Yes                               | No (use the daemon-only runner)   |
+| CLI coverage                                             | Broad local CLI                       | No                                | `version`, `serve`, `eval lme`    | `serve`                           |
+
+## React Native surface
+
+The React Native SDK is the mobile and client runtime surface. It shares the storage format, retrieval algorithms, memory pipeline semantics, ACL wrapper, and knowledge helpers, but it is not a daemon or CLI package.
+
+- It targets Expo or React Native apps with a local file adapter and SQLite driver.
+- Local on-device inference is supported through app-provided native inference and embedding modules.
+- Cloud usage works through the built-in OpenAI-compatible provider and embedder, plus `HttpStore`.
+- Some server-oriented helpers, CLI features, and eval tooling remain TypeScript, Go, or Python only.
 
 ## Postgres adapter is TypeScript-only
 

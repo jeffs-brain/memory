@@ -1,0 +1,9 @@
+{
+  "expo": {
+    "name": "Jeff's Brain RN Hello World",
+    "slug": "jeffs-brain-rn-hello-world",
+    "version": "0.0.0",
+    "orientation": "portrait",
+    "platforms": ["ios", "android"]
+  }
+}

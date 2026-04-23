@@ -5,7 +5,7 @@
 [![Eval Smoke](https://github.com/jeffs-brain/memory/actions/workflows/eval-smoke.yml/badge.svg)](https://github.com/jeffs-brain/memory/actions/workflows/eval-smoke.yml)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
-Cross-language memory library for LLM agents. Three SDKs (TypeScript, Go, Python) that all implement the same [spec](./spec) so a brain created by one SDK reads and writes cleanly through another.
+Cross-language memory library for LLM agents. Four SDK surfaces (TypeScript, React Native, Go, Python) that all implement the same [spec](./spec) so a brain created by one SDK reads and writes cleanly through another.
 
 Local-first, hosted-optional. Apache-2.0.
 
@@ -14,6 +14,7 @@ Local-first, hosted-optional. Apache-2.0.
 | Language   | Package                        | Version | Install                                |
 | ---------- | ------------------------------ | ------- | -------------------------------------- |
 | TypeScript | `@jeffs-brain/memory`          | 0.2.0   | `npm i -g @jeffs-brain/memory`         |
+| React Native | `@jeffs-brain/memory-react-native` | 0.1.0   | `npm i @jeffs-brain/memory-react-native` |
 | TypeScript | `@jeffs-brain/memory-postgres` | 0.1.0   | `npm i @jeffs-brain/memory-postgres`   |
 | TypeScript | `@jeffs-brain/memory-openfga`  | 0.1.0   | `npm i @jeffs-brain/memory-openfga`    |
 | TypeScript | `@jeffs-brain/memory-mcp`      | 0.1.0   | `npx -y @jeffs-brain/memory-mcp`       |
@@ -23,7 +24,7 @@ Local-first, hosted-optional. Apache-2.0.
 | Python     | `jeffs-brain-memory`           | 0.0.1 (pre-publish) | `pip install jeffs-brain-memory` or `uv add jeffs-brain-memory` |
 | Python     | `jeffs-brain-memory-mcp`       | 0.1.0   | `uvx jeffs-brain-memory-mcp`           |
 
-All three SDKs implement the full spec wire surface. The shared HTTP conformance suite sits at 28/29 green across SDKs. Cross-SDK evaluation parity today is the shared daemon surface in exactly three scenarios: `ask-basic`, `ask-augmented`, and `search-retrieve-only`.
+The TypeScript, Go, and Python SDKs implement the full shared daemon wire surface. The React Native SDK targets the portable client-side memory surface, local store format, retrieval pipeline, and mobile provider routing. The shared HTTP conformance suite sits at 28/29 green across daemon SDKs. Cross-SDK evaluation parity today is the shared daemon surface in exactly three scenarios: `ask-basic`, `ask-augmented`, and `search-retrieve-only`.
 
 ### Parity caveats
 
@@ -155,6 +156,14 @@ memory search "question"
 ```
 
 Full walkthrough: [docs.jeffsbrain.com/getting-started/python/](https://docs.jeffsbrain.com/getting-started/python/).
+
+### React Native
+
+```bash
+npm i @jeffs-brain/memory-react-native
+```
+
+Runnable Expo example: [examples/rn/hello-world](./examples/rn/hello-world).
 
 ## MCP quick start
 

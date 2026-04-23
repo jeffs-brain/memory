@@ -17,7 +17,15 @@ const basename = (uri: string): string => {
 }
 
 export const createExpoFileAdapter = async (): Promise<FileAdapter> => {
-  const fs = await import('expo-file-system/legacy')
+  let fs: typeof import('expo-file-system/legacy')
+  try {
+    fs = await import('expo-file-system/legacy')
+  } catch (error) {
+    throw new Error(
+      'react-native memory: failed to load expo-file-system. Install it in the app or pass a custom fileAdapter to useMemory().',
+      { cause: error },
+    )
+  }
 
   const toInfo = async (uri: string): Promise<PortableFileInfo> => {
     const info = await fs.getInfoAsync(uri, { size: true })
@@ -66,7 +74,15 @@ export const createExpoFileAdapter = async (): Promise<FileAdapter> => {
 }
 
 export const resolveExpoDocumentDirectory = async (): Promise<string> => {
-  const fs = await import('expo-file-system/legacy')
+  let fs: typeof import('expo-file-system/legacy')
+  try {
+    fs = await import('expo-file-system/legacy')
+  } catch (error) {
+    throw new Error(
+      'react-native memory: failed to load expo-file-system. Install it in the app or pass both fileAdapter and brainRoot to useMemory().',
+      { cause: error },
+    )
+  }
   if (fs.documentDirectory === null) {
     throw new Error('expo-file-system: documentDirectory unavailable')
   }

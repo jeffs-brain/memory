@@ -23,7 +23,15 @@ const rowsFromResult = (result: { readonly rows: Array<Record<string, unknown>> 
 
 export const createOpSqliteOpenDb = (): OpenSqliteDb => {
   return async (dbPath: string): Promise<SqlDb> => {
-    const sqlite = await import('@op-engineering/op-sqlite')
+    let sqlite: typeof import('@op-engineering/op-sqlite')
+    try {
+      sqlite = await import('@op-engineering/op-sqlite')
+    } catch (error) {
+      throw new Error(
+        'react-native memory: failed to load @op-engineering/op-sqlite. Install it in the app or pass a custom openDb implementation to useMemory().',
+        { cause: error },
+      )
+    }
     const { location, name } = splitPath(dbPath)
     const db = sqlite.open(location === undefined ? { name } : { name, location })
 

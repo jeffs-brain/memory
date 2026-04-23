@@ -1,0 +1,24 @@
+{
+  "name": "@jeffs-brain/example-rn-hello-world",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Minimal Expo example for @jeffs-brain/memory-react-native using the cloud-backed path.",
+  "main": "expo/AppEntry.js",
+  "scripts": {
+    "start": "expo start",
+    "android": "expo run:android",
+    "ios": "expo run:ios",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@jeffs-brain/memory-react-native": "file:../../../sdks/rn/memory",
+    "@op-engineering/op-sqlite": "^15.2.6",
+    "expo": "^53.0.0",
+    "expo-file-system": "^18.1.11",
+    "react": "^19.1.1",
+    "react-native": "^0.79.2"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.3"
+  }
+}

@@ -19,10 +19,57 @@
   "types": "./dist/index.d.ts",
   "sideEffects": false,
   "files": ["dist", "README.md", "LICENSE", "NOTICE"],
+  "publishConfig": {
+    "access": "public"
+  },
   "exports": {
     ".": {
       "import": "./dist/index.js",
       "types": "./dist/index.d.ts"
+    },
+    "./store": {
+      "import": "./dist/store/index.js",
+      "types": "./dist/store/index.d.ts"
+    },
+    "./search": {
+      "import": "./dist/search/index.js",
+      "types": "./dist/search/index.d.ts"
+    },
+    "./sse": {
+      "import": "./dist/llm/sse.js",
+      "types": "./dist/llm/sse.d.ts"
+    },
+    "./retrieval": {
+      "import": "./dist/retrieval/index.js",
+      "types": "./dist/retrieval/index.d.ts"
+    },
+    "./memory": {
+      "import": "./dist/memory/index.js",
+      "types": "./dist/memory/index.d.ts"
+    },
+    "./knowledge": {
+      "import": "./dist/knowledge/index.js",
+      "types": "./dist/knowledge/index.d.ts"
+    },
+    "./rerank": {
+      "import": "./dist/rerank/index.js",
+      "types": "./dist/rerank/index.d.ts"
+    },
+    "./ingest": {
+      "import": "./dist/ingest/index.js",
+      "types": "./dist/ingest/index.d.ts"
+    },
+    "./llm": {
+      "import": "./dist/llm/index.js",
+      "types": "./dist/llm/index.d.ts"
+    },
+    "./acl": {
+      "import": "./dist/acl/index.js",
+      "types": "./dist/acl/index.d.ts"
+    },
+    "./query": {
+      "import": "./dist/query/index.js",
+      "types": "./dist/query/index.d.ts"
     },
     "./package.json": "./package.json"
   },

@@ -56,6 +56,16 @@ export type Usage = {
 
 export type StopReason = 'end_turn' | 'tool_use' | 'max_tokens' | 'stop_sequence' | ''
 
+export type StreamEventType =
+  | 'text_delta'
+  | 'thinking_delta'
+  | 'tool_call'
+  | 'tool_call_start'
+  | 'tool_call_delta'
+  | 'tool_call_end'
+  | 'done'
+  | 'error'
+
 export type ResponseFormatJsonObject = { readonly type: 'json_object' }
 
 export type ResponseFormatJsonSchema = {
@@ -123,6 +133,21 @@ export type Embedder = {
   model(): string
   dimension(): number
   embed(texts: readonly string[], signal?: AbortSignal): Promise<number[][]>
+}
+
+export type RerankScore = {
+  readonly index: number
+  readonly score: number
+}
+
+export type Reranker = {
+  name(): string
+  isAvailable?(signal?: AbortSignal): Promise<boolean>
+  rerank(
+    query: string,
+    documents: readonly string[],
+    signal?: AbortSignal,
+  ): Promise<readonly RerankScore[]>
 }
 
 export type Logger = {

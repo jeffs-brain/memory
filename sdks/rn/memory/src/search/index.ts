@@ -19,6 +19,7 @@ export type CreateSearchIndexOptions = {
 export type SearchIndex = {
   readonly db: SqlDb
   readonly vectorDim: number
+  readonly vectorEnabled: boolean
   upsertChunk(chunk: Chunk): void
   upsertChunks(chunks: readonly Chunk[]): void
   deleteChunk(id: string): void
@@ -36,9 +37,22 @@ export type SearchIndex = {
 export const createSearchIndex = async (opts: CreateSearchIndexOptions): Promise<SearchIndex> => {
   const vectorDim = opts.vectorDim ?? 384
   const db = await opts.openDb(opts.dbPath)
+  let vectorEnabled = true
   try {
-    await db.loadVectorSupport?.()
-    applyDdl((sql) => db.exec(sql), vectorDim)
+    try {
+      await db.loadVectorSupport?.()
+    } catch {
+      vectorEnabled = false
+    }
+    try {
+      applyDdl((sql) => db.exec(sql), vectorDim, { vectorEnabled })
+    } catch (error) {
+      if (!vectorEnabled) {
+        throw error
+      }
+      vectorEnabled = false
+      applyDdl((sql) => db.exec(sql), vectorDim, { vectorEnabled: false })
+    }
   } catch (error) {
     try {
       db.close()
@@ -52,13 +66,17 @@ export const createSearchIndex = async (opts: CreateSearchIndexOptions): Promise
   return {
     db,
     vectorDim,
-    upsertChunk: (chunk) => upsertChunk(db, chunk),
-    upsertChunks: (chunks) => upsertChunksBatch(db, chunks),
-    deleteChunk: (id) => deleteChunk(db, id),
-    deleteByPath: (path) => deleteByPath(db, path),
+    vectorEnabled,
+    upsertChunk: (chunk) => upsertChunk(db, chunk, { vectorEnabled }),
+    upsertChunks: (chunks) => upsertChunksBatch(db, chunks, { vectorEnabled }),
+    deleteChunk: (id) => deleteChunk(db, id, { vectorEnabled }),
+    deleteByPath: (path) => deleteByPath(db, path, { vectorEnabled }),
     searchBm25: (query, limit) => searchBm25(db, query, limit),
     searchBm25Compiled: (expr, limit) => searchBm25Compiled(db, expr, limit),
-    searchVector: (embedding, limit) => searchVector(db, embedding, limit),
+    searchVector: (embedding, limit) => {
+      if (!vectorEnabled) return []
+      return searchVector(db, embedding, limit)
+    },
     getChunk: (id) => getChunk(db, id),
     indexedChunks: () => listChunks(db),
     indexedPaths: () => {
@@ -67,7 +85,10 @@ export const createSearchIndex = async (opts: CreateSearchIndexOptions): Promise
         .all() as Array<{ path: string }>
       return rows.map((row) => row.path)
     },
-    chunkIdsWithVectorForModel: (model) => chunkIdsWithVectorForModel(db, model),
+    chunkIdsWithVectorForModel: (model) => {
+      if (!vectorEnabled) return []
+      return chunkIdsWithVectorForModel(db, model)
+    },
     close: async () => {
       if (closed) return
       closed = true

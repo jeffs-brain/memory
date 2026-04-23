@@ -3,6 +3,7 @@
 | Language   | Path                              | Purpose                                                     |
 | ---------- | --------------------------------- | ----------------------------------------------------------- |
 | TypeScript | [ts/hello-world](./ts/hello-world) | Markdown chunk + BM25 search via `createSearchIndex`        |
+| React Native | [rn/hello-world](./rn/hello-world) | Expo app using the RN SDK with local brain storage plus a cloud-backed provider |
 | Go         | [go/hello-world](./go/hello-world) | BM25 search via `knowledge.Ingest` + `knowledge.Search`     |
 | Python     | [py/hello-world](./py/hello-world) | BM25 search via `knowledge.new` + `kb.ingest` + `kb.search` |
 

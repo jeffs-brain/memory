@@ -35,6 +35,10 @@ jobs:
         run: bash scripts/publish-if-needed.sh sdks/ts/memory
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - name: Publish @jeffs-brain/memory-react-native
+        run: bash scripts/publish-if-needed.sh sdks/rn/memory
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
       - name: Publish @jeffs-brain/memory-postgres
         run: bash scripts/publish-if-needed.sh sdks/ts/memory-postgres
         env:

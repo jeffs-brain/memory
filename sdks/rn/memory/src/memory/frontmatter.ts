@@ -1,6 +1,7 @@
 export type Frontmatter = {
   name?: string
   description?: string
+  index_entry?: string
   type?: string
   created?: string
   modified?: string
@@ -76,6 +77,9 @@ export const parseFrontmatter = (content: string): { frontmatter: Frontmatter; b
       case 'description':
         frontmatter.description = value
         break
+      case 'index_entry':
+        frontmatter.index_entry = value
+        break
       case 'type':
         frontmatter.type = value
         break
@@ -142,6 +146,7 @@ export const buildFrontmatter = (frontmatter: Frontmatter): string => {
   const out: string[] = ['---']
   if (frontmatter.name) out.push(`name: ${frontmatter.name}`)
   if (frontmatter.description) out.push(`description: ${frontmatter.description}`)
+  if (frontmatter.index_entry) out.push(`index_entry: ${frontmatter.index_entry}`)
   if (frontmatter.type) out.push(`type: ${frontmatter.type}`)
   if (frontmatter.scope) out.push(`scope: ${frontmatter.scope}`)
   if (frontmatter.created) out.push(`created: ${frontmatter.created}`)
