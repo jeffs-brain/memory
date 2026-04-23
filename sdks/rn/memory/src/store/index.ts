@@ -76,7 +76,7 @@ export type Store = {
   list(dir: Path | '', opts?: ListOpts): Promise<FileInfo[]>
   batch(opts: BatchOptions, fn: (batch: Batch) => Promise<void>): Promise<void>
   subscribe(sink: EventSink): Unsubscribe
-  localPath(path: Path): string
+  localPath(path: Path): string | undefined
   close(): Promise<void>
 }
 
@@ -112,6 +112,14 @@ export class ErrInvalidPath extends StoreError {
 
   constructor(reason: string) {
     super(`brain: invalid path: ${reason}`)
+  }
+}
+
+export class ErrPayloadTooLarge extends StoreError {
+  override readonly name = 'ErrPayloadTooLarge'
+
+  constructor(reason: string, cause?: unknown) {
+    super(`brain: payload too large: ${reason}`, cause)
   }
 }
 
@@ -378,7 +386,7 @@ class MobileStore implements Store {
     }
   }
 
-  localPath(path: Path): string {
+  localPath(path: Path): string | undefined {
     return this.resolve(path)
   }
 

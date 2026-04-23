@@ -2,7 +2,23 @@ import type { Embedder, Logger, Message, Provider } from '../llm/types.js'
 import type { Retrieval } from '../retrieval/index.js'
 import type { SearchIndex } from '../search/index.js'
 import type { Path, Store } from '../store/index.js'
+import type {
+  EpisodeListOptions,
+  EpisodeQueryHit,
+  EpisodeQueryOptions,
+  EpisodeRecord,
+  EpisodeRecordArgs,
+  RecordEpisodeResult,
+} from './episodes.js'
 import type { Scope } from './paths.js'
+import type {
+  DetectAndPersistProceduralRecordsArgs,
+  ListProceduralRecordsArgs,
+  PersistProceduralRecordsArgs,
+  ProceduralQueryHit,
+  QueryProceduralRecordsArgs,
+  StoredProceduralRecord,
+} from './procedural-store.js'
 
 export type MemoryNoteType = 'user' | 'feedback' | 'project' | 'reference' | 'reflection'
 
@@ -67,21 +83,80 @@ export type ExtractResult = {
 }
 
 export type ReflectionResult = {
+  readonly outcome: 'success' | 'partial' | 'failure' | 'unknown'
   readonly summary: string
+  readonly retryFeedback?: string
+  readonly shouldRecordEpisode?: boolean
   readonly openQuestions: readonly string[]
+  readonly heuristics: readonly Heuristic[]
   readonly path: Path
 }
+
+export type Heuristic = {
+  readonly rule: string
+  readonly context: string
+  readonly confidence: 'low' | 'medium' | 'high'
+  readonly category: string
+  readonly scope: Scope
+  readonly antiPattern: boolean
+}
+
+export type ProceduralTier = 'skill' | 'agent'
+
+export type ProceduralOutcome = 'ok' | 'error' | 'partial'
+
+export type ProceduralRecord = {
+  readonly tier: ProceduralTier
+  readonly name: string
+  readonly taskContext: string
+  readonly outcome: ProceduralOutcome
+  readonly observedAt: string
+  readonly toolCalls: readonly string[]
+  readonly tags: readonly string[]
+}
+
+export type DetectProceduralRecordsOptions = {
+  readonly observedAt?: Date | string
+  readonly maxContextLength?: number
+}
+
+export type ConsolidationOp =
+  | { readonly kind: 'merge'; readonly keeper: Path; readonly donor: Path }
+  | { readonly kind: 'delete'; readonly path: Path; readonly reason: string }
+  | { readonly kind: 'promote'; readonly path: Path }
+  | { readonly kind: 'rewrite'; readonly path: Path }
 
 export type ConsolidationReport = {
   readonly merged: number
   readonly deleted: number
-  readonly rewritten: readonly Path[]
+  readonly promoted: number
+  readonly ops: readonly ConsolidationOp[]
+  readonly errors: readonly string[]
 }
 
 export type PromptContext = {
   readonly userMessage: string
   readonly memories: readonly RecallHit[]
   readonly systemReminder: string
+}
+
+export type MemoryPersistProceduralRecordsArgs = Omit<PersistProceduralRecordsArgs, 'actorId'> & {
+  readonly actorId?: string
+}
+
+export type MemoryDetectAndPersistProceduralRecordsArgs = Omit<
+  DetectAndPersistProceduralRecordsArgs,
+  'actorId'
+> & {
+  readonly actorId?: string
+}
+
+export type MemoryListProceduralRecordsArgs = Omit<ListProceduralRecordsArgs, 'actorId'> & {
+  readonly actorId?: string
+}
+
+export type MemoryQueryProceduralRecordsArgs = Omit<QueryProceduralRecordsArgs, 'actorId'> & {
+  readonly actorId?: string
 }
 
 export type MemoryClient = {
@@ -103,6 +178,22 @@ export type MemoryClient = {
     readonly scope?: Scope
     readonly actorId?: string
   }): Promise<ConsolidationReport>
+  recordEpisode(args: EpisodeRecordArgs): Promise<RecordEpisodeResult>
+  getEpisode(sessionId: string): Promise<EpisodeRecord | undefined>
+  listEpisodes(args?: EpisodeListOptions): Promise<readonly EpisodeRecord[]>
+  queryEpisodes(args: EpisodeQueryOptions): Promise<readonly EpisodeQueryHit[]>
+  persistProceduralRecords(
+    args: MemoryPersistProceduralRecordsArgs,
+  ): Promise<readonly StoredProceduralRecord[]>
+  detectAndPersistProceduralRecords(
+    args: MemoryDetectAndPersistProceduralRecordsArgs,
+  ): Promise<readonly StoredProceduralRecord[]>
+  listProceduralRecords(
+    args?: MemoryListProceduralRecordsArgs,
+  ): Promise<readonly StoredProceduralRecord[]>
+  queryProceduralRecords(
+    args: MemoryQueryProceduralRecordsArgs,
+  ): Promise<readonly ProceduralQueryHit[]>
   close(): Promise<void>
 }
 

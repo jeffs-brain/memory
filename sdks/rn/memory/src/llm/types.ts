@@ -1,5 +1,17 @@
 export type Role = 'system' | 'user' | 'assistant' | 'tool'
 
+export type BlockType = 'text' | 'tool_use' | 'tool_result' | 'image'
+
+export type ImageSource = {
+  readonly type: 'base64'
+  readonly mediaType: string
+  readonly data: string
+}
+
+export type ImageBlock = {
+  readonly source: ImageSource
+}
+
 export type ToolCall = {
   readonly id: string
   readonly name: string
@@ -12,12 +24,21 @@ export type ToolResult = {
   readonly isError?: boolean
 }
 
+export type ContentBlock = {
+  readonly type: BlockType
+  readonly text?: string
+  readonly toolUse?: ToolCall
+  readonly toolResult?: ToolResult
+  readonly image?: ImageBlock
+}
+
 export type Message = {
   readonly role: Role
   readonly content?: string
   readonly toolCalls?: readonly ToolCall[]
   readonly toolCallId?: string
   readonly name?: string
+  readonly blocks?: readonly ContentBlock[]
 }
 
 export type ToolDefinition = {
@@ -51,6 +72,7 @@ export type ResponseFormat = ResponseFormatJsonObject | ResponseFormatJsonSchema
 export type CompletionRequest = {
   readonly model?: string
   readonly messages: readonly Message[]
+  readonly tools?: readonly ToolDefinition[]
   readonly system?: string
   readonly systemStatic?: string
   readonly systemDynamic?: string
@@ -58,7 +80,9 @@ export type CompletionRequest = {
   readonly temperature?: number
   readonly jsonMode?: boolean
   readonly responseFormat?: ResponseFormat
-  readonly tools?: readonly ToolDefinition[]
+  readonly reasoningEffort?: 'low' | 'medium' | 'high'
+  readonly extraBody?: Record<string, unknown>
+  readonly onToolUseReady?: (id: string, name: string, input: string) => void
   readonly taskType?: string
 }
 
@@ -77,7 +101,11 @@ export type StructuredRequest = Omit<CompletionRequest, 'responseFormat' | 'json
 
 export type StreamEvent =
   | { readonly type: 'text_delta'; readonly text: string }
+  | { readonly type: 'thinking_delta'; readonly text: string }
   | { readonly type: 'tool_call'; readonly toolCall: ToolCall }
+  | { readonly type: 'tool_call_start'; readonly toolCall: ToolCall }
+  | { readonly type: 'tool_call_delta'; readonly toolCall: ToolCall; readonly text: string }
+  | { readonly type: 'tool_call_end'; readonly toolCall: ToolCall }
   | { readonly type: 'done'; readonly usage?: Usage; readonly stopReason: StopReason }
   | { readonly type: 'error'; readonly error: Error }
 

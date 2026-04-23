@@ -52,8 +52,21 @@ const createProvider = (): Provider => ({
         })
       case 'memory-reflect':
         return JSON.stringify({
+          outcome: 'success',
           summary: 'Talked about coffee preferences.',
+          retryFeedback: 'Capture specific drink choices and follow-up buying decisions.',
+          shouldRecordEpisode: true,
           openQuestions: ['Which beans should we order next?'],
+          heuristics: [
+            {
+              rule: 'Preserve concrete user preferences in the stored reflection.',
+              context: 'memory reflection',
+              confidence: 'medium',
+              category: 'communication',
+              scope: 'global',
+              antiPattern: false,
+            },
+          ],
         })
       default:
         throw new Error(`unexpected task type: ${request.taskType ?? 'unknown'}`)
@@ -148,6 +161,8 @@ describe('createMemoryClient', () => {
     })
 
     expect(reflection?.summary).toBe('Talked about coffee preferences.')
+    expect(reflection?.outcome).toBe('success')
+    expect(reflection?.shouldRecordEpisode).toBe(true)
     expect(await store.read(toPath('reflections/session-1.md'))).toContain(
       'Which beans should we order next?',
     )

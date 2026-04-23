@@ -8,6 +8,7 @@ export type ModelDownloadTransport = {
     readonly modelId: string
     readonly url: string
     readonly destination: string
+    readonly headers?: Readonly<Record<string, string>>
     readonly onProgress?: (progress: DownloadProgress) => void
   }): Promise<void>
   cancel(modelId: string): void
@@ -18,11 +19,11 @@ export const createExpoResumableDownloadTransport = async (): Promise<ModelDownl
   const tasks = new Map<string, ReturnType<typeof fs.createDownloadResumable>>()
 
   return {
-    download: async ({ modelId, url, destination, onProgress }) => {
+    download: async ({ modelId, url, destination, headers, onProgress }) => {
       const task = fs.createDownloadResumable(
         url,
         destination,
-        {},
+        headers === undefined ? {} : { headers },
         onProgress === undefined
           ? undefined
           : (progress) => {

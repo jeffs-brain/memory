@@ -3,17 +3,13 @@ import type { Embedder, Logger, Message, Provider } from '../llm/types.js'
 import { noopLogger } from '../llm/types.js'
 import type { Retrieval, RetrievalResult } from '../retrieval/index.js'
 import type { SearchIndex } from '../search/index.js'
-import { type Path, type Store, joinPath, lastSegment, toPath } from '../store/index.js'
+import { type Path, type Store, lastSegment, toPath } from '../store/index.js'
+import { createConsolidate } from './consolidate.js'
+import { createEpisodeRecorder } from './episodes.js'
 import type { Frontmatter } from './frontmatter.js'
 import { buildFrontmatter, parseFrontmatter } from './frontmatter.js'
-import {
-  type Scope,
-  ensureMarkdown,
-  reflectionPath,
-  scopeIndex,
-  scopePrefix,
-  scopeTopic,
-} from './paths.js'
+import { type Scope, reflectionPath, scopeIndex, scopePrefix, scopeTopic } from './paths.js'
+import { createStoreBackedProceduralStore } from './procedural-store.js'
 import type {
   ConsolidationReport,
   CreateMemoryClientOptions,
@@ -67,17 +63,49 @@ Filenames must be short, lowercase-friendly stems.`
 const REFLECT_SCHEMA = JSON.stringify({
   type: 'object',
   properties: {
+    outcome: { enum: ['success', 'partial', 'failure', 'unknown'] },
     summary: { type: 'string' },
+    retryFeedback: { type: 'string' },
+    shouldRecordEpisode: { type: 'boolean' },
     openQuestions: {
       type: 'array',
       items: { type: 'string' },
     },
+    heuristics: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          rule: { type: 'string' },
+          context: { type: 'string' },
+          confidence: { enum: ['low', 'medium', 'high'] },
+          category: { type: 'string' },
+          scope: { enum: ['global', 'project', 'agent'] },
+          antiPattern: { type: 'boolean' },
+        },
+        required: ['rule', 'context', 'confidence', 'category', 'scope', 'antiPattern'],
+      },
+    },
   },
-  required: ['summary', 'openQuestions'],
+  required: [
+    'outcome',
+    'summary',
+    'retryFeedback',
+    'shouldRecordEpisode',
+    'openQuestions',
+    'heuristics',
+  ],
 })
 
-const REFLECT_SYSTEM_PROMPT = `You summarise a conversation for later review.
-Return only JSON with a concise summary and any unresolved follow-up questions.`
+const REFLECT_SYSTEM_PROMPT = `You are a reflection agent. You analyse completed coding sessions to extract lasting wisdom.
+Return only JSON.
+Identify generalisable patterns, not a blow-by-blow summary.
+Each heuristic must be actionable, scoped, and use British English.`
+
+type ReflectionPayload = Omit<ReflectionResult, 'path'> & {
+  readonly retryFeedback: string
+  readonly shouldRecordEpisode: boolean
+}
 
 const toIso = (value?: string): string => value ?? new Date().toISOString()
 
@@ -227,6 +255,20 @@ export const createMemoryClient = (options: CreateMemoryClientOptions): MemoryCl
   const logger = options.logger ?? noopLogger
   const defaultScope = options.defaultScope ?? DEFAULT_SCOPE
   const defaultActorId = options.defaultActorId ?? DEFAULT_ACTOR_ID
+  const consolidateMemory = createConsolidate({
+    store: options.store,
+    logger,
+    defaultScope,
+    defaultActorId,
+    ...(options.provider === undefined ? {} : { provider: options.provider }),
+  })
+  const episodes = createEpisodeRecorder({
+    store: options.store,
+    logger,
+    defaultScope,
+    defaultActorId,
+  })
+  const proceduralStore = createStoreBackedProceduralStore(options.store)
 
   const remember = async (args: RememberArgs): Promise<StoredMemoryNote> => {
     const scope = args.scope ?? defaultScope
@@ -430,11 +472,29 @@ export const createMemoryClient = (options: CreateMemoryClientOptions): MemoryCl
     if (!isReflectionPayload(parsed)) return null
     const sessionId = args.sessionId ?? `reflection-${Date.now()}`
     const path = reflectionPath(sessionId)
-    const content = `${parsed.summary}\n\n${
+    const content = [
+      parsed.summary,
+      '',
+      'Outcome:',
+      parsed.outcome,
+      '',
+      'Retry feedback:',
+      parsed.retryFeedback === '' ? 'none' : parsed.retryFeedback,
+      '',
       parsed.openQuestions.length === 0
         ? 'Open questions:\n- none'
-        : `Open questions:\n${parsed.openQuestions.map((value) => `- ${value}`).join('\n')}`
-    }\n`
+        : `Open questions:\n${parsed.openQuestions.map((value) => `- ${value}`).join('\n')}`,
+      '',
+      parsed.heuristics.length === 0
+        ? 'Heuristics:\n- none'
+        : `Heuristics:\n${parsed.heuristics
+            .map(
+              (heuristic) =>
+                `- ${heuristic.rule} (${heuristic.category}, ${heuristic.confidence}, ${heuristic.scope}, ${heuristic.antiPattern ? 'anti-pattern' : 'pattern'})`,
+            )
+            .join('\n')}`,
+      '',
+    ].join('\n')
     await options.store.write(
       path,
       buildNoteContent(
@@ -444,14 +504,22 @@ export const createMemoryClient = (options: CreateMemoryClientOptions): MemoryCl
           type: 'reflection',
           created: toIso(),
           modified: toIso(),
-          extra: {},
+          ...(args.sessionId === undefined ? {} : { session_id: args.sessionId }),
+          extra: {
+            outcome: parsed.outcome,
+            should_record_episode: String(parsed.shouldRecordEpisode),
+          },
         },
         content,
       ),
     )
     return {
+      outcome: parsed.outcome,
       summary: parsed.summary,
+      retryFeedback: parsed.retryFeedback,
+      shouldRecordEpisode: parsed.shouldRecordEpisode,
       openQuestions: parsed.openQuestions,
+      heuristics: parsed.heuristics,
       path,
     }
   }
@@ -459,15 +527,9 @@ export const createMemoryClient = (options: CreateMemoryClientOptions): MemoryCl
   const consolidate = async (
     args: { readonly scope?: Scope; readonly actorId?: string } = {},
   ): Promise<ConsolidationReport> => {
-    const scope = args.scope ?? defaultScope
-    const actorId = args.actorId ?? defaultActorId
-    await rebuildScopeIndex(options.store, scope, actorId)
-    await rebuildIndex({ scope, actorId })
-    return {
-      merged: 0,
-      deleted: 0,
-      rewritten: [scopeIndex(scope, actorId)],
-    }
+    const report = await consolidateMemory(args)
+    await rebuildIndex(args)
+    return report
   }
 
   return {
@@ -494,6 +556,53 @@ export const createMemoryClient = (options: CreateMemoryClientOptions): MemoryCl
     extract,
     reflect,
     consolidate,
+    recordEpisode: episodes.record,
+    getEpisode: episodes.get,
+    listEpisodes: episodes.list,
+    queryEpisodes: episodes.query,
+    persistProceduralRecords: async (args) =>
+      await proceduralStore.persist({
+        actorId: args.actorId ?? defaultActorId,
+        records: args.records,
+        ...(args.sessionId === undefined ? {} : { sessionId: args.sessionId }),
+        ...(args.reason === undefined ? {} : { reason: args.reason }),
+      }),
+    detectAndPersistProceduralRecords: async (args) =>
+      await proceduralStore.detectAndPersist({
+        actorId: args.actorId ?? defaultActorId,
+        messages: args.messages,
+        ...(args.observedAt === undefined ? {} : { observedAt: args.observedAt }),
+        ...(args.maxContextLength === undefined ? {} : { maxContextLength: args.maxContextLength }),
+        ...(args.sessionId === undefined ? {} : { sessionId: args.sessionId }),
+        ...(args.reason === undefined ? {} : { reason: args.reason }),
+      }),
+    listProceduralRecords: async (args = {}) =>
+      await proceduralStore.list({
+        actorId: args.actorId ?? defaultActorId,
+        ...(args.sessionId === undefined ? {} : { sessionId: args.sessionId }),
+        ...(args.tier === undefined ? {} : { tier: args.tier }),
+        ...(args.outcome === undefined ? {} : { outcome: args.outcome }),
+        ...(args.name === undefined ? {} : { name: args.name }),
+        ...(args.tags === undefined ? {} : { tags: args.tags }),
+        ...(args.since === undefined ? {} : { since: args.since }),
+        ...(args.until === undefined ? {} : { until: args.until }),
+        ...(args.limit === undefined ? {} : { limit: args.limit }),
+        ...(args.sort === undefined ? {} : { sort: args.sort }),
+      }),
+    queryProceduralRecords: async (args) =>
+      await proceduralStore.query({
+        actorId: args.actorId ?? defaultActorId,
+        text: args.text,
+        ...(args.sessionId === undefined ? {} : { sessionId: args.sessionId }),
+        ...(args.tier === undefined ? {} : { tier: args.tier }),
+        ...(args.outcome === undefined ? {} : { outcome: args.outcome }),
+        ...(args.name === undefined ? {} : { name: args.name }),
+        ...(args.tags === undefined ? {} : { tags: args.tags }),
+        ...(args.since === undefined ? {} : { since: args.since }),
+        ...(args.until === undefined ? {} : { until: args.until }),
+        ...(args.limit === undefined ? {} : { limit: args.limit }),
+        ...(args.sort === undefined ? {} : { sort: args.sort }),
+      }),
     close: async () => {
       await options.searchIndex.close()
       await options.store.close()
@@ -574,14 +683,35 @@ const isExtractCandidate = (
   )
 }
 
-const isReflectionPayload = (
-  value: unknown,
-): value is { readonly summary: string; readonly openQuestions: readonly string[] } => {
+const isReflectionPayload = (value: unknown): value is ReflectionPayload => {
   if (typeof value !== 'object' || value === null) return false
   const current = value as Record<string, unknown>
   return (
+    (current.outcome === 'success' ||
+      current.outcome === 'partial' ||
+      current.outcome === 'failure' ||
+      current.outcome === 'unknown') &&
     typeof current.summary === 'string' &&
+    typeof current.retryFeedback === 'string' &&
+    typeof current.shouldRecordEpisode === 'boolean' &&
     Array.isArray(current.openQuestions) &&
-    current.openQuestions.every((entry) => typeof entry === 'string')
+    current.openQuestions.every((entry) => typeof entry === 'string') &&
+    Array.isArray(current.heuristics) &&
+    current.heuristics.every(isHeuristic)
+  )
+}
+
+const isHeuristic = (value: unknown): boolean => {
+  if (typeof value !== 'object' || value === null) return false
+  const current = value as Record<string, unknown>
+  return (
+    typeof current.rule === 'string' &&
+    typeof current.context === 'string' &&
+    (current.confidence === 'low' ||
+      current.confidence === 'medium' ||
+      current.confidence === 'high') &&
+    typeof current.category === 'string' &&
+    (current.scope === 'global' || current.scope === 'project' || current.scope === 'agent') &&
+    typeof current.antiPattern === 'boolean'
   )
 }

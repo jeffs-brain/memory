@@ -34,6 +34,13 @@ export class PromptTooLongError extends LlmError {
   }
 }
 
+export class StreamIdleTimeoutError extends LlmError {
+  constructor(message: string, cause?: unknown) {
+    super(message, cause)
+    this.name = 'StreamIdleTimeoutError'
+  }
+}
+
 export class SchemaValidationError extends LlmError {
   constructor(
     readonly rawPayload: string,
@@ -43,3 +50,5 @@ export class SchemaValidationError extends LlmError {
     this.name = 'SchemaValidationError'
   }
 }
+
+export { LlmError as LLMError }

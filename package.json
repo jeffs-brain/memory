@@ -9,7 +9,8 @@
     "typecheck": "tsc -b",
     "build": "tsc -b",
     "build:packages": "tsc -b sdks/ts/memory sdks/ts/memory-postgres sdks/ts/memory-openfga mcp/ts install",
-    "lint": "biome check ."
+    "lint": "biome check .",
+    "rn:models:sync": "bun scripts/sync-rn-models.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "^1.9.4",

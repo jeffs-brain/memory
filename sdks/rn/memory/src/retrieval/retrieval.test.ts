@@ -118,4 +118,54 @@ describe('createRetrieval', () => {
 
     expect(results.map((result) => result.id)).toEqual(['global-note'])
   })
+
+  it('reranks fused results when a reranker is configured', async () => {
+    const index = await fresh(2)
+    index.upsertChunks([
+      {
+        id: 'first',
+        path: 'memory/global/first.md',
+        title: 'First',
+        summary: 'First note',
+        content: 'alpha',
+        embedding: [1, 0],
+        metadata: { scope: 'global' },
+      },
+      {
+        id: 'second',
+        path: 'memory/global/second.md',
+        title: 'Second',
+        summary: 'Second note',
+        content: 'beta',
+        embedding: [1, 0],
+        metadata: { scope: 'global' },
+      },
+    ])
+
+    const retrieval = createRetrieval({
+      index,
+      embedder: {
+        embed: async () => [[1, 0]],
+      },
+      reranker: {
+        name: () => 'stub-reranker',
+        rerank: async () => [
+          { index: 1, id: 'second', score: 9 },
+          { index: 0, id: 'first', score: 1 },
+        ],
+      },
+    })
+
+    const response = await retrieval.searchRaw({
+      query: 'alpha beta',
+      mode: 'hybrid',
+      rerank: true,
+      filters: { scope: 'global' },
+    })
+
+    expect(response.trace.reranked).toBe(true)
+    expect(response.trace.rerankProvider).toBe('stub-reranker')
+    expect(response.results[0]?.id).toBe('second')
+    expect(response.results[0]?.rerankScore).toBe(9)
+  })
 })
