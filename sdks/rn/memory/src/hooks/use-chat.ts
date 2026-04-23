@@ -1,4 +1,4 @@
-import { startTransition, useEffectEvent, useState } from 'react'
+import { startTransition, useEffectEvent, useRef, useState } from 'react'
 import type { Dispatch, SetStateAction } from 'react'
 
 import type { Provider, StreamEvent } from '../llm/types.js'
@@ -48,10 +48,30 @@ export const useChat = (
   const [isGenerating, setIsGenerating] = useState(false)
   const [isUsingCloud, setIsUsingCloud] = useState(false)
   const [error, setError] = useState<Error | null>(null)
+  const isGeneratingRef = useRef(false)
 
   const sendEvent = useEffectEvent(async (text: string): Promise<void> => {
+    if (isGeneratingRef.current) {
+      const nextError = new Error('useChat: send already in progress')
+      startTransition(() => {
+        setError(nextError)
+      })
+      throw nextError
+    }
+
     const userMessage: Message = { role: 'user', content: text }
     let assistantContent = ''
+    let generationFinished = false
+    const finishGeneration = (): void => {
+      if (generationFinished) return
+      generationFinished = true
+      isGeneratingRef.current = false
+      startTransition(() => {
+        setIsGenerating(false)
+      })
+    }
+
+    isGeneratingRef.current = true
     startTransition(() => {
       setMessages((current) => [...current, userMessage])
       setIsGenerating(true)
@@ -89,9 +109,7 @@ export const useChat = (
               })
               break
             case 'done':
-              startTransition(() => {
-                setIsGenerating(false)
-              })
+              finishGeneration()
               break
             case 'error':
               throw event.error
@@ -107,8 +125,8 @@ export const useChat = (
         assistantContent = response.content
         startTransition(() => {
           setMessages((current) => [...current, { role: 'assistant', content: response.content }])
-          setIsGenerating(false)
         })
+        finishGeneration()
       }
 
       const route = (config.provider as RouteAwareProvider).lastRoute?.()
@@ -127,10 +145,12 @@ export const useChat = (
       }
     } catch (resolved) {
       const nextError = resolved instanceof Error ? resolved : new Error(String(resolved))
+      finishGeneration()
       startTransition(() => {
         setError(nextError)
-        setIsGenerating(false)
       })
+    } finally {
+      finishGeneration()
     }
   })
 

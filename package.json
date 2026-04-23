@@ -8,7 +8,7 @@
     "test": "vitest run --passWithNoTests",
     "typecheck": "tsc -b",
     "build": "tsc -b",
-    "build:packages": "tsc -b sdks/ts/memory sdks/ts/memory-postgres sdks/ts/memory-openfga mcp/ts install",
+    "build:packages": "tsc -b sdks/ts/memory sdks/ts/memory-postgres sdks/ts/memory-openfga sdks/rn/memory mcp/ts install",
     "lint": "biome check .",
     "rn:models:sync": "bun scripts/sync-rn-models.ts"
   },

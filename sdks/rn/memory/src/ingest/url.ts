@@ -60,6 +60,63 @@ const filenameFromUrl = (url: string): string | undefined => {
   }
 }
 
+const parseContentLength = (response: Response): number | undefined => {
+  const raw = response.headers.get('content-length')
+  if (raw === null || raw.trim() === '') return undefined
+  const parsed = Number(raw)
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : undefined
+}
+
+const concatChunks = (chunks: readonly Uint8Array[], totalBytes: number): ArrayBuffer => {
+  const out = new Uint8Array(totalBytes)
+  let offset = 0
+  for (const chunk of chunks) {
+    out.set(chunk, offset)
+    offset += chunk.byteLength
+  }
+  return out.buffer
+}
+
+const readWithinLimit = async (
+  response: Response,
+  url: string,
+  maxBytes: number,
+): Promise<ArrayBuffer> => {
+  const contentLength = parseContentLength(response)
+  if (contentLength !== undefined && contentLength > maxBytes) {
+    throw new Error(`loadUrl: ${url} exceeded maxBytes=${maxBytes}`)
+  }
+
+  if (response.body === null) {
+    const arrayBuffer = await response.arrayBuffer()
+    if (arrayBuffer.byteLength > maxBytes) {
+      throw new Error(`loadUrl: ${url} exceeded maxBytes=${maxBytes}`)
+    }
+    return arrayBuffer
+  }
+
+  const reader = response.body.getReader()
+  const chunks: Uint8Array[] = []
+  let totalBytes = 0
+  try {
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      if (value === undefined) continue
+      totalBytes += value.byteLength
+      if (totalBytes > maxBytes) {
+        await reader.cancel().catch(() => {})
+        throw new Error(`loadUrl: ${url} exceeded maxBytes=${maxBytes}`)
+      }
+      chunks.push(value)
+    }
+  } finally {
+    reader.releaseLock()
+  }
+
+  return concatChunks(chunks, totalBytes)
+}
+
 export const htmlToMarkdown = (html: string): string => {
   let out = html
   for (const tag of DROP_BLOCKS) {
@@ -107,10 +164,8 @@ export const loadUrl = async (url: string, options: LoadUrlOptions = {}): Promis
     throw new Error(`loadUrl: ${url} failed with ${response.status} ${response.statusText}`)
   }
 
-  const arrayBuffer = await response.arrayBuffer()
-  if (arrayBuffer.byteLength > (options.maxBytes ?? DEFAULT_MAX_BYTES)) {
-    throw new Error(`loadUrl: ${url} exceeded maxBytes=${options.maxBytes ?? DEFAULT_MAX_BYTES}`)
-  }
+  const maxBytes = options.maxBytes ?? DEFAULT_MAX_BYTES
+  const arrayBuffer = await readWithinLimit(response, url, maxBytes)
 
   const mime = response.headers.get('content-type')?.split(';')[0]?.trim() || 'text/plain'
   const text = new TextDecoder('utf-8').decode(arrayBuffer)

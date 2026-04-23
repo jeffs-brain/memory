@@ -270,7 +270,12 @@ export const createMemoryClient = (options: CreateMemoryClientOptions): MemoryCl
   })
   const proceduralStore = createStoreBackedProceduralStore(options.store)
 
-  const remember = async (args: RememberArgs): Promise<StoredMemoryNote> => {
+  const rememberNote = async (
+    args: RememberArgs,
+    settings: {
+      readonly rebuildGeneratedIndex?: boolean
+    } = {},
+  ): Promise<StoredMemoryNote> => {
     const scope = args.scope ?? defaultScope
     const actorId = args.actorId ?? defaultActorId
     const path = scopeTopic(scope, actorId, args.filename)
@@ -312,8 +317,14 @@ export const createMemoryClient = (options: CreateMemoryClientOptions): MemoryCl
 
     await options.store.write(path, buildNoteContent(noteToFrontmatter(note), note.content))
     await syncNoteToIndex(options.searchIndex, options.embedder, note, logger)
-    await rebuildScopeIndex(options.store, scope, actorId)
+    if (settings.rebuildGeneratedIndex !== false) {
+      await rebuildScopeIndex(options.store, scope, actorId)
+    }
     return note
+  }
+
+  const remember = async (args: RememberArgs): Promise<StoredMemoryNote> => {
+    return await rememberNote(args)
   }
 
   const listNotes = async (
@@ -397,7 +408,6 @@ export const createMemoryClient = (options: CreateMemoryClientOptions): MemoryCl
     const scope = args.scope ?? defaultScope
     const actorId = args.actorId ?? defaultActorId
     const payload = await options.provider.structured({
-      model: options.provider.modelName(),
       taskType: 'memory-extract',
       system: EXTRACT_SYSTEM_PROMPT,
       messages: [
@@ -425,23 +435,32 @@ export const createMemoryClient = (options: CreateMemoryClientOptions): MemoryCl
       ? (parsed as { notes: unknown[] }).notes
       : []
     const created: StoredMemoryNote[] = []
-    for (const candidate of notes) {
-      if (!isExtractCandidate(candidate)) continue
-      created.push(
-        await remember({
-          filename: candidate.filename,
-          name: candidate.name,
-          description: candidate.description,
-          content: candidate.content,
-          type: candidate.type,
-          scope,
-          actorId,
-          ...(candidate.tags === undefined ? {} : { tags: candidate.tags }),
-          ...(args.sessionId === undefined ? {} : { sessionId: args.sessionId }),
-          ...(args.sessionDate === undefined ? {} : { sessionDate: args.sessionDate }),
-          ...(args.observedOn === undefined ? {} : { observedOn: args.observedOn }),
-        }),
-      )
+    try {
+      for (const candidate of notes) {
+        if (!isExtractCandidate(candidate)) continue
+        created.push(
+          await rememberNote(
+            {
+              filename: candidate.filename,
+              name: candidate.name,
+              description: candidate.description,
+              content: candidate.content,
+              type: candidate.type,
+              scope,
+              actorId,
+              ...(candidate.tags === undefined ? {} : { tags: candidate.tags }),
+              ...(args.sessionId === undefined ? {} : { sessionId: args.sessionId }),
+              ...(args.sessionDate === undefined ? {} : { sessionDate: args.sessionDate }),
+              ...(args.observedOn === undefined ? {} : { observedOn: args.observedOn }),
+            },
+            { rebuildGeneratedIndex: false },
+          ),
+        )
+      }
+    } finally {
+      if (created.length > 0) {
+        await rebuildScopeIndex(options.store, scope, actorId)
+      }
     }
     return { created, skipped: false }
   }
@@ -449,7 +468,6 @@ export const createMemoryClient = (options: CreateMemoryClientOptions): MemoryCl
   const reflect = async (args: ExtractArgs): Promise<ReflectionResult | null> => {
     if (options.provider === undefined) return null
     const payload = await options.provider.structured({
-      model: options.provider.modelName(),
       taskType: 'memory-reflect',
       system: REFLECT_SYSTEM_PROMPT,
       messages: [

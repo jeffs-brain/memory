@@ -118,4 +118,65 @@ describe('episodes', () => {
       }),
     ).resolves.toMatchObject({ recorded: false, reason: 'no_action_signal' })
   })
+
+  it('queries episodes by relevance, applies filters, and breaks ties by recency', async () => {
+    const store = await freshStore()
+    const episodes = createEpisodeRecorder({
+      store,
+      defaultScope: 'project',
+      defaultActorId: 'tenant-a',
+    })
+
+    await episodes.record({
+      sessionId: 'sess-older',
+      messages: BASE_MESSAGES,
+      reflection: {
+        ...reflection(),
+        summary: 'Migration retry flow for release review',
+        retryFeedback: 'Tighten the migration retry gate',
+      },
+      tags: ['release'],
+      startedAt: '2026-04-18T07:00:00.000Z',
+      endedAt: '2026-04-18T07:30:00.000Z',
+    })
+    await episodes.record({
+      sessionId: 'sess-newer',
+      messages: BASE_MESSAGES,
+      reflection: {
+        ...reflection(),
+        summary: 'Migration retry flow for release review',
+        retryFeedback: 'Keep the release migration path deterministic',
+      },
+      tags: ['release'],
+      startedAt: '2026-04-18T09:00:00.000Z',
+      endedAt: '2026-04-18T09:30:00.000Z',
+    })
+    await episodes.record({
+      sessionId: 'sess-unrelated',
+      messages: BASE_MESSAGES,
+      reflection: {
+        ...reflection(),
+        summary: 'Billing tidy-up',
+        retryFeedback: 'Review invoice export formatting',
+      },
+      tags: ['billing'],
+      startedAt: '2026-04-18T10:00:00.000Z',
+      endedAt: '2026-04-18T10:30:00.000Z',
+    })
+
+    const releaseHits = await episodes.query({
+      query: 'migration retry release',
+      tags: ['release'],
+      limit: 2,
+    })
+
+    expect(releaseHits.map((hit) => hit.sessionId)).toEqual(['sess-newer', 'sess-older'])
+    expect(releaseHits[0]?.score).toBeGreaterThan(0)
+
+    const scopedHits = await episodes.query({
+      query: 'billing',
+      tags: ['release'],
+    })
+    expect(scopedHits).toEqual([])
+  })
 })

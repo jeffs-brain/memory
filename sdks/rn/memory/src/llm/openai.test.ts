@@ -85,6 +85,49 @@ const chatChunk = (delta: Record<string, unknown>, finishReason: string | null =
 const sseBodyFromChunks = (chunks: readonly string[]): string =>
   `${chunks.map((chunk) => `data: ${chunk}\n\n`).join('')}data: [DONE]\n\n`
 
+const chatCompletionBody = (
+  args: {
+    readonly content?: string
+    readonly finishReason?: string
+    readonly toolCalls?: ReadonlyArray<{
+      readonly id: string
+      readonly name: string
+      readonly arguments: string
+    }>
+  } = {},
+): string =>
+  JSON.stringify({
+    id: 'chatcmpl-test',
+    object: 'chat.completion',
+    created: 1714492800,
+    model: 'gemma-4-31B-it',
+    choices: [
+      {
+        index: 0,
+        message: {
+          content: args.content ?? '',
+          ...(args.toolCalls === undefined
+            ? {}
+            : {
+                tool_calls: args.toolCalls.map((toolCall) => ({
+                  id: toolCall.id,
+                  type: 'function',
+                  function: {
+                    name: toolCall.name,
+                    arguments: toolCall.arguments,
+                  },
+                })),
+              }),
+        },
+        finish_reason: args.finishReason ?? 'stop',
+      },
+    ],
+    usage: {
+      prompt_tokens: 2,
+      completion_tokens: 3,
+    },
+  })
+
 describe('OpenAIProvider', () => {
   it('parses OpenAI-compatible SSE streams and sends bearer auth', async () => {
     const { http, calls } = makeHttp(() => ({
@@ -154,5 +197,98 @@ describe('OpenAIProvider', () => {
     expect(embedder.dimension()).toBe(3)
     expect(calls[0]?.url).toBe('https://example.run.app/v1/embeddings')
     expect(calls[0]?.headers.authorization).toBe('Bearer secret-token')
+  })
+
+  it('parses tool calls from complete responses', async () => {
+    const { http } = makeHttp(() => ({
+      body: chatCompletionBody({
+        finishReason: 'tool_calls',
+        toolCalls: [{ id: 'tool-1', name: 'lookup', arguments: '{"id":1}' }],
+      }),
+      headers: { 'content-type': 'application/json' },
+    }))
+
+    const provider = new OpenAIProvider({
+      apiKey: 'secret-token',
+      model: 'gemma-4-31B-it',
+      baseURL: 'https://example.run.app',
+      http,
+    })
+
+    const response = await provider.complete({
+      messages: [{ role: 'user', content: 'look this up' }],
+    })
+
+    expect(response.toolCalls).toEqual([{ id: 'tool-1', name: 'lookup', arguments: '{"id":1}' }])
+    expect(response.stopReason).toBe('tool_use')
+    expect(response.usage).toEqual({ inputTokens: 2, outputTokens: 3 })
+  })
+
+  it('retries structured responses when the first payload fails schema validation', async () => {
+    let callCount = 0
+    const { http, calls } = makeHttp(() => {
+      callCount += 1
+      return {
+        body:
+          callCount === 1
+            ? chatCompletionBody({ content: 'not valid json' })
+            : chatCompletionBody({ content: '{"answer":"valid"}' }),
+        headers: { 'content-type': 'application/json' },
+      }
+    })
+
+    const provider = new OpenAIProvider({
+      apiKey: 'secret-token',
+      model: 'gemma-4-31B-it',
+      baseURL: 'https://example.run.app',
+      http,
+    })
+
+    const response = await provider.structured({
+      messages: [{ role: 'user', content: 'answer in JSON' }],
+      schema: JSON.stringify({
+        type: 'object',
+        properties: { answer: { type: 'string' } },
+        required: ['answer'],
+      }),
+      schemaName: 'answer_payload',
+      maxRetries: 2,
+    })
+
+    expect(response).toBe('{"answer":"valid"}')
+    expect(calls).toHaveLength(2)
+    expect(((calls[1]?.body as { messages?: unknown[] }).messages ?? []).length).toBeGreaterThan(
+      ((calls[0]?.body as { messages?: unknown[] }).messages ?? []).length,
+    )
+  })
+
+  it('preserves sparse embedding indexes and derives dimension from the first populated vector', async () => {
+    const { http } = makeHttp((url) => {
+      if (!url.endsWith('/v1/embeddings')) {
+        throw new Error(`unexpected url: ${url}`)
+      }
+      return {
+        body: JSON.stringify({
+          data: [
+            { index: 2, embedding: [0.7, 0.8] },
+            { index: 0, embedding: [0.1, 0.2] },
+          ],
+        }),
+        headers: { 'content-type': 'application/json' },
+      }
+    })
+
+    const embedder = new OpenAIEmbedder({
+      apiKey: 'secret-token',
+      model: 'text-embedding-3-small',
+      baseURL: 'https://example.run.app',
+      http,
+      dimensions: 8,
+    })
+
+    const vectors = await embedder.embed(['first', 'second', 'third'])
+
+    expect(vectors).toEqual([[0.1, 0.2], [], [0.7, 0.8]])
+    expect(embedder.dimension()).toBe(2)
   })
 })

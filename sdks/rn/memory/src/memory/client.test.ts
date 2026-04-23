@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest'
 
+import type { ConnectivityMonitor } from '../connectivity/monitor.js'
+import { ProviderRouter } from '../llm/provider-router.js'
 import type { Provider, StructuredRequest } from '../llm/types.js'
 import { createRetrieval } from '../retrieval/index.js'
 import { type SearchIndex, createSearchIndex } from '../search/index.js'
@@ -36,6 +38,7 @@ const createProvider = (): Provider => ({
     throw new Error('not used in tests')
   },
   structured: async (request: StructuredRequest) => {
+    expect(request.model).toBeUndefined()
     switch (request.taskType) {
       case 'memory-extract':
         return JSON.stringify({
@@ -72,6 +75,21 @@ const createProvider = (): Provider => ({
         throw new Error(`unexpected task type: ${request.taskType ?? 'unknown'}`)
     }
   },
+})
+
+const createConnectivity = (online: boolean): ConnectivityMonitor => ({
+  snapshot: () => ({
+    online,
+    reachable: online,
+    changedAt: new Date('2026-04-23T00:00:00.000Z'),
+  }),
+  refresh: async () => ({
+    online,
+    reachable: online,
+    changedAt: new Date('2026-04-23T00:00:00.000Z'),
+  }),
+  subscribe: () => () => {},
+  close: async () => {},
 })
 
 const freshClient = async (
@@ -180,5 +198,140 @@ describe('createMemoryClient', () => {
       skipped: true,
       reason: 'no provider configured',
     })
+  })
+
+  it('routes extraction through the cloud provider without leaking a local model override', async () => {
+    const localProvider: Provider = {
+      name: () => 'local',
+      modelName: () => 'local-model',
+      supportsStructuredDecoding: () => true,
+      complete: async () => {
+        throw new Error('not used in tests')
+      },
+      structured: async () => {
+        throw new Error('should not route to the local provider')
+      },
+    }
+    const cloudProvider: Provider = {
+      name: () => 'cloud',
+      modelName: () => 'cloud-model',
+      supportsStructuredDecoding: () => true,
+      complete: async () => {
+        throw new Error('not used in tests')
+      },
+      structured: async (request: StructuredRequest) => {
+        expect(request.model).toBeUndefined()
+        return JSON.stringify({
+          notes: [
+            {
+              filename: 'cloud-note',
+              name: 'Cloud note',
+              description: 'Created via the routed cloud provider',
+              type: 'reference',
+              content: 'This extract path used the cloud provider.',
+            },
+          ],
+        })
+      },
+    }
+
+    const provider = new ProviderRouter({
+      localProvider,
+      cloudProvider,
+      strategy: 'auto',
+      connectivity: createConnectivity(true),
+      autoConfig: {
+        preferLocal: true,
+        cloudTriggers: {
+          taskTypes: ['memory-extract'],
+        },
+      },
+    })
+
+    const { client } = await freshClient(provider)
+    const result = await client.extract({
+      messages: [{ role: 'user', content: 'Please remember this routed extract.' }],
+    })
+
+    expect(result.created.map((note) => note.path)).toEqual(['memory/global/cloud-note.md'])
+    expect(provider.lastRoute()).toMatchObject({
+      kind: 'provider',
+      route: 'cloud',
+      reason: 'cloud-trigger',
+    })
+  })
+
+  it('rebuilds the generated scope index once for multi-note extraction', async () => {
+    const store = await createMobileStore({
+      root: '/brains/batched',
+      adapter: createMemoryFileAdapter(),
+    })
+    let generatedIndexWrites = 0
+    const originalWrite = store.write.bind(store)
+    store.write = async (path, content) => {
+      if (path === toPath('memory/global/MEMORY.md')) {
+        generatedIndexWrites += 1
+      }
+      await originalWrite(path, content)
+    }
+
+    const searchIndex = await createSearchIndex({
+      dbPath: ':memory:',
+      openDb: createBetterSqliteOpenDb(),
+      vectorDim: 2,
+    })
+    const retrieval = createRetrieval({
+      index: searchIndex,
+      embedder: fakeEmbedder,
+    })
+    const client = createMemoryClient({
+      brainId: 'batched',
+      store,
+      searchIndex,
+      retrieval,
+      embedder: fakeEmbedder,
+      provider: {
+        name: () => 'batch-provider',
+        modelName: () => 'batch-provider-model',
+        supportsStructuredDecoding: () => true,
+        complete: async () => {
+          throw new Error('not used in tests')
+        },
+        structured: async () =>
+          JSON.stringify({
+            notes: [
+              {
+                filename: 'first-note',
+                name: 'First note',
+                description: 'The first extracted note',
+                type: 'user',
+                content: 'One',
+              },
+              {
+                filename: 'second-note',
+                name: 'Second note',
+                description: 'The second extracted note',
+                type: 'reference',
+                content: 'Two',
+              },
+            ],
+          }),
+      },
+    })
+
+    resources.push({ client, store, searchIndex })
+
+    const result = await client.extract({
+      messages: [{ role: 'user', content: 'Capture both notes.' }],
+    })
+
+    expect(result.created).toHaveLength(2)
+    expect(generatedIndexWrites).toBe(1)
+    expect(await store.read(toPath('memory/global/MEMORY.md'))).toContain(
+      '- first-note.md: The first extracted note',
+    )
+    expect(await store.read(toPath('memory/global/MEMORY.md'))).toContain(
+      '- second-note.md: The second extracted note',
+    )
   })
 })

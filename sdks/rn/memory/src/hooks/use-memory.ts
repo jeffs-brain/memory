@@ -2,7 +2,7 @@ import { startTransition, useEffect, useEffectEvent, useState } from 'react'
 
 import type { Embedder, Provider } from '../llm/types.js'
 import { createMemoryClient } from '../memory/client.js'
-import type { Scope } from '../memory/paths.js'
+import { type Scope, scopePrefix } from '../memory/paths.js'
 import type { MemoryClient } from '../memory/types.js'
 import { createRetrieval } from '../retrieval/index.js'
 import { type OpenSqliteDb, createSearchIndex } from '../search/index.js'
@@ -10,7 +10,7 @@ import { createOpSqliteOpenDb } from '../search/op-sqlite-driver.js'
 import { resolveExpoDocumentDirectory } from '../store/expo-file-adapter.js'
 import { createExpoFileAdapter } from '../store/expo-file-adapter.js'
 import type { FileAdapter } from '../store/index.js'
-import { createMobileStore } from '../store/index.js'
+import { createMobileStore, lastSegment } from '../store/index.js'
 
 export type UseMemoryConfig = {
   readonly brainId: string
@@ -23,6 +23,26 @@ export type UseMemoryConfig = {
   readonly defaultScope?: Scope
   readonly vectorDim?: number
   readonly rebuildIndexOnReady?: boolean
+}
+
+const shouldRebuildOnReady = async (
+  client: MemoryClient,
+  config: UseMemoryConfig,
+): Promise<boolean> => {
+  if (config.rebuildIndexOnReady === true) return true
+  if (config.rebuildIndexOnReady === false) return false
+
+  const scope = config.defaultScope ?? 'global'
+  const actorId = config.actorId ?? 'mobile'
+  const prefix = `${scopePrefix(scope, actorId)}/`
+  if (client.searchIndex.indexedPaths().some((path) => path.startsWith(prefix))) return false
+  const files = await client.store.list(scopePrefix(scope, actorId), {
+    recursive: true,
+    includeGenerated: false,
+  })
+  return files.some(
+    (file) => !file.isDir && file.path.endsWith('.md') && lastSegment(file.path) !== 'MEMORY.md',
+  )
 }
 
 export const useMemory = (
@@ -63,7 +83,7 @@ export const useMemory = (
       ...(nextConfig.defaultScope === undefined ? {} : { defaultScope: nextConfig.defaultScope }),
       ...(nextConfig.actorId === undefined ? {} : { defaultActorId: nextConfig.actorId }),
     })
-    if (nextConfig.rebuildIndexOnReady !== false) {
+    if (await shouldRebuildOnReady(client, nextConfig)) {
       await client.rebuildIndex()
     }
     return client

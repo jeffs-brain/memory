@@ -6,8 +6,34 @@ export type HttpClient = {
   readonly fetch: FetchLike
 }
 
+const DEFAULT_REQUEST_TIMEOUT_MS = 30_000
+
 export const defaultHttpClient: HttpClient = {
   fetch: (input, init) => fetch(input as Parameters<typeof fetch>[0], init),
+}
+
+const createTimedSignal = (
+  signal: AbortSignal | undefined,
+  timeoutMs: number,
+): {
+  readonly signal: AbortSignal
+  cleanup(): void
+} => {
+  const controller = new AbortController()
+  const onAbort = (): void => controller.abort(signal?.reason)
+
+  if (signal?.aborted === true) controller.abort(signal.reason)
+  else if (signal !== undefined) signal.addEventListener('abort', onAbort, { once: true })
+
+  const timer = setTimeout(() => controller.abort(new Error('request timed out')), timeoutMs)
+
+  return {
+    signal: controller.signal,
+    cleanup: () => {
+      clearTimeout(timer)
+      if (signal !== undefined) signal.removeEventListener('abort', onAbort)
+    },
+  }
 }
 
 export const postForText = async (
@@ -17,8 +43,10 @@ export const postForText = async (
   init: {
     readonly headers?: Record<string, string>
     readonly signal?: AbortSignal
+    readonly timeoutMs?: number
   } = {},
 ): Promise<{ readonly response: Response; readonly text: string }> => {
+  const request = createTimedSignal(init.signal, init.timeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS)
   let response: Response
   try {
     response = await client.fetch(url, {
@@ -28,7 +56,7 @@ export const postForText = async (
         ...(init.headers ?? {}),
       },
       body: JSON.stringify(body),
-      ...(init.signal === undefined ? {} : { signal: init.signal }),
+      signal: request.signal,
     })
   } catch (error) {
     throw new TransportError(`POST ${url} transport error`, error)
@@ -39,6 +67,8 @@ export const postForText = async (
     text = await response.text()
   } catch (error) {
     throw new TransportError(`POST ${url} failed to read body`, error)
+  } finally {
+    request.cleanup()
   }
 
   return { response, text }
@@ -51,6 +81,7 @@ export const postJSON = async <T>(
   init: {
     readonly headers?: Record<string, string>
     readonly signal?: AbortSignal
+    readonly timeoutMs?: number
   } = {},
 ): Promise<T> => {
   const { response, text } = await postForText(client, url, body, init)
@@ -76,8 +107,10 @@ export const postForStream = async (
   init: {
     readonly headers?: Record<string, string>
     readonly signal?: AbortSignal
+    readonly timeoutMs?: number
   } = {},
 ): Promise<Response> => {
+  const request = createTimedSignal(init.signal, init.timeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS)
   let response: Response
   try {
     response = await client.fetch(url, {
@@ -88,10 +121,12 @@ export const postForStream = async (
         ...(init.headers ?? {}),
       },
       body: JSON.stringify(body),
-      ...(init.signal === undefined ? {} : { signal: init.signal }),
+      signal: request.signal,
     })
   } catch (error) {
     throw new TransportError(`POST ${url} transport error`, error)
+  } finally {
+    request.cleanup()
   }
 
   if (!response.ok) {

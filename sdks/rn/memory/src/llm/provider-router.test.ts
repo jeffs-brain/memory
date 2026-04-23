@@ -106,4 +106,27 @@ describe('ProviderRouter', () => {
     expect(router.lastRoute()?.kind).toBe('embedder')
     expect(router.lastRoute()?.route).toBe('cloud')
   })
+
+  it('honours cloud-only embedder routing and keeps provider model identity separate', async () => {
+    const router = new ProviderRouter({
+      localProvider: createProvider('local-provider'),
+      localEmbedder: createEmbedder('local'),
+      cloudEmbedder: createEmbedder('cloud'),
+      strategy: 'cloud-only',
+      connectivity: createConnectivity(true),
+    })
+
+    expect(router.model()).toBe('cloud-embedder')
+    expect(router.dimension()).toBe(2)
+    expect(router.modelName()).toBe('local-provider-model')
+
+    const embeddings = await router.embed(['hello'])
+
+    expect(embeddings).toEqual([[1, 0]])
+    expect(router.lastRoute()?.kind).toBe('embedder')
+    expect(router.lastRoute()?.route).toBe('cloud')
+    expect(router.lastRoute()?.reason).toBe('strategy-cloud-only')
+    expect(router.model()).toBe('cloud-embedder')
+    expect(router.modelName()).toBe('local-provider-model')
+  })
 })

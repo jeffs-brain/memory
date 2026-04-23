@@ -279,7 +279,9 @@ const inferContentType = (filename: string): string => {
 
 const isGemmaManifest = (manifest: ModelManifest): boolean => {
   return (
-    manifest.source?.provider === 'huggingface' && manifest.source.repo.startsWith('google/gemma-')
+    manifest.source?.provider === 'huggingface' &&
+    (manifest.source.repo.startsWith('google/gemma-') ||
+      manifest.source.repo.startsWith('litert-community/gemma-'))
   )
 }
 

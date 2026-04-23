@@ -53,7 +53,7 @@ export class ProviderRouter implements Provider, Embedder {
 
   modelName(): string {
     return (
-      this.lastDecisionValue?.model ??
+      (this.lastDecisionValue?.kind === 'provider' ? this.lastDecisionValue.model : undefined) ??
       this.config.localProvider?.modelName() ??
       this.config.cloudProvider?.modelName() ??
       'unknown'
@@ -62,15 +62,14 @@ export class ProviderRouter implements Provider, Embedder {
 
   model(): string {
     return (
-      this.lastDecisionValue?.model ??
-      this.config.localEmbedder?.model() ??
-      this.config.cloudEmbedder?.model() ??
+      (this.lastDecisionValue?.kind === 'embedder' ? this.lastDecisionValue.model : undefined) ??
+      this.resolveEmbedderSelection()?.decision.model ??
       'unknown'
     )
   }
 
   dimension(): number {
-    return this.config.localEmbedder?.dimension() ?? this.config.cloudEmbedder?.dimension() ?? 0
+    return this.resolveEmbedderSelection()?.embedder.dimension() ?? 0
   }
 
   supportsStructuredDecoding(): boolean {
@@ -237,35 +236,115 @@ export class ProviderRouter implements Provider, Embedder {
     throw new Error('provider-router: no provider available for the current strategy')
   }
 
+  private resolveEmbedderSelection():
+    | {
+        readonly embedder: Embedder
+        readonly decision: RoutingDecision
+      }
+    | undefined {
+    const online = this.config.connectivity?.snapshot().online ?? true
+    const preferLocal = this.config.autoConfig?.preferLocal ?? true
+
+    switch (this.config.strategy) {
+      case 'local-only':
+        if (this.config.localEmbedder !== undefined) {
+          return {
+            embedder: this.config.localEmbedder,
+            decision: {
+              kind: 'embedder',
+              route: 'local',
+              reason: 'strategy-local-only',
+              name: this.config.localEmbedder.name(),
+              model: this.config.localEmbedder.model(),
+            },
+          }
+        }
+        return undefined
+      case 'cloud-only':
+        if (online && this.config.cloudEmbedder !== undefined) {
+          return {
+            embedder: this.config.cloudEmbedder,
+            decision: {
+              kind: 'embedder',
+              route: 'cloud',
+              reason: 'strategy-cloud-only',
+              name: this.config.cloudEmbedder.name(),
+              model: this.config.cloudEmbedder.model(),
+            },
+          }
+        }
+        if (this.config.localEmbedder !== undefined) {
+          return {
+            embedder: this.config.localEmbedder,
+            decision: {
+              kind: 'embedder',
+              route: 'local',
+              reason: 'offline-fallback',
+              name: this.config.localEmbedder.name(),
+              model: this.config.localEmbedder.model(),
+            },
+          }
+        }
+        return undefined
+      case 'auto':
+        if (!online && this.config.localEmbedder !== undefined) {
+          return {
+            embedder: this.config.localEmbedder,
+            decision: {
+              kind: 'embedder',
+              route: 'local',
+              reason: 'offline',
+              name: this.config.localEmbedder.name(),
+              model: this.config.localEmbedder.model(),
+            },
+          }
+        }
+        if (preferLocal && this.config.localEmbedder !== undefined) {
+          return {
+            embedder: this.config.localEmbedder,
+            decision: {
+              kind: 'embedder',
+              route: 'local',
+              reason: 'prefer-local',
+              name: this.config.localEmbedder.name(),
+              model: this.config.localEmbedder.model(),
+            },
+          }
+        }
+        if (online && this.config.cloudEmbedder !== undefined) {
+          return {
+            embedder: this.config.cloudEmbedder,
+            decision: {
+              kind: 'embedder',
+              route: 'cloud',
+              reason: 'prefer-cloud',
+              name: this.config.cloudEmbedder.name(),
+              model: this.config.cloudEmbedder.model(),
+            },
+          }
+        }
+        if (this.config.localEmbedder !== undefined) {
+          return {
+            embedder: this.config.localEmbedder,
+            decision: {
+              kind: 'embedder',
+              route: 'local',
+              reason: 'fallback-local',
+              name: this.config.localEmbedder.name(),
+              model: this.config.localEmbedder.model(),
+            },
+          }
+        }
+        return undefined
+    }
+  }
+
   private async selectEmbedder(): Promise<{
     readonly embedder: Embedder
     readonly decision: RoutingDecision
   }> {
-    const online = this.config.connectivity?.snapshot().online ?? true
-    if (this.config.localEmbedder !== undefined) {
-      return {
-        embedder: this.config.localEmbedder,
-        decision: {
-          kind: 'embedder',
-          route: 'local',
-          reason: 'prefer-local',
-          name: this.config.localEmbedder.name(),
-          model: this.config.localEmbedder.model(),
-        },
-      }
-    }
-    if (online && this.config.cloudEmbedder !== undefined) {
-      return {
-        embedder: this.config.cloudEmbedder,
-        decision: {
-          kind: 'embedder',
-          route: 'cloud',
-          reason: 'local-unavailable',
-          name: this.config.cloudEmbedder.name(),
-          model: this.config.cloudEmbedder.model(),
-        },
-      }
-    }
+    const selected = this.resolveEmbedderSelection()
+    if (selected !== undefined) return selected
     throw new Error('provider-router: no embedder available for the current strategy')
   }
 }

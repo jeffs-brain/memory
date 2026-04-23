@@ -3,6 +3,30 @@ import { describe, expect, it } from 'vitest'
 import { createMemoryFileAdapter } from '../testing/memory-file-adapter.js'
 import { createModelManager } from './manager.js'
 
+const demoManifest = {
+  id: 'demo-model',
+  name: 'Demo model',
+  filename: 'demo.bin',
+  sizeBytes: 10,
+  bundleSizeBytes: 20,
+  type: 'llm' as const,
+  platform: 'both' as const,
+  backend: 'litert' as const,
+  downloadUrl: 'https://example.com/demo.bin',
+  supportFiles: [
+    {
+      filename: 'tokenizer.json',
+      sizeBytes: 10,
+      downloadUrl: 'https://example.com/tokenizer.json',
+    },
+  ],
+  metadata: {
+    parameterCount: '1B',
+    contextLength: 8192,
+    quantisation: '4bit',
+  },
+}
+
 describe('createModelManager', () => {
   it('downloads, lists, sizes, cancels, and deletes models', async () => {
     const adapter = createMemoryFileAdapter()
@@ -13,31 +37,7 @@ describe('createModelManager', () => {
     const manager = createModelManager({
       root: '/models',
       adapter,
-      manifests: [
-        {
-          id: 'demo-model',
-          name: 'Demo model',
-          filename: 'demo.bin',
-          sizeBytes: 10,
-          bundleSizeBytes: 20,
-          type: 'llm',
-          platform: 'both',
-          backend: 'litert',
-          downloadUrl: 'https://example.com/demo.bin',
-          supportFiles: [
-            {
-              filename: 'tokenizer.json',
-              sizeBytes: 10,
-              downloadUrl: 'https://example.com/tokenizer.json',
-            },
-          ],
-          metadata: {
-            parameterCount: '1B',
-            contextLength: 8192,
-            quantisation: '4bit',
-          },
-        },
-      ],
+      manifests: [demoManifest],
       downloadTransport: {
         download: async (request) => {
           requests.push({ url: request.url, destination: request.destination })
@@ -69,7 +69,7 @@ describe('createModelManager', () => {
         destination: '/models/demo-model/tokenizer.json',
       },
     ])
-    expect(manager.getModelPath('demo-model')).toBe('/models/demo-model/demo.bin')
+    await expect(manager.getModelPath('demo-model')).resolves.toBe('/models/demo-model/demo.bin')
     expect((await manager.listDownloaded()).map((entry) => entry.path)).toEqual([
       '/models/demo-model/demo.bin',
     ])
@@ -81,6 +81,27 @@ describe('createModelManager', () => {
 
     await manager.deleteModel('demo-model')
     expect(await manager.listDownloaded()).toEqual([])
+  })
+
+  it('requires every bundled file to exist at the expected size before reporting installation', async () => {
+    const adapter = createMemoryFileAdapter()
+    await adapter.ensureDirectory('/models/demo-model')
+    await adapter.writeText('/models/demo-model/demo.bin', '1234567890')
+
+    const manager = createModelManager({
+      root: '/models',
+      adapter,
+      manifests: [demoManifest],
+      downloadTransport: {
+        download: async () => {
+          throw new Error('not used in tests')
+        },
+        cancel: () => {},
+      },
+    })
+
+    await expect(manager.getModelPath('demo-model')).resolves.toBeNull()
+    await expect(manager.listDownloaded()).resolves.toEqual([])
   })
 
   it('fails fast for gated upstream models without Hugging Face auth', async () => {

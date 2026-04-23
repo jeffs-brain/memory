@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "description": "React Native memory SDK for offline-first assistants with mobile store, hybrid search, and provider routing.",
   "license": "Apache-2.0",
-  "author": "Alex J <alex@lleverage.ai>",
+  "author": "jaythegeek",
   "homepage": "https://github.com/jeffs-brain/memory#readme",
   "bugs": {
     "url": "https://github.com/jeffs-brain/memory/issues"

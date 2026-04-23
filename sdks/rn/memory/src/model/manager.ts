@@ -21,7 +21,7 @@ export type ModelManager = {
   download(modelId: string, onProgress?: (pct: number) => void): Promise<void>
   cancelDownload(modelId: string): void
   deleteModel(modelId: string): Promise<void>
-  getModelPath(modelId: string): string | null
+  getModelPath(modelId: string): Promise<string | null>
   storageUsed(): Promise<number>
 }
 
@@ -77,16 +77,24 @@ export const createModelManager = (args: {
     return total
   }
 
+  const hasCompleteModelBundle = async (manifest: ModelManifest): Promise<boolean> => {
+    for (const file of listModelFiles(manifest)) {
+      const path = resolveModelPath(manifest, file.filename)
+      if (!(await args.adapter.exists(path))) return false
+      if ((await args.adapter.stat(path)).size !== file.sizeBytes) return false
+    }
+    return true
+  }
+
   return {
     listAvailable: () => manifests,
     listDownloaded: async () => {
       const downloaded: DownloadedModel[] = []
       for (const manifest of manifests) {
-        const path = resolveModelPath(manifest, manifest.filename)
-        if (!(await args.adapter.exists(path))) continue
+        if (!(await hasCompleteModelBundle(manifest))) continue
         downloaded.push({
           manifest,
-          path,
+          path: resolveModelPath(manifest, manifest.filename),
           sizeBytes: await sumExistingModelBytes(manifest),
         })
       }
@@ -147,9 +155,10 @@ export const createModelManager = (args: {
         await args.adapter.delete(directory)
       }
     },
-    getModelPath: (modelId) => {
+    getModelPath: async (modelId) => {
       const manifest = manifestMap.get(modelId)
       if (manifest === undefined) return null
+      if (!(await hasCompleteModelBundle(manifest))) return null
       return resolveModelPath(manifest, manifest.filename)
     },
     storageUsed: async () => {
