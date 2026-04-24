@@ -38,7 +38,6 @@ export type {
 export { StoreBackedCursorStore, createStoreBackedCursorStore } from './cursor.js'
 export * from './consolidate.js'
 export * from './episodes.js'
-export * from './frontmatter.js'
 export * from './paths.js'
 export * from './procedural.js'
 export * from './procedural-store.js'
