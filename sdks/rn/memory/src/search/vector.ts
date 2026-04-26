@@ -47,9 +47,8 @@ export const upsertVector = (
 ): void => {
   const rowid = ensureVectorRowid(db, chunkId, model)
   const blob = encodeVector(embedding)
-  const rowidBig = BigInt(rowid)
-  db.prepare('DELETE FROM knowledge_vectors WHERE rowid = ?').run(rowidBig)
-  db.prepare('INSERT INTO knowledge_vectors(rowid, embedding) VALUES (?, ?)').run(rowidBig, blob)
+  db.prepare('DELETE FROM knowledge_vectors WHERE rowid = ?').run(rowid)
+  db.prepare('INSERT INTO knowledge_vectors(rowid, embedding) VALUES (?, ?)').run(rowid, blob)
 }
 
 export const deleteVector = (db: SqlDb, chunkId: string): void => {
@@ -57,8 +56,8 @@ export const deleteVector = (db: SqlDb, chunkId: string): void => {
     .prepare('SELECT vec_rowid FROM knowledge_vec_map WHERE chunk_id = ?')
     .get(chunkId) as { vec_rowid: number | bigint } | undefined
   if (row === undefined) return
-  const rowidBig = typeof row.vec_rowid === 'bigint' ? row.vec_rowid : BigInt(row.vec_rowid)
-  db.prepare('DELETE FROM knowledge_vectors WHERE rowid = ?').run(rowidBig)
+  const rowid = typeof row.vec_rowid === 'bigint' ? Number(row.vec_rowid) : row.vec_rowid
+  db.prepare('DELETE FROM knowledge_vectors WHERE rowid = ?').run(rowid)
   db.prepare('DELETE FROM knowledge_vec_map WHERE chunk_id = ?').run(chunkId)
 }
 
