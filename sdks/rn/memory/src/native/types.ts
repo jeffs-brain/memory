@@ -1,10 +1,18 @@
-import type { Message, StopReason, Usage } from '../llm/types.js'
+import type {
+  Message,
+  ResponseFormat,
+  StopReason,
+  ToolCall,
+  ToolDefinition,
+  Usage,
+} from '../llm/types.js'
 
 export type InferenceBackend = 'litert' | 'mediapipe' | 'llama_cpp'
 export type EmbeddingBackend = 'onnx' | 'coreml' | 'litert'
 
 export type ModelConfig = {
   readonly modelPath: string
+  readonly multimodalProjectorPath?: string
   readonly backend: InferenceBackend
   readonly maxTokens: number
   readonly contextLength: number
@@ -15,21 +23,35 @@ export type ModelConfig = {
 }
 
 export type GenerateParams = {
-  readonly messages: readonly Pick<Message, 'role' | 'content'>[]
+  readonly messages: readonly Message[]
+  readonly tools?: readonly ToolDefinition[]
+  readonly toolChoice?: 'auto' | 'none' | 'required'
   readonly temperature?: number
   readonly maxTokens?: number
   readonly stopSequences?: readonly string[]
-  readonly responseFormat?: 'text' | 'json'
+  readonly responseFormat?: 'text' | 'json' | ResponseFormat
+  readonly enableThinking?: boolean
+  readonly thinkingBudgetTokens?: number
+  readonly thinkingBudgetMessage?: string
+  readonly reasoningFormat?: 'none' | 'auto' | 'deepseek'
+  readonly jinja?: boolean
+  readonly chatTemplate?: string
+  readonly parallelToolCalls?: boolean
 }
 
 export type GenerateResult = {
   readonly content: string
+  readonly toolCalls?: readonly ToolCall[]
   readonly usage?: Usage
   readonly stopReason?: StopReason
 }
 
 export type StreamChunk =
   | { readonly type: 'text_delta'; readonly text: string }
+  | { readonly type: 'thinking_delta'; readonly text: string }
+  | { readonly type: 'tool_call_start'; readonly toolCall: ToolCall }
+  | { readonly type: 'tool_call_delta'; readonly toolCall: ToolCall; readonly text: string }
+  | { readonly type: 'tool_call_end'; readonly toolCall: ToolCall }
   | { readonly type: 'done'; readonly usage?: Usage; readonly stopReason?: StopReason }
   | { readonly type: 'error'; readonly error: string }
 

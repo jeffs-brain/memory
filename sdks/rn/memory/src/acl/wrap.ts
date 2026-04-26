@@ -26,8 +26,8 @@ import type {
   Store,
   Unsubscribe,
 } from '../store/index.js'
-import type { AccessControlProvider, Action, Resource, Subject } from './index.js'
-import { ForbiddenError } from './index.js'
+import type { AccessControlProvider, Action, Resource, Subject } from './primitives.js'
+import { ForbiddenError } from './primitives.js'
 
 export type WithAclOptions = {
   readonly resource?: Resource

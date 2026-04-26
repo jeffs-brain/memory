@@ -64,4 +64,4 @@ export {
 
 export { LocalProvider } from './local-provider.js'
 export { LocalEmbedder } from './local-embedder.js'
-export { ProviderRouter } from './provider-router.js'
+export { ProviderRouter, type ProviderRouterConfig, type RoutingDecision } from './provider-router.js'

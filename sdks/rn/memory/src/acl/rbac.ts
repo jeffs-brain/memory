@@ -38,8 +38,8 @@ import type {
   Subject,
   Tuple,
   WriteTuplesRequest,
-} from './index.js'
-import { AccessControlError, allow, deny, resourceKey, subjectKey, tupleKey } from './index.js'
+} from './primitives.js'
+import { AccessControlError, allow, deny, resourceKey, subjectKey, tupleKey } from './primitives.js'
 
 export type RbacRole = 'admin' | 'writer' | 'reader'
 

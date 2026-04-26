@@ -655,14 +655,18 @@ const convertMessages = (messages: readonly Message[]): AnthropicMessage[] => {
         continue
       }
       if (block.type === 'image' && block.image !== undefined) {
-        blocks.push({
-          type: 'image',
-          source: {
-            type: 'base64',
-            media_type: block.image.source.mediaType,
-            data: block.image.source.data,
-          },
-        })
+        const source =
+          block.image.source.type === 'base64'
+            ? {
+                type: 'base64',
+                media_type: block.image.source.mediaType,
+                data: block.image.source.data,
+              }
+            : {
+                type: 'url',
+                url: block.image.source.url,
+              }
+        blocks.push({ type: 'image', source })
       }
     }
 

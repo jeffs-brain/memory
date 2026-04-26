@@ -2,11 +2,18 @@ export type Role = 'system' | 'user' | 'assistant' | 'tool'
 
 export type BlockType = 'text' | 'tool_use' | 'tool_result' | 'image'
 
-export type ImageSource = {
+export type Base64ImageSource = {
   readonly type: 'base64'
   readonly mediaType: string
   readonly data: string
 }
+
+export type UrlImageSource = {
+  readonly type: 'url'
+  readonly url: string
+}
+
+export type ImageSource = Base64ImageSource | UrlImageSource
 
 export type ImageBlock = {
   readonly source: ImageSource
@@ -59,6 +66,8 @@ export type StopReason = 'end_turn' | 'tool_use' | 'max_tokens' | 'stop_sequence
 export type StreamEventType =
   | 'text_delta'
   | 'thinking_delta'
+  | 'memory_retrieval_start'
+  | 'memory_retrieval_end'
   | 'tool_call'
   | 'tool_call_start'
   | 'tool_call_delta'
@@ -112,6 +121,15 @@ export type StructuredRequest = Omit<CompletionRequest, 'responseFormat' | 'json
 export type StreamEvent =
   | { readonly type: 'text_delta'; readonly text: string }
   | { readonly type: 'thinking_delta'; readonly text: string }
+  | { readonly type: 'memory_retrieval_start'; readonly query: string }
+  | {
+      readonly type: 'memory_retrieval_end'
+      readonly query: string
+      readonly hitCount: number
+      readonly elapsedMs: number
+      readonly paths: readonly string[]
+      readonly pathMode: 'fast-recall' | 'tool-enabled'
+    }
   | { readonly type: 'tool_call'; readonly toolCall: ToolCall }
   | { readonly type: 'tool_call_start'; readonly toolCall: ToolCall }
   | { readonly type: 'tool_call_delta'; readonly toolCall: ToolCall; readonly text: string }
