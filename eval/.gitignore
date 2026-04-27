@@ -3,5 +3,6 @@ __pycache__/
 *.pyc
 .pytest_cache/
 .ruff_cache/
+datasets/cache/
 results/*/
 !results/.gitkeep

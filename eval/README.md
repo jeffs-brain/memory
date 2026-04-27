@@ -91,6 +91,47 @@ done
 
 Use a separate `--output` root per scenario when comparing SDKs on the same day. The runner writes one `<sdk>.json` under `<output>/<YYYY-MM-DD>/`, so in practice you want roots such as `results/smoke-search`, `results/ask-augmented`, and `results/search-retrieve-only`.
 
+## Benchmark adapters
+
+`bench_runner.py` is the adapter-backed benchmark runner. It is separate from
+`runner.py`: the existing JSONL smoke/LME runner stays unchanged, while
+benchmark adapters fetch and normalise external datasets into a shared corpus +
+question model before driving the same daemon HTTP surface.
+
+Supported adapters:
+
+| Adapter | Splits | Default scorer | Notes |
+| --- | --- | --- | --- |
+| `locomo` | `qa` | `token-f1` | Pinned LoCoMo `locomo10.json`, all conversations ingested into one brain, evidence recall reported. |
+| `memory-agent-bench` / `mab` | `Accurate_Retrieval`, `Conflict_Resolution` | `judge` | Hugging Face revision pinned; Parquet parsing requires `uv sync --extra benchmarks`. |
+
+Quick smoke against an existing daemon:
+
+```bash
+cd eval
+python3 bench_runner.py \
+  --benchmark locomo \
+  --split qa \
+  --sdk ts \
+  --endpoint http://127.0.0.1:3001 \
+  --scenario search-retrieve-only \
+  --mode bm25 \
+  --limit 5 \
+  --scorer token-f1 \
+  --output results/benchmarks
+```
+
+Useful benchmark flags:
+
+| Flag | Notes |
+| --- | --- |
+| `--prepare-only` | Fetch, normalise, ingest, write artefacts, then stop before questions. |
+| `--skip-fetch` | Reuse a verified cached dataset under `datasets/cache/`. |
+| `--skip-ingest` | Reuse an already populated benchmark brain. |
+| `--sample-ids-file` | Pin exact question IDs from newline text or JSON string array. |
+| `--source-filter` | Adapter-specific source/conversation filter. |
+| `--endpoint` | Use a running daemon instead of spawning an SDK daemon. |
+
 ### CLI flags
 
 | Flag         | Default                 | Notes                                                                 |

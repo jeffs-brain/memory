@@ -38,15 +38,43 @@ import tempfile
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
-from urllib.parse import quote
 
 import click
 import httpx
 
+from http_helpers import (
+    RequestSpec as _RequestSpec,
+    ScenarioOutcome as _ScenarioOutcome,
+    ask_one as _ask_one,
+    ask_path as _ask_path,
+    brain_path as _brain_path,
+    build_request_spec as _build_request_spec,
+    extract_delta as _extract_delta,
+    ingest_file_path as _ingest_file_path,
+    parse_sse_frame as _parse_sse_frame,
+    question_date as _question_date,
+    safe_doc_stem as _safe_doc_stem,
+    search_path as _search_path,
+)
 from scorer.exact import ExactScorer
 from scorer.judge import JudgeScorer
 from sdks import get_runner
 from sdks.base import SdkRunner
+
+__all__ = [
+    "_RequestSpec",
+    "_ScenarioOutcome",
+    "_ask_one",
+    "_ask_path",
+    "_brain_path",
+    "_build_request_spec",
+    "_extract_delta",
+    "_ingest_file_path",
+    "_parse_sse_frame",
+    "_question_date",
+    "_safe_doc_stem",
+    "_search_path",
+]
 
 DEFAULT_TOP_K = 5
 DEFAULT_CANDIDATE_K = 0
@@ -111,52 +139,6 @@ def _build_scorer(kind: str) -> ExactScorer | JudgeScorer:
     raise click.ClickException(f"Unknown scorer: {kind}")
 
 
-def _ask_path(brain: str) -> str:
-    return f"/v1/brains/{quote(brain, safe='')}/ask"
-
-
-@dataclass
-class _ScenarioOutcome:
-    answer: str
-    citations: list[dict[str, Any]]
-    error: str | None
-
-
-@dataclass(frozen=True)
-class _RequestSpec:
-    path: str
-    body: dict[str, Any]
-    streaming: bool
-
-
-def _search_path(brain: str) -> str:
-    return f"/v1/brains/{quote(brain, safe='')}/search"
-
-
-def _brain_path(brain: str) -> str:
-    return f"/v1/brains/{quote(brain, safe='')}"
-
-
-def _ingest_file_path(brain: str) -> str:
-    return f"{_brain_path(brain)}/ingest/file"
-
-
-def _question_date(item: dict[str, Any]) -> str | None:
-    for key in ("questionDate", "question_date"):
-        value = item.get(key)
-        if isinstance(value, str) and value != "":
-            return value
-    return None
-
-
-def _safe_doc_stem(raw: str) -> str:
-    chars = [ch.lower() if ch.isalnum() else "-" for ch in raw]
-    stem = "".join(chars).strip("-")
-    while "--" in stem:
-        stem = stem.replace("--", "-")
-    return stem or "item"
-
-
 async def _seed_reference_brain(*, endpoint: str, dataset: Path, brain: str) -> None:
     items = _load_dataset(dataset, limit=None)
 
@@ -198,180 +180,6 @@ async def _seed_reference_brain(*, endpoint: str, dataset: Path, brain: str) -> 
             )
             if ingest_resp.status_code != 200:
                 ingest_resp.raise_for_status()
-
-
-def _build_request_spec(
-    *,
-    brain: str,
-    item: dict[str, Any],
-    question: str,
-    top_k: int,
-    mode: str,
-    scenario: str,
-    candidate_k: int = DEFAULT_CANDIDATE_K,
-    rerank_top_n: int = DEFAULT_RERANK_TOP_N,
-) -> _RequestSpec:
-    if scenario == "ask-basic":
-        return _RequestSpec(
-            path=_ask_path(brain),
-            body={"question": question, "topK": top_k, "mode": mode},
-            streaming=True,
-        )
-    if scenario == "ask-augmented":
-        body: dict[str, Any] = {
-            "question": question,
-            "topK": top_k,
-            "mode": mode,
-            "readerMode": "augmented",
-        }
-        question_date = _question_date(item)
-        if question_date is not None:
-            body["questionDate"] = question_date
-        return _RequestSpec(path=_ask_path(brain), body=body, streaming=True)
-    if scenario == "search-retrieve-only":
-        body: dict[str, Any] = {"query": question, "topK": top_k, "mode": mode}
-        question_date = _question_date(item)
-        if question_date is not None:
-            body["questionDate"] = question_date
-        if candidate_k > 0:
-            body["candidateK"] = candidate_k
-        if rerank_top_n > 0:
-            body["rerankTopN"] = rerank_top_n
-        return _RequestSpec(
-            path=_search_path(brain),
-            body=body,
-            streaming=False,
-        )
-    raise click.ClickException(f"Unknown scenario: {scenario}")
-
-
-def _parse_sse_frame(raw: str) -> tuple[str, str] | None:
-    """Parse a single SSE frame into (event, data_json_string).
-
-    Returns ``None`` when the frame carries only comments or is empty.
-    """
-    event = "message"
-    data_lines: list[str] = []
-    for line in raw.splitlines():
-        if not line or line.startswith(":"):
-            continue
-        if line.startswith("event:"):
-            event = line[len("event:") :].strip()
-        elif line.startswith("data:"):
-            data_lines.append(line[len("data:") :].lstrip())
-    if not data_lines:
-        return None
-    return event, "\n".join(data_lines)
-
-
-def _extract_delta(payload: dict[str, Any]) -> str:
-    """Pull answer text out of an answer_delta / token event payload.
-
-    The spec names the event `answer_delta` with a `delta` string field; we
-    also tolerate `token` as an event name and `text`/`content` as payload
-    keys to stay robust against minor SDK dialects.
-    """
-    for key in ("delta", "text", "content", "token"):
-        value = payload.get(key)
-        if isinstance(value, str):
-            return value
-    return ""
-
-
-async def _ask_one(
-    client: httpx.AsyncClient,
-    *,
-    spec: _RequestSpec,
-) -> _ScenarioOutcome:
-    answer_parts: list[str] = []
-    citations: list[dict[str, Any]] = []
-    error: str | None = None
-    final_answer_from_done: str | None = None
-
-    try:
-        if spec.streaming:
-            async with client.stream(
-                "POST",
-                spec.path,
-                json=spec.body,
-                headers={"Accept": "text/event-stream"},
-            ) as resp:
-                resp.raise_for_status()
-                buffer = ""
-                async for chunk in resp.aiter_text():
-                    if chunk == "":
-                        continue
-                    buffer += chunk
-                    while "\n\n" in buffer:
-                        raw_frame, buffer = buffer.split("\n\n", 1)
-                        parsed = _parse_sse_frame(raw_frame)
-                        if parsed is None:
-                            continue
-                        event, data_str = parsed
-                        try:
-                            payload = json.loads(data_str) if data_str else {}
-                        except json.JSONDecodeError:
-                            payload = {"_raw": data_str}
-                        if event in ("answer_delta", "token"):
-                            answer_parts.append(_extract_delta(payload))
-                        elif event == "citation":
-                            citations.append(payload)
-                        elif event == "done":
-                            if isinstance(payload, dict):
-                                candidate = payload.get("answer")
-                                if isinstance(candidate, str):
-                                    final_answer_from_done = candidate
-                            buffer = ""
-                            break
-                        elif event == "error":
-                            code = payload.get("code") if isinstance(payload, dict) else None
-                            message = payload.get("message") if isinstance(payload, dict) else None
-                            error = f"stream_error: code={code} message={message}"
-                            buffer = ""
-                            break
-                        # `retrieve` and any unrecognised events are ignored here;
-                        # retrieved chunks are orthogonal to the scored answer.
-                    if final_answer_from_done is not None or error is not None:
-                        break
-        else:
-            resp = await client.post(spec.path, json=spec.body, headers={"Accept": "application/json"})
-            resp.raise_for_status()
-            payload = resp.json()
-            if not isinstance(payload, dict):
-                payload = {}
-            chunks = payload.get("chunks")
-            if isinstance(chunks, list):
-                for chunk in chunks:
-                    if not isinstance(chunk, dict):
-                        continue
-                    body = chunk.get("text")
-                    if not isinstance(body, str) or body == "":
-                        summary = chunk.get("summary")
-                        body = summary if isinstance(summary, str) else ""
-                    if body != "":
-                        answer_parts.append(body)
-                    citations.append(
-                        {
-                            key: chunk[key]
-                            for key in ("chunkId", "path", "title", "score")
-                            if key in chunk
-                        }
-                    )
-    except httpx.HTTPStatusError as exc:
-        try:
-            body = await exc.response.aread()
-            text = body.decode("utf-8", errors="replace")[:512]
-        except Exception:
-            text = "(body unread)"
-        error = f"http_{exc.response.status_code}: {text}"
-    except httpx.HTTPError as exc:
-        error = f"{type(exc).__name__}: {exc}"
-
-    if spec.streaming:
-        answer = final_answer_from_done if final_answer_from_done is not None else "".join(answer_parts)
-    else:
-        answer = "\n\n".join(part for part in answer_parts if part != "")
-    return _ScenarioOutcome(answer=answer, citations=citations, error=error)
 
 
 async def _run_eval_async(
