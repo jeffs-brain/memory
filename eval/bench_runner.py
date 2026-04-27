@@ -317,6 +317,7 @@ def _build_scorer(adapter: Any, scorer_name: str | None) -> Any:
     scoring = importlib.import_module("benchmarks.scoring")
     mapping = {
         "token-f1": "TokenF1Scorer",
+        "exact-containment": "ExactContainmentScorer",
         "adversarial": "AdversarialAbstentionScorer",
         "judge": "JudgeBridgeScorer",
     }
@@ -346,6 +347,23 @@ def _fetch_adapter(adapter: Any, cache_dir: Path, split: str | None) -> Any:
     if "split" in signature.parameters and split is not None:
         return adapter.fetch(cache_dir, split=split)
     return adapter.fetch(cache_dir)
+
+
+def _local_fetch_result(adapter: Any, dataset_path: Path) -> Any:
+    if not dataset_path.exists():
+        raise click.ClickException(f"Dataset fixture not found: {dataset_path}")
+    if not dataset_path.is_file():
+        raise click.ClickException(f"Dataset fixture is not a file: {dataset_path}")
+
+    base = importlib.import_module("benchmarks.base")
+    fetch_result_cls = base.FetchResult
+    source = adapter.source
+    digest = hashlib.sha256(dataset_path.read_bytes()).hexdigest()
+    return fetch_result_cls(
+        local_path=dataset_path,
+        sha256=digest,
+        revision=_get(source, "revision"),
+    )
 
 
 def _cached_fetch_result(adapter: Any, cache_dir: Path, split: str | None) -> Any:
@@ -531,6 +549,7 @@ def run_benchmark(
     floor: float,
     limit: int | None,
     cache_dir: Path,
+    dataset_path: Path | None,
     skip_fetch: bool,
     skip_ingest: bool,
     prepare_only: bool,
@@ -545,11 +564,14 @@ def run_benchmark(
     except ValueError as exc:
         raise click.ClickException(str(exc)) from exc
     sample_ids = _load_sample_ids(sample_ids_file)
-    fetched = (
-        _cached_fetch_result(adapter, cache_dir, split)
-        if skip_fetch
-        else _fetch_adapter(adapter, cache_dir, split)
-    )
+    if dataset_path is not None and skip_fetch:
+        raise click.ClickException("--dataset-path cannot be combined with --skip-fetch")
+    if dataset_path is not None:
+        fetched = _local_fetch_result(adapter, dataset_path)
+    elif skip_fetch:
+        fetched = _cached_fetch_result(adapter, cache_dir, split)
+    else:
+        fetched = _fetch_adapter(adapter, cache_dir, split)
     normalised = adapter.normalise(
         fetched,
         split=split,
@@ -666,6 +688,12 @@ def run_benchmark(
     show_default=True,
 )
 @click.option(
+    "--dataset-path",
+    type=click.Path(path_type=Path),
+    default=None,
+    help="Local dataset or fixture path. Skips adapter.fetch and records the file SHA256.",
+)
+@click.option(
     "--prepare-only",
     is_flag=True,
     help="Fetch, normalise, ingest, write outputs, then stop.",
@@ -700,6 +728,7 @@ def main(
     floor: float,
     limit: int | None,
     cache_dir: Path,
+    dataset_path: Path | None,
     prepare_only: bool,
     skip_fetch: bool,
     skip_ingest: bool,
@@ -725,6 +754,7 @@ def main(
         floor=floor,
         limit=limit,
         cache_dir=cache_dir,
+        dataset_path=dataset_path,
         skip_fetch=skip_fetch,
         skip_ingest=skip_ingest,
         prepare_only=prepare_only,

@@ -1,0 +1,74 @@
+# SPDX-License-Identifier: Apache-2.0
+name: eval-bench-smoke
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  adapters:
+    name: benchmark adapters
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+      - name: Sync eval deps
+        run: uv sync --extra benchmarks --group dev
+        working-directory: eval
+      - name: Lint eval benchmark code
+        run: uv run ruff check .
+        working-directory: eval
+      - name: Run adapter tests
+        run: |
+          uv run pytest \
+            tests/test_bench_runner.py \
+            tests/test_benchmark_adapters.py \
+            tests/test_benchmark_scoring.py \
+            tests/test_benchmark_stats.py \
+            tests/test_http_helpers.py \
+            tests/test_sdk_runners.py
+        working-directory: eval
+      - name: Run fixture benchmark prepare smoke
+        run: |
+          uv run python bench_runner.py \
+            --benchmark locomo \
+            --split qa \
+            --sdk py \
+            --dataset-path benchmarks/fixtures/locomo_fixture.json \
+            --scorer token-f1 \
+            --endpoint http://127.0.0.1:9 \
+            --skip-ingest \
+            --prepare-only \
+            --output results/benchmarks-smoke
+
+          uv run python bench_runner.py \
+            --benchmark memory-agent-bench \
+            --split Accurate_Retrieval \
+            --source-filter EventQA \
+            --sdk py \
+            --dataset-path benchmarks/fixtures/mab_fixture.json \
+            --scorer exact-containment \
+            --endpoint http://127.0.0.1:9 \
+            --skip-ingest \
+            --prepare-only \
+            --output results/benchmarks-smoke
+
+          uv run python bench_runner.py \
+            --benchmark memory-agent-bench \
+            --split Conflict_Resolution \
+            --source-filter FactConsolidation \
+            --sdk py \
+            --dataset-path benchmarks/fixtures/mab_fixture.json \
+            --scorer exact-containment \
+            --endpoint http://127.0.0.1:9 \
+            --skip-ingest \
+            --prepare-only \
+            --output results/benchmarks-smoke
+        working-directory: eval
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: eval-bench-smoke
+          path: eval/results/benchmarks-smoke/
+          if-no-files-found: warn

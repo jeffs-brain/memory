@@ -58,12 +58,13 @@ class TestGetRunner:
 class TestRunnerCommands:
     def test_ts_command_uses_node_and_port(self) -> None:
         cmd = TsRunner().build_command(4321)
-        assert cmd[0] == "node"
+        assert Path(cmd[0]).name == "node"
         assert "127.0.0.1:4321" in cmd
 
     def test_go_command_uses_go_run(self) -> None:
         cmd = GoRunner().build_command(4321)
-        assert cmd[:3] == ["go", "run", "./cmd/memory"]
+        assert Path(cmd[0]).name == "go"
+        assert cmd[1:3] == ["run", "./cmd/memory"]
         assert "127.0.0.1:4321" in cmd
 
     def test_py_command_uses_uv(self) -> None:

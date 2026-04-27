@@ -4,6 +4,7 @@ from __future__ import annotations
 from benchmarks.base import EvalQuestion
 from benchmarks.scoring import (
     AdversarialAbstentionScorer,
+    ExactContainmentScorer,
     JudgeBridgeScorer,
     TokenF1Scorer,
 )
@@ -86,6 +87,24 @@ def test_adversarial_abstention_rejects_substantive_answer() -> None:
 
     assert result.score == 0.0
     assert result.passed is False
+
+
+def test_exact_containment_matches_any_gold_answer() -> None:
+    question = EvalQuestion(
+        id="q1",
+        question="Where did Jeff move?",
+        gold_answers=["Amersfoort", "the Netherlands"],
+        category="single-hop",
+    )
+
+    result = ExactContainmentScorer().score(
+        question=question,
+        answer="Jeff moved to the Netherlands in 2021.",
+        citations=[],
+    )
+
+    assert result.score == 1.0
+    assert result.passed is True
 
 
 class FakeJudge:

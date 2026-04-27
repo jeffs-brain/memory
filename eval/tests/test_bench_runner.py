@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import sys
 import types
@@ -157,6 +158,7 @@ class FakeAdapter:
     )
 
     def __init__(self) -> None:
+        self.fetched: FetchResult | None = None
         self.normalise_kwargs: dict[str, Any] = {}
 
     def fetch(self, cache_dir: Path) -> FetchResult:
@@ -175,6 +177,7 @@ class FakeAdapter:
         sample_ids: list[str] | None = None,
         source_filter: str | None = None,
     ) -> NormalisedBenchmark:
+        self.fetched = fetched
         self.normalise_kwargs = {
             "split": split,
             "limit": limit,
@@ -421,3 +424,41 @@ def test_prepare_only_ingests_and_does_not_run_questions(
     score = json.loads((run_dirs[0] / "result-py.json").read_text(encoding="utf-8"))
     assert score["total"] == 0
     assert score["manifest"]["sample_size"] == 2
+
+
+def test_dataset_path_uses_local_fixture_without_fetching_or_ingesting(
+    tmp_path: Path,
+    fake_benchmark_modules: FakeAdapter,
+) -> None:
+    fixture = tmp_path / "fixture.json"
+    fixture.write_text('[{"id":"fixture"}]', encoding="utf-8")
+    expected_sha = hashlib.sha256(fixture.read_bytes()).hexdigest()
+
+    result = CliRunner().invoke(
+        bench_runner.main,
+        [
+            "--benchmark",
+            "fake",
+            "--split",
+            "qa",
+            "--sdk",
+            "py",
+            "--endpoint",
+            "http://127.0.0.1:9",
+            "--dataset-path",
+            str(fixture),
+            "--skip-ingest",
+            "--prepare-only",
+            "--output",
+            str(tmp_path / "out"),
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert fake_benchmark_modules.fetched is not None
+    assert fake_benchmark_modules.fetched.local_path == fixture
+    assert fake_benchmark_modules.fetched.sha256 == expected_sha
+
+    run_dirs = list((tmp_path / "out" / "fake" / "qa").iterdir())
+    manifest = json.loads((run_dirs[0] / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["source_sha256"] == expected_sha

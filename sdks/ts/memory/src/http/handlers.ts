@@ -601,9 +601,52 @@ const runSearch = async (
   }
 }
 
-/** Fallback search used when the sqlite-vec index is unavailable.
- *  Walks the store, keeps every line with a case-insensitive match.
- */
+const NAIVE_SEARCH_STOP_WORDS = new Set([
+  'a',
+  'an',
+  'and',
+  'are',
+  'as',
+  'at',
+  'be',
+  'by',
+  'could',
+  'did',
+  'do',
+  'does',
+  'for',
+  'from',
+  'had',
+  'has',
+  'have',
+  'how',
+  'in',
+  'is',
+  'it',
+  'of',
+  'on',
+  'or',
+  'should',
+  'that',
+  'the',
+  'this',
+  'to',
+  'was',
+  'were',
+  'what',
+  'when',
+  'where',
+  'which',
+  'who',
+  'why',
+  'will',
+  'with',
+  'would',
+])
+
+const NAIVE_SEARCH_TOKEN_RE = /[a-z0-9]+/g
+
+/** Fallback search used when the sqlite-vec index is unavailable. */
 const naiveStoreSearch = async (
   br: BrainResources,
   query: string,
@@ -611,9 +654,8 @@ const naiveStoreSearch = async (
   topK: number,
   filters: RetrievalFilters | undefined,
 ): Promise<RetrievedChunk[]> => {
-  const probes = [query, augmentQueryWithTemporal(query, questionDate ?? '')]
-    .map((value) => value.trim().toLowerCase())
-    .filter((value, index, all) => value !== '' && all.indexOf(value) === index)
+  const terms = naiveSearchTerms(query, questionDate)
+  if (terms.length === 0) return []
   const entries = await br.store.list('', { recursive: true, includeGenerated: true })
   const hits: RetrievedChunk[] = []
   for (const entry of entries) {
@@ -625,8 +667,8 @@ const naiveStoreSearch = async (
       const raw = buf.toString('utf8')
       const { frontmatter, body } = parseFrontmatter(raw)
       const text = body === '' ? raw : body
-      const lowered = text.toLowerCase()
-      if (!probes.some((probe) => lowered.includes(probe))) continue
+      const score = scoreNaiveSearchText(text, terms)
+      if (score <= 0) continue
       const metadata: Record<string, unknown> = {
         ...(frontmatter.scope !== undefined ? { scope: frontmatter.scope } : {}),
         ...(frontmatter.type !== undefined ? { type: frontmatter.type } : {}),
@@ -641,21 +683,62 @@ const naiveStoreSearch = async (
         chunkId: entry.path,
         documentId: entry.path,
         path: entry.path,
-        score: 1,
+        score,
         text: text.slice(0, 800),
         title: frontmatter.name?.trim() ?? entry.path,
         summary: frontmatter.description ?? '',
         ...(Object.keys(metadata).length > 0 ? { metadata } : {}),
-        bm25Rank: 0,
         vectorSimilarity: 0,
         rerankScore: 0,
       })
-      if (hits.length >= topK) break
     } catch {
       /* ignore */
     }
   }
   return hits
+    .sort((a, b) => b.score - a.score || a.path.localeCompare(b.path))
+    .slice(0, topK)
+    .map((hit, index) => ({ ...hit, bm25Rank: index }))
+}
+
+const naiveSearchTerms = (query: string, questionDate: string | undefined): string[] => {
+  const seen = new Set<string>()
+  const terms: string[] = []
+  for (const value of [query, augmentQueryWithTemporal(query, questionDate ?? '')]) {
+    for (const term of normaliseNaiveSearchTerms(value)) {
+      if (seen.has(term)) continue
+      seen.add(term)
+      terms.push(term)
+    }
+  }
+  return terms
+}
+
+const normaliseNaiveSearchTerms = (value: string): string[] => {
+  const tokens = value.toLowerCase().match(NAIVE_SEARCH_TOKEN_RE) ?? []
+  return tokens.filter((token) => {
+    if (NAIVE_SEARCH_STOP_WORDS.has(token)) return false
+    if (token.length < 3 && !/^\d+$/.test(token)) return false
+    return true
+  })
+}
+
+const scoreNaiveSearchText = (text: string, terms: readonly string[]): number => {
+  const tokens = text.toLowerCase().match(NAIVE_SEARCH_TOKEN_RE) ?? []
+  if (tokens.length === 0) return 0
+  let score = 0
+  for (const term of terms) {
+    if (tokens.some((token) => naiveTokenMatches(token, term))) {
+      score += 1
+    }
+  }
+  return score
+}
+
+const naiveTokenMatches = (token: string, term: string): boolean => {
+  if (token === term) return true
+  if (token.length < 4 || term.length < 4) return false
+  return token.startsWith(term) || term.startsWith(token)
 }
 
 export type ReaderMode = 'basic' | 'augmented'

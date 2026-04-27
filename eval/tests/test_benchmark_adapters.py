@@ -11,6 +11,8 @@ from benchmarks.base import FetchResult
 from benchmarks.locomo import LoCoMoAdapter, evidence_recall, scorer_for_name
 from benchmarks.memory_agent_bench import ExactContainmentScorer, MemoryAgentBenchAdapter
 
+FIXTURES_DIR = Path(__file__).resolve().parents[1] / "benchmarks" / "fixtures"
+
 
 LOCOMO_FIXTURE = [
     {
@@ -123,6 +125,15 @@ class TestLoCoMoAdapter:
         with pytest.raises(ValueError, match="unsupported LoCoMo split"):
             adapter.normalise(_write_fixture(tmp_path), split="event-summary")
 
+    def test_committed_fixture_parses(self) -> None:
+        fixture = FIXTURES_DIR / "locomo_fixture.json"
+        fetched = FetchResult(local_path=fixture, sha256="fixture", revision="fixture")
+
+        benchmark = LoCoMoAdapter().normalise(fetched, split="qa")
+
+        assert len(benchmark.documents) == 2
+        assert len(benchmark.questions) == 3
+
 
 class TestLoCoMoScoring:
     def test_token_f1_scores_answer_overlap(self, tmp_path: Path) -> None:
@@ -204,7 +215,8 @@ class TestMemoryAgentBenchAdapter:
         assert [question.id for question in benchmark.questions] == ["event-1", "event-2"]
         assert benchmark.questions[1].gold_answers == ["York", "the city of York"]
         assert benchmark.questions[1].category == "temporal"
-        assert benchmark.questions[1].question_date == "2024-01-02"
+        assert benchmark.questions[1].question_date is None
+        assert benchmark.questions[1].metadata["question_date"] == "2024-01-02"
 
     def test_normalises_haystack_sessions(self, tmp_path: Path) -> None:
         fetched = _write_mab_fixture(
@@ -321,3 +333,25 @@ class TestMemoryAgentBenchAdapter:
 
         with pytest.raises(RuntimeError, match="requires pyarrow"):
             MemoryAgentBenchAdapter().normalise(fetched, split="Conflict_Resolution")
+
+    def test_committed_fixture_parses_selected_splits(self) -> None:
+        fixture = FIXTURES_DIR / "mab_fixture.json"
+        fetched = FetchResult(local_path=fixture, sha256="fixture", revision="fixture")
+        adapter = MemoryAgentBenchAdapter()
+
+        accurate_retrieval = adapter.normalise(
+            fetched,
+            split="Accurate_Retrieval",
+            source_filter="EventQA",
+        )
+        conflict_resolution = adapter.normalise(
+            fetched,
+            split="Conflict_Resolution",
+            source_filter="FactConsolidation",
+        )
+
+        assert [question.id for question in accurate_retrieval.questions] == [
+            "event-1",
+            "event-2",
+        ]
+        assert [question.id for question in conflict_resolution.questions] == ["conflict-1"]

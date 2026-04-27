@@ -46,6 +46,27 @@ def token_f1(predicted: str, gold: str) -> float:
 
 
 @dataclass
+class ExactContainmentScorer:
+    name: str = "exact-containment"
+    case_sensitive: bool = False
+
+    def score(
+        self,
+        *,
+        question: EvalQuestion,
+        answer: str,
+        citations: list[dict[str, Any]] | None = None,
+    ) -> ScorerResult:
+        del citations
+        haystack = answer if self.case_sensitive else answer.lower()
+        for gold in question.gold_answers:
+            candidate = gold if self.case_sensitive else gold.lower()
+            if candidate and candidate in haystack:
+                return ScorerResult(score=1.0, passed=True)
+        return ScorerResult(score=0.0, passed=False)
+
+
+@dataclass
 class TokenF1Scorer:
     threshold: float = 0.5
     name: str = "token-f1"
@@ -117,6 +138,7 @@ class JudgeBridgeScorer:
 
 __all__ = [
     "AdversarialAbstentionScorer",
+    "ExactContainmentScorer",
     "JudgeBridgeScorer",
     "TokenF1Scorer",
     "normalise_tokens",

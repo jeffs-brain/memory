@@ -15,7 +15,12 @@ from benchmarks.base import (
     NormalisedBenchmark,
 )
 from benchmarks.fetch import fetch_and_verify
-from benchmarks.scoring import AdversarialAbstentionScorer, JudgeBridgeScorer, TokenF1Scorer
+from benchmarks.scoring import (
+    AdversarialAbstentionScorer,
+    ExactContainmentScorer,
+    JudgeBridgeScorer,
+    TokenF1Scorer,
+)
 
 
 LOCOMO_REVISION = "3eb6f2c585f5e1699204e3c3bdf7adc5c28cb376"
@@ -108,12 +113,12 @@ class LoCoMoAdapter:
         return TokenF1Scorer()
 
     def available_scorers(self) -> list[str]:
-        return ["token-f1", "adversarial", "judge"]
+        return ["token-f1", "exact-containment", "adversarial", "judge"]
 
     def scorer_for(
         self,
         name: str,
-    ) -> TokenF1Scorer | AdversarialAbstentionScorer | JudgeBridgeScorer:
+    ) -> TokenF1Scorer | ExactContainmentScorer | AdversarialAbstentionScorer | JudgeBridgeScorer:
         return scorer_for_name(name)
 
 
@@ -136,9 +141,13 @@ def evidence_recall(
     return len(expected & found) / len(expected)
 
 
-def scorer_for_name(name: str) -> TokenF1Scorer | AdversarialAbstentionScorer | JudgeBridgeScorer:
+def scorer_for_name(
+    name: str,
+) -> TokenF1Scorer | ExactContainmentScorer | AdversarialAbstentionScorer | JudgeBridgeScorer:
     if name == "token-f1":
         return TokenF1Scorer()
+    if name == "exact-containment":
+        return ExactContainmentScorer()
     if name == "adversarial":
         return AdversarialAbstentionScorer()
     if name == "judge":

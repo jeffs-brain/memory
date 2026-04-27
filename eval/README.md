@@ -102,8 +102,8 @@ Supported adapters:
 
 | Adapter | Splits | Default scorer | Notes |
 | --- | --- | --- | --- |
-| `locomo` | `qa` | `token-f1` | Pinned LoCoMo `locomo10.json`, all conversations ingested into one brain, evidence recall reported. |
-| `memory-agent-bench` / `mab` | `Accurate_Retrieval`, `Conflict_Resolution` | `judge` | Hugging Face revision pinned; Parquet parsing requires `uv sync --extra benchmarks`. |
+| `locomo` | `qa` | `token-f1` | Pinned LoCoMo `locomo10.json`, all conversations ingested into one brain, evidence recall reported. Use `exact-containment` for fixture smoke. |
+| `memory-agent-bench` / `mab` | `Accurate_Retrieval`, `Conflict_Resolution` | `judge` | Hugging Face revision pinned; Parquet parsing requires `uv sync --extra benchmarks`. Dataset question dates are preserved in metadata but are not forwarded as daemon temporal anchors. |
 
 Quick smoke against an existing daemon:
 
@@ -121,12 +121,31 @@ python3 bench_runner.py \
   --output results/benchmarks
 ```
 
+No-network fixture smoke:
+
+```bash
+cd eval
+printf 'locomo-fixture_conversation-2\n' > /tmp/locomo-smoke-ids.txt
+uv run python bench_runner.py \
+  --benchmark locomo \
+  --split qa \
+  --sdk ts \
+  --dataset-path benchmarks/fixtures/locomo_fixture.json \
+  --scenario search-retrieve-only \
+  --mode bm25 \
+  --scorer exact-containment \
+  --sample-ids-file /tmp/locomo-smoke-ids.txt \
+  --floor 1.0 \
+  --output results/benchmarks-live-smoke
+```
+
 Useful benchmark flags:
 
 | Flag | Notes |
 | --- | --- |
 | `--prepare-only` | Fetch, normalise, ingest, write artefacts, then stop before questions. |
 | `--skip-fetch` | Reuse a verified cached dataset under `datasets/cache/`. |
+| `--dataset-path` | Use a local JSON/JSONL/Parquet fixture instead of fetching. Cannot be combined with `--skip-fetch`. |
 | `--skip-ingest` | Reuse an already populated benchmark brain. |
 | `--sample-ids-file` | Pin exact question IDs from newline text or JSON string array. |
 | `--source-filter` | Adapter-specific source/conversation filter. |
@@ -193,6 +212,9 @@ The runner compares SDKs against each other. Scenario regressions inside one SDK
 - `JB_LLM_API_KEY` - TypeScript SDK: explicit API key for the configured provider.
 - `JB_EVAL_JUDGE_MODEL` - override the judge model (default OpenAI `gpt-4o`).
 - `JB_EVAL_BUDGET_USD` - fail-fast when accumulated judge spend exceeds the threshold.
+- `JB_EVAL_GO` / `JB_EVAL_GO_BIN` - Go binary for spawned Go daemon smoke runs. Useful when the repo needs Go 1.25+ but the system `go` is older.
+- `JB_EVAL_TS_NODE` / `JB_EVAL_NODE` - Node binary for spawned TypeScript daemon smoke runs. The runner prefers local nvm Node 24 when available so native optional dependencies match the built ABI.
+- `JB_EVAL_SDK_HEALTH_TIMEOUT` / `JB_EVAL_<SDK>_HEALTH_TIMEOUT` - daemon startup timeout in seconds. Go defaults to a longer timeout because a cold `go run` can compile or download modules before binding the port.
 - `OLLAMA_HOST` - Ollama endpoint for local Ollama-backed runs (default `http://localhost:11434`).
 - `ANTHROPIC_API_KEY` - required when `JB_LLM_PROVIDER=anthropic`.
 

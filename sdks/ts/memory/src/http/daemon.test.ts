@@ -315,6 +315,16 @@ describe('memory daemon integration', () => {
     expect(search.status).toBe(200)
     const body = (await search.json()) as { chunks: unknown[] }
     expect(body.chunks.length).toBeGreaterThan(0)
+
+    const naturalSearch = await handler(
+      makeRequest('POST', '/v1/brains/ingest/search', {
+        body: JSON.stringify({ query: 'Where does the hedgehog live?', topK: 5 }),
+        headers: { 'content-type': 'application/json' },
+      }),
+    )
+    expect(naturalSearch.status).toBe(200)
+    const naturalBody = (await naturalSearch.json()) as { chunks: unknown[] }
+    expect(naturalBody.chunks.length).toBeGreaterThan(0)
   })
 
   it('4a. leaves untitled raw transcripts untitled in the search index', async () => {

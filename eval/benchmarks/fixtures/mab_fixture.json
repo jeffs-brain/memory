@@ -1,0 +1,49 @@
+[
+  {
+    "context": "Document 1:\nAlpha lives in Bath.\nDocument 2:\nBeta moved to York.",
+    "questions": [
+      "Where does Alpha live?",
+      "Where did Beta move?"
+    ],
+    "answers": [
+      ["Bath"],
+      ["York", "the city of York"]
+    ],
+    "metadata": {
+      "source": "EventQA",
+      "qa_pair_ids": ["event-1", "event-2"],
+      "question_dates": ["2024-01-01", "2024-01-02"],
+      "question_types": ["single-hop", "temporal"]
+    }
+  },
+  {
+    "context": null,
+    "questions": [
+      "Where does Sam work now?"
+    ],
+    "answers": [
+      ["Leeds"]
+    ],
+    "metadata": {
+      "source": "FactConsolidation",
+      "haystack_sessions": [
+        [
+          [
+            {
+              "role": "user",
+              "content": "Sam works in London.",
+              "has_answer": false
+            },
+            {
+              "role": "user",
+              "content": "Sam now works in Leeds.",
+              "has_answer": true
+            }
+          ]
+        ]
+      ],
+      "qa_pair_ids": ["conflict-1"],
+      "question_types": ["single-hop-conflict"]
+    }
+  }
+]

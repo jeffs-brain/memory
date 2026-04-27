@@ -1,0 +1,55 @@
+[
+  {
+    "sample_id": "fixture_conversation",
+    "conversation": {
+      "speaker_a": "Caroline",
+      "speaker_b": "Melanie",
+      "session_1_date_time": "9:00 am on 1 May, 2023",
+      "session_1": [
+        {
+          "speaker": "Caroline",
+          "dia_id": "D1:1",
+          "text": "I went to an LGBTQ support group yesterday."
+        },
+        {
+          "speaker": "Melanie",
+          "dia_id": "D1:2",
+          "text": "I painted a sunrise in 2022."
+        }
+      ],
+      "session_2_date_time": "10:00 am on 2 May, 2023",
+      "session_2": [
+        {
+          "speaker": "Caroline",
+          "dia_id": "D2:1",
+          "text": "I researched adoption agencies."
+        },
+        {
+          "speaker": "Melanie",
+          "dia_id": "D2:2",
+          "text": "No one mentioned a violin lesson."
+        }
+      ]
+    },
+    "qa": [
+      {
+        "question": "When did Caroline go to the LGBTQ support group?",
+        "answer": "30 April 2023",
+        "evidence": ["D1:1"],
+        "category": 2
+      },
+      {
+        "question": "What did Caroline research?",
+        "answer": "Adoption agencies",
+        "evidence": ["D2:1"],
+        "category": 1
+      },
+      {
+        "question": "What instrument lesson did Melanie book?",
+        "answer": null,
+        "evidence": [],
+        "category": 5
+      }
+    ]
+  }
+]

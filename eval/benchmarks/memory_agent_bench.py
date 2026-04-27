@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import json
 import re
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -18,10 +17,9 @@ from benchmarks.base import (
     EvalQuestion,
     FetchResult,
     NormalisedBenchmark,
-    ScorerResult,
 )
 from benchmarks.fetch import fetch_and_verify
-from benchmarks.scoring import JudgeBridgeScorer
+from benchmarks.scoring import ExactContainmentScorer, JudgeBridgeScorer
 
 DATASET_ID = "ai-hyz/MemoryAgentBench"
 DATASET_REVISION = "0a3c1dfd4c434f07b5516d6f7bc510700d041577"
@@ -31,27 +29,6 @@ ADAPTER_VERSION = "0.1.0"
 SUPPORTED_SPLITS = ("Accurate_Retrieval", "Conflict_Resolution")
 DEFAULT_SPLIT = "Accurate_Retrieval"
 _DOCUMENT_MARKER_RE = re.compile(r"(?m)^Document\s+(\d+):\s*")
-
-
-@dataclass
-class ExactContainmentScorer:
-    name: str = "exact-containment"
-    case_sensitive: bool = False
-
-    def score(
-        self,
-        *,
-        question: EvalQuestion,
-        answer: str,
-        citations: list[dict[str, Any]] | None = None,
-    ) -> ScorerResult:
-        del citations
-        haystack = answer if self.case_sensitive else answer.lower()
-        for gold in question.gold_answers:
-            candidate = gold if self.case_sensitive else gold.lower()
-            if candidate and candidate in haystack:
-                return ScorerResult(score=1.0, passed=True)
-        return ScorerResult(score=0.0, passed=False)
 
 
 class MemoryAgentBenchAdapter:
@@ -138,9 +115,6 @@ class MemoryAgentBenchAdapter:
                             if index < len(question_types)
                             else selected_split
                         ),
-                        question_date=(
-                            question_dates[index] if index < len(question_dates) else None
-                        ),
                         source_id=row_id,
                         metadata={
                             "adapter_version": ADAPTER_VERSION,
@@ -148,6 +122,9 @@ class MemoryAgentBenchAdapter:
                             "row_index": row_index,
                             "question_index": index,
                             "qa_pair_id": qa_pair_ids[index] if index < len(qa_pair_ids) else None,
+                            "question_date": (
+                                question_dates[index] if index < len(question_dates) else None
+                            ),
                             "question_id": (
                                 question_ids[index] if index < len(question_ids) else None
                             ),
