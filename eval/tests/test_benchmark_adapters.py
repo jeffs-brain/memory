@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from benchmarks.base import FetchResult
+from benchmarks.bpi_bench import BpiBenchAdapter
 from benchmarks.locomo import LoCoMoAdapter, evidence_recall, scorer_for_name
 from benchmarks.memory_agent_bench import ExactContainmentScorer, MemoryAgentBenchAdapter
 
@@ -355,3 +356,62 @@ class TestMemoryAgentBenchAdapter:
             "event-2",
         ]
         assert [question.id for question in conflict_resolution.questions] == ["conflict-1"]
+
+
+class TestBpiBenchAdapter:
+    def test_normalises_smoke_fixture_as_remember_documents_and_questions(self) -> None:
+        fixture = FIXTURES_DIR / "bpi_bench_smoke_fixture.json"
+        fetched = FetchResult(local_path=fixture, sha256="fixture", revision="fixture")
+
+        benchmark = BpiBenchAdapter().normalise(fetched, split="smoke")
+
+        assert len(benchmark.documents) == 12
+        assert len(benchmark.questions) == 8
+        assert benchmark.documents[0].metadata["ingest_method"] == "remember"
+        assert benchmark.documents[0].metadata["remember_slug"]
+        assert "Rule ID:" in benchmark.documents[0].content
+        assert benchmark.questions[0].question_date == "2026-01-20"
+        assert benchmark.questions[0].evidence_ids
+        assert benchmark.questions[0].metadata["expected_rules"]
+        assert benchmark.questions[0].metadata["valid_rules"]
+        assert "applicable_rules" in benchmark.questions[0].question
+
+    def test_supports_limit_sample_ids_and_domain_filter(self) -> None:
+        fixture = FIXTURES_DIR / "bpi_bench_fixture.json"
+        fetched = FetchResult(local_path=fixture, sha256="fixture", revision="fixture")
+
+        benchmark = BpiBenchAdapter().normalise(
+            fetched,
+            split="full",
+            limit=1,
+            sample_ids=["retail-returns-001-C2"],
+            source_filter="retail",
+        )
+
+        assert [question.id for question in benchmark.questions] == ["retail-returns-001-C2"]
+        assert all(document.metadata["domain"] == "retail" for document in benchmark.documents)
+
+    def test_rejects_unknown_split(self) -> None:
+        fixture = FIXTURES_DIR / "bpi_bench_fixture.json"
+        fetched = FetchResult(local_path=fixture, sha256="fixture", revision="fixture")
+
+        with pytest.raises(ValueError, match="unsupported BPI-Bench split"):
+            BpiBenchAdapter().normalise(fetched, split="train")
+
+    def test_bpi_scorer_scores_structured_answer(self) -> None:
+        fixture = FIXTURES_DIR / "bpi_bench_smoke_fixture.json"
+        fetched = FetchResult(local_path=fixture, sha256="fixture", revision="fixture")
+        question = BpiBenchAdapter().normalise(fetched, split="smoke").questions[0]
+
+        result = BpiBenchAdapter().default_scorer().score(
+            question=question,
+            answer=(
+                '{"applicable_rules": ["RET-R1"], '
+                '"action": "Process a full refund to the original payment method."}'
+            ),
+            citations=[],
+        )
+
+        assert result.passed is True
+        assert result.score == 1.0
+        assert result.detail["predicted_rules"] == ["RET-R1"]

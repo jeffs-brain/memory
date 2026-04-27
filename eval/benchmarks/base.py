@@ -7,7 +7,7 @@ from typing import Any, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field
 
-MetadataValue = str | int | float | bool | None
+MetadataValue = str | int | float | bool | list[str] | None
 
 
 class BenchmarkSource(BaseModel):

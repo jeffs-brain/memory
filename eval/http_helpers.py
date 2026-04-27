@@ -41,6 +41,10 @@ def ingest_file_path(brain: str) -> str:
     return f"{brain_path(brain)}/ingest/file"
 
 
+def remember_path(brain: str) -> str:
+    return f"{brain_path(brain)}/remember"
+
+
 def question_date(item: dict[str, Any]) -> str | None:
     for key in ("questionDate", "question_date"):
         value = item.get(key)

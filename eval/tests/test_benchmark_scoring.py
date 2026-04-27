@@ -4,9 +4,14 @@ from __future__ import annotations
 from benchmarks.base import EvalQuestion
 from benchmarks.scoring import (
     AdversarialAbstentionScorer,
+    BPIContainmentScorer,
     ExactContainmentScorer,
     JudgeBridgeScorer,
     TokenF1Scorer,
+    bpi_action_score,
+    bpi_macro_average,
+    bpi_rule_score,
+    extract_bpi_answer,
 )
 
 
@@ -140,3 +145,111 @@ def test_judge_bridge_maps_question_to_existing_judge_shape() -> None:
     }
     assert fake_judge.answer == "Candidate"
     assert result.detail["judge_model"] == "fake-judge"
+
+
+def _bpi_question(
+    *,
+    expected_rules: list[str],
+    expected_action: str = "Auto-approve the expense.",
+    action_keywords: list[str] | None = None,
+    valid_rules: list[str] | None = None,
+) -> EvalQuestion:
+    return EvalQuestion(
+        id="bpi-1",
+        question="What should happen?",
+        gold_answers=[expected_action],
+        category="single-rule-recall",
+        metadata={
+            "expected_rules": expected_rules,
+            "expected_action": expected_action,
+            "action_keywords": action_keywords or ["auto-approve", "approved"],
+            "valid_rules": valid_rules or ["R1", "R2", "R3"],
+        },
+    )
+
+
+def test_bpi_rule_score_exact_match() -> None:
+    assert bpi_rule_score(predicted_rules={"R1", "R3"}, expected_rules={"R1", "R3"}) == 1.0
+
+
+def test_bpi_rule_score_partial_match_uses_f1() -> None:
+    score = bpi_rule_score(predicted_rules={"R1", "R2"}, expected_rules={"R1", "R3"})
+
+    assert score == 0.5
+
+
+def test_bpi_rule_score_handles_correct_abstention() -> None:
+    assert bpi_rule_score(predicted_rules=set(), expected_rules=set()) == 1.0
+
+
+def test_bpi_rule_score_rejects_spurious_abstention_rules() -> None:
+    assert bpi_rule_score(predicted_rules={"R1"}, expected_rules=set()) == 0.0
+
+
+def test_bpi_action_score_normalises_keyword_punctuation_case_and_spacing() -> None:
+    score = bpi_action_score(
+        predicted_action="The expense is AUTO APPROVED after review.",
+        expected_action="",
+        keywords=["auto-approve", "review"],
+    )
+
+    assert score == 1.0
+
+
+def test_bpi_action_score_requires_all_keywords() -> None:
+    score = bpi_action_score(
+        predicted_action="Refer to HR for guidance.",
+        expected_action="",
+        keywords=["refer", "HR", "not covered"],
+    )
+
+    assert score == 0.0
+
+
+def test_extract_bpi_answer_prefers_structured_json() -> None:
+    rules, action = extract_bpi_answer(
+        """
+        {
+          "applicable_rules": ["R1", "R3"],
+          "action": "Escalate to manager."
+        }
+        """
+    )
+
+    assert rules == {"R1", "R3"}
+    assert action == "Escalate to manager."
+
+
+def test_bpi_containment_scorer_combines_rule_and_action_scores() -> None:
+    result = BPIContainmentScorer().score(
+        question=_bpi_question(expected_rules=["R1"]),
+        answer='{"applicable_rules": ["R1"], "action": "Auto approved."}',
+        citations=[],
+    )
+
+    assert result.score == 1.0
+    assert result.passed is True
+    assert result.detail["rule_score"] == 1.0
+    assert result.detail["action_score"] == 1.0
+    assert result.detail["predicted_rules"] == ["R1"]
+
+
+def test_bpi_containment_scorer_flags_hallucinated_rule_ids() -> None:
+    result = BPIContainmentScorer().score(
+        question=_bpi_question(
+            expected_rules=["R1"],
+            action_keywords=["director"],
+            valid_rules=["R1", "R2"],
+        ),
+        answer='{"applicable_rules": ["R1", "R99"], "action": "Ask a director."}',
+        citations=[],
+    )
+
+    assert round(result.score, 6) == 0.8
+    assert round(result.detail["rule_score"], 6) == round(2 / 3, 6)
+    assert result.detail["spurious_rules"] == ["R99"]
+    assert result.detail["phantom_rules"] == ["R99"]
+
+
+def test_bpi_macro_average_uses_category_means() -> None:
+    assert bpi_macro_average({"single-rule-recall": 1.0, "abstention": 0.5}) == 0.75

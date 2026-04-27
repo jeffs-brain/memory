@@ -426,6 +426,65 @@ def test_prepare_only_ingests_and_does_not_run_questions(
     assert score["manifest"]["sample_size"] == 2
 
 
+def test_prepare_brain_uses_remember_for_marked_documents(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[tuple[str, str, dict[str, Any] | None]] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        payload = json.loads(request.content.decode("utf-8")) if request.content else None
+        calls.append((request.method, request.url.path, payload))
+        if request.method == "DELETE":
+            return httpx.Response(404)
+        if request.method == "POST" and request.url.path == "/v1/brains":
+            return httpx.Response(201)
+        if request.method == "POST" and request.url.path == "/v1/brains/bpi/remember":
+            return httpx.Response(201)
+        raise AssertionError(f"unexpected request: {request.method} {request.url.path}")
+
+    transport = httpx.MockTransport(handler)
+    monkeypatch.setattr(
+        bench_runner.httpx,
+        "AsyncClient",
+        lambda **kwargs: REAL_ASYNC_CLIENT(
+            base_url=kwargs.get("base_url", "http://test"),
+            timeout=kwargs.get("timeout"),
+            transport=transport,
+        ),
+    )
+
+    asyncio.run(
+        bench_runner.prepare_brain(
+            endpoint="http://test",
+            brain="bpi",
+            documents=[
+                CorpusDocument(
+                    path="unused.md",
+                    content="Rule RET-R1: refund within 30 days.",
+                    metadata={
+                        "ingest_method": "remember",
+                        "remember_slug": "ret-r1",
+                        "benchmark": "bpi-bench",
+                        "domain": "retail",
+                        "scenario_id": "retail-1",
+                        "rule_id": "RET-R1",
+                    },
+                )
+            ],
+        )
+    )
+
+    assert calls[-1] == (
+        "POST",
+        "/v1/brains/bpi/remember",
+        {
+            "note": "Rule RET-R1: refund within 30 days.",
+            "slug": "ret-r1",
+            "tags": ["bpi-bench", "retail", "retail-1", "RET-R1"],
+        },
+    )
+
+
 def test_dataset_path_uses_local_fixture_without_fetching_or_ingesting(
     tmp_path: Path,
     fake_benchmark_modules: FakeAdapter,

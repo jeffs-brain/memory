@@ -26,6 +26,7 @@ from http_helpers import (
     brain_path,
     build_request_spec as _build_http_request_spec,
     ingest_file_path,
+    remember_path,
 )
 from sdks import get_runner
 from sdks.base import SdkRunner
@@ -172,6 +173,25 @@ async def prepare_brain(
         for document in documents:
             content = _get(document, "content")
             metadata = _get(document, "metadata") or {}
+            ingest_method = metadata.get("ingest_method") if isinstance(metadata, dict) else None
+            if ingest_method == "remember":
+                slug = metadata.get("remember_slug") if isinstance(metadata, dict) else None
+                scope = metadata.get("remember_scope") if isinstance(metadata, dict) else None
+                source = metadata.get("source") if isinstance(metadata, dict) else None
+                payload: dict[str, Any] = {"note": str(content)}
+                if isinstance(slug, str) and slug:
+                    payload["slug"] = slug
+                if isinstance(scope, str) and scope:
+                    payload["scope"] = scope
+                if isinstance(source, str) and source:
+                    payload["source"] = source
+                tags = _remember_tags(metadata)
+                if tags:
+                    payload["tags"] = tags
+                remember_resp = await client.post(remember_path(brain), json=payload)
+                if remember_resp.status_code not in (200, 201, 202):
+                    remember_resp.raise_for_status()
+                continue
             payload: dict[str, Any] = {
                 "path": _get(document, "path"),
                 "contentType": _get(document, "content_type", "text/markdown"),
@@ -182,6 +202,15 @@ async def prepare_brain(
             ingest_resp = await client.post(ingest_file_path(brain), json=payload)
             if ingest_resp.status_code not in (200, 201, 202):
                 ingest_resp.raise_for_status()
+
+
+def _remember_tags(metadata: dict[str, Any]) -> list[str]:
+    tags: list[str] = []
+    for key in ("benchmark", "domain", "scenario_id", "rule_id"):
+        value = metadata.get(key)
+        if isinstance(value, str) and value:
+            tags.append(value)
+    return tags
 
 
 def _evidence_recall(

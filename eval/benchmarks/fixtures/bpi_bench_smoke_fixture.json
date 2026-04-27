@@ -1,0 +1,214 @@
+{
+  "version": "1.0",
+  "name": "BPI-Bench smoke fixture",
+  "description": "Eight-case smoke split with one representative case per BPI-Bench category.",
+  "case_categories": [
+    "single-rule-recall",
+    "multi-rule-discrimination",
+    "compound-conditions",
+    "priority-resolution",
+    "rule-update",
+    "abstention",
+    "exception-handling",
+    "cross-domain-scoping"
+  ],
+  "scenarios": [
+    {
+      "id": "retail-returns-001-smoke",
+      "domain": "retail",
+      "description": "Smoke cases for retail return behaviour.",
+      "rules": [
+        {
+          "id": "RET-R1",
+          "instruction": "If a customer requests a return within 30 days of purchase and the item is unused with original packaging, process a full refund to the original payment method.",
+          "given_at": "2026-01-01T09:00:00Z"
+        },
+        {
+          "id": "RET-R5",
+          "instruction": "From 1 February 2026, loyalty members get 15% off accessories when buying a full-price coat in the same order. This replaces the earlier 10% accessory discount.",
+          "given_at": "2026-02-01T00:00:00Z"
+        }
+      ],
+      "cases": [
+        {
+          "id": "retail-returns-001-C1",
+          "category": "single-rule-recall",
+          "situation": "A customer bought a dress for £80 on 3 January 2026. Today is 20 January 2026. The dress is unworn and has the original tags and bag.",
+          "case_date": "2026-01-20",
+          "expected_rules": ["RET-R1"],
+          "expected_action": "Process a full refund to the original payment method.",
+          "action_keywords": ["full refund", "original payment method"],
+          "expected_reasoning": "The return is within 30 days and the item is unused with original packaging."
+        }
+      ]
+    },
+    {
+      "id": "support-sla-001-smoke",
+      "domain": "customer-support",
+      "description": "Smoke cases for support SLA behaviour.",
+      "rules": [
+        {
+          "id": "SUP-R4",
+          "instruction": "Password reset requests from verified account owners may be resolved in chat.",
+          "given_at": "2026-01-05T08:15:00Z"
+        },
+        {
+          "id": "SUP-R6",
+          "instruction": "Do not resolve password reset requests in chat if the requester fails identity verification; escalate to account security.",
+          "given_at": "2026-01-05T08:20:00Z",
+          "priority": 3
+        }
+      ],
+      "cases": [
+        {
+          "id": "support-sla-001-C2",
+          "category": "multi-rule-discrimination",
+          "situation": "A verified account owner asks in chat to reset their password. They do not mention billing, outage, or data loss.",
+          "case_date": "2026-01-22",
+          "expected_rules": ["SUP-R4"],
+          "expected_action": "Resolve the password reset request in chat.",
+          "action_keywords": ["password reset", "chat"],
+          "expected_reasoning": "The requester is verified, so the chat reset rule applies and escalation rules do not."
+        },
+        {
+          "id": "support-sla-001-C7",
+          "category": "exception-handling",
+          "situation": "A requester asks to reset an account password in chat but fails identity verification.",
+          "case_date": "2026-01-26",
+          "expected_rules": ["SUP-R4", "SUP-R6"],
+          "expected_action": "Do not resolve in chat; escalate to account security.",
+          "action_keywords": ["do not resolve", "account security"],
+          "expected_reasoning": "The failed verification exception overrides normal chat resolution."
+        }
+      ]
+    },
+    {
+      "id": "orders-fulfilment-001-smoke",
+      "domain": "order-processing",
+      "description": "Smoke cases for order processing behaviour.",
+      "rules": [
+        {
+          "id": "ORD-R4",
+          "instruction": "If shipping and billing countries differ on an order over £300, place the order on fraud review before fulfilment.",
+          "given_at": "2026-01-08T09:15:00Z",
+          "priority": 3
+        }
+      ],
+      "cases": [
+        {
+          "id": "orders-fulfilment-001-C3",
+          "category": "compound-conditions",
+          "situation": "An order totals £360, ships to France, bills to the UK, and payment is verified.",
+          "case_date": "2026-01-22",
+          "expected_rules": ["ORD-R4"],
+          "expected_action": "Place the order on fraud review before fulfilment.",
+          "action_keywords": ["fraud review", "before fulfilment"],
+          "expected_reasoning": "The order is over £300 and the shipping and billing countries differ."
+        }
+      ]
+    },
+    {
+      "id": "hr-people-001-smoke",
+      "domain": "hr-people",
+      "description": "Smoke cases for HR approvals.",
+      "rules": [
+        {
+          "id": "HR-R4",
+          "instruction": "Travel expenses with a receipt and a project code may be reimbursed through standard payroll.",
+          "given_at": "2026-01-10T09:15:00Z"
+        },
+        {
+          "id": "HR-R3",
+          "instruction": "Expense claims over £250 require director approval when the expense is not pre-approved.",
+          "given_at": "2026-01-10T09:10:00Z"
+        },
+        {
+          "id": "HR-X1",
+          "instruction": "Domestic orders under £200 with verified payment should be released to fulfilment immediately.",
+          "given_at": "2026-01-10T09:30:00Z"
+        }
+      ],
+      "cases": [
+        {
+          "id": "hr-people-001-C8",
+          "category": "cross-domain-scoping",
+          "situation": "An employee submits a £280 non-pre-approved rail expense with a receipt and project code.",
+          "case_date": "2026-02-20",
+          "expected_rules": ["HR-R3", "HR-R4"],
+          "expected_action": "Process through payroll only after director approval.",
+          "action_keywords": ["payroll", "director approval"],
+          "expected_reasoning": "The order fulfilment release rule is not relevant to an HR expense claim."
+        }
+      ]
+    },
+    {
+      "id": "compliance-transactions-001-smoke",
+      "domain": "compliance",
+      "description": "Smoke cases for compliance thresholds.",
+      "rules": [
+        {
+          "id": "COM-R1",
+          "instruction": "Any single transaction over £10,000 must be reported to compliance within 24 hours.",
+          "given_at": "2026-01-12T09:00:00Z"
+        },
+        {
+          "id": "COM-R2",
+          "instruction": "Transactions involving a sanctioned country must be blocked and escalated to the compliance officer immediately.",
+          "given_at": "2026-01-12T09:05:00Z",
+          "priority": 4
+        },
+        {
+          "id": "COM-R5",
+          "instruction": "From 1 May 2026, any single transaction over £8,000 must be reported to compliance within 24 hours. This replaces the earlier £10,000 threshold.",
+          "given_at": "2026-05-01T00:00:00Z"
+        }
+      ],
+      "cases": [
+        {
+          "id": "compliance-transactions-001-C4",
+          "category": "priority-resolution",
+          "situation": "A customer attempts a £14,000 transfer involving a sanctioned country.",
+          "case_date": "2026-02-08",
+          "expected_rules": ["COM-R1", "COM-R2"],
+          "expected_action": "Block the transaction and escalate to the compliance officer immediately; also record that it meets the reporting threshold.",
+          "action_keywords": ["block", "compliance officer", "immediately"],
+          "expected_reasoning": "The sanctions rule has the highest priority and the amount also triggers reporting."
+        },
+        {
+          "id": "compliance-transactions-001-C5",
+          "category": "rule-update",
+          "situation": "A customer sends a single £8,600 domestic transfer on 6 May 2026.",
+          "case_date": "2026-05-06",
+          "expected_rules": ["COM-R5"],
+          "expected_action": "Report the transaction to compliance within 24 hours.",
+          "action_keywords": ["report", "24 hours", "£8,000"],
+          "expected_reasoning": "The May update lowered the single-transaction reporting threshold to £8,000."
+        }
+      ]
+    },
+    {
+      "id": "insurance-claims-001-smoke",
+      "domain": "insurance",
+      "description": "Smoke cases for insurance abstention.",
+      "rules": [
+        {
+          "id": "INS-R2",
+          "instruction": "Motor glass claims under £750 with photos and policy number may be approved automatically.",
+          "given_at": "2026-01-15T09:05:00Z"
+        }
+      ],
+      "cases": [
+        {
+          "id": "insurance-claims-001-C6",
+          "category": "abstention",
+          "situation": "A customer asks whether they can add a second driver to their policy.",
+          "case_date": "2026-02-14",
+          "expected_rules": [],
+          "expected_action": "No matching rule applies; route to policy administration.",
+          "action_keywords": ["no matching rule", "policy administration"],
+          "expected_reasoning": "No claims rule covers policy amendments."
+        }
+      ]
+    }
+  ]
+}

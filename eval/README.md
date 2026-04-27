@@ -102,6 +102,7 @@ Supported adapters:
 
 | Adapter | Splits | Default scorer | Notes |
 | --- | --- | --- | --- |
+| `bpi-bench` / `bpi` | `full`, `smoke` | `bpi-containment` | Business-process rule recall benchmark. Rules are ingested through `/remember`; cases are evaluated through `/ask` or retrieval-only scenarios. Uses local sibling `../bpi-bench/dataset/v1` when present, then bundled fixtures or remote fetch. |
 | `locomo` | `qa` | `token-f1` | Pinned LoCoMo `locomo10.json`, all conversations ingested into one brain, evidence recall reported. Use `exact-containment` for fixture smoke. |
 | `memory-agent-bench` / `mab` | `Accurate_Retrieval`, `Conflict_Resolution` | `judge` | Hugging Face revision pinned; Parquet parsing requires `uv sync --extra benchmarks`. Dataset question dates are preserved in metadata but are not forwarded as daemon temporal anchors. |
 
@@ -121,7 +122,23 @@ python3 bench_runner.py \
   --output results/benchmarks
 ```
 
-No-network fixture smoke:
+BPI no-network fixture smoke:
+
+```bash
+cd eval
+uv run python bench_runner.py \
+  --benchmark bpi-bench \
+  --split smoke \
+  --sdk ts \
+  --dataset-path benchmarks/fixtures/bpi_bench_smoke_fixture.json \
+  --scenario ask-augmented \
+  --mode bm25 \
+  --scorer bpi-containment \
+  --limit 8 \
+  --output results/benchmarks-bpi-smoke
+```
+
+LoCoMo no-network fixture smoke:
 
 ```bash
 cd eval

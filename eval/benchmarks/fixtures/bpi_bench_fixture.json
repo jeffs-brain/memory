@@ -1,0 +1,807 @@
+{
+  "version": "1.0",
+  "name": "BPI-Bench initial fixture",
+  "description": "Business Process Intelligence benchmark fixture for Configure -> Operate -> Recall under exception.",
+  "case_categories": [
+    "single-rule-recall",
+    "multi-rule-discrimination",
+    "compound-conditions",
+    "priority-resolution",
+    "rule-update",
+    "abstention",
+    "exception-handling",
+    "cross-domain-scoping"
+  ],
+  "scenarios": [
+    {
+      "id": "retail-returns-001",
+      "domain": "retail",
+      "description": "Retail returns, refund routing, and discount handling.",
+      "rules": [
+        {
+          "id": "RET-R1",
+          "instruction": "If a customer requests a return within 30 days of purchase and the item is unused with original packaging, process a full refund to the original payment method.",
+          "given_at": "2026-01-01T09:00:00Z"
+        },
+        {
+          "id": "RET-R2",
+          "instruction": "If a customer requests a return after 30 days but within 90 days of purchase, offer store credit only and do not issue a cash refund.",
+          "given_at": "2026-01-01T09:05:00Z"
+        },
+        {
+          "id": "RET-R3",
+          "instruction": "Electronics over £500 require manager approval before any refund or store credit is issued, regardless of the return window.",
+          "given_at": "2026-01-01T09:10:00Z",
+          "priority": 2
+        },
+        {
+          "id": "RET-R4",
+          "instruction": "Loyalty members get 10% off accessories when buying a full-price coat in the same order.",
+          "given_at": "2026-01-01T09:15:00Z"
+        },
+        {
+          "id": "RET-R5",
+          "instruction": "From 1 February 2026, loyalty members get 15% off accessories when buying a full-price coat in the same order. This replaces the earlier 10% accessory discount.",
+          "given_at": "2026-02-01T00:00:00Z"
+        },
+        {
+          "id": "RET-R6",
+          "instruction": "Do not accept returns for final-sale clearance items unless the item is faulty.",
+          "given_at": "2026-01-01T09:20:00Z"
+        },
+        {
+          "id": "RET-R7",
+          "instruction": "If a customer reports a faulty item within 12 months of purchase, escalate to the warranty queue instead of using the normal return windows.",
+          "given_at": "2026-01-01T09:25:00Z",
+          "priority": 3
+        },
+        {
+          "id": "RET-X1",
+          "instruction": "For HR expense claims, receipts over £250 require director approval.",
+          "given_at": "2026-01-01T09:30:00Z"
+        }
+      ],
+      "cases": [
+        {
+          "id": "retail-returns-001-C1",
+          "category": "single-rule-recall",
+          "situation": "A customer bought a dress for £80 on 3 January 2026. Today is 20 January 2026. The dress is unworn and has the original tags and bag.",
+          "case_date": "2026-01-20",
+          "expected_rules": ["RET-R1"],
+          "expected_action": "Process a full refund to the original payment method.",
+          "action_keywords": ["full refund", "original payment method"],
+          "expected_reasoning": "The return is within 30 days and the item is unused with original packaging."
+        },
+        {
+          "id": "retail-returns-001-C2",
+          "category": "multi-rule-discrimination",
+          "situation": "A customer bought trainers for £120 on 1 January 2026. Today is 20 February 2026. The trainers are unused and boxed.",
+          "case_date": "2026-02-20",
+          "expected_rules": ["RET-R2"],
+          "expected_action": "Offer store credit only and do not issue a cash refund.",
+          "action_keywords": ["store credit", "no cash refund"],
+          "expected_reasoning": "The return is after 30 days but within 90 days, so the store credit rule applies."
+        },
+        {
+          "id": "retail-returns-001-C3",
+          "category": "compound-conditions",
+          "situation": "A loyalty member buys a full-price coat and a scarf in the same order on 10 February 2026.",
+          "case_date": "2026-02-10",
+          "expected_rules": ["RET-R5"],
+          "expected_action": "Apply a 15% accessory discount to the scarf.",
+          "action_keywords": ["15%", "accessory discount", "scarf"],
+          "expected_reasoning": "The customer is a loyalty member, the coat is full-price, and the accessory is in the same order after the update date."
+        },
+        {
+          "id": "retail-returns-001-C4",
+          "category": "priority-resolution",
+          "situation": "A customer bought an unopened £750 tablet 12 days ago and wants to return it.",
+          "case_date": "2026-01-13",
+          "expected_rules": ["RET-R1", "RET-R3"],
+          "expected_action": "Get manager approval before processing the full refund.",
+          "action_keywords": ["manager approval", "full refund"],
+          "expected_reasoning": "The item qualifies for a 30-day refund, but electronics over £500 require manager approval first."
+        },
+        {
+          "id": "retail-returns-001-C5",
+          "category": "rule-update",
+          "situation": "A loyalty member buys a full-price coat and gloves together on 15 February 2026.",
+          "case_date": "2026-02-15",
+          "expected_rules": ["RET-R5"],
+          "expected_action": "Apply the updated 15% accessory discount to the gloves.",
+          "action_keywords": ["15%", "gloves", "updated"],
+          "expected_reasoning": "The 1 February rule supersedes the earlier 10% discount."
+        },
+        {
+          "id": "retail-returns-001-C6",
+          "category": "abstention",
+          "situation": "A customer wants to exchange a gift for a different size but has no receipt and does not know when it was bought.",
+          "case_date": "2026-02-15",
+          "expected_rules": [],
+          "expected_action": "No matching rule applies; request purchase information or escalate.",
+          "action_keywords": ["no matching rule", "request purchase information"],
+          "expected_reasoning": "The available rules require a purchase date or a specific return/discount condition."
+        },
+        {
+          "id": "retail-returns-001-C7",
+          "category": "exception-handling",
+          "situation": "A customer bought a final-sale clearance jacket 8 days ago and wants to return it because they changed their mind. It is not faulty.",
+          "case_date": "2026-01-09",
+          "expected_rules": ["RET-R6"],
+          "expected_action": "Decline the return because the final-sale item is not faulty.",
+          "action_keywords": ["decline", "final-sale", "not faulty"],
+          "expected_reasoning": "Final-sale clearance returns are accepted only when faulty."
+        },
+        {
+          "id": "retail-returns-001-C8",
+          "category": "cross-domain-scoping",
+          "situation": "A customer returns an unused £260 handbag 20 days after purchase with original packaging.",
+          "case_date": "2026-01-21",
+          "expected_rules": ["RET-R1"],
+          "expected_action": "Process a full refund to the original payment method.",
+          "action_keywords": ["full refund", "original payment method"],
+          "expected_reasoning": "The HR expense approval rule is out of scope for a retail return."
+        }
+      ]
+    },
+    {
+      "id": "support-sla-001",
+      "domain": "customer-support",
+      "description": "Customer support escalation, SLA, callback, and vulnerability rules.",
+      "rules": [
+        {
+          "id": "SUP-R1",
+          "instruction": "VIP customers with a service outage must receive a callback within 1 hour.",
+          "given_at": "2026-01-05T08:00:00Z",
+          "priority": 2
+        },
+        {
+          "id": "SUP-R2",
+          "instruction": "Billing questions from standard customers should be answered by email within 2 business days.",
+          "given_at": "2026-01-05T08:05:00Z"
+        },
+        {
+          "id": "SUP-R3",
+          "instruction": "Any ticket mentioning data loss must be escalated to engineering immediately.",
+          "given_at": "2026-01-05T08:10:00Z",
+          "priority": 3
+        },
+        {
+          "id": "SUP-R4",
+          "instruction": "Password reset requests from verified account owners may be resolved in chat.",
+          "given_at": "2026-01-05T08:15:00Z"
+        },
+        {
+          "id": "SUP-R5",
+          "instruction": "From 10 February 2026, VIP customers with a service outage must receive a callback within 30 minutes. This replaces the earlier 1 hour callback target.",
+          "given_at": "2026-02-10T00:00:00Z",
+          "priority": 2
+        },
+        {
+          "id": "SUP-R6",
+          "instruction": "Do not resolve password reset requests in chat if the requester fails identity verification; escalate to account security.",
+          "given_at": "2026-01-05T08:20:00Z",
+          "priority": 3
+        },
+        {
+          "id": "SUP-R7",
+          "instruction": "If a customer identifies as vulnerable or at risk, route the ticket to the specialist care team before any standard SLA response.",
+          "given_at": "2026-01-05T08:25:00Z",
+          "priority": 4
+        },
+        {
+          "id": "SUP-X1",
+          "instruction": "For international orders over £500, add a customs declaration before dispatch.",
+          "given_at": "2026-01-05T08:30:00Z"
+        }
+      ],
+      "cases": [
+        {
+          "id": "support-sla-001-C1",
+          "category": "single-rule-recall",
+          "situation": "A standard customer asks why their January invoice includes an extra seat charge.",
+          "case_date": "2026-01-20",
+          "expected_rules": ["SUP-R2"],
+          "expected_action": "Answer the billing question by email within 2 business days.",
+          "action_keywords": ["email", "2 business days"],
+          "expected_reasoning": "This is a billing question from a standard customer."
+        },
+        {
+          "id": "support-sla-001-C2",
+          "category": "multi-rule-discrimination",
+          "situation": "A verified account owner asks in chat to reset their password. They do not mention billing, outage, or data loss.",
+          "case_date": "2026-01-22",
+          "expected_rules": ["SUP-R4"],
+          "expected_action": "Resolve the password reset request in chat.",
+          "action_keywords": ["password reset", "chat"],
+          "expected_reasoning": "The requester is verified, so the chat reset rule applies and escalation rules do not."
+        },
+        {
+          "id": "support-sla-001-C3",
+          "category": "compound-conditions",
+          "situation": "A VIP customer reports that their hosted service is down on 15 February 2026.",
+          "case_date": "2026-02-15",
+          "expected_rules": ["SUP-R5"],
+          "expected_action": "Arrange a callback within 30 minutes.",
+          "action_keywords": ["callback", "30 minutes"],
+          "expected_reasoning": "Both VIP status and service outage are present after the updated SLA date."
+        },
+        {
+          "id": "support-sla-001-C4",
+          "category": "priority-resolution",
+          "situation": "A VIP customer reports an outage and says they have lost production data.",
+          "case_date": "2026-01-28",
+          "expected_rules": ["SUP-R1", "SUP-R3"],
+          "expected_action": "Escalate to engineering immediately and keep the VIP callback within 1 hour.",
+          "action_keywords": ["engineering", "immediately", "callback"],
+          "expected_reasoning": "The data loss escalation has higher priority, while the VIP outage callback still applies."
+        },
+        {
+          "id": "support-sla-001-C5",
+          "category": "rule-update",
+          "situation": "A VIP customer reports a complete service outage on 18 February 2026.",
+          "case_date": "2026-02-18",
+          "expected_rules": ["SUP-R5"],
+          "expected_action": "Arrange a callback within 30 minutes.",
+          "action_keywords": ["30 minutes", "callback"],
+          "expected_reasoning": "The 10 February update replaces the previous 1 hour callback target."
+        },
+        {
+          "id": "support-sla-001-C6",
+          "category": "abstention",
+          "situation": "A standard customer asks whether the company can sponsor their local event.",
+          "case_date": "2026-01-25",
+          "expected_rules": [],
+          "expected_action": "No matching rule applies; route to a general support queue or ask for internal guidance.",
+          "action_keywords": ["no matching rule", "general support"],
+          "expected_reasoning": "No support rule covers sponsorship requests."
+        },
+        {
+          "id": "support-sla-001-C7",
+          "category": "exception-handling",
+          "situation": "A requester asks to reset an account password in chat but fails identity verification.",
+          "case_date": "2026-01-26",
+          "expected_rules": ["SUP-R4", "SUP-R6"],
+          "expected_action": "Do not resolve in chat; escalate to account security.",
+          "action_keywords": ["do not resolve", "account security"],
+          "expected_reasoning": "The failed verification exception overrides normal chat resolution."
+        },
+        {
+          "id": "support-sla-001-C8",
+          "category": "cross-domain-scoping",
+          "situation": "A VIP customer reports a service outage on 8 February 2026. The ticket has no order or customs context.",
+          "case_date": "2026-02-08",
+          "expected_rules": ["SUP-R1"],
+          "expected_action": "Arrange a callback within 1 hour.",
+          "action_keywords": ["callback", "1 hour"],
+          "expected_reasoning": "The customs declaration rule is for order processing and does not apply to a support outage."
+        }
+      ]
+    },
+    {
+      "id": "orders-fulfilment-001",
+      "domain": "order-processing",
+      "description": "Order validation, fulfilment holds, and shipping controls.",
+      "rules": [
+        {
+          "id": "ORD-R1",
+          "instruction": "Domestic orders under £200 with verified payment should be released to fulfilment immediately.",
+          "given_at": "2026-01-08T09:00:00Z"
+        },
+        {
+          "id": "ORD-R2",
+          "instruction": "International orders over £500 require a customs declaration before dispatch.",
+          "given_at": "2026-01-08T09:05:00Z"
+        },
+        {
+          "id": "ORD-R3",
+          "instruction": "Orders containing lithium batteries must use approved courier service LB-Express.",
+          "given_at": "2026-01-08T09:10:00Z"
+        },
+        {
+          "id": "ORD-R4",
+          "instruction": "If shipping and billing countries differ on an order over £300, place the order on fraud review before fulfilment.",
+          "given_at": "2026-01-08T09:15:00Z",
+          "priority": 3
+        },
+        {
+          "id": "ORD-R5",
+          "instruction": "From 1 March 2026, international orders over £400 require a customs declaration before dispatch. This replaces the earlier £500 threshold.",
+          "given_at": "2026-03-01T00:00:00Z"
+        },
+        {
+          "id": "ORD-R6",
+          "instruction": "Do not release orders with unverified payment, even if all fulfilment details otherwise look valid.",
+          "given_at": "2026-01-08T09:20:00Z",
+          "priority": 4
+        },
+        {
+          "id": "ORD-R7",
+          "instruction": "Subscription renewal orders with no address change may bypass manual address review.",
+          "given_at": "2026-01-08T09:25:00Z"
+        },
+        {
+          "id": "ORD-X1",
+          "instruction": "VIP support outages require a callback within 30 minutes.",
+          "given_at": "2026-01-08T09:30:00Z"
+        }
+      ],
+      "cases": [
+        {
+          "id": "orders-fulfilment-001-C1",
+          "category": "single-rule-recall",
+          "situation": "A UK domestic order for £85 has verified payment and complete address details.",
+          "case_date": "2026-01-18",
+          "expected_rules": ["ORD-R1"],
+          "expected_action": "Release the order to fulfilment immediately.",
+          "action_keywords": ["release", "fulfilment", "immediately"],
+          "expected_reasoning": "It is a domestic order under £200 with verified payment."
+        },
+        {
+          "id": "orders-fulfilment-001-C2",
+          "category": "multi-rule-discrimination",
+          "situation": "An order shipping from the UK to Germany totals £650 and payment is verified. Billing and shipping countries are both Germany.",
+          "case_date": "2026-02-05",
+          "expected_rules": ["ORD-R2"],
+          "expected_action": "Add a customs declaration before dispatch.",
+          "action_keywords": ["customs declaration", "before dispatch"],
+          "expected_reasoning": "It is international and over the pre-March £500 threshold, with no fraud trigger."
+        },
+        {
+          "id": "orders-fulfilment-001-C3",
+          "category": "compound-conditions",
+          "situation": "An order totals £360, ships to France, bills to the UK, and payment is verified.",
+          "case_date": "2026-01-22",
+          "expected_rules": ["ORD-R4"],
+          "expected_action": "Place the order on fraud review before fulfilment.",
+          "action_keywords": ["fraud review", "before fulfilment"],
+          "expected_reasoning": "The order is over £300 and the shipping and billing countries differ."
+        },
+        {
+          "id": "orders-fulfilment-001-C4",
+          "category": "priority-resolution",
+          "situation": "A domestic order for £150 has complete address details but payment is unverified.",
+          "case_date": "2026-01-20",
+          "expected_rules": ["ORD-R1", "ORD-R6"],
+          "expected_action": "Do not release the order until payment is verified.",
+          "action_keywords": ["do not release", "payment is verified"],
+          "expected_reasoning": "The domestic release rule would apply, but unverified payment blocks release."
+        },
+        {
+          "id": "orders-fulfilment-001-C5",
+          "category": "rule-update",
+          "situation": "An international order to Spain totals £450 on 12 March 2026 with verified payment.",
+          "case_date": "2026-03-12",
+          "expected_rules": ["ORD-R5"],
+          "expected_action": "Add a customs declaration before dispatch.",
+          "action_keywords": ["customs declaration", "before dispatch"],
+          "expected_reasoning": "The 1 March update lowered the customs threshold to £400."
+        },
+        {
+          "id": "orders-fulfilment-001-C6",
+          "category": "abstention",
+          "situation": "A customer asks whether gift wrapping can include a handwritten birthday message.",
+          "case_date": "2026-01-30",
+          "expected_rules": [],
+          "expected_action": "No matching rule applies; request gift-wrap policy guidance.",
+          "action_keywords": ["no matching rule", "gift-wrap policy"],
+          "expected_reasoning": "No order rule covers gift wrapping messages."
+        },
+        {
+          "id": "orders-fulfilment-001-C7",
+          "category": "exception-handling",
+          "situation": "A subscription renewal has no address change but the payment is unverified.",
+          "case_date": "2026-02-01",
+          "expected_rules": ["ORD-R6", "ORD-R7"],
+          "expected_action": "Bypass manual address review, but do not release the order until payment is verified.",
+          "action_keywords": ["bypass manual address review", "do not release"],
+          "expected_reasoning": "The address-review bypass does not override the unverified payment hold."
+        },
+        {
+          "id": "orders-fulfilment-001-C8",
+          "category": "cross-domain-scoping",
+          "situation": "An international order to Italy totals £620 and has verified payment. There is no support ticket.",
+          "case_date": "2026-02-07",
+          "expected_rules": ["ORD-R2"],
+          "expected_action": "Add a customs declaration before dispatch.",
+          "action_keywords": ["customs declaration", "before dispatch"],
+          "expected_reasoning": "The support callback rule is out of scope for an order fulfilment case."
+        }
+      ]
+    },
+    {
+      "id": "hr-people-001",
+      "domain": "hr-people",
+      "description": "Leave, expenses, equipment, and people operations approvals.",
+      "rules": [
+        {
+          "id": "HR-R1",
+          "instruction": "Annual leave requests of 5 working days or fewer require line manager approval.",
+          "given_at": "2026-01-10T09:00:00Z"
+        },
+        {
+          "id": "HR-R2",
+          "instruction": "Annual leave requests over 10 working days require department head approval.",
+          "given_at": "2026-01-10T09:05:00Z",
+          "priority": 2
+        },
+        {
+          "id": "HR-R3",
+          "instruction": "Expense claims over £250 require director approval when the expense is not pre-approved.",
+          "given_at": "2026-01-10T09:10:00Z"
+        },
+        {
+          "id": "HR-R4",
+          "instruction": "Travel expenses with a receipt and a project code may be reimbursed through standard payroll.",
+          "given_at": "2026-01-10T09:15:00Z"
+        },
+        {
+          "id": "HR-R5",
+          "instruction": "From 1 April 2026, expense claims over £200 require director approval when the expense is not pre-approved. This replaces the earlier £250 threshold.",
+          "given_at": "2026-04-01T00:00:00Z"
+        },
+        {
+          "id": "HR-R6",
+          "instruction": "Do not reimburse alcohol expenses unless they are part of a pre-approved client entertainment budget.",
+          "given_at": "2026-01-10T09:20:00Z",
+          "priority": 3
+        },
+        {
+          "id": "HR-R7",
+          "instruction": "New starter equipment requests for laptop and monitor should be sent to IT procurement.",
+          "given_at": "2026-01-10T09:25:00Z"
+        },
+        {
+          "id": "HR-X1",
+          "instruction": "Domestic orders under £200 with verified payment should be released to fulfilment immediately.",
+          "given_at": "2026-01-10T09:30:00Z"
+        }
+      ],
+      "cases": [
+        {
+          "id": "hr-people-001-C1",
+          "category": "single-rule-recall",
+          "situation": "An employee requests 4 working days of annual leave for February.",
+          "case_date": "2026-01-18",
+          "expected_rules": ["HR-R1"],
+          "expected_action": "Send the leave request for line manager approval.",
+          "action_keywords": ["line manager approval"],
+          "expected_reasoning": "The annual leave request is 5 working days or fewer."
+        },
+        {
+          "id": "hr-people-001-C2",
+          "category": "multi-rule-discrimination",
+          "situation": "A new starter needs a laptop and monitor before their first day.",
+          "case_date": "2026-01-24",
+          "expected_rules": ["HR-R7"],
+          "expected_action": "Send the equipment request to IT procurement.",
+          "action_keywords": ["IT procurement"],
+          "expected_reasoning": "The case is about new starter equipment, not leave or expenses."
+        },
+        {
+          "id": "hr-people-001-C3",
+          "category": "compound-conditions",
+          "situation": "An employee submits a £310 hotel expense that was not pre-approved.",
+          "case_date": "2026-02-03",
+          "expected_rules": ["HR-R3"],
+          "expected_action": "Request director approval before reimbursement.",
+          "action_keywords": ["director approval", "reimbursement"],
+          "expected_reasoning": "The amount is over £250 and not pre-approved."
+        },
+        {
+          "id": "hr-people-001-C4",
+          "category": "priority-resolution",
+          "situation": "An employee requests 12 working days of annual leave.",
+          "case_date": "2026-01-25",
+          "expected_rules": ["HR-R2"],
+          "expected_action": "Send the leave request for department head approval.",
+          "action_keywords": ["department head approval"],
+          "expected_reasoning": "The request is over 10 working days, so the higher approval route applies."
+        },
+        {
+          "id": "hr-people-001-C5",
+          "category": "rule-update",
+          "situation": "On 10 April 2026, an employee submits a non-pre-approved £220 taxi expense.",
+          "case_date": "2026-04-10",
+          "expected_rules": ["HR-R5"],
+          "expected_action": "Request director approval before reimbursement.",
+          "action_keywords": ["director approval", "£200"],
+          "expected_reasoning": "The 1 April update lowered the approval threshold to £200."
+        },
+        {
+          "id": "hr-people-001-C6",
+          "category": "abstention",
+          "situation": "An employee asks whether their partner can attend the summer party.",
+          "case_date": "2026-02-15",
+          "expected_rules": [],
+          "expected_action": "No matching rule applies; ask for the events attendance policy.",
+          "action_keywords": ["no matching rule", "events attendance policy"],
+          "expected_reasoning": "No HR rule covers event guest attendance."
+        },
+        {
+          "id": "hr-people-001-C7",
+          "category": "exception-handling",
+          "situation": "An employee submits a £90 alcohol expense with a receipt, but it was not part of a pre-approved client entertainment budget.",
+          "case_date": "2026-02-16",
+          "expected_rules": ["HR-R4", "HR-R6"],
+          "expected_action": "Do not reimburse the alcohol expense.",
+          "action_keywords": ["do not reimburse", "alcohol"],
+          "expected_reasoning": "The alcohol exception blocks reimbursement despite the receipt."
+        },
+        {
+          "id": "hr-people-001-C8",
+          "category": "cross-domain-scoping",
+          "situation": "An employee submits a £280 non-pre-approved rail expense with a receipt and project code.",
+          "case_date": "2026-02-20",
+          "expected_rules": ["HR-R3", "HR-R4"],
+          "expected_action": "Process through payroll only after director approval.",
+          "action_keywords": ["payroll", "director approval"],
+          "expected_reasoning": "The order fulfilment release rule is not relevant to an HR expense claim."
+        }
+      ]
+    },
+    {
+      "id": "compliance-transactions-001",
+      "domain": "compliance",
+      "description": "Transaction monitoring, audit retention, sanctions, and reporting.",
+      "rules": [
+        {
+          "id": "COM-R1",
+          "instruction": "Any single transaction over £10,000 must be reported to compliance within 24 hours.",
+          "given_at": "2026-01-12T09:00:00Z"
+        },
+        {
+          "id": "COM-R2",
+          "instruction": "Transactions involving a sanctioned country must be blocked and escalated to the compliance officer immediately.",
+          "given_at": "2026-01-12T09:05:00Z",
+          "priority": 4
+        },
+        {
+          "id": "COM-R3",
+          "instruction": "Keep customer verification documents for 6 years after account closure.",
+          "given_at": "2026-01-12T09:10:00Z"
+        },
+        {
+          "id": "COM-R4",
+          "instruction": "If three or more transfers under £10,000 are made by the same customer on the same day and total over £15,000, flag possible structuring for review.",
+          "given_at": "2026-01-12T09:15:00Z"
+        },
+        {
+          "id": "COM-R5",
+          "instruction": "From 1 May 2026, any single transaction over £8,000 must be reported to compliance within 24 hours. This replaces the earlier £10,000 threshold.",
+          "given_at": "2026-05-01T00:00:00Z"
+        },
+        {
+          "id": "COM-R6",
+          "instruction": "Do not report payroll batches as suspicious solely because their total exceeds a reporting threshold when individual salary payments are below the threshold.",
+          "given_at": "2026-01-12T09:20:00Z"
+        },
+        {
+          "id": "COM-R7",
+          "instruction": "Any request to delete audit logs must be rejected and escalated to legal.",
+          "given_at": "2026-01-12T09:25:00Z",
+          "priority": 3
+        },
+        {
+          "id": "COM-X1",
+          "instruction": "Claims within the first 90 days of a new policy require fraud review.",
+          "given_at": "2026-01-12T09:30:00Z"
+        }
+      ],
+      "cases": [
+        {
+          "id": "compliance-transactions-001-C1",
+          "category": "single-rule-recall",
+          "situation": "A customer sends a single £12,400 transfer to a domestic supplier on 20 January 2026.",
+          "case_date": "2026-01-20",
+          "expected_rules": ["COM-R1"],
+          "expected_action": "Report the transaction to compliance within 24 hours.",
+          "action_keywords": ["report", "compliance", "24 hours"],
+          "expected_reasoning": "The single transaction is over £10,000 before the May threshold update."
+        },
+        {
+          "id": "compliance-transactions-001-C2",
+          "category": "multi-rule-discrimination",
+          "situation": "A customer requests deletion of audit logs from a closed account.",
+          "case_date": "2026-02-01",
+          "expected_rules": ["COM-R7"],
+          "expected_action": "Reject the deletion request and escalate to legal.",
+          "action_keywords": ["reject", "legal"],
+          "expected_reasoning": "The case concerns audit log deletion, not transaction reporting."
+        },
+        {
+          "id": "compliance-transactions-001-C3",
+          "category": "compound-conditions",
+          "situation": "The same customer sends transfers of £6,000, £5,500, and £4,200 on the same day.",
+          "case_date": "2026-02-05",
+          "expected_rules": ["COM-R4"],
+          "expected_action": "Flag possible structuring for review.",
+          "action_keywords": ["flag", "structuring", "review"],
+          "expected_reasoning": "There are three same-day transfers under £10,000 totalling over £15,000."
+        },
+        {
+          "id": "compliance-transactions-001-C4",
+          "category": "priority-resolution",
+          "situation": "A customer attempts a £14,000 transfer involving a sanctioned country.",
+          "case_date": "2026-02-08",
+          "expected_rules": ["COM-R1", "COM-R2"],
+          "expected_action": "Block the transaction and escalate to the compliance officer immediately; also record that it meets the reporting threshold.",
+          "action_keywords": ["block", "compliance officer", "immediately"],
+          "expected_reasoning": "The sanctions rule has the highest priority and the amount also triggers reporting."
+        },
+        {
+          "id": "compliance-transactions-001-C5",
+          "category": "rule-update",
+          "situation": "A customer sends a single £8,600 domestic transfer on 6 May 2026.",
+          "case_date": "2026-05-06",
+          "expected_rules": ["COM-R5"],
+          "expected_action": "Report the transaction to compliance within 24 hours.",
+          "action_keywords": ["report", "24 hours", "£8,000"],
+          "expected_reasoning": "The May update lowered the single-transaction reporting threshold to £8,000."
+        },
+        {
+          "id": "compliance-transactions-001-C6",
+          "category": "abstention",
+          "situation": "A customer asks how to change their marketing email preferences.",
+          "case_date": "2026-02-10",
+          "expected_rules": [],
+          "expected_action": "No matching rule applies; route to customer account preferences support.",
+          "action_keywords": ["no matching rule", "account preferences"],
+          "expected_reasoning": "No compliance rule covers marketing email preferences."
+        },
+        {
+          "id": "compliance-transactions-001-C7",
+          "category": "exception-handling",
+          "situation": "A payroll batch totals £48,000, made up of individual salary payments below £8,000 each.",
+          "case_date": "2026-05-12",
+          "expected_rules": ["COM-R5", "COM-R6"],
+          "expected_action": "Do not report the payroll batch as suspicious solely because of the total.",
+          "action_keywords": ["do not report", "payroll", "solely"],
+          "expected_reasoning": "The payroll exception prevents threshold-only suspicion when individual payments are below threshold."
+        },
+        {
+          "id": "compliance-transactions-001-C8",
+          "category": "cross-domain-scoping",
+          "situation": "A customer makes a single £11,200 domestic transfer. There is no insurance policy or claim.",
+          "case_date": "2026-03-01",
+          "expected_rules": ["COM-R1"],
+          "expected_action": "Report the transaction to compliance within 24 hours.",
+          "action_keywords": ["report", "compliance", "24 hours"],
+          "expected_reasoning": "The insurance claim fraud review rule is out of scope for a compliance transaction."
+        }
+      ]
+    },
+    {
+      "id": "insurance-claims-001",
+      "domain": "insurance",
+      "description": "Claims triage, fraud review, excess handling, and coverage exceptions.",
+      "rules": [
+        {
+          "id": "INS-R1",
+          "instruction": "Claims within the first 90 days of a new policy require fraud review before payout.",
+          "given_at": "2026-01-15T09:00:00Z",
+          "priority": 2
+        },
+        {
+          "id": "INS-R2",
+          "instruction": "Motor glass claims under £750 with photos and policy number may be approved automatically.",
+          "given_at": "2026-01-15T09:05:00Z"
+        },
+        {
+          "id": "INS-R3",
+          "instruction": "Home water damage claims over £5,000 require loss adjuster inspection.",
+          "given_at": "2026-01-15T09:10:00Z"
+        },
+        {
+          "id": "INS-R4",
+          "instruction": "Travel claims for delayed baggage require airline confirmation and receipts.",
+          "given_at": "2026-01-15T09:15:00Z"
+        },
+        {
+          "id": "INS-R5",
+          "instruction": "From 1 June 2026, motor glass claims under £1,000 with photos and policy number may be approved automatically. This replaces the earlier £750 limit.",
+          "given_at": "2026-06-01T00:00:00Z"
+        },
+        {
+          "id": "INS-R6",
+          "instruction": "Do not approve claims for pre-existing damage noted before policy start.",
+          "given_at": "2026-01-15T09:20:00Z",
+          "priority": 4
+        },
+        {
+          "id": "INS-R7",
+          "instruction": "Claims from customers flagged as vulnerable must be routed to the specialist claims team before normal processing.",
+          "given_at": "2026-01-15T09:25:00Z",
+          "priority": 3
+        },
+        {
+          "id": "INS-X1",
+          "instruction": "Any single transaction over £8,000 must be reported to compliance within 24 hours.",
+          "given_at": "2026-01-15T09:30:00Z"
+        }
+      ],
+      "cases": [
+        {
+          "id": "insurance-claims-001-C1",
+          "category": "single-rule-recall",
+          "situation": "A home policyholder submits a £7,200 water damage claim.",
+          "case_date": "2026-02-01",
+          "expected_rules": ["INS-R3"],
+          "expected_action": "Arrange a loss adjuster inspection.",
+          "action_keywords": ["loss adjuster inspection"],
+          "expected_reasoning": "The home water damage claim is over £5,000."
+        },
+        {
+          "id": "insurance-claims-001-C2",
+          "category": "multi-rule-discrimination",
+          "situation": "A traveller submits a delayed baggage claim with airline confirmation and receipts.",
+          "case_date": "2026-02-06",
+          "expected_rules": ["INS-R4"],
+          "expected_action": "Process the delayed baggage claim using the airline confirmation and receipts.",
+          "action_keywords": ["delayed baggage", "airline confirmation", "receipts"],
+          "expected_reasoning": "This is a travel baggage claim, not motor glass or home water damage."
+        },
+        {
+          "id": "insurance-claims-001-C3",
+          "category": "compound-conditions",
+          "situation": "A motor glass claim is for £620 and includes photos plus the policy number.",
+          "case_date": "2026-02-09",
+          "expected_rules": ["INS-R2"],
+          "expected_action": "Approve the motor glass claim automatically.",
+          "action_keywords": ["approve", "automatically"],
+          "expected_reasoning": "The claim is under £750 and includes both required evidence items."
+        },
+        {
+          "id": "insurance-claims-001-C4",
+          "category": "priority-resolution",
+          "situation": "A vulnerable customer submits a claim 45 days after policy start for motor glass damage with photos and policy number.",
+          "case_date": "2026-02-20",
+          "expected_rules": ["INS-R1", "INS-R2", "INS-R7"],
+          "expected_action": "Route to the specialist claims team, then complete fraud review before any payout.",
+          "action_keywords": ["specialist claims team", "fraud review", "before payout"],
+          "expected_reasoning": "Vulnerable-customer routing and first-90-days fraud review take precedence over automatic approval."
+        },
+        {
+          "id": "insurance-claims-001-C5",
+          "category": "rule-update",
+          "situation": "A motor glass claim for £920 includes photos and the policy number on 10 June 2026.",
+          "case_date": "2026-06-10",
+          "expected_rules": ["INS-R5"],
+          "expected_action": "Approve the motor glass claim automatically.",
+          "action_keywords": ["approve", "automatically", "£1,000"],
+          "expected_reasoning": "The June update raises the automatic approval limit to £1,000."
+        },
+        {
+          "id": "insurance-claims-001-C6",
+          "category": "abstention",
+          "situation": "A customer asks whether they can add a second driver to their policy.",
+          "case_date": "2026-02-14",
+          "expected_rules": [],
+          "expected_action": "No matching rule applies; route to policy administration.",
+          "action_keywords": ["no matching rule", "policy administration"],
+          "expected_reasoning": "No claims rule covers policy amendments."
+        },
+        {
+          "id": "insurance-claims-001-C7",
+          "category": "exception-handling",
+          "situation": "A customer claims for bumper damage that was noted in the vehicle inspection before the policy started.",
+          "case_date": "2026-02-18",
+          "expected_rules": ["INS-R6"],
+          "expected_action": "Do not approve the claim because the damage was pre-existing.",
+          "action_keywords": ["do not approve", "pre-existing"],
+          "expected_reasoning": "Pre-existing damage noted before policy start is excluded."
+        },
+        {
+          "id": "insurance-claims-001-C8",
+          "category": "cross-domain-scoping",
+          "situation": "A motor glass claim for £700 includes photos and policy number. It is not a financial transaction.",
+          "case_date": "2026-03-03",
+          "expected_rules": ["INS-R2"],
+          "expected_action": "Approve the motor glass claim automatically.",
+          "action_keywords": ["approve", "automatically"],
+          "expected_reasoning": "The compliance transaction threshold is out of scope for an insurance claim."
+        }
+      ]
+    }
+  ]
+}
