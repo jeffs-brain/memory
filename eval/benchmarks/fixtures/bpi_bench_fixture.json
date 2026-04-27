@@ -504,7 +504,7 @@
           "situation": "On 10 April 2026, an employee submits a non-pre-approved £220 taxi expense.",
           "case_date": "2026-04-10",
           "expected_rules": ["HR-R5"],
-          "expected_action": "Request director approval before reimbursement.",
+          "expected_action": "Request director approval under the updated £200 threshold before reimbursement.",
           "action_keywords": ["director approval", "£200"],
           "expected_reasoning": "The 1 April update lowered the approval threshold to £200."
         },
@@ -635,7 +635,7 @@
           "situation": "A customer sends a single £8,600 domestic transfer on 6 May 2026.",
           "case_date": "2026-05-06",
           "expected_rules": ["COM-R5"],
-          "expected_action": "Report the transaction to compliance within 24 hours.",
+          "expected_action": "Report the transaction to compliance within 24 hours under the updated £8,000 threshold.",
           "action_keywords": ["report", "24 hours", "£8,000"],
           "expected_reasoning": "The May update lowered the single-transaction reporting threshold to £8,000."
         },
@@ -767,7 +767,7 @@
           "situation": "A motor glass claim for £920 includes photos and the policy number on 10 June 2026.",
           "case_date": "2026-06-10",
           "expected_rules": ["INS-R5"],
-          "expected_action": "Approve the motor glass claim automatically.",
+          "expected_action": "Approve the motor glass claim automatically under the updated £1,000 limit.",
           "action_keywords": ["approve", "automatically", "£1,000"],
           "expected_reasoning": "The June update raises the automatic approval limit to £1,000."
         },

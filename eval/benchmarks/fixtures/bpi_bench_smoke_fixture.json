@@ -180,7 +180,7 @@
           "situation": "A customer sends a single £8,600 domestic transfer on 6 May 2026.",
           "case_date": "2026-05-06",
           "expected_rules": ["COM-R5"],
-          "expected_action": "Report the transaction to compliance within 24 hours.",
+          "expected_action": "Report the transaction to compliance within 24 hours under the updated £8,000 threshold.",
           "action_keywords": ["report", "24 hours", "£8,000"],
           "expected_reasoning": "The May update lowered the single-transaction reporting threshold to £8,000."
         }
