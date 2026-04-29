@@ -4,7 +4,7 @@ The Go implementation of the Jeffs Brain memory and knowledge stack. Ships the p
 
 Module path: `github.com/jeffs-brain/memory/go`.
 
-Current CLI version: `0.2.2`.
+Current CLI version: `0.2.3`.
 
 Wire-compatible with the TypeScript and Python SDKs over the [`spec/PROTOCOL.md`](../spec/PROTOCOL.md) HTTP contract. Cross-SDK daemon parity today is `ask-basic`, `ask-augmented`, and `search-retrieve-only` through `memory serve`.
 
@@ -13,8 +13,8 @@ Wire-compatible with the TypeScript and Python SDKs over the [`spec/PROTOCOL.md`
 Install the released CLI and MCP wrapper:
 
 ```bash
-go install github.com/jeffs-brain/memory/go/cmd/memory@v0.2.2
-go install github.com/jeffs-brain/memory/go/cmd/memory-mcp@v0.2.2
+go install github.com/jeffs-brain/memory/go/cmd/memory@v0.2.3
+go install github.com/jeffs-brain/memory/go/cmd/memory-mcp@v0.2.3
 ```
 
 For local programmatic development from a checkout, use a `replace` to this
@@ -135,7 +135,7 @@ Before tagging a Go release:
 
 1. Update `cmd/memory/version.go` to match the tag without the leading `v`.
 2. Run `cd go && go test ./cmd/memory ./cmd/memory-mcp`.
-3. Tag from the repository root, for example `git tag go/v0.2.2`.
+3. Tag from the repository root, for example `git tag go/v0.2.3`.
 
 ## Postgres store
 

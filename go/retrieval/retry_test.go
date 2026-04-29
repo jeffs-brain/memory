@@ -145,6 +145,9 @@ func TestRetryLadder_Rung3_RefreshedSanitised(t *testing.T) {
 	if !sawSanitised {
 		t.Fatalf("refreshed_sanitised attempt missing: %+v", resp.Attempts)
 	}
+	if src.refreshCalls != 1 {
+		t.Fatalf("refresh calls = %d, want 1", src.refreshCalls)
+	}
 }
 
 func TestRetryLadder_Rung4_RefreshedStrongest(t *testing.T) {

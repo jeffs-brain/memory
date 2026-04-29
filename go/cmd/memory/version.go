@@ -9,7 +9,7 @@ import (
 )
 
 // version is the released Go CLI version.
-const version = "0.2.2"
+const version = "0.2.3"
 
 func versionCmd() *cobra.Command {
 	return &cobra.Command{

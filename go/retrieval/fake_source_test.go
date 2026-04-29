@@ -50,6 +50,8 @@ type fakeSource struct {
 	// force zero hits on the initial call while allowing later
 	// rungs through.
 	bm25Override func(expr string) ([]BM25Hit, bool)
+	refreshCalls int
+	refreshFail  error
 }
 
 func newFakeSource(chunks []fakeChunk) *fakeSource {
@@ -188,6 +190,11 @@ func (f *fakeSource) Chunks(ctx context.Context) ([]trigramChunk, error) {
 		})
 	}
 	return out, nil
+}
+
+func (f *fakeSource) Refresh(ctx context.Context) error {
+	f.refreshCalls++
+	return f.refreshFail
 }
 
 func (f *fakeSource) Lookup(ctx context.Context, ids []string) ([]search.IndexedRow, error) {

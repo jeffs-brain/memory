@@ -7,6 +7,12 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+## [0.2.3] - 2026-04-29
+
+### Fixed
+
+- Made the Go retrieval retry ladder run a real index refresh through `RefreshSource` instead of treating the refresh rung as a no-op.
+
 ## [0.2.2] - 2026-04-29
 
 ### Fixed
@@ -52,7 +58,8 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 - Go and Python SDKs are in the pipeline. See `go/` and `sdks/py/` README files.
 - Platform integration (multi-tenant backend) is private and unpublished.
 
-[Unreleased]: https://github.com/jeffs-brain/memory/compare/go/v0.2.2...HEAD
+[Unreleased]: https://github.com/jeffs-brain/memory/compare/go/v0.2.3...HEAD
+[0.2.3]: https://github.com/jeffs-brain/memory/compare/go/v0.2.2...go/v0.2.3
 [0.2.2]: https://github.com/jeffs-brain/memory/compare/go/v0.2.1...go/v0.2.2
 [0.2.1]: https://github.com/jeffs-brain/memory/compare/v0.2.0...go/v0.2.1
 [0.2.0]: https://github.com/jeffs-brain/memory/compare/v0.1.0...v0.2.0
