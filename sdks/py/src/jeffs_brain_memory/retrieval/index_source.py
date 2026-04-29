@@ -2,7 +2,7 @@
 """Adapter from a ``search``-style index to the retrieval
 :class:`Source` protocol.
 
-Mirrors ``sdks/go/retrieval/index_source.go``. The Python ``search``
+Mirrors ``go/retrieval/index_source.go``. The Python ``search``
 package is still a stub, so this adapter takes a duck-typed index
 object exposing ``search_bm25``, ``search_vector`` and ``all_rows``
 methods. Callers wiring a real FTS5 backend later only have to supply

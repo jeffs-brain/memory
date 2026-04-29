@@ -77,7 +77,7 @@ def test_chunker_assigns_contiguous_ordinals() -> None:
 
 
 def test_chunker_constants_match_go_reference() -> None:
-    # Preserves parity with sdks/go/knowledge/compile.go.
+    # Preserves parity with go/knowledge/compile.go.
     assert CHUNK_MIN_CHARS == 120
     assert CHUNK_MAX_CHARS == 1800
     assert MIN_CHUNK_TOKENS == (CHUNK_MIN_CHARS + 3) // 4

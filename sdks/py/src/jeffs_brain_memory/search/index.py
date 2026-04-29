@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """SQLite-backed hybrid search index.
 
-Mirrors the Go SDK's ``Index`` contract (``sdks/go/search/index.go``)
+Mirrors the Go SDK's ``Index`` contract (``go/search/index.go``)
 for cross-language parity. One SQLite file holds three tables:
 
 - ``knowledge_fts``: FTS5 virtual table keyed by ``path`` with the

@@ -125,8 +125,13 @@ func (m *Memory) listTopicsUnder(ctx context.Context, prefix brain.Path, scope s
 // ListProjectTopics returns all project-scoped topic files for the given
 // project path.
 func (m *Memory) ListProjectTopics(ctx context.Context, projectPath string) ([]TopicFile, error) {
-	slug := ProjectSlug(projectPath)
-	return m.listTopicsUnder(ctx, brain.MemoryProjectPrefix(slug), "project")
+	return m.ListProjectTopicsForSlug(ctx, ProjectSlug(projectPath))
+}
+
+// ListProjectTopicsForSlug returns all project-scoped topic files for
+// an already-resolved project slug.
+func (m *Memory) ListProjectTopicsForSlug(ctx context.Context, projectSlug string) ([]TopicFile, error) {
+	return m.listTopicsUnder(ctx, brain.MemoryProjectPrefix(projectSlug), "project")
 }
 
 // ListGlobalTopics returns all global-scoped topic files.

@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Dataclasses and enums for the knowledge surface.
 
-Mirrors the Go SDK shapes (see ``sdks/go/knowledge/schema.go``) with
+Mirrors the Go SDK shapes (see ``go/knowledge/schema.go``) with
 Pythonic naming conventions. Every Document is persisted via the bound
 brain ``Store`` under ``raw/documents/<slug>.md``; compilation reads the
 same tree and emits ``Chunk`` records suitable for BM25 indexing.

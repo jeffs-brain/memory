@@ -18,8 +18,8 @@ Local-first, hosted-optional. Apache-2.0.
 | TypeScript | `@jeffs-brain/memory-openfga`  | 0.1.0   | `npm i @jeffs-brain/memory-openfga`    |
 | TypeScript | `@jeffs-brain/memory-mcp`      | 0.1.0   | `npx -y @jeffs-brain/memory-mcp`       |
 | TypeScript | `@jeffs-brain/install`         | 0.1.0   | `npx @jeffs-brain/install`             |
-| Go         | `github.com/jeffs-brain/memory/go` | pre-release | `go install github.com/jeffs-brain/memory/go/cmd/memory@latest` |
-| Go         | `cmd/memory-mcp`               | pre-release | `go install github.com/jeffs-brain/memory/go/cmd/memory-mcp@latest` |
+| Go         | `github.com/jeffs-brain/memory/go` | 0.2.1   | `go install github.com/jeffs-brain/memory/go/cmd/memory@v0.2.1` |
+| Go         | `cmd/memory-mcp`               | 0.2.1   | `go install github.com/jeffs-brain/memory/go/cmd/memory-mcp@v0.2.1` |
 | Python     | `jeffs-brain-memory`           | 0.0.1 (pre-publish) | `pip install jeffs-brain-memory` or `uv add jeffs-brain-memory` |
 | Python     | `jeffs-brain-memory-mcp`       | 0.1.0   | `uvx jeffs-brain-memory-mcp`           |
 
@@ -136,10 +136,9 @@ Full walkthrough: [docs.jeffsbrain.com/getting-started/typescript/](https://docs
 ### Go
 
 ```bash
-go install github.com/jeffs-brain/memory/go/cmd/memory@latest
-memory init
-memory ingest ./docs
-memory search "question"
+go install github.com/jeffs-brain/memory/go/cmd/memory@v0.2.1
+memory version
+memory serve --addr 127.0.0.1:18841
 ```
 
 Full walkthrough: [docs.jeffsbrain.com/getting-started/go/](https://docs.jeffsbrain.com/getting-started/go/).
@@ -223,7 +222,7 @@ docs/           Astro Starlight documentation site, Cloudflare Pages ready
 eval/           Cross-SDK conformance and evaluation runner (--sdk ts|go|py)
 ```
 
-The Go MCP wrapper ships from `sdks/go/cmd/memory-mcp/`. The `mcp/go/` folder is reserved for future extraction.
+The Go MCP wrapper ships from `go/cmd/memory-mcp/`. The `mcp/go/` folder is reserved for future extraction.
 
 ## Documentation
 

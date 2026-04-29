@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Temporal recognisers for the Python SDK.
 
-Ports the three recognisers defined in ``sdks/go/query/temporal.go`` and
+Ports the three recognisers defined in ``go/query/temporal.go`` and
 the normative spec in ``spec/QUERY-DSL.md``. All date arithmetic is UTC
 only: callers that care about local time must normalise their anchor
 before passing it in.

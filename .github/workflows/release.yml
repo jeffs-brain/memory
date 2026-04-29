@@ -2,10 +2,39 @@
 name: release
 on:
   push:
-    tags: ['v*']
+    tags: ['v*', 'go/v*']
   workflow_dispatch: {}
 jobs:
+  check-go:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: go
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+          cache: true
+          cache-dependency-path: go/go.sum
+      - name: Check Go CLI version matches release tag
+        if: startsWith(github.ref, 'refs/tags/v') || startsWith(github.ref, 'refs/tags/go/v')
+        run: |
+          tag="${GITHUB_REF_NAME#go/v}"
+          tag="${tag#v}"
+          got="$(go run ./cmd/memory version)"
+          if [ "$got" != "$tag" ]; then
+            echo "Go CLI version $got does not match release tag $tag"
+            exit 1
+          fi
+      - name: Build Go SDK
+        run: go build ./...
+      - name: Test Go release commands
+        run: go test ./cmd/memory ./cmd/memory-mcp
+
   publish-ts:
+    needs: check-go
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -51,6 +80,17 @@ jobs:
         run: bash scripts/publish-if-needed.sh install
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+
+  release-go:
+    needs: check-go
+    if: startsWith(github.ref, 'refs/tags/go/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
       - uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true

@@ -3,7 +3,7 @@
 /**
  * Daemon + BrainManager for the memory HTTP server.
  *
- * Mirrors the Go `sdks/go/cmd/memory/daemon.go` design: the Daemon owns
+ * Mirrors the Go `go/cmd/memory/daemon.go` design: the Daemon owns
  * shared LLM/embedder references plus a root directory, and defers
  * per-brain resource construction to {@link BrainManager}. A brain's
  * `BrainResources` bundle is built lazily on first access and cached

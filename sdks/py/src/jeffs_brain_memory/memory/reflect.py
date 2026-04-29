@@ -2,7 +2,7 @@
 """Session reflection to extract generalisable heuristics.
 
 ``REFLECTION_SYSTEM_PROMPT`` is ported verbatim from
-``sdks/go/memory/reflect.go``.
+``go/memory/reflect.go``.
 """
 
 from __future__ import annotations

@@ -20,4 +20,4 @@ require (
 	modernc.org/sqlite v1.48.0 // indirect
 )
 
-replace github.com/jeffs-brain/memory/go => ../../../sdks/go
+replace github.com/jeffs-brain/memory/go => ../../../go

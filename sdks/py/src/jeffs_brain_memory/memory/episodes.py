@@ -2,7 +2,7 @@
 """Episodic memory recorder.
 
 ``EPISODE_SYSTEM_PROMPT`` is ported verbatim from
-``sdks/go/memory/episodes.go``.
+``go/memory/episodes.go``.
 """
 
 from __future__ import annotations

@@ -2,7 +2,7 @@
 
 /**
  * HTTP handlers for the memory daemon. Each handler matches the
- * behaviour of its Go counterpart in `sdks/go/cmd/memory/handler_*.go`
+ * behaviour of its Go counterpart in `go/cmd/memory/handler_*.go`
  * so the wire contract stays byte-equivalent.
  */
 
@@ -845,7 +845,7 @@ const buildAskPrompt = (question: string, chunks: readonly RetrievedChunk[]): st
 
 /**
  * buildAugmentedAskPrompt mirrors readerUserTemplate in
- * sdks/go/eval/lme/reader.go so the TS /ask endpoint can opt in to the
+ * go/eval/lme/reader.go so the TS /ask endpoint can opt in to the
  * paper-faithful LongMemEval CoT reader. Wording is byte-identical with
  * the Go template and the rendered evidence mirrors the Go and Python
  * retrieve-only format: temporal hint, numbered facts, date labels, and

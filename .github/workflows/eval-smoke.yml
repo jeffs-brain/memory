@@ -35,7 +35,7 @@ jobs:
         run: |
           case "${{ matrix.sdk }}" in
             ts) bun run --filter @jeffs-brain/memory build ;;
-            go) cd sdks/go && go build ./... ;;
+            go) cd go && go build ./... ;;
             py) cd sdks/py && uv sync && uv run memory --version ;;
           esac
       - name: Run smoke eval

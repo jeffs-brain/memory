@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Markdown chunker and compile helpers.
 
-Ported from ``sdks/go/knowledge/compile.go``. This is the minimal
+Ported from ``go/knowledge/compile.go``. This is the minimal
 deterministic segmenter: headings and paragraph breaks define chunk
 boundaries, short stubs are merged into their predecessor, and
 oversized sections are split at sentence boundaries.

@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Retry ladder helpers: sanitisation, strongest term, trigram index.
 
-Mirrors ``sdks/go/retrieval/retry.go``. The five-rung ladder itself is
+Mirrors ``go/retrieval/retry.go``. The five-rung ladder itself is
 orchestrated from :mod:`retriever`; this module exposes the pure
 helpers every rung leans on.
 

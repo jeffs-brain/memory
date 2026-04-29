@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Concrete :class:`Base` implementation plus the :func:`new` factory.
 
-Ported from ``sdks/go/knowledge/knowledge.go`` and the sibling
+Ported from ``go/knowledge/knowledge.go`` and the sibling
 ``ingest.go`` / ``compile.go`` / ``search.go`` modules. The Python
 surface is asynchronous throughout so it slots into the rest of the
 SDK without an event loop adapter.

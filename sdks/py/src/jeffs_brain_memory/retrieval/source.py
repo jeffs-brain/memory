@@ -2,7 +2,7 @@
 """Source protocol and the leaf hit shapes the retrieval pipeline
 consumes.
 
-Mirrors ``sdks/go/retrieval/source.go``. Implementations are expected
+Mirrors ``go/retrieval/source.go``. Implementations are expected
 to be safe for concurrent use and must not mutate returned values.
 """
 

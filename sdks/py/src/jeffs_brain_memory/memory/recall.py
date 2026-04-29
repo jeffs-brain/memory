@@ -2,7 +2,7 @@
 """Memory recall: pick relevant memories, format with date headers.
 
 ``RECALL_SELECTOR_PROMPT`` is ported verbatim from
-``sdks/go/memory/recall.go``.
+``go/memory/recall.go``.
 """
 
 from __future__ import annotations

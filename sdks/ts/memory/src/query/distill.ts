@@ -8,7 +8,7 @@
  *
  * Parity notes:
  *   - Go exposes a richer `Distiller` that emits structured Query
- *     objects with a Trace (see sdks/go/query/query.go). The TS SDK
+ *     objects with a Trace (see go/query/query.go). The TS SDK
  *     keeps the public surface deliberately small (string in, string
  *     out) to match the retrieval pipeline's current pre-parse hook.
  *   - The system prompt is sourced verbatim from jeff; see

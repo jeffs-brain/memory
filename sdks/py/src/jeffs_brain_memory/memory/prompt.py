@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """System prompt fragment appended to the base prompt.
 
-Ported verbatim from ``sdks/go/memory/prompt.go``.
+Ported verbatim from ``go/memory/prompt.go``.
 """
 
 from __future__ import annotations

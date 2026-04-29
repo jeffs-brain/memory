@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Vector backfill for the HTTP daemon.
 
-Mirrors ``sdks/go/cmd/memory/daemon_vectors.go``. Embed every
+Mirrors ``go/cmd/memory/daemon_vectors.go``. Embed every
 FTS-indexed path that lacks a vector under the configured embedding
 model and persist the result on the shared search index. Runs on a
 detached :class:`asyncio.Task` so brain open is not blocked by remote

@@ -13,7 +13,7 @@ The canonical stopword data lives in these JSON files. Every SDK loads
 them identically:
 
 - TypeScript: `sdks/ts/memory/src/query/stopwords.ts`.
-- Go: `sdks/go/search/stopwords` helpers.
+- Go: `go/search/stopwords` helpers.
 - Python: `sdks/py/src/jeffs_brain_memory/search/stopwords.py`.
 
 Any change to either list must land in both the JSON and every SDK's

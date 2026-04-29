@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Vector backfill regression tests.
 
-Mirrors the Go reference at ``sdks/go/cmd/memory/daemon_vectors.go``
+Mirrors the Go reference at ``go/cmd/memory/daemon_vectors.go``
 and its eval harness: a brain cache is pre-seeded with markdown on
 disk, the daemon opens it, and the detached backfill task populates
 ``knowledge_embeddings`` with rows tagged by the active embedding

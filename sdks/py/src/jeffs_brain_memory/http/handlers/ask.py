@@ -38,7 +38,7 @@ _AUGMENTED_MAX_TOKENS = 800
 _BASIC_TEMPERATURE = 0.2
 _BASIC_MAX_TOKENS = 1024
 
-# Reader template ported verbatim from sdks/go/eval/lme/reader.go so the
+# Reader template ported verbatim from go/eval/lme/reader.go so the
 # augmented Python /ask matches the benchmark harness byte for byte.
 _AUGMENTED_READER_TEMPLATE = (
     "I will give you several history chats between you and a user. "

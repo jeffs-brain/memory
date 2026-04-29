@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Trigram index for the fuzzy fallback leg.
 
-Ported from the Go SDK's ``sdks/go/search/trigram.go``. The index maps
+Ported from the Go SDK's ``go/search/trigram.go``. The index maps
 boundary-padded 3-grams to the slugs that contain them. Jaccard
 similarity over the trigram sets drives ranking; the default threshold
 of ``0.3`` matches ``spec/ALGORITHMS.md`` (Trigram fallback details).

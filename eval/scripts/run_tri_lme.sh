@@ -231,7 +231,7 @@ MEMORY_GO="${MEMORY_GO:-/tmp/memory-go}"
 run_logged_step \
   "$OUTPUT_ROOT/build-go.log" \
   "Go CLI build before extract" \
-  bash -lc "cd \"$HOME/code/jeffs-brain/memory/sdks/go\" && go build -o \"$MEMORY_GO\" ./cmd/memory"
+  bash -lc "cd \"$HOME/code/jeffs-brain/memory/go\" && go build -o \"$MEMORY_GO\" ./cmd/memory"
 
 echo "== Phase 1: extract-only (shared brain at $JB_HOME) =="
 mkdir -p "$JB_HOME/brains"

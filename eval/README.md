@@ -140,7 +140,7 @@ The runner compares SDKs against each other. Scenario regressions inside one SDK
 | SDK | Command |
 | --- | ------- |
 | TypeScript | `cd sdks/ts/memory && bun x vitest run src/http/handlers.test.ts src/http/daemon.test.ts` |
-| Go | `cd sdks/go && go test ./cmd/memory ./eval/lme` |
+| Go | `cd go && go test ./cmd/memory ./eval/lme` |
 | Python | `cd sdks/py && uv run pytest tests/test_serve_ask_augmented.py tests/test_serve_handlers_real.py tests/test_retrieval_temporal.py` |
 
 ## Environment

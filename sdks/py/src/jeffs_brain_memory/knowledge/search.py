@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Hybrid + BM25 search delegate with an in-memory fallback scorer.
 
-Ported from ``sdks/go/knowledge/search.go``. Routing mirrors the Go
+Ported from ``go/knowledge/search.go``. Routing mirrors the Go
 SDK:
 
 * Hybrid (or Auto with a retriever bound) goes through the bound
