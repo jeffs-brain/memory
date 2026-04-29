@@ -62,6 +62,10 @@ plans/
 eval/datasets/longmemeval_*.json
 .eval/
 
+# Eval outputs are local artefacts and may contain benchmark data.
+eval/results/*
+!eval/results/.gitkeep
+
 # IDE and editor
 .vscode/
 .idea/

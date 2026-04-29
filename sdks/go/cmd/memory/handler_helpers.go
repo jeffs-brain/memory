@@ -118,6 +118,10 @@ func hydrateFallbackChunk(
 		}
 		metadata["session_date"] = sessionDate
 	}
+	if strings.TrimSpace(text) != "" && fallbackMetadataString(metadata, "expansion") == "episodic_recall" {
+		chunk.Metadata = metadata
+		return chunk
+	}
 	if store != nil && chunk.Path != "" {
 		if data, err := store.Read(ctx, brain.Path(chunk.Path)); err == nil {
 			raw := strings.TrimSpace(string(data))
@@ -138,6 +142,21 @@ func hydrateFallbackChunk(
 		chunk.Metadata = metadata
 	}
 	return chunk
+}
+
+func fallbackMetadataString(metadata map[string]any, key string) string {
+	if metadata == nil {
+		return ""
+	}
+	value, ok := metadata[key]
+	if !ok {
+		return ""
+	}
+	text, ok := value.(string)
+	if !ok {
+		return ""
+	}
+	return strings.TrimSpace(text)
 }
 
 func cloneChunkMetadata(src map[string]any) map[string]any {

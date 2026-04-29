@@ -4,6 +4,7 @@ package lme
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -22,6 +23,11 @@ import (
 // when the caller does not override it via [ReplayOpts.ExtractModel].
 // Benchmark work prioritises extraction fidelity over spend.
 const DefaultReplayExtractModel = "gpt-5"
+
+// ReplayExtractionPipelineVersion changes when replay extraction semantics,
+// prompts, or deterministic enrichment change in ways that make an existing
+// brain cache no longer comparable.
+const ReplayExtractionPipelineVersion = 2
 
 // defaultReplayConcurrency bounds the in-flight extraction LLM calls
 // when the caller leaves [ReplayOpts.Concurrency] at zero. Tuned for
@@ -65,6 +71,11 @@ type ReplayResult struct {
 	SessionsProcessed int
 	FactsExtracted    int
 	FactsWritten      int
+	FailedSessions    int
+	FallbackSessions  int
+	EmptySessions     int
+	DuplicatePaths    int
+	WarningCounts     map[string]int
 	Warnings          []string
 }
 
@@ -76,6 +87,14 @@ type sessionData struct {
 	id   string
 	date string
 	text string
+}
+
+func (r *ReplayResult) addWarning(kind, message string) {
+	if r.WarningCounts == nil {
+		r.WarningCounts = make(map[string]int)
+	}
+	r.WarningCounts[kind]++
+	r.Warnings = append(r.Warnings, message)
 }
 
 // IngestReplay processes an LME dataset's haystack sessions through the
@@ -148,6 +167,7 @@ func IngestReplay(
 		extract          []memory.ExtractedMemory
 		modifiedOverride string
 		sessionDateISO   string
+		fallback         bool
 		err              error
 	}
 
@@ -169,7 +189,7 @@ func IngestReplay(
 					continue
 				}
 				callStart := time.Now()
-				extracted, err := extractReplaySessionWithRetry(
+				extracted, fallback, err := extractReplaySessionWithRetry(
 					ctx,
 					provider,
 					extractModel,
@@ -222,6 +242,7 @@ func IngestReplay(
 					extract:          extracted,
 					modifiedOverride: modifiedOverride,
 					sessionDateISO:   sessionDateISO,
+					fallback:         fallback,
 				}
 			}
 		}()
@@ -251,12 +272,25 @@ func IngestReplay(
 
 	for r := range results {
 		if r.err != nil {
-			result.Warnings = append(result.Warnings,
+			if isNonFatalReplaySessionErr(r.err) {
+				result.EmptySessions++
+				result.addWarning("skipped_sessions",
+					fmt.Sprintf("session %s: skipped: %v", r.sess.id, r.err))
+				continue
+			}
+			result.FailedSessions++
+			result.addWarning("failed_sessions",
 				fmt.Sprintf("session %s: extraction failed: %v", r.sess.id, r.err))
 			continue
 		}
 		result.SessionsProcessed++
+		if r.fallback {
+			result.FallbackSessions++
+			result.addWarning("heuristic_fallback_sessions",
+				fmt.Sprintf("session %s: used heuristic fallback after extraction parse failures", r.sess.id))
+		}
 		if len(r.extract) == 0 {
+			result.EmptySessions++
 			slog.Debug("lme replay: no facts extracted", "session", r.sess.id)
 			continue
 		}
@@ -266,6 +300,23 @@ func IngestReplay(
 	}
 
 	slug := memory.ProjectSlug(projectPath)
+	if result.FailedSessions > 0 {
+		fmt.Fprintf(os.Stderr,
+			"[replay] warnings failed_sessions=%d fallback_sessions=%d empty_sessions=%d duplicate_paths=%d apply_failures=%d\n",
+			result.FailedSessions, result.FallbackSessions, result.EmptySessions, result.DuplicatePaths,
+			result.WarningCounts["apply_failures"])
+		if summary := firstReplayWarnings(result.Warnings, "extraction failed", 10); summary != "" {
+			fmt.Fprintf(os.Stderr, "[replay] failed session samples: %s\n", summary)
+			return result, fmt.Errorf("lme replay ingest: %d session extraction failures: %s",
+				result.FailedSessions, summary)
+		}
+		return result, fmt.Errorf("lme replay ingest: %d session extraction failures", result.FailedSessions)
+	}
+	result.DuplicatePaths = countDuplicateReplayPaths(slug, pending)
+	if result.DuplicatePaths > 0 {
+		result.addWarning("duplicate_paths",
+			fmt.Sprintf("duplicate extraction paths: %d", result.DuplicatePaths))
+	}
 
 	if ctx.Err() != nil {
 		return result, ctx.Err()
@@ -275,9 +326,9 @@ func IngestReplay(
 		fmt.Fprintf(os.Stderr, "[replay] applying %d extracted facts to store\n", len(pending))
 		applyStart := time.Now()
 		if err := mem.ApplyExtractions(ctx, slug, pending); err != nil {
-			result.Warnings = append(result.Warnings,
+			result.addWarning("apply_failures",
 				fmt.Sprintf("apply extractions failed: %v", err))
-			return result, nil
+			return result, fmt.Errorf("lme replay ingest: apply extractions: %w", err)
 		}
 		result.FactsWritten = len(pending)
 		fmt.Fprintf(os.Stderr, "[replay] apply done in %s (%d facts written); ingest total %s\n",
@@ -297,8 +348,32 @@ func IngestReplay(
 		"[replay] extracted=%d sessions, contextualised=%d facts (cache_hits=%d), ingest_wall=%ss\n",
 		result.SessionsProcessed, ctxFresh, cacheHits,
 		fmtDurationSecs(ingestWall))
+	if result.FailedSessions > 0 || result.FallbackSessions > 0 || result.EmptySessions > 0 || result.DuplicatePaths > 0 ||
+		result.WarningCounts["apply_failures"] > 0 {
+		fmt.Fprintf(os.Stderr,
+			"[replay] warnings failed_sessions=%d fallback_sessions=%d empty_sessions=%d duplicate_paths=%d apply_failures=%d\n",
+			result.FailedSessions, result.FallbackSessions, result.EmptySessions, result.DuplicatePaths,
+			result.WarningCounts["apply_failures"])
+	}
 
 	return result, nil
+}
+
+func firstReplayWarnings(warnings []string, contains string, limit int) string {
+	if limit <= 0 {
+		return ""
+	}
+	out := make([]string, 0, limit)
+	for _, warning := range warnings {
+		if contains != "" && !strings.Contains(warning, contains) {
+			continue
+		}
+		out = append(out, warning)
+		if len(out) >= limit {
+			break
+		}
+	}
+	return strings.Join(out, "; ")
 }
 
 // deduplicateSessions flattens every question's haystack sessions into
@@ -341,6 +416,45 @@ func deduplicateSessions(questions []Question) []sessionData {
 	return out
 }
 
+func countDuplicateReplayPaths(projectSlug string, extractions []memory.ExtractedMemory) int {
+	seen := make(map[string]bool, len(extractions))
+	duplicates := 0
+	for _, extraction := range extractions {
+		key := replayExtractionPathKey(projectSlug, extraction)
+		if key == "" {
+			continue
+		}
+		if seen[key] {
+			duplicates++
+			continue
+		}
+		seen[key] = true
+	}
+	return duplicates
+}
+
+func replayExtractionPathKey(projectSlug string, extraction memory.ExtractedMemory) string {
+	filename := replaySanitiseFilename(extraction.Filename)
+	if filename == "" || strings.TrimSpace(extraction.Content) == "" {
+		return ""
+	}
+	if !strings.HasSuffix(filename, ".md") {
+		filename += ".md"
+	}
+	slug := strings.TrimSuffix(filename, ".md")
+	if extraction.Scope == "global" {
+		return string(brain.MemoryGlobalTopic(slug))
+	}
+	return string(brain.MemoryProjectTopic(projectSlug, slug))
+}
+
+func replaySanitiseFilename(name string) string {
+	if idx := strings.LastIndexAny(name, "/\\"); idx >= 0 {
+		name = name[idx+1:]
+	}
+	return name
+}
+
 func extractReplaySessionWithRetry(
 	ctx context.Context,
 	provider llm.Provider,
@@ -350,7 +464,7 @@ func extractReplaySessionWithRetry(
 	messages []memory.Message,
 	sessionID string,
 	sessionDate string,
-) ([]memory.ExtractedMemory, error) {
+) ([]memory.ExtractedMemory, bool, error) {
 	var lastErr error
 	for attempt := 1; attempt <= replayExtractRetryMax; attempt++ {
 		extracted, err := memory.ExtractFromMessagesWithSession(
@@ -364,23 +478,39 @@ func extractReplaySessionWithRetry(
 			sessionDate,
 		)
 		if err == nil {
-			return extracted, nil
+			return extracted, false, nil
 		}
 		lastErr = err
-		if !isTransientErr(err) || attempt == replayExtractRetryMax {
+		if !isRetryableReplayExtractionErr(err) || attempt == replayExtractRetryMax {
 			break
 		}
-		IncTransientRetry()
+		if isTransientErr(err) {
+			IncTransientRetry()
+		}
 		backoff := time.Duration(attempt) * 500 * time.Millisecond
 		timer := time.NewTimer(backoff)
 		select {
 		case <-ctx.Done():
 			timer.Stop()
-			return nil, ctx.Err()
+			return nil, false, ctx.Err()
 		case <-timer.C:
 		}
 	}
-	return nil, lastErr
+	if errors.Is(lastErr, memory.ErrExtractionParse) {
+		return memory.HeuristicExtractionsFromMessagesWithSession(messages, sessionID, sessionDate), true, nil
+	}
+	return nil, false, lastErr
+}
+
+func isNonFatalReplaySessionErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	return strings.Contains(err.Error(), "too few messages")
+}
+
+func isRetryableReplayExtractionErr(err error) bool {
+	return isTransientErr(err) || errors.Is(err, memory.ErrExtractionParse)
 }
 
 // postProcessSessionFacts applies temporal metadata, session ids, and
@@ -419,11 +549,11 @@ func postProcessSessionFacts(sess sessionData, extract []memory.ExtractedMemory)
 	// body. Also seed frontmatter tags with auto-extracted entities so
 	// BM25 matches against the tags column rather than body-only.
 	for i := range extract {
-		extract[i].Filename = memory.RewriteHeuristicFilenameForSession(extract[i].Filename, sess.id)
 		extract[i].SessionID = sess.id
 		if sessionDateISO != "" {
 			extract[i].SessionDate = sessionDateISO
 		}
+		extract[i].Filename = memory.RewriteFilenameForSessionContent(extract[i].Filename, sess.id, extract[i].Content)
 		auto := autoFactTags(extract[i].Content)
 		if len(auto) > 0 {
 			seen := make(map[string]bool, len(extract[i].Tags)+len(auto))

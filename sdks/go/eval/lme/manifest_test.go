@@ -18,15 +18,16 @@ func TestBuildRunManifest_IncludesActorSettings(t *testing.T) {
 			IngestMode: "none",
 		},
 		RunConfig{
-			Seed:               7,
-			SampleSize:         5,
-			SampleIDs:          []string{"q1", "q2"},
-			ActorEndpoint:      "http://127.0.0.1:18850",
-			ActorEndpointStyle: " retrieve-only ",
-			ActorRetrievalMode: retrieval.ModeBM25,
-			ActorTopK:          0,
-			ActorCandidateK:    120,
-			ActorRerankTopN:    0,
+			Seed:                        7,
+			SampleSize:                  5,
+			SampleIDs:                   []string{"q1", "q2"},
+			ActorEndpoint:               "http://127.0.0.1:18850",
+			ActorEndpointStyle:          " retrieve-only ",
+			ActorRetrievalMode:          retrieval.ModeBM25,
+			ActorTopK:                   0,
+			ActorCandidateK:             120,
+			ActorRerankTopN:             0,
+			ActorFilterQuestionSessions: true,
 			ActorFilters: retrieval.Filters{
 				Scope:      " project ",
 				Project:    " eval-lme ",
@@ -84,6 +85,9 @@ func TestBuildRunManifest_IncludesActorSettings(t *testing.T) {
 	if manifest.ActorPathPrefix != "memory/project/eval-lme/" {
 		t.Fatalf("ActorPathPrefix = %q, want memory/project/eval-lme/", manifest.ActorPathPrefix)
 	}
+	if !manifest.ActorQuestionSessions {
+		t.Fatal("ActorQuestionSessions = false, want true")
+	}
 }
 
 func TestBuildRunManifest_InfersFullContextFromDataset(t *testing.T) {
@@ -130,14 +134,18 @@ func TestBuildRunManifest_InfersFullContextFromDataset(t *testing.T) {
 }
 
 func TestBuildRunManifest_ExtractOnlyUsesPrepBenchmarkMode(t *testing.T) {
+	t.Setenv("JB_EXTRACT_HEURISTICS", "fallback")
+
 	manifest := BuildRunManifest(
 		&LMEResult{
 			DatasetSHA: "dataset-sha",
 			IngestMode: "replay",
+			SampleIDs:  []string{"q1", "q2"},
 		},
 		RunConfig{
 			IngestMode:         "replay",
 			ReplayExtractModel: "extract-m",
+			ReplayConcurrency:  17,
 			ExtractOnly:        true,
 		},
 		"judge-m",
@@ -154,6 +162,126 @@ func TestBuildRunManifest_ExtractOnlyUsesPrepBenchmarkMode(t *testing.T) {
 	}
 	if manifest.ExtractModel != "extract-m" {
 		t.Fatalf("ExtractModel = %q, want extract-m", manifest.ExtractModel)
+	}
+	if manifest.ExtractHeuristics != "fallback" {
+		t.Fatalf("ExtractHeuristics = %q, want fallback", manifest.ExtractHeuristics)
+	}
+	if manifest.ExtractionPipeline != ReplayExtractionPipelineVersion {
+		t.Fatalf("ExtractionPipeline = %d, want %d", manifest.ExtractionPipeline, ReplayExtractionPipelineVersion)
+	}
+	if manifest.ReplayConcurrency != 17 {
+		t.Fatalf("ReplayConcurrency = %d, want 17", manifest.ReplayConcurrency)
+	}
+	if manifest.CacheSignature == "" {
+		t.Fatal("CacheSignature = empty, want populated")
+	}
+	if manifest.CacheSignatureInputs == nil {
+		t.Fatal("CacheSignatureInputs = nil, want populated")
+	}
+	if manifest.CacheSignatureInputs.SampleSignature == "" {
+		t.Fatal("CacheSignatureInputs.SampleSignature = empty, want populated")
+	}
+	if got := manifest.CacheSignatureInputs.SampleIDs; len(got) != 2 || got[0] != "q1" || got[1] != "q2" {
+		t.Fatalf("CacheSignatureInputs.SampleIDs = %#v, want q1/q2", got)
+	}
+	if manifest.CacheSignatureInputs.ExtractHeuristics != "fallback" {
+		t.Fatalf("CacheSignatureInputs.ExtractHeuristics = %q, want fallback", manifest.CacheSignatureInputs.ExtractHeuristics)
+	}
+}
+
+func TestRunManifest_CacheSignatureChangesForSampleAndIngestConfig(t *testing.T) {
+	t.Setenv("JB_EXTRACT_HEURISTICS", "")
+
+	base := BuildRunManifest(
+		&LMEResult{
+			DatasetSHA: "dataset-sha",
+			IngestMode: "replay",
+			SampleIDs:  []string{"q1", "q2"},
+		},
+		RunConfig{
+			IngestMode:         "replay",
+			ReplayExtractModel: "extract-m",
+			ReplayConcurrency:  17,
+			ExtractOnly:        true,
+		},
+		"judge-m",
+	)
+	if base.CacheSignature == "" {
+		t.Fatal("base cache signature is empty")
+	}
+
+	changedSample := BuildRunManifest(
+		&LMEResult{
+			DatasetSHA: "dataset-sha",
+			IngestMode: "replay",
+			SampleIDs:  []string{"q1", "q3"},
+		},
+		RunConfig{
+			IngestMode:         "replay",
+			ReplayExtractModel: "extract-m",
+			ReplayConcurrency:  17,
+			ExtractOnly:        true,
+		},
+		"judge-m",
+	)
+	if base.CacheSignature == changedSample.CacheSignature {
+		t.Fatal("expected changed sample IDs to change cache signature")
+	}
+
+	changedModel := BuildRunManifest(
+		&LMEResult{
+			DatasetSHA: "dataset-sha",
+			IngestMode: "replay",
+			SampleIDs:  []string{"q1", "q2"},
+		},
+		RunConfig{
+			IngestMode:         "replay",
+			ReplayExtractModel: "extract-other",
+			ReplayConcurrency:  17,
+			ExtractOnly:        true,
+		},
+		"judge-m",
+	)
+	if base.CacheSignature == changedModel.CacheSignature {
+		t.Fatal("expected changed extract model to change cache signature")
+	}
+
+	t.Setenv("JB_EXTRACT_HEURISTICS", "fallback")
+	changedHeuristics := BuildRunManifest(
+		&LMEResult{
+			DatasetSHA: "dataset-sha",
+			IngestMode: "replay",
+			SampleIDs:  []string{"q1", "q2"},
+		},
+		RunConfig{
+			IngestMode:         "replay",
+			ReplayExtractModel: "extract-m",
+			ReplayConcurrency:  17,
+			ExtractOnly:        true,
+		},
+		"judge-m",
+	)
+	if base.CacheSignature == changedHeuristics.CacheSignature {
+		t.Fatal("expected changed extract heuristics to change cache signature")
+	}
+
+	t.Setenv("JB_EXTRACT_HEURISTICS", "")
+	changedConcurrency := BuildRunManifest(
+		&LMEResult{
+			DatasetSHA: "dataset-sha",
+			IngestMode: "replay",
+			SampleIDs:  []string{"q1", "q2"},
+		},
+		RunConfig{
+			IngestMode:         "replay",
+			ReplayExtractModel: "extract-m",
+			ReplayConcurrency:  64,
+			ExtractOnly:        true,
+		},
+		"judge-m",
+	)
+	if base.CacheSignature != changedConcurrency.CacheSignature {
+		t.Fatal("expected changed replay concurrency to keep cache signature")
 	}
 }
 
@@ -192,26 +320,27 @@ func TestBuildRunManifest_FullActorStyleRecordsActualRequestShape(t *testing.T) 
 
 func TestRunManifest_IsComparableIncludesActorSettings(t *testing.T) {
 	base := RunManifest{
-		DatasetSHA:         "dataset-sha",
-		JudgeModel:         "judge-m",
-		JudgePromptVersion: 6,
-		JudgeFailureMode:   "question-error",
-		ReaderFailureMode:  "question-error",
-		ReaderModel:        "reader-m",
-		ExtractModel:       "extract-m",
-		SampleSignature:    "sample-sha",
-		Contextualise:      true,
-		ExtractOnly:        false,
-		BenchmarkMode:      BenchmarkModeRealRetrieval,
-		ContextSource:      ContextSourceActorRetrieve,
-		ActorEndpointStyle: "retrieve-only",
-		ActorBrain:         "eval-lme",
-		ActorRetrievalMode: string(retrieval.ModeHybridRerank),
-		ActorTopK:          intPtr(20),
-		ActorCandidateK:    intPtr(100),
-		ActorRerankTopN:    intPtr(60),
-		ActorScope:         "project",
-		ActorProject:       "eval-lme",
+		DatasetSHA:            "dataset-sha",
+		JudgeModel:            "judge-m",
+		JudgePromptVersion:    6,
+		JudgeFailureMode:      "question-error",
+		ReaderFailureMode:     "question-error",
+		ReaderModel:           "reader-m",
+		ExtractModel:          "extract-m",
+		SampleSignature:       "sample-sha",
+		Contextualise:         true,
+		ExtractOnly:           false,
+		BenchmarkMode:         BenchmarkModeRealRetrieval,
+		ContextSource:         ContextSourceActorRetrieve,
+		ActorEndpointStyle:    "retrieve-only",
+		ActorBrain:            "eval-lme",
+		ActorRetrievalMode:    string(retrieval.ModeHybridRerank),
+		ActorTopK:             intPtr(20),
+		ActorCandidateK:       intPtr(100),
+		ActorRerankTopN:       intPtr(60),
+		ActorScope:            "project",
+		ActorProject:          "eval-lme",
+		ActorQuestionSessions: true,
 	}
 	if !base.IsComparable(base) {
 		t.Fatal("expected identical manifests to be comparable")

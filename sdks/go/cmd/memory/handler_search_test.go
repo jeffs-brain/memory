@@ -20,13 +20,18 @@ import (
 )
 
 type captureRetriever struct {
-	req retrieval.Request
+	req    retrieval.Request
+	chunks []retrieval.RetrievedChunk
 }
 
 func (c *captureRetriever) Retrieve(_ context.Context, req retrieval.Request) (retrieval.Response, error) {
 	c.req = req
+	chunks := c.chunks
+	if len(chunks) == 0 {
+		chunks = []retrieval.RetrievedChunk{{Path: "raw/lme/s1.md"}}
+	}
 	return retrieval.Response{
-		Chunks: []retrieval.RetrievedChunk{{Path: "raw/lme/s1.md"}},
+		Chunks: chunks,
 		Trace:  retrieval.Trace{EffectiveMode: retrieval.ModeHybrid},
 	}, nil
 }
@@ -164,6 +169,51 @@ func TestRunSearchPipeline_NormalisesInvalidModeToAuto(t *testing.T) {
 	}
 	if retr.req.Mode != retrieval.ModeAuto {
 		t.Fatalf("Mode = %q, want auto", retr.req.Mode)
+	}
+}
+
+func TestRunSearchPipeline_RetrieverHydratesMetadataFromStore(t *testing.T) {
+	t.Parallel()
+
+	store := mem.New()
+	t.Cleanup(func() { _ = store.Close() })
+	path := "memory/project/eval-lme/fact.md"
+	raw := "---\nsession_id: sess-123\nsession_date: 2024-03-08\nobserved_on: 2024-03-08T09:00:00Z\n---\nUser bought a red bike.\n"
+	if err := store.Write(context.Background(), brain.Path(path), []byte(raw)); err != nil {
+		t.Fatalf("store.Write: %v", err)
+	}
+	retr := &captureRetriever{
+		chunks: []retrieval.RetrievedChunk{{
+			Path: path,
+			Text: "snippet",
+		}},
+	}
+	br := &BrainResources{
+		ID:        "eval-lme",
+		Store:     store,
+		Retriever: retr,
+	}
+
+	chunks, _, _, _ := (&Daemon{}).runSearchPipeline(
+		httptest.NewRequest("POST", "/search", nil),
+		br,
+		searchRequest{Query: "bike", TopK: 5},
+	)
+
+	if len(chunks) != 1 {
+		t.Fatalf("chunks = %d, want 1", len(chunks))
+	}
+	if chunks[0].Text != "User bought a red bike." {
+		t.Fatalf("chunk text = %q, want hydrated body", chunks[0].Text)
+	}
+	if got := chunks[0].Metadata["session_id"]; got != "sess-123" {
+		t.Fatalf("session_id = %#v, want sess-123", got)
+	}
+	if got := chunks[0].Metadata["session_date"]; got != "2024-03-08" {
+		t.Fatalf("session_date = %#v, want 2024-03-08", got)
+	}
+	if got := chunks[0].Metadata["observed_on"]; got != "2024-03-08T09:00:00Z" {
+		t.Fatalf("observed_on = %#v, want 2024-03-08T09:00:00Z", got)
 	}
 }
 

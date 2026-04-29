@@ -29,3 +29,41 @@ func TestProcessSessionContextForQuestion_PrioritisesRelevantSessionsAndKeepsTim
 		t.Fatalf("unrelated session should sort after relevant ones:\n%s", got)
 	}
 }
+
+func TestRenderRetrievedPassages_IncludesSourceRoleLabel(t *testing.T) {
+	t.Parallel()
+
+	got := RenderRetrievedPassages([]RetrievedPassage{
+		{
+			Path:       "memory/global/user-bike-count.md",
+			Date:       "2024-03-01",
+			SessionID:  "s1",
+			SourceRole: "user",
+			EventDate:  "2024-02-29",
+			Body:       "The user owns two bikes.",
+		},
+	}, "How many bikes do I own?", "2024/03/13 (Wed) 10:00")
+
+	if !strings.Contains(got, "[source_role=user]") {
+		t.Fatalf("rendered evidence missing source role label:\n%s", got)
+	}
+	if !strings.Contains(got, "[event_date=2024-02-29]") {
+		t.Fatalf("rendered evidence missing event date label:\n%s", got)
+	}
+}
+
+func TestRenderRetrievedPassages_IncludesDaysAgoDelta(t *testing.T) {
+	t.Parallel()
+
+	got := RenderRetrievedPassages([]RetrievedPassage{
+		{
+			Path: "memory/global/networking-event.md",
+			Date: "2022-03-09",
+			Body: "The user attended a networking event.",
+		},
+	}, "How many days ago did I attend a networking event?", "2022/04/04 (Mon) 09:00")
+
+	if !strings.Contains(got, "[days_before_question=26]") {
+		t.Fatalf("rendered evidence missing date delta label:\n%s", got)
+	}
+}

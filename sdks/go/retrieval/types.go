@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"strings"
+	"time"
 )
 
 // Mode selects which retrievers participate in a hybrid search. The
@@ -36,12 +37,17 @@ const (
 // are treated as no filter. PathPrefix is inclusive of the exact
 // prefix. Paths is an exact allow-list. Tags are matched against the
 // FTS tags column; every tag must be present for a hit to survive.
+// SessionIDs constrains hits to known conversation/session ids.
+// DateFrom and DateTo are internal bounds derived by retrieval.
 type Filters struct {
-	PathPrefix string   `json:"pathPrefix,omitempty"`
-	Paths      []string `json:"paths,omitempty"`
-	Tags       []string `json:"tags,omitempty"`
-	Scope      string   `json:"scope,omitempty"`
-	Project    string   `json:"project,omitempty"`
+	PathPrefix string    `json:"pathPrefix,omitempty"`
+	Paths      []string  `json:"paths,omitempty"`
+	Tags       []string  `json:"tags,omitempty"`
+	SessionIDs []string  `json:"sessionIds,omitempty"`
+	Scope      string    `json:"scope,omitempty"`
+	Project    string    `json:"project,omitempty"`
+	DateFrom   time.Time `json:"-"`
+	DateTo     time.Time `json:"-"`
 }
 
 // HasAny reports whether any field carries a non-zero filter.
@@ -49,8 +55,11 @@ func (f Filters) HasAny() bool {
 	return strings.TrimSpace(f.PathPrefix) != "" ||
 		len(normalisePathList(f.Paths)) > 0 ||
 		len(f.Tags) > 0 ||
+		len(normaliseStringList(f.SessionIDs)) > 0 ||
 		strings.TrimSpace(f.Scope) != "" ||
-		strings.TrimSpace(f.Project) != ""
+		strings.TrimSpace(f.Project) != "" ||
+		!f.DateFrom.IsZero() ||
+		!f.DateTo.IsZero()
 }
 
 // MatchesPath reports whether path survives the exact-path and prefix
@@ -86,6 +95,8 @@ func (f *Filters) UnmarshalJSON(data []byte) error {
 		DocumentPaths    []string `json:"documentPaths"`
 		DocumentPathsAlt []string `json:"document_paths"`
 		Tags             []string `json:"tags"`
+		SessionIDs       []string `json:"sessionIds"`
+		SessionIDsAlt    []string `json:"session_ids"`
 		Scope            string   `json:"scope"`
 		Project          string   `json:"project"`
 	}
@@ -97,6 +108,7 @@ func (f *Filters) UnmarshalJSON(data []byte) error {
 		PathPrefix: firstNonEmptyString(raw.PathPrefix, raw.PathPrefixSnake),
 		Paths:      firstNonEmptyPathList(raw.Paths, raw.DocumentPaths, raw.DocumentPathsAlt),
 		Tags:       raw.Tags,
+		SessionIDs: firstNonEmptyStringList(raw.SessionIDs, raw.SessionIDsAlt),
 		Scope:      raw.Scope,
 		Project:    raw.Project,
 	}
@@ -121,7 +133,20 @@ func firstNonEmptyPathList(candidates ...[]string) []string {
 	return nil
 }
 
+func firstNonEmptyStringList(candidates ...[]string) []string {
+	for _, values := range candidates {
+		if out := normaliseStringList(values); len(out) > 0 {
+			return out
+		}
+	}
+	return nil
+}
+
 func normalisePathList(paths []string) []string {
+	return normaliseStringList(paths)
+}
+
+func normaliseStringList(paths []string) []string {
 	if len(paths) == 0 {
 		return nil
 	}
@@ -174,34 +199,47 @@ type RetrievedChunk struct {
 // count it produced. Silently-skipped rungs are omitted so the
 // attempt log reflects what was tried.
 type Attempt struct {
-	Rung   int    `json:"rung"`
-	Mode   Mode   `json:"mode"`
-	TopK   int    `json:"topK"`
-	Reason string `json:"reason"`
-	Chunks int    `json:"chunks"`
-	Query  string `json:"query"`
+	Rung         int     `json:"rung"`
+	Mode         Mode    `json:"mode"`
+	TopK         int     `json:"topK"`
+	Reason       string  `json:"reason"`
+	Chunks       int     `json:"chunks"`
+	Query        string  `json:"query"`
+	Quality      string  `json:"quality,omitempty"`
+	QualityScore float64 `json:"qualityScore,omitempty"`
+	DateBounded  bool    `json:"dateBounded,omitempty"`
 }
 
 // Trace records every decision the pipeline made. Consumers should
 // surface this to eval harnesses and --explain style reports.
 type Trace struct {
-	RequestedMode    Mode   `json:"requestedMode"`
-	EffectiveMode    Mode   `json:"effectiveMode"`
-	Intent           string `json:"intent"`
-	UsedRetry        bool   `json:"usedRetry"`
-	RRFK             int    `json:"rrfK"`
-	CandidateK       int    `json:"candidateK"`
-	RerankTopN       int    `json:"rerankTopN"`
-	FellBackToBM25   bool   `json:"fellBackToBM25"`
-	EmbedderUsed     bool   `json:"embedderUsed"`
-	Reranked         bool   `json:"reranked"`
-	RerankProvider   string `json:"rerankProvider,omitempty"`
-	RerankSkipReason string `json:"rerankSkipReason,omitempty"`
-	BM25Hits         int    `json:"bm25Hits"`
-	VectorHits       int    `json:"vectorHits"`
-	FusedHits        int    `json:"fusedHits"`
-	Agreements       int    `json:"agreements"`
-	UnanimitySkipped bool   `json:"unanimitySkipped"`
+	RequestedMode               Mode   `json:"requestedMode"`
+	EffectiveMode               Mode   `json:"effectiveMode"`
+	Intent                      string `json:"intent"`
+	UsedRetry                   bool   `json:"usedRetry"`
+	QualityRetry                bool   `json:"qualityRetry,omitempty"`
+	RRFK                        int    `json:"rrfK"`
+	CandidateK                  int    `json:"candidateK"`
+	RerankTopN                  int    `json:"rerankTopN"`
+	FellBackToBM25              bool   `json:"fellBackToBM25"`
+	EmbedderUsed                bool   `json:"embedderUsed"`
+	Reranked                    bool   `json:"reranked"`
+	RerankProvider              string `json:"rerankProvider,omitempty"`
+	RerankSkipReason            string `json:"rerankSkipReason,omitempty"`
+	VectorSkipReason            string `json:"vectorSkipReason,omitempty"`
+	BM25Hits                    int    `json:"bm25Hits"`
+	VectorHits                  int    `json:"vectorHits"`
+	FusedHits                   int    `json:"fusedHits"`
+	SessionExpansions           int    `json:"sessionExpansions,omitempty"`
+	EpisodicRecall              bool   `json:"episodicRecall,omitempty"`
+	EpisodicRecallHits          int    `json:"episodicRecallHits,omitempty"`
+	EpisodicRecallReason        string `json:"episodicRecallReason,omitempty"`
+	AggregateEvidenceGroups     int    `json:"aggregateEvidenceGroups,omitempty"`
+	AggregateEvidenceSuppressed int    `json:"aggregateEvidenceSuppressed,omitempty"`
+	StateIntent                 bool   `json:"stateIntent,omitempty"`
+	StatePromotions             int    `json:"statePromotions,omitempty"`
+	Agreements                  int    `json:"agreements"`
+	UnanimitySkipped            bool   `json:"unanimitySkipped"`
 }
 
 // Response bundles the ranked hits with the trace and attempt log.

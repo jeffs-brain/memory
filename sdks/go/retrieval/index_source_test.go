@@ -5,6 +5,7 @@ package retrieval
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -386,6 +387,65 @@ func TestIndexSource_BM25_ProjectScopeExcludesGlobalAndRaw(t *testing.T) {
 	}
 }
 
+func TestIndexSource_BM25_ProjectFilterWithoutScopeKeepsGlobalAndMatchingProject(t *testing.T) {
+	t.Parallel()
+	corpus := []indexSourceArticle{
+		{
+			Path:    "memory/global/farmers-market.md",
+			Title:   "Farmers market summary",
+			Summary: "Latest market earnings",
+			Body:    "The Downtown Farmers Market visit earned $420.",
+		},
+		{
+			Path:    "memory/project/eval-lme/farmers-market-plan.md",
+			Title:   "Farmers market plan",
+			Summary: "Promo notes for the next market",
+			Body:    "Prepare signage for the Downtown Farmers Market.",
+		},
+		{
+			Path:    "memory/project/other/farmers-market-other.md",
+			Title:   "Other project market plan",
+			Summary: "Unrelated project",
+			Body:    "This other project also mentions the Downtown Farmers Market.",
+		},
+		{
+			Path:    "wiki/farmers-market.md",
+			Title:   "Wiki market",
+			Summary: "Reference article",
+			Body:    "The Downtown Farmers Market has a public website.",
+		},
+		{
+			Path:    "raw/lme/farmers-market-session.md",
+			Title:   "Raw session",
+			Summary: "Transcript",
+			Body:    "User mentioned the Downtown Farmers Market in a raw session transcript.",
+		},
+	}
+	src, _, _, _ := setupIndexSource(t, corpus)
+
+	hits, err := src.SearchBM25(context.Background(), "downtown farmers market", 10, Filters{
+		Project: "eval-lme",
+	})
+	if err != nil {
+		t.Fatalf("SearchBM25 project filter: %v", err)
+	}
+	if !containsBM25Path(hits, "memory/global/farmers-market.md") {
+		t.Fatalf("expected global memory hit, got %v", hitPaths(hits))
+	}
+	if !containsBM25Path(hits, "memory/project/eval-lme/farmers-market-plan.md") {
+		t.Fatalf("expected eval-lme project hit, got %v", hitPaths(hits))
+	}
+	for _, unexpected := range []string{
+		"memory/project/other/farmers-market-other.md",
+		"wiki/farmers-market.md",
+		"raw/lme/farmers-market-session.md",
+	} {
+		if containsBM25Path(hits, unexpected) {
+			t.Fatalf("project filter leaked %s: %v", unexpected, hitPaths(hits))
+		}
+	}
+}
+
 func TestIndexSource_BM25_RespectsPathPrefix(t *testing.T) {
 	t.Parallel()
 	src, _, _, _ := setupIndexSource(t, indexSourceCorpus())
@@ -421,6 +481,36 @@ func TestIndexSource_BM25_RespectsExactPaths(t *testing.T) {
 		if h.Path != "wiki/order-processing.md" && h.Path != "wiki/invoice-rollup.md" {
 			t.Fatalf("path leak: %s", h.Path)
 		}
+	}
+}
+
+func TestIndexSource_BM25_TagsMatchYAMLInlineListFormatting(t *testing.T) {
+	t.Parallel()
+	src, _, _, _ := setupIndexSource(t, []indexSourceArticle{
+		{
+			Path:        "wiki/tagged-invoice.md",
+			Title:       "Tagged invoice",
+			Summary:     "Billing workflow",
+			Frontmatter: "tags: [billing, urgent]",
+			Body:        "The invoice workflow needs escalation.",
+		},
+		{
+			Path:        "wiki/untagged-invoice.md",
+			Title:       "Untagged invoice",
+			Summary:     "Billing workflow",
+			Frontmatter: "tags: [archive]",
+			Body:        "The invoice workflow is historical.",
+		},
+	})
+
+	hits, err := src.SearchBM25(context.Background(), "invoice workflow", 10, Filters{
+		Tags: []string{"billing", "urgent"},
+	})
+	if err != nil {
+		t.Fatalf("SearchBM25 tags: %v", err)
+	}
+	if len(hits) != 1 || hits[0].Path != "wiki/tagged-invoice.md" {
+		t.Fatalf("tag-filtered hits = %v, want only tagged invoice", hitPaths(hits))
 	}
 }
 
@@ -540,6 +630,84 @@ func TestIndexSource_Vectors_MemoryScopeIncludesGlobalAndProjectButNotRaw(t *tes
 	}
 	if containsVectorPath(hits, "raw/lme/farmers-market-session.md") {
 		t.Fatalf("unexpected raw hit: %v", vectorHitPaths(hits))
+	}
+}
+
+func TestIndexSource_Vectors_WidensCandidatePoolBeforeFiltering(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store := mem.New()
+	t.Cleanup(func() { _ = store.Close() })
+
+	const distractors = 250
+	for i := 0; i < distractors; i++ {
+		path := brain.Path(fmt.Sprintf("memory/project/other/vector-distractor-%03d.md", i))
+		body := fmt.Sprintf("---\ntitle: Distractor %03d\nsummary: Other project\n---\nwrong project body\n", i)
+		if err := store.Write(ctx, path, []byte(body)); err != nil {
+			t.Fatalf("write distractor %d: %v", i, err)
+		}
+	}
+	const allowedPath = "memory/project/eval-lme/vector-target.md"
+	if err := store.Write(ctx, brain.Path(allowedPath), []byte("---\ntitle: Allowed\nsummary: Eval project\n---\nallowed project body\n")); err != nil {
+		t.Fatalf("write allowed: %v", err)
+	}
+
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	idx, err := search.NewIndex(db, store)
+	if err != nil {
+		t.Fatalf("NewIndex: %v", err)
+	}
+	if err := idx.Rebuild(ctx); err != nil {
+		t.Fatalf("Rebuild: %v", err)
+	}
+	vec, err := search.NewVectorIndex(db)
+	if err != nil {
+		t.Fatalf("NewVectorIndex: %v", err)
+	}
+	for i := 0; i < distractors; i++ {
+		path := fmt.Sprintf("memory/project/other/vector-distractor-%03d.md", i)
+		if err := vec.Store(ctx, search.VectorEntry{
+			Path:     path,
+			Checksum: path,
+			Model:    indexSourceTestModel,
+			Vector:   []float32{1, 0},
+			Title:    "Distractor",
+			Summary:  "Other project",
+		}); err != nil {
+			t.Fatalf("store distractor vector %d: %v", i, err)
+		}
+	}
+	if err := vec.Store(ctx, search.VectorEntry{
+		Path:     allowedPath,
+		Checksum: allowedPath,
+		Model:    indexSourceTestModel,
+		Vector:   []float32{0, 1},
+		Title:    "Allowed",
+		Summary:  "Eval project",
+	}); err != nil {
+		t.Fatalf("store allowed vector: %v", err)
+	}
+
+	src, err := NewIndexSource(idx, IndexSourceOptions{
+		Vectors: vec,
+		Model:   indexSourceTestModel,
+	})
+	if err != nil {
+		t.Fatalf("NewIndexSource: %v", err)
+	}
+	hits, err := src.SearchVector(ctx, []float32{1, 0}, 5, Filters{
+		Scope:   "project_memory",
+		Project: "eval-lme",
+	})
+	if err != nil {
+		t.Fatalf("SearchVector: %v", err)
+	}
+	if len(hits) != 1 || hits[0].Path != allowedPath {
+		t.Fatalf("filtered vector hits = %v, want allowed low-ranked path", vectorHitPaths(hits))
 	}
 }
 
@@ -668,6 +836,46 @@ func TestIndexSource_EndToEnd_RetrieveHydratesMetadataAliases(t *testing.T) {
 	}
 	if meta["sessionDate"] != "2024-03-08" || meta["session_date"] != "2024-03-08" {
 		t.Fatalf("session date metadata = %+v, want both aliases", meta)
+	}
+}
+
+func TestIndexSource_EndToEnd_QuestionDateBoundsExcludeFutureDecoy(t *testing.T) {
+	t.Parallel()
+	src, _, _, _ := setupIndexSource(t, []indexSourceArticle{
+		{
+			Path:        "memory/global/past-supplier-status.md",
+			Title:       "Past supplier status",
+			Summary:     "Supplier update",
+			Frontmatter: "session_date: 2024-03-10",
+			Body:        "Supplier status is stable.",
+		},
+		{
+			Path:        "memory/global/future-supplier-status.md",
+			Title:       "Future supplier status",
+			Summary:     "Supplier update",
+			Frontmatter: "session_date: 2024-04-10",
+			Body:        "Supplier status status status is cancelled.",
+		},
+	})
+
+	r, err := New(Config{Source: src})
+	if err != nil {
+		t.Fatalf("New retriever: %v", err)
+	}
+	resp, err := r.Retrieve(context.Background(), Request{
+		Query:        "What is the supplier status?",
+		QuestionDate: "2024/03/15 (Fri) 09:00",
+		Mode:         ModeBM25,
+		TopK:         1,
+	})
+	if err != nil {
+		t.Fatalf("Retrieve: %v", err)
+	}
+	if len(resp.Chunks) != 1 || resp.Chunks[0].Path != "memory/global/past-supplier-status.md" {
+		t.Fatalf("top chunk = %+v, want past supplier status", resp.Chunks)
+	}
+	if len(resp.Attempts) == 0 || !resp.Attempts[0].DateBounded {
+		t.Fatalf("initial attempt should record date-bound search, got %+v", resp.Attempts)
 	}
 }
 

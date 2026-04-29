@@ -34,13 +34,14 @@ type Message struct {
 
 // CompleteRequest is the common request every [Provider] accepts.
 type CompleteRequest struct {
-	Model       string
-	Messages    []Message
-	Temperature float64
-	MaxTokens   int
-	Stop        []string
-	Stream      bool
-	Tools       []ToolDef
+	Model              string
+	Messages           []Message
+	Temperature        float64
+	MaxTokens          int
+	Stop               []string
+	Stream             bool
+	Tools              []ToolDef
+	ResponseFormatJSON bool
 }
 
 // CompleteResponse is returned by [Provider.Complete].

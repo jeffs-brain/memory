@@ -6,6 +6,8 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -15,6 +17,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/jeffs-brain/memory/go/brain"
 	"github.com/jeffs-brain/memory/go/llm"
@@ -116,6 +119,12 @@ type RunConfig struct {
 	// the daemon corpus, for example the replay-extracted
 	// memory/project/<brain-id> facts used by the tri-SDK benchmark.
 	ActorFilters retrieval.Filters
+
+	// ActorFilterQuestionSessions narrows each retrieve-only actor
+	// search to that question's LongMemEval haystack session ids. This
+	// preserves the benchmark contract when a run reuses one extracted
+	// brain across many independent question instances.
+	ActorFilterQuestionSessions bool
 
 	// Reader configures the LLM reader that generates answers from
 	// retrieved content. When nil, raw session content is passed
@@ -383,6 +392,7 @@ func Run(ctx context.Context, cfg RunConfig) (*LMEResult, error) {
 	} else if cfg.SampleSize > 0 && cfg.SampleSize < len(questions) {
 		questions = ds.Sample(cfg.SampleSize, cfg.Seed)
 	}
+	selectedSampleIDs := questionIDs(questions)
 
 	if cfg.ExtractOnly && cfg.BrainCache == "" {
 		return nil, fmt.Errorf("lme run: extract-only requires a persistent --brain-cache path")
@@ -417,6 +427,7 @@ func Run(ctx context.Context, cfg RunConfig) (*LMEResult, error) {
 	}
 
 	costs := &CostAccumulator{}
+	var extractionSummary *ExtractionSummary
 
 	// The bulk path writes haystack sessions to raw/lme/. The replay
 	// path instead streams every session through the extraction LLM
@@ -444,6 +455,7 @@ func Run(ctx context.Context, cfg RunConfig) (*LMEResult, error) {
 		if extractModel == "" {
 			extractModel = DefaultReplayExtractModel
 		}
+		extractionSummary = buildExtractionSummary(ingestMode, extractModel, cfg, replayRes)
 		if replayRes != nil && replayRes.FactsExtracted > 0 {
 			// Rough cost attribution: assume 1.5k input + 0.3k output
 			// tokens per extraction call (extraction prompts are hefty
@@ -476,13 +488,15 @@ func Run(ctx context.Context, cfg RunConfig) (*LMEResult, error) {
 	// returned LMEResult carries the extraction-side bookkeeping only.
 	if cfg.ExtractOnly {
 		result := &LMEResult{
-			QuestionsRun:   len(questions),
-			Questions:      nil,
-			ByCategory:     map[string]Category{},
-			DatasetSHA:     ds.SHA256,
-			IngestMode:     ingestMode,
-			RunSeed:        cfg.Seed,
-			CostAccounting: costs.Snapshot(),
+			QuestionsRun:      len(questions),
+			Questions:         nil,
+			ByCategory:        map[string]Category{},
+			DatasetSHA:        ds.SHA256,
+			IngestMode:        ingestMode,
+			SampleIDs:         selectedSampleIDs,
+			RunSeed:           cfg.Seed,
+			CostAccounting:    costs.Snapshot(),
+			ExtractionSummary: extractionSummary,
 		}
 		fmt.Fprintf(os.Stderr,
 			"[extract-only] done: sessions=unique questions=%d ingest_mode=%s wall=%s cost=$%.4f brain=%s\n",
@@ -531,6 +545,7 @@ func Run(ctx context.Context, cfg RunConfig) (*LMEResult, error) {
 				candidateK,
 				rerankTopN,
 				cfg.ActorFilters,
+				cfg.ActorFilterQuestionSessions,
 			)
 		case actorEndpointStyleFull:
 			outcomes = runQuestionsActor(ctx, cfg.ActorEndpoint, brainID, questions, workers)
@@ -579,8 +594,10 @@ func Run(ctx context.Context, cfg RunConfig) (*LMEResult, error) {
 
 	result.DatasetSHA = ds.SHA256
 	result.IngestMode = ingestMode
+	result.SampleIDs = selectedSampleIDs
 	result.RunSeed = cfg.Seed
 	result.CostAccounting = costs.Snapshot()
+	result.ExtractionSummary = extractionSummary
 
 	populateStats(result, cfg.Seed)
 
@@ -617,6 +634,66 @@ func populateStats(result *LMEResult, runSeed int64) {
 		seed,
 		0,
 	)
+}
+
+func questionIDs(questions []Question) []string {
+	if len(questions) == 0 {
+		return nil
+	}
+	ids := make([]string, 0, len(questions))
+	for _, q := range questions {
+		if strings.TrimSpace(q.ID) != "" {
+			ids = append(ids, q.ID)
+		}
+	}
+	return ids
+}
+
+func buildExtractionSummary(ingestMode, extractModel string, cfg RunConfig, replayRes *ReplayResult) *ExtractionSummary {
+	if ingestMode != "replay" && replayRes == nil {
+		return nil
+	}
+	summary := &ExtractionSummary{
+		IngestMode:         ingestMode,
+		ExtractModel:       extractModel,
+		ExtractHeuristics:  normaliseExtractHeuristicsEnv(os.Getenv("JB_EXTRACT_HEURISTICS")),
+		ExtractionPipeline: ReplayExtractionPipelineVersion,
+		ReplayConcurrency:  normaliseReplayConcurrencyForManifest(cfg.ReplayConcurrency),
+		Contextualise:      cfg.Contextualiser != nil,
+	}
+	if replayRes == nil {
+		return summary
+	}
+	summary.SessionsProcessed = replayRes.SessionsProcessed
+	summary.FactsExtracted = replayRes.FactsExtracted
+	summary.FactsWritten = replayRes.FactsWritten
+	summary.FailedSessions = replayRes.FailedSessions
+	summary.FallbackSessions = replayRes.FallbackSessions
+	summary.EmptySessions = replayRes.EmptySessions
+	summary.DuplicatePaths = replayRes.DuplicatePaths
+	if len(replayRes.WarningCounts) > 0 {
+		summary.WarningCounts = make(map[string]int, len(replayRes.WarningCounts))
+		for key, value := range replayRes.WarningCounts {
+			summary.WarningCounts[key] = value
+		}
+	}
+	summary.WarningCount = len(replayRes.Warnings)
+	summary.WarningPreviews = previewStrings(replayRes.Warnings, 5, 240)
+	return summary
+}
+
+func previewStrings(values []string, limit int, maxRunes int) []string {
+	if len(values) == 0 || limit <= 0 {
+		return nil
+	}
+	if len(values) < limit {
+		limit = len(values)
+	}
+	out := make([]string, 0, limit)
+	for _, value := range values[:limit] {
+		out = append(out, compactPreview(value, maxRunes))
+	}
+	return out
 }
 
 // isCorrectVerdict mirrors the aggregation in score_judge.go: both
@@ -970,6 +1047,7 @@ func runQuestionsActorRetrieveOnly(
 	candidateK int,
 	rerankTopN int,
 	filters retrieval.Filters,
+	filterQuestionSessions bool,
 ) []QuestionOutcome {
 	return runQuestionsConcurrent(ctx, questions, workers, func(ctx context.Context, _ int, q Question) QuestionOutcome {
 		if err := ctx.Err(); err != nil {
@@ -982,8 +1060,9 @@ func runQuestionsActorRetrieveOnly(
 				Error:        "context cancelled",
 			}
 		}
+		questionFilters := filtersForQuestionSessions(filters, q, filterQuestionSessions)
 		qStart := time.Now()
-		content, searchErr := callActorRetrieve(
+		content, diagnostics, searchErr := callActorRetrieve(
 			ctx,
 			endpoint,
 			brainID,
@@ -993,18 +1072,20 @@ func runQuestionsActorRetrieveOnly(
 			retrievalMode,
 			candidateK,
 			rerankTopN,
-			filters,
+			questionFilters,
 		)
 		if searchErr != nil {
 			slog.Warn("lme actor retrieve: call failed", "question", q.ID, "err", searchErr)
+			diagnostics.Error = searchErr.Error()
 			return QuestionOutcome{
-				ID:           q.ID,
-				Category:     q.Category,
-				Question:     q.Question,
-				QuestionDate: q.QuestionDate,
-				GroundTruth:  q.Answer,
-				Error:        searchErr.Error(),
-				LatencyMs:    int(time.Since(qStart).Milliseconds()),
+				ID:                   q.ID,
+				Category:             q.Category,
+				Question:             q.Question,
+				QuestionDate:         q.QuestionDate,
+				GroundTruth:          q.Answer,
+				RetrievalDiagnostics: &diagnostics,
+				Error:                searchErr.Error(),
+				LatencyMs:            int(time.Since(qStart).Milliseconds()),
 			}
 		}
 
@@ -1019,15 +1100,16 @@ func runQuestionsActorRetrieveOnly(
 				slog.Warn("lme reader (retrieve-only): call failed",
 					"question", q.ID, "err", readErr)
 				return QuestionOutcome{
-					ID:           q.ID,
-					Category:     q.Category,
-					Question:     q.Question,
-					QuestionDate: q.QuestionDate,
-					GroundTruth:  q.Answer,
-					Error:        fmt.Sprintf("reader error: %v", readErr),
-					LatencyMs:    int(time.Since(qStart).Milliseconds()),
-					InputTokens:  usage.InputTokens,
-					OutputTokens: usage.OutputTokens,
+					ID:                   q.ID,
+					Category:             q.Category,
+					Question:             q.Question,
+					QuestionDate:         q.QuestionDate,
+					GroundTruth:          q.Answer,
+					RetrievalDiagnostics: &diagnostics,
+					Error:                fmt.Sprintf("reader error: %v", readErr),
+					LatencyMs:            int(time.Since(qStart).Milliseconds()),
+					InputTokens:          usage.InputTokens,
+					OutputTokens:         usage.OutputTokens,
 				}
 			}
 			answer = readAnswer
@@ -1036,17 +1118,27 @@ func runQuestionsActorRetrieveOnly(
 		}
 
 		return QuestionOutcome{
-			ID:           q.ID,
-			Category:     q.Category,
-			Question:     q.Question,
-			QuestionDate: q.QuestionDate,
-			GroundTruth:  q.Answer,
-			AgentAnswer:  answer,
-			LatencyMs:    int(time.Since(qStart).Milliseconds()),
-			InputTokens:  inputTokens,
-			OutputTokens: outputTokens,
+			ID:                   q.ID,
+			Category:             q.Category,
+			Question:             q.Question,
+			QuestionDate:         q.QuestionDate,
+			GroundTruth:          q.Answer,
+			AgentAnswer:          answer,
+			RetrievalDiagnostics: &diagnostics,
+			LatencyMs:            int(time.Since(qStart).Milliseconds()),
+			InputTokens:          inputTokens,
+			OutputTokens:         outputTokens,
 		}
 	})
+}
+
+func filtersForQuestionSessions(base retrieval.Filters, q Question, enabled bool) retrieval.Filters {
+	if !enabled || len(q.SessionIDs) == 0 {
+		return base
+	}
+	out := base
+	out.SessionIDs = append([]string(nil), q.SessionIDs...)
+	return out
 }
 
 // callActorRetrieve posts a single query to the actor daemon's /search
@@ -1060,12 +1152,25 @@ func callActorRetrieve(
 	candidateK int,
 	rerankTopN int,
 	filters retrieval.Filters,
-) (string, error) {
+) (string, RetrievalDiagnostics, error) {
+	diagnostics := RetrievalDiagnostics{
+		Request: buildRetrievalRequestDiagnostics(
+			brainID,
+			question,
+			questionDate,
+			topK,
+			normaliseActorRetrievalMode(retrievalMode),
+			candidateK,
+			rerankTopN,
+			filters,
+		),
+	}
 	if endpoint == "" {
-		return "", fmt.Errorf("lme: actor endpoint is empty")
+		return "", diagnostics, fmt.Errorf("lme: actor endpoint is empty")
 	}
 	if topK <= 0 {
 		topK = 5
+		diagnostics.Request.TopK = topK
 	}
 	base := strings.TrimRight(endpoint, "/")
 	reqBody := map[string]any{
@@ -1085,23 +1190,24 @@ func callActorRetrieve(
 	}
 	body, err := json.Marshal(reqBody)
 	if err != nil {
-		return "", fmt.Errorf("lme actor retrieve: marshal: %w", err)
+		return "", diagnostics, fmt.Errorf("lme actor retrieve: marshal: %w", err)
 	}
 	searchURL := fmt.Sprintf("%s/v1/brains/%s/search", base, url.PathEscape(brainID))
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, searchURL, bytes.NewReader(body))
 	if err != nil {
-		return "", fmt.Errorf("lme actor retrieve: build request: %w", err)
+		return "", diagnostics, fmt.Errorf("lme actor retrieve: build request: %w", err)
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
 	resp, err := actorHTTPClient.Do(httpReq)
 	if err != nil {
-		return "", fmt.Errorf("lme actor retrieve: post: %w", err)
+		return "", diagnostics, fmt.Errorf("lme actor retrieve: post: %w", err)
 	}
 	defer resp.Body.Close()
+	diagnostics.Response.HTTPStatus = resp.StatusCode
 	if resp.StatusCode >= 400 {
 		buf := make([]byte, 512)
 		n, _ := resp.Body.Read(buf)
-		return "", fmt.Errorf("lme actor retrieve: HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(buf[:n])))
+		return "", diagnostics, fmt.Errorf("lme actor retrieve: HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(buf[:n])))
 	}
 
 	var decoded struct {
@@ -1116,20 +1222,37 @@ func callActorRetrieve(
 			LegacySummary  string         `json:"Summary"`
 			Score          float64        `json:"score"`
 			LegacyScore    float64        `json:"Score"`
+			BM25Rank       int            `json:"bm25Rank"`
+			LegacyBM25Rank int            `json:"BM25Rank"`
+			VectorSim      float64        `json:"vectorSimilarity"`
+			LegacyVector   float64        `json:"VectorSimilarity"`
+			RerankScore    float64        `json:"rerankScore"`
+			LegacyRerank   float64        `json:"RerankScore"`
+			ChunkID        string         `json:"chunkId"`
+			LegacyChunkID  string         `json:"ChunkID"`
+			DocumentID     string         `json:"documentId"`
+			LegacyDocID    string         `json:"DocumentID"`
 			Metadata       map[string]any `json:"metadata"`
 			LegacyMetadata map[string]any `json:"Metadata"`
 		} `json:"chunks"`
+		TookMs   int                 `json:"tookMs"`
+		Trace    *retrieval.Trace    `json:"trace"`
+		Attempts []retrieval.Attempt `json:"attempts"`
 	}
 	dec := json.NewDecoder(resp.Body)
 	dec.UseNumber()
 	if err := dec.Decode(&decoded); err != nil {
-		return "", fmt.Errorf("lme actor retrieve: decode: %w", err)
+		return "", diagnostics, fmt.Errorf("lme actor retrieve: decode: %w", err)
 	}
+	diagnostics.Response.TookMs = decoded.TookMs
+	diagnostics.Trace = retrievalTraceDiagnostics(decoded.Trace)
+	diagnostics.Attempts = retrievalAttemptDiagnostics(decoded.Attempts)
 	if len(decoded.Chunks) == 0 {
-		return "", nil
+		return "", diagnostics, nil
 	}
 	passages := make([]RetrievedPassage, 0, len(decoded.Chunks))
-	for _, c := range decoded.Chunks {
+	diagnosticPassages := make([]RetrievedPassageDiagnostic, 0, len(decoded.Chunks))
+	for i, c := range decoded.Chunks {
 		path := c.Path
 		if path == "" {
 			path = c.LegacyPath
@@ -1148,6 +1271,26 @@ func callActorRetrieve(
 		if score == 0 {
 			score = c.LegacyScore
 		}
+		bm25Rank := c.BM25Rank
+		if bm25Rank == 0 {
+			bm25Rank = c.LegacyBM25Rank
+		}
+		vectorSimilarity := c.VectorSim
+		if vectorSimilarity == 0 {
+			vectorSimilarity = c.LegacyVector
+		}
+		rerankScore := c.RerankScore
+		if rerankScore == 0 {
+			rerankScore = c.LegacyRerank
+		}
+		chunkID := c.ChunkID
+		if chunkID == "" {
+			chunkID = c.LegacyChunkID
+		}
+		documentID := c.DocumentID
+		if documentID == "" {
+			documentID = c.LegacyDocID
+		}
 		meta := c.Metadata
 		if meta == nil {
 			meta = c.LegacyMetadata
@@ -1163,6 +1306,33 @@ func callActorRetrieve(
 			} else if sessionID, ok := meta["sessionId"].(string); ok {
 				passage.SessionID = sessionID
 			}
+			if sourceRole, ok := meta["source_role"].(string); ok {
+				passage.SourceRole = sourceRole
+			} else if sourceRole, ok := meta["sourceRole"].(string); ok {
+				passage.SourceRole = sourceRole
+			}
+			if eventDate, ok := meta["event_date"].(string); ok {
+				passage.EventDate = eventDate
+			} else if eventDate, ok := meta["eventDate"].(string); ok {
+				passage.EventDate = eventDate
+			}
+			if evidenceKind, ok := meta["evidence_kind"].(string); ok {
+				passage.EvidenceKind = evidenceKind
+			} else if evidenceKind, ok := meta["evidenceKind"].(string); ok {
+				passage.EvidenceKind = evidenceKind
+			}
+			if evidenceGroup, ok := meta["evidence_group"].(string); ok {
+				passage.EvidenceGroup = evidenceGroup
+			} else if evidenceGroup, ok := meta["evidenceGroup"].(string); ok {
+				passage.EvidenceGroup = evidenceGroup
+			}
+			passage.StateKey = metadataStringFromMap(meta, "state_key", "stateKey")
+			passage.ClaimStatus = metadataStringFromMap(meta, "claim_status", "claimStatus")
+			passage.ValidFrom = metadataStringFromMap(meta, "valid_from", "validFrom")
+			passage.ValidTo = metadataStringFromMap(meta, "valid_to", "validTo")
+			passage.ArtefactType = metadataStringFromMap(meta, "artefact_type", "artefactType")
+			passage.ArtefactOrdinal = metadataStringFromMap(meta, "artefact_ordinal", "artefactOrdinal")
+			passage.ArtefactSection = metadataStringFromMap(meta, "artefact_section", "artefactSection")
 			for _, key := range []string{"session_date", "sessionDate", "observed_on", "observedOn", "modified"} {
 				if value, ok := meta[key].(string); ok && strings.TrimSpace(value) != "" {
 					passage.Date = value
@@ -1171,8 +1341,248 @@ func callActorRetrieve(
 			}
 		}
 		passages = append(passages, passage)
+		diagnosticPassages = append(diagnosticPassages, buildRetrievedPassageDiagnostic(
+			i+1,
+			path,
+			chunkID,
+			documentID,
+			passageSessionID(passage),
+			passageDate(passage),
+			body,
+			score,
+			bm25Rank,
+			vectorSimilarity,
+			rerankScore,
+			meta,
+		))
 	}
-	return RenderRetrievedPassages(passages, question, questionDate), nil
+	content := RenderRetrievedPassages(passages, question, questionDate)
+	diagnostics.Returned = diagnosticPassages
+	diagnostics.Evidence = buildRetrievalEvidenceSummary(content, diagnosticPassages)
+	return content, diagnostics, nil
+}
+
+func metadataStringFromMap(meta map[string]any, keys ...string) string {
+	for _, key := range keys {
+		value, ok := meta[key]
+		if !ok {
+			continue
+		}
+		text, ok := value.(string)
+		if !ok {
+			continue
+		}
+		if trimmed := strings.TrimSpace(text); trimmed != "" {
+			return trimmed
+		}
+	}
+	return ""
+}
+
+func buildRetrievalRequestDiagnostics(
+	brainID, question, questionDate string,
+	topK int,
+	mode retrieval.Mode,
+	candidateK int,
+	rerankTopN int,
+	filters retrieval.Filters,
+) RetrievalRequestDiagnostics {
+	return RetrievalRequestDiagnostics{
+		EndpointStyle: actorEndpointStyleRetrieve,
+		BrainID:       brainID,
+		Mode:          string(mode),
+		TopK:          topK,
+		CandidateK:    candidateK,
+		RerankTopN:    rerankTopN,
+		QuestionDate:  questionDate,
+		Filters: RetrievalFilterDiagnostics{
+			Scope:      strings.TrimSpace(filters.Scope),
+			Project:    strings.TrimSpace(filters.Project),
+			PathPrefix: strings.TrimSpace(filters.PathPrefix),
+			Paths:      sortedTrimmedStrings(filters.Paths),
+			Tags:       sortedTrimmedStrings(filters.Tags),
+			SessionIDs: sortedTrimmedStrings(filters.SessionIDs),
+		},
+		QueryHash:    hashString(question),
+		QueryPreview: compactPreview(question, 160),
+	}
+}
+
+func buildRetrievedPassageDiagnostic(
+	rank int,
+	path string,
+	chunkID string,
+	documentID string,
+	sessionID string,
+	date string,
+	body string,
+	score float64,
+	bm25Rank int,
+	vectorSimilarity float64,
+	rerankScore float64,
+	metadata map[string]any,
+) RetrievedPassageDiagnostic {
+	return RetrievedPassageDiagnostic{
+		Rank:             rank,
+		Path:             path,
+		ChunkID:          chunkID,
+		DocumentID:       documentID,
+		SessionID:        strings.TrimSpace(sessionID),
+		Date:             strings.TrimSpace(date),
+		Score:            score,
+		BM25Rank:         bm25Rank,
+		VectorSimilarity: vectorSimilarity,
+		RerankScore:      rerankScore,
+		TextBytes:        len(body),
+		TextRunes:        utf8.RuneCountInString(body),
+		ApproxTokens:     approxTokenCount(body),
+		TextSHA256:       hashString(body),
+		Preview:          compactPreview(passageDisplayBody(RetrievedPassage{Body: body}), 240),
+		MetadataKeys:     sortedMetadataKeys(metadata),
+	}
+}
+
+func buildRetrievalEvidenceSummary(content string, passages []RetrievedPassageDiagnostic) RetrievalEvidenceSummary {
+	summary := RetrievalEvidenceSummary{
+		ReturnedCount: len(passages),
+		RenderedBytes: len(content),
+		RenderedRunes: utf8.RuneCountInString(content),
+		ApproxTokens:  approxTokenCount(content),
+	}
+	if len(passages) == 0 {
+		return summary
+	}
+	paths := make(map[string]struct{}, len(passages))
+	sessionIDs := make(map[string]struct{}, len(passages))
+	for i, passage := range passages {
+		if passage.Path != "" {
+			paths[passage.Path] = struct{}{}
+		}
+		if passage.SessionID != "" {
+			sessionIDs[passage.SessionID] = struct{}{}
+		}
+		if i == 0 || passage.Score < summary.MinScore {
+			summary.MinScore = passage.Score
+		}
+		if i == 0 || passage.Score > summary.MaxScore {
+			summary.MaxScore = passage.Score
+		}
+	}
+	summary.UniquePaths = len(paths)
+	summary.UniqueSessionIDs = len(sessionIDs)
+	return summary
+}
+
+func retrievalTraceDiagnostics(trace *retrieval.Trace) *RetrievalTraceDiagnostics {
+	if trace == nil {
+		return nil
+	}
+	return &RetrievalTraceDiagnostics{
+		RequestedMode:               string(trace.RequestedMode),
+		EffectiveMode:               string(trace.EffectiveMode),
+		Intent:                      trace.Intent,
+		UsedRetry:                   trace.UsedRetry,
+		RRFK:                        trace.RRFK,
+		CandidateK:                  trace.CandidateK,
+		RerankTopN:                  trace.RerankTopN,
+		FellBackToBM25:              trace.FellBackToBM25,
+		EmbedderUsed:                trace.EmbedderUsed,
+		Reranked:                    trace.Reranked,
+		RerankProvider:              trace.RerankProvider,
+		RerankSkipReason:            trace.RerankSkipReason,
+		VectorSkipReason:            trace.VectorSkipReason,
+		BM25Hits:                    trace.BM25Hits,
+		VectorHits:                  trace.VectorHits,
+		FusedHits:                   trace.FusedHits,
+		SessionExpansions:           trace.SessionExpansions,
+		EpisodicRecall:              trace.EpisodicRecall,
+		EpisodicRecallHits:          trace.EpisodicRecallHits,
+		EpisodicRecallReason:        trace.EpisodicRecallReason,
+		AggregateEvidenceGroups:     trace.AggregateEvidenceGroups,
+		AggregateEvidenceSuppressed: trace.AggregateEvidenceSuppressed,
+		StateIntent:                 trace.StateIntent,
+		StatePromotions:             trace.StatePromotions,
+		Agreements:                  trace.Agreements,
+		UnanimitySkipped:            trace.UnanimitySkipped,
+	}
+}
+
+func retrievalAttemptDiagnostics(attempts []retrieval.Attempt) []RetrievalAttemptDiagnostic {
+	if len(attempts) == 0 {
+		return nil
+	}
+	out := make([]RetrievalAttemptDiagnostic, 0, len(attempts))
+	for _, attempt := range attempts {
+		out = append(out, RetrievalAttemptDiagnostic{
+			Rung:         attempt.Rung,
+			Mode:         string(attempt.Mode),
+			TopK:         attempt.TopK,
+			Reason:       attempt.Reason,
+			Chunks:       attempt.Chunks,
+			QueryHash:    hashString(attempt.Query),
+			QueryPreview: compactPreview(attempt.Query, 160),
+		})
+	}
+	return out
+}
+
+func sortedMetadataKeys(metadata map[string]any) []string {
+	if len(metadata) == 0 {
+		return nil
+	}
+	keys := make([]string, 0, len(metadata))
+	for key := range metadata {
+		if strings.TrimSpace(key) != "" {
+			keys = append(keys, key)
+		}
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+func sortedTrimmedStrings(values []string) []string {
+	if len(values) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(values))
+	seen := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		trimmed := strings.TrimSpace(value)
+		if trimmed == "" {
+			continue
+		}
+		if _, ok := seen[trimmed]; ok {
+			continue
+		}
+		seen[trimmed] = struct{}{}
+		out = append(out, trimmed)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func hashString(value string) string {
+	if value == "" {
+		return ""
+	}
+	sum := sha256.Sum256([]byte(value))
+	return hex.EncodeToString(sum[:])
+}
+
+func compactPreview(value string, maxRunes int) string {
+	trimmed := strings.TrimSpace(strings.Join(strings.Fields(value), " "))
+	if trimmed == "" || maxRunes <= 0 {
+		return ""
+	}
+	runes := []rune(trimmed)
+	if len(runes) <= maxRunes {
+		return trimmed
+	}
+	return string(runes[:maxRunes])
+}
+
+func approxTokenCount(value string) int {
+	return len(strings.Fields(value))
 }
 
 func normaliseActorRetrievalMode(mode retrieval.Mode) retrieval.Mode {

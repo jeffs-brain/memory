@@ -70,6 +70,7 @@ Enumeration and counting:
 - Add numeric values across sessions when the question asks for a total (hours, days, money, items). Show the arithmetic.
 - When both atomic event facts and retrospective roll-up summaries are present, prefer the atomic event facts and avoid double counting the roll-up.
 - Treat first-person past-tense purchases, gifts, sales, earnings, completions, or submissions as confirmed historical events even when they appear inside a planning or advice conversation. Exclude only clearly hypothetical or planned amounts.
+- For totals over historical activities, count each distinct dated event or session as its own contribution unless a later fact explicitly says it corrects, replaces, or cancels the earlier event. The same item, title, place, or person appearing on different dates is not by itself a correction.
 - If a spending or earnings question does not explicitly restrict the timeframe ("today", "this time", "most recent", "current"), include all confirmed historical amounts for the same subject across sessions.
 - For totals over named items, sum only the facts that match those named items directly. Do not add alternative purchases, adjacent examples, or broader category summaries unless the note clearly says they refer to the same item.
 - When a total names multiple specific items, people, or occasions, every named part must be supported directly. If any named part is missing or lacks an amount, do not return a partial total. State that the information provided is not enough.
@@ -93,7 +94,7 @@ Unanswerable questions:
 
 Temporal reasoning:
 - Today is %s (this is the current date). Resolve relative references ("recently", "last week", "a few days ago", "this month") against this anchor.
-- For date-arithmetic questions ("how many days between X and Y"), first extract each event's ISO date from the fact tags, then compute the difference in days.
+- For date-arithmetic questions ("how many days between X and Y", "how many days ago did X happen"), first extract each event's ISO date from the fact tags, then compute the difference in days. If a retrieved fact has a days_before_question label, use it as the exclusive day difference.
 
 History Chats:
 
@@ -171,10 +172,6 @@ func ReadAnswer(ctx context.Context, cfg ReaderConfig, question, questionDate, r
 
 	if retrievedContent == "" {
 		return "", Usage{}, nil
-	}
-
-	if answer, ok := ResolveDeterministicAnswer(question, retrievedContent); ok {
-		return answer, Usage{}, nil
 	}
 
 	content := truncateReaderContent(retrievedContent, resolveReaderContentBudget(cfg), question)

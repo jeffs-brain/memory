@@ -17,13 +17,18 @@
 
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DATASET="${DATASET:-$HOME/code/jeffs-brain/memory/eval/datasets/longmemeval_s.json}"
+EXPECTED_SHA="${EXPECTED_SHA:-}"
 SAMPLE_SIZE="${SAMPLE_SIZE:-50}"
 SEED="${SEED:-42}"
 SAMPLE_IDS_FILE="${SAMPLE_IDS_FILE:-}"
 BRAIN_ID="${BRAIN_ID:-eval-lme}"
 JB_HOME="${JB_HOME:-/tmp/jb-lme-shared}"
 SKIP_EXTRACT="${SKIP_EXTRACT:-0}"
+EXTRACT_CACHE_DIR="${EXTRACT_CACHE_DIR:-$HOME/.local/state/jeffs-brain/evals/replay-brain-cache}"
+REUSE_EXTRACT_CACHE="${REUSE_EXTRACT_CACHE:-1}"
+SAVE_EXTRACT_CACHE="${SAVE_EXTRACT_CACHE:-1}"
 CONCURRENCY="${CONCURRENCY:-16}"
 REPLAY_CONCURRENCY="${REPLAY_CONCURRENCY:-16}"
 EXTRACT_MODEL="${EXTRACT_MODEL:-gpt-5}"
@@ -31,6 +36,8 @@ ACTOR_MODEL="${ACTOR_MODEL:-gpt-4o}"
 JUDGE_MODEL="${JUDGE_MODEL:-gpt-4o}"
 CONTEXTUALISE="${CONTEXTUALISE:-0}"
 CONTEXTUALISE_CACHE_DIR="${CONTEXTUALISE_CACHE_DIR:-$HOME/.local/state/jeffs-brain/evals/contextualise-cache}"
+JB_EXTRACT_HEURISTICS="${JB_EXTRACT_HEURISTICS:-}"
+REPLAY_EXTRACTION_PIPELINE_VERSION="${REPLAY_EXTRACTION_PIPELINE_VERSION:-2}"
 # Retrieval knobs. topK 20 keeps multi-session recall healthy because
 # the 2nd/3rd truth session often sits at rank 10-18 without reranker.
 # Default to the explicit post-parity retrieval breadth used by the
@@ -45,6 +52,7 @@ RERANK_MODEL="${RERANK_MODEL:-$ACTOR_MODEL}"
 ACTOR_SCOPE="${ACTOR_SCOPE-memory}"
 ACTOR_PROJECT="${ACTOR_PROJECT-$BRAIN_ID}"
 ACTOR_PATH_PREFIX="${ACTOR_PATH_PREFIX-}"
+ACTOR_FILTER_QUESTION_SESSIONS="${ACTOR_FILTER_QUESTION_SESSIONS:-1}"
 MAX_COST="${MAX_COST:-20}"
 # Replay-backed tri-SDK runs always write to their own timestamped
 # directory under eval/results/.
@@ -70,6 +78,10 @@ mkdir -p "$OUTPUT_ROOT"
 SAMPLE_IDS_ARGS=()
 if [[ -n "$SAMPLE_IDS_FILE" ]]; then
   SAMPLE_IDS_ARGS=(--sample-ids-file "$SAMPLE_IDS_FILE")
+fi
+EXPECTED_SHA_ARGS=()
+if [[ -n "$EXPECTED_SHA" ]]; then
+  EXPECTED_SHA_ARGS=(--expected-sha "$EXPECTED_SHA")
 fi
 
 run_logged_step() {
@@ -178,6 +190,40 @@ fi
 if [[ -n "$ACTOR_PATH_PREFIX" ]]; then
   ACTOR_FILTER_ARGS+=(--actor-path-prefix "$ACTOR_PATH_PREFIX")
 fi
+CACHE_MANIFEST_PATH="$JB_HOME/brains/$BRAIN_ID/.lme-cache-manifest.json"
+CACHE_KEY_ARGS=(
+  --dataset "$DATASET"
+  --sample-size "$SAMPLE_SIZE"
+  --seed "$SEED"
+  --extract-model "$EXTRACT_MODEL"
+  --replay-concurrency "$REPLAY_CONCURRENCY"
+  --contextualise "$CONTEXTUALISE"
+  --extract-heuristics "$JB_EXTRACT_HEURISTICS"
+  --extraction-pipeline "$REPLAY_EXTRACTION_PIPELINE_VERSION"
+)
+if [[ -n "$SAMPLE_IDS_FILE" ]]; then
+  CACHE_KEY_ARGS+=(--sample-ids-file "$SAMPLE_IDS_FILE")
+fi
+
+EXPECTED_CACHE_SIGNATURE="$(python3 "$SCRIPT_DIR/lme_cache_key.py" signature "${CACHE_KEY_ARGS[@]}")"
+EXTRACT_CACHE_PATH="$EXTRACT_CACHE_DIR/$EXPECTED_CACHE_SIGNATURE"
+EXTRACT_CACHE_BRAIN="$EXTRACT_CACHE_PATH/brain"
+EXTRACT_CACHE_MANIFEST="$EXTRACT_CACHE_PATH/.lme-cache-manifest.json"
+EXTRACT_CACHE_BRAIN_MANIFEST="$EXTRACT_CACHE_BRAIN/.lme-cache-manifest.json"
+
+validate_brain_cache_manifest() {
+  local manifest_path=$1
+  python3 "$SCRIPT_DIR/lme_cache_key.py" validate --manifest "$manifest_path" "${CACHE_KEY_ARGS[@]}"
+}
+
+copy_cached_brain() {
+  local source_dir=$1
+  local target_dir=$2
+
+  rm -rf "$target_dir"
+  mkdir -p "$target_dir"
+  rsync -a --delete --exclude '.search.db*' "$source_dir/" "$target_dir/"
+}
 
 MEMORY_GO="${MEMORY_GO:-/tmp/memory-go}"
 # Always rebuild so benchmark runs never accidentally reuse a stale Go
@@ -194,25 +240,61 @@ if [[ "$SKIP_EXTRACT" == "1" || "$SKIP_EXTRACT" == "true" ]]; then
     echo "ERROR: SKIP_EXTRACT is set but no existing brain cache was found at $JB_HOME/brains/$BRAIN_ID" >&2
     exit 2
   fi
+  validate_brain_cache_manifest "$CACHE_MANIFEST_PATH"
+  cp "$CACHE_MANIFEST_PATH" "$OUTPUT_ROOT/manifest.json"
   echo "Skipping extract and reusing existing brain cache at $JB_HOME/brains/$BRAIN_ID"
 else
-  rm -rf "$JB_HOME/brains/$BRAIN_ID"
-  JB_HOME="$JB_HOME" "$MEMORY_GO" eval lme run \
-    --dataset "$DATASET" \
-    --sample-size "$SAMPLE_SIZE" \
-    --seed "$SEED" \
-    "${SAMPLE_IDS_ARGS[@]}" \
-    --ingest-mode replay \
-    --extract-only \
-    --brain-cache "$JB_HOME/brains/$BRAIN_ID" \
-    --replay-concurrency "$REPLAY_CONCURRENCY" \
-    --extract-model "$EXTRACT_MODEL" \
-    "${CONTEXTUALISE_ARGS[@]}" \
-    --judge "" \
-    --no-reader \
-    --output "$OUTPUT_ROOT/extract.json" \
-    --manifest "$OUTPUT_ROOT/manifest.json" \
-    --max-cost-usd "$MAX_COST"
+  cache_reused=0
+  if [[ "$REUSE_EXTRACT_CACHE" == "1" || "$REUSE_EXTRACT_CACHE" == "true" ]]; then
+    cache_manifest_source=""
+    if [[ -f "$EXTRACT_CACHE_MANIFEST" ]]; then
+      cache_manifest_source="$EXTRACT_CACHE_MANIFEST"
+    elif [[ -f "$EXTRACT_CACHE_BRAIN_MANIFEST" ]]; then
+      cache_manifest_source="$EXTRACT_CACHE_BRAIN_MANIFEST"
+    fi
+    if [[ -d "$EXTRACT_CACHE_BRAIN" && -n "$cache_manifest_source" ]]; then
+      if validate_brain_cache_manifest "$cache_manifest_source"; then
+        copy_cached_brain "$EXTRACT_CACHE_BRAIN" "$JB_HOME/brains/$BRAIN_ID"
+        cp "$cache_manifest_source" "$CACHE_MANIFEST_PATH"
+        cp "$cache_manifest_source" "$OUTPUT_ROOT/manifest.json"
+        cp "$cache_manifest_source" "$EXTRACT_CACHE_MANIFEST"
+        echo "Reused extracted replay cache $EXPECTED_CACHE_SIGNATURE from $EXTRACT_CACHE_BRAIN"
+        cache_reused=1
+      else
+        echo "WARNING: extracted replay cache at $EXTRACT_CACHE_PATH did not validate, rebuilding it" >&2
+      fi
+    else
+      echo "No extracted replay cache found for $EXPECTED_CACHE_SIGNATURE, extracting once"
+    fi
+  fi
+
+  if [[ "$cache_reused" != "1" ]]; then
+    rm -rf "$JB_HOME/brains/$BRAIN_ID"
+    JB_HOME="$JB_HOME" JB_EXTRACT_HEURISTICS="$JB_EXTRACT_HEURISTICS" "$MEMORY_GO" eval lme run \
+      --dataset "$DATASET" \
+      "${EXPECTED_SHA_ARGS[@]}" \
+      --sample-size "$SAMPLE_SIZE" \
+      --seed "$SEED" \
+      "${SAMPLE_IDS_ARGS[@]}" \
+      --ingest-mode replay \
+      --extract-only \
+      --brain-cache "$JB_HOME/brains/$BRAIN_ID" \
+      --replay-concurrency "$REPLAY_CONCURRENCY" \
+      --extract-model "$EXTRACT_MODEL" \
+      "${CONTEXTUALISE_ARGS[@]}" \
+      --judge "" \
+      --no-reader \
+      --output "$OUTPUT_ROOT/extract.json" \
+      --manifest "$OUTPUT_ROOT/manifest.json" \
+      --max-cost-usd "$MAX_COST"
+    cp "$OUTPUT_ROOT/manifest.json" "$CACHE_MANIFEST_PATH"
+    if [[ "$SAVE_EXTRACT_CACHE" == "1" || "$SAVE_EXTRACT_CACHE" == "true" ]]; then
+      copy_cached_brain "$JB_HOME/brains/$BRAIN_ID" "$EXTRACT_CACHE_BRAIN"
+      cp "$OUTPUT_ROOT/manifest.json" "$EXTRACT_CACHE_MANIFEST"
+      cp "$OUTPUT_ROOT/manifest.json" "$EXTRACT_CACHE_BRAIN_MANIFEST"
+      echo "Saved extracted replay cache $EXPECTED_CACHE_SIGNATURE to $EXTRACT_CACHE_BRAIN"
+    fi
+  fi
 fi
 
 echo "== Phase 2: spawn tri-SDK daemons =="
@@ -315,16 +397,17 @@ done
 
 warm_daemon() {
   local port=$1
-  python3 - "$port" "$BRAIN_ID" "$ACTOR_SCOPE" "$ACTOR_PROJECT" "$ACTOR_PATH_PREFIX" <<'PY'
+  local retrieval_mode=$2
+  python3 - "$port" "$BRAIN_ID" "$ACTOR_SCOPE" "$ACTOR_PROJECT" "$ACTOR_PATH_PREFIX" "$retrieval_mode" <<'PY'
 import json
 import sys
 import urllib.request
 
-port, brain_id, actor_scope, actor_project, actor_path_prefix = sys.argv[1:]
+port, brain_id, actor_scope, actor_project, actor_path_prefix, retrieval_mode = sys.argv[1:]
 payload = {
     "query": "warmup",
     "topK": 1,
-    "mode": "hybrid",
+    "mode": retrieval_mode,
 }
 filters = {}
 if actor_scope:
@@ -458,21 +541,21 @@ PY
 
 echo "Priming daemons against the extracted brain..."
 for sdk in ts go py; do
-  warm_daemon "${PORTS[$sdk]}" &
+  warm_daemon "${PORTS[$sdk]}" "$RETRIEVAL_MODE" &
 done
 wait
 
-# Give each daemon time to finish its initial FTS scan + vector backfill
-# before we fire the question load. On a cold brain cache the Go daemon
-# embeds ~10k chunks in ~60-90s; we conservatively wait longer so
-# hybrid search is genuinely populated when the runner hits /search.
-WARMUP_SECONDS="${WARMUP_SECONDS:-90}"
-if [[ "$WARMUP_SECONDS" -gt 0 ]]; then
-  echo "Warmup: sleeping ${WARMUP_SECONDS}s for index + vector backfill..."
-  sleep "$WARMUP_SECONDS"
-fi
-
 if [[ "$RETRIEVAL_MODE" != "bm25" ]]; then
+  # Give each daemon time to finish its initial FTS scan + vector backfill
+  # before we fire the question load. On a cold brain cache the Go daemon
+  # embeds ~10k chunks in ~60-90s; we conservatively wait longer so
+  # hybrid search is genuinely populated when the runner hits /search.
+  WARMUP_SECONDS="${WARMUP_SECONDS:-90}"
+  if [[ "$WARMUP_SECONDS" -gt 0 ]]; then
+    echo "Warmup: sleeping ${WARMUP_SECONDS}s for index + vector backfill..."
+    sleep "$WARMUP_SECONDS"
+  fi
+
   PROBE_QUERY="$(build_vector_probe_query)"
   echo "Waiting for daemon vector backfill to return vector-backed hits..."
   for sdk in ts go py; do
@@ -485,10 +568,12 @@ echo "== Phase 3: parallel runs against each daemon =="
 # applies the augmented CoT reader prompt + judge in-process. This
 # isolates retrieval quality as the only variable across SDKs so the
 # scores are apples-to-apples.
+declare -A RUNNER_PIDS
 for sdk in ts go py; do
   port="${PORTS[$sdk]}"
   "$MEMORY_GO" eval lme run \
     --dataset "$DATASET" \
+    "${EXPECTED_SHA_ARGS[@]}" \
     --sample-size "$SAMPLE_SIZE" \
     --seed "$SEED" \
     "${SAMPLE_IDS_ARGS[@]}" \
@@ -500,6 +585,7 @@ for sdk in ts go py; do
     --actor-topk "$TOP_K" \
     --actor-candidatek "$CANDIDATE_K" \
     --actor-rerank-topn "$RERANK_TOP_N" \
+    --actor-filter-question-sessions="$ACTOR_FILTER_QUESTION_SESSIONS" \
     "${ACTOR_FILTER_ARGS[@]}" \
     --concurrency "$CONCURRENCY" \
     --actor "$ACTOR_MODEL" \
@@ -510,8 +596,21 @@ for sdk in ts go py; do
     --output "$OUTPUT_ROOT/result-$sdk.json" \
     --manifest "$OUTPUT_ROOT/manifest-$sdk.json" \
     > "$OUTPUT_ROOT/runner-$sdk.log" 2>&1 &
+  RUNNER_PIDS[$sdk]=$!
 done
-wait
+
+runner_failed=0
+for sdk in ts go py; do
+  pid="${RUNNER_PIDS[$sdk]:-}"
+  if [[ -n "$pid" ]] && ! wait "$pid"; then
+    echo "ERROR: $sdk eval runner failed. See $OUTPUT_ROOT/runner-$sdk.log" >&2
+    tail -n 40 "$OUTPUT_ROOT/runner-$sdk.log" >&2 || true
+    runner_failed=1
+  fi
+done
+if [[ "$runner_failed" -ne 0 ]]; then
+  exit 1
+fi
 
 # Stamp SDK, scenario, and retrieve-only provenance onto each per-SDK
 # manifest so the tri-run artefacts remain self-describing on disk.
@@ -582,6 +681,8 @@ echo "== Phase 5: summary =="
   echo "- Scenario: search-retrieve-only via actor-endpoint-style=retrieve-only"
   echo "- Contextualise replay: $CONTEXTUALISE"
   echo "- Skip extract: $SKIP_EXTRACT"
+  echo "- Extract cache: $EXTRACT_CACHE_BRAIN"
+  echo "- Extract cache reuse: $REUSE_EXTRACT_CACHE save=$SAVE_EXTRACT_CACHE"
   echo "- Concurrency: questions=$CONCURRENCY replay=$REPLAY_CONCURRENCY"
   echo "- Retrieval mode: $RETRIEVAL_MODE"
   echo "- Retrieval knobs: topK=$TOP_K candidateK=$CANDIDATE_K rerankTopN=$RERANK_TOP_N"
@@ -589,6 +690,7 @@ echo "== Phase 5: summary =="
   echo "- Shared reader cache: $READER_CACHE_DIR"
   echo "- Shared judge cache: $JUDGE_CACHE_DIR"
   echo "- Actor filters: scope=${ACTOR_SCOPE:-<none>} project=${ACTOR_PROJECT:-<none>} pathPrefix=${ACTOR_PATH_PREFIX:-<none>}"
+  echo "- Actor question session filter: $ACTOR_FILTER_QUESTION_SESSIONS"
   echo ""
   echo "## Artefacts"
   echo ""

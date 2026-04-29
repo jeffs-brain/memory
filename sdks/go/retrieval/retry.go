@@ -6,7 +6,10 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"time"
 	"unicode"
+
+	"github.com/jeffs-brain/memory/go/query"
 )
 
 // retryStopWords mirrors the spec's STOP_WORDS set in
@@ -180,6 +183,156 @@ func normaliseRetryTokens(q string) []string {
 	return strings.Fields(lowered)
 }
 
+func filtersWithQuestionDate(filters Filters, questionDate string) (Filters, bool) {
+	anchor, ok := parseCandidateTime(questionDate)
+	if !ok {
+		return filters, false
+	}
+	anchor = endOfQuestionDate(anchor)
+	out := filters
+	if out.DateTo.IsZero() || anchor.Before(out.DateTo) {
+		out.DateTo = anchor
+		return out, true
+	}
+	return out, false
+}
+
+func endOfQuestionDate(anchor time.Time) time.Time {
+	year, month, day := anchor.Date()
+	return time.Date(year, month, day, 23, 59, 59, int(time.Second-time.Nanosecond), time.UTC)
+}
+
+type bm25Quality struct {
+	label       string
+	score       float64
+	shouldRetry bool
+}
+
+func assessBM25CandidateQuality(question, questionDate string, candidates []rrfCandidate) bm25Quality {
+	if len(candidates) == 0 {
+		return bm25Quality{label: "empty", shouldRetry: true}
+	}
+	if dateMismatched(question, questionDate, candidates) {
+		return bm25Quality{label: "date_mismatch", score: 0.1, shouldRetry: true}
+	}
+
+	tokens := queryTokens(question)
+	if len(tokens) == 0 {
+		return bm25Quality{label: "good", score: 1}
+	}
+
+	text := qualityText(candidates, 3)
+	matched := 0
+	for _, token := range tokens {
+		if strings.Contains(text, token) {
+			matched++
+		}
+	}
+	coverage := float64(matched) / float64(len(tokens))
+	score := coverage
+
+	strongest := strongestTerm(question)
+	if strongest != "" && strings.Contains(text, strongest) {
+		score += 0.15
+	}
+	if score > 1 {
+		score = 1
+	}
+
+	switch {
+	case matched == 0:
+		return bm25Quality{label: "generic", score: score, shouldRetry: true}
+	case len(tokens) >= 4 && matched < 2:
+		return bm25Quality{label: "generic", score: score, shouldRetry: true}
+	case len(tokens) >= 3 && coverage < 0.34:
+		return bm25Quality{label: "weak", score: score, shouldRetry: true}
+	default:
+		return bm25Quality{label: "good", score: score}
+	}
+}
+
+func bm25QualityImproved(candidate, baseline bm25Quality) bool {
+	if candidate.label == "good" && baseline.label != "good" && candidate.score >= baseline.score {
+		return true
+	}
+	return candidate.score >= baseline.score+0.2
+}
+
+func qualityText(candidates []rrfCandidate, limit int) string {
+	if len(candidates) < limit {
+		limit = len(candidates)
+	}
+	var b strings.Builder
+	for i := 0; i < limit; i++ {
+		c := candidates[i]
+		b.WriteByte(' ')
+		b.WriteString(c.path)
+		b.WriteByte(' ')
+		b.WriteString(c.title)
+		b.WriteByte(' ')
+		b.WriteString(c.summary)
+		b.WriteByte(' ')
+		b.WriteString(c.content)
+	}
+	return strings.ToLower(b.String())
+}
+
+func dateMismatched(question, questionDate string, candidates []rrfCandidate) bool {
+	anchor, hasAnchor := parseCandidateTime(questionDate)
+	hints := temporalHintTimes(question, questionDate)
+
+	dated := 0
+	future := 0
+	nearestHintDays := 1e9
+	for i, c := range candidates {
+		if i >= 5 {
+			break
+		}
+		when, ok := extractTimeFromText(strings.Join([]string{c.title, c.summary, c.content}, "\n"))
+		if !ok {
+			continue
+		}
+		dated++
+		if hasAnchor && when.After(anchor) {
+			future++
+		}
+		for _, hint := range hints {
+			days := absDurationDays(when.Sub(hint))
+			if days < nearestHintDays {
+				nearestHintDays = days
+			}
+		}
+	}
+	if dated == 0 {
+		return false
+	}
+	if hasAnchor && future == dated {
+		return true
+	}
+	return len(hints) > 0 && nearestHintDays > 45
+}
+
+func temporalHintTimes(question, questionDate string) []time.Time {
+	expansion := query.ExpandTemporal(question, questionDate)
+	if !expansion.Resolved {
+		return nil
+	}
+	out := make([]time.Time, 0, len(expansion.DateHints))
+	for _, hint := range expansion.DateHints {
+		if parsed, ok := parseCandidateTime(hint); ok {
+			out = append(out, parsed)
+		}
+	}
+	return out
+}
+
+func absDurationDays(d time.Duration) float64 {
+	if d < 0 {
+		d = -d
+	}
+	return d.Hours() / 24
+}
+
 // forceRefreshIndex is a documented no-op for SQLite / WAL backed
 // indices. The spec keeps it in the rung list so attempt traces stay
 // diffable against other SDKs; callers may re-wire it to drive a
@@ -191,11 +344,16 @@ func forceRefreshIndex() { /* no-op; see doc.go. */ }
 // hydrate the hit so callers can read the match without another
 // round-trip.
 type trigramChunk struct {
-	ID      string
-	Path    string
-	Title   string
-	Summary string
-	Content string
+	ID        string
+	Path      string
+	Title     string
+	Summary   string
+	Content   string
+	Tags      string
+	Scope     string
+	Project   string
+	Session   string
+	SessionID string
 }
 
 type trigramHit struct {
@@ -205,6 +363,11 @@ type trigramHit struct {
 	Title      string
 	Summary    string
 	Content    string
+	Tags       string
+	Scope      string
+	Project    string
+	Session    string
+	SessionID  string
 }
 
 type trigramIndex struct {
@@ -213,12 +376,17 @@ type trigramIndex struct {
 }
 
 type trigramEntry struct {
-	id      string
-	path    string
-	grams   map[string]struct{}
-	title   string
-	summary string
-	content string
+	id        string
+	path      string
+	grams     map[string]struct{}
+	title     string
+	summary   string
+	content   string
+	tags      string
+	scope     string
+	project   string
+	session   string
+	sessionID string
 }
 
 // buildTrigramIndex constructs a slug trigram index over the supplied
@@ -237,12 +405,17 @@ func buildTrigramIndex(chunks []trigramChunk) *trigramIndex {
 		seen[c.ID] = true
 		grams := computeTrigrams(slugTextFor(c.Path))
 		entry := trigramEntry{
-			id:      c.ID,
-			path:    c.Path,
-			grams:   grams,
-			title:   c.Title,
-			summary: c.Summary,
-			content: c.Content,
+			id:        c.ID,
+			path:      c.Path,
+			grams:     grams,
+			title:     c.Title,
+			summary:   c.Summary,
+			content:   c.Content,
+			tags:      c.Tags,
+			scope:     c.Scope,
+			project:   c.Project,
+			session:   c.Session,
+			sessionID: c.SessionID,
 		}
 		pos := len(idx.entries)
 		idx.entries = append(idx.entries, entry)
@@ -301,6 +474,11 @@ func (t *trigramIndex) search(tokens []string, limit int) []trigramHit {
 			Title:      e.title,
 			Summary:    e.summary,
 			Content:    e.content,
+			Tags:       e.tags,
+			Scope:      e.scope,
+			Project:    e.project,
+			Session:    e.session,
+			SessionID:  e.sessionID,
 		})
 	}
 

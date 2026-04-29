@@ -94,6 +94,8 @@ func EmbedderFromEnv(env Getenv) (Embedder, error) {
 		provider = strings.ToLower(strings.TrimSpace(env(EnvProvider)))
 	}
 	switch provider {
+	case "none", "off", "disabled":
+		return nil, nil
 	case "openai":
 		key := env(EnvOpenAIAPIKey)
 		if key == "" {

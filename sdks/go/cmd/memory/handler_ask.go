@@ -120,22 +120,6 @@ func (d *Daemon) handleAsk(w http.ResponseWriter, r *http.Request) {
 		"mode":   req.Mode,
 	})
 
-	if req.ReaderMode == askReaderModeAugmented {
-		if answer, ok := resolveAugmentedAskAnswer(req.Question, req.QuestionDate, chunks); ok {
-			_ = stream.SendJSON("answer_delta", map[string]string{"text": answer})
-			for _, c := range chunks {
-				_ = stream.SendJSON("citation", map[string]any{
-					"chunkId": c.ChunkID,
-					"path":    c.Path,
-					"title":   c.Title,
-					"score":   c.Score,
-				})
-			}
-			_ = stream.SendJSON("done", map[string]any{"ok": true})
-			return
-		}
-	}
-
 	complete := buildAskCompleteRequest(req, chunks)
 
 	chOut, err := d.LLM.CompleteStream(r.Context(), complete)
@@ -332,18 +316,25 @@ func buildAugmentedAskContent(question, questionDate string, chunks []retrieval.
 			body = chunk.Summary
 		}
 		passages = append(passages, lme.RetrievedPassage{
-			Path:      chunk.Path,
-			Score:     chunk.Score,
-			Body:      body,
-			Date:      metadataStringValue(chunk.Metadata, "session_date", "sessionDate", "observed_on", "observedOn", "modified"),
-			SessionID: metadataStringValue(chunk.Metadata, "session_id", "sessionId"),
+			Path:            chunk.Path,
+			Score:           chunk.Score,
+			Body:            body,
+			Date:            metadataStringValue(chunk.Metadata, "session_date", "sessionDate", "observed_on", "observedOn", "modified"),
+			SessionID:       metadataStringValue(chunk.Metadata, "session_id", "sessionId"),
+			SourceRole:      metadataStringValue(chunk.Metadata, "source_role", "sourceRole"),
+			EventDate:       metadataStringValue(chunk.Metadata, "event_date", "eventDate"),
+			EvidenceKind:    metadataStringValue(chunk.Metadata, "evidence_kind", "evidenceKind"),
+			EvidenceGroup:   metadataStringValue(chunk.Metadata, "evidence_group", "evidenceGroup"),
+			StateKey:        metadataStringValue(chunk.Metadata, "state_key", "stateKey"),
+			ClaimStatus:     metadataStringValue(chunk.Metadata, "claim_status", "claimStatus"),
+			ValidFrom:       metadataStringValue(chunk.Metadata, "valid_from", "validFrom"),
+			ValidTo:         metadataStringValue(chunk.Metadata, "valid_to", "validTo"),
+			ArtefactType:    metadataStringValue(chunk.Metadata, "artefact_type", "artefactType"),
+			ArtefactOrdinal: metadataStringValue(chunk.Metadata, "artefact_ordinal", "artefactOrdinal"),
+			ArtefactSection: metadataStringValue(chunk.Metadata, "artefact_section", "artefactSection"),
 		})
 	}
 	return lme.RenderRetrievedPassages(passages, question, questionDate)
-}
-
-func resolveAugmentedAskAnswer(question, questionDate string, chunks []retrieval.RetrievedChunk) (string, bool) {
-	return lme.ResolveDeterministicAnswer(question, buildAugmentedAskContent(question, questionDate, chunks))
 }
 
 func metadataStringValue(meta map[string]any, keys ...string) string {

@@ -130,6 +130,38 @@ CREATE TABLE IF NOT EXISTS knowledge_index_state (
     indexed_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS knowledge_index_metadata (
+    path TEXT PRIMARY KEY,
+    session_id TEXT,
+    observed_on TEXT,
+    modified TEXT,
+    source_role TEXT,
+    event_date TEXT,
+    evidence_kind TEXT,
+    evidence_group TEXT,
+    state_key TEXT,
+    state_kind TEXT,
+    state_subject TEXT,
+    state_value TEXT,
+    claim_key TEXT,
+    claim_status TEXT,
+    valid_from TEXT,
+    valid_to TEXT,
+    artefact_type TEXT,
+    artefact_ordinal TEXT,
+    artefact_section TEXT,
+    artefact_descriptor TEXT
+);
+
+CREATE INDEX IF NOT EXISTS knowledge_index_metadata_session_id_idx
+ON knowledge_index_metadata(session_id);
+
+CREATE INDEX IF NOT EXISTS knowledge_index_metadata_state_key_idx
+ON knowledge_index_metadata(state_key);
+
+CREATE INDEX IF NOT EXISTS knowledge_index_metadata_claim_key_idx
+ON knowledge_index_metadata(claim_key);
+
 CREATE TABLE IF NOT EXISTS knowledge_index_meta (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
@@ -152,7 +184,7 @@ const metaSchemaVersion = "schema_version"
 // currentSchemaVersion is the expected value of [metaSchemaVersion].
 // Incrementing it triggers an automatic drop + recreate on any
 // index whose persisted version is lower.
-const currentSchemaVersion = "2"
+const currentSchemaVersion = "5"
 
 // staleWikiRatio is the minimum ratio of indexed wiki rows to
 // on-disk wiki files below which [Index.RebuildIfStale] forces a
@@ -188,6 +220,7 @@ type SearchOpts struct {
 	ProjectSlug string // filter by project (only for project_memory scope)
 	MaxResults  int    // default 20
 	Sort        SortMode
+	SessionIDs  []string // optional allow-list matched against indexed session_id metadata
 
 	// DateFrom / DateTo narrow results to hits whose session date
 	// falls inside the inclusive range. Zero values disable that
@@ -383,7 +416,7 @@ func (idx *Index) SearchRaw(expr string, opts SearchOpts) ([]SearchResult, error
 		fetchLimit = max(maxResults*5, 200)
 	}
 
-	query, args := buildSearchSQL(expr, opts.DateFrom, opts.DateTo, fetchLimit)
+	query, args := buildSearchSQL(expr, opts.DateFrom, opts.DateTo, opts.Scope, opts.ProjectSlug, opts.SessionIDs, fetchLimit)
 	rows, err := idx.db.Query(query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("executing FTS5 search: %w", err)
@@ -405,10 +438,10 @@ func (idx *Index) SearchRaw(expr string, opts SearchOpts) ([]SearchResult, error
 		}
 
 		// Apply scope filter.
-		if opts.Scope != "" && r.Scope != opts.Scope {
+		if !searchScopeMatches(r.Scope, opts.Scope) {
 			continue
 		}
-		if opts.ProjectSlug != "" && projectSlug != opts.ProjectSlug {
+		if !searchProjectMatches(r.Scope, projectSlug, opts.ProjectSlug, opts.Scope) {
 			continue
 		}
 
@@ -445,10 +478,44 @@ func (idx *Index) SearchRaw(expr string, opts SearchOpts) ([]SearchResult, error
 // buildSearchSQL assembles the FTS5 SELECT with an optional
 // session_date range pushed into the WHERE clause. Returns the
 // final query string and the matching positional arguments.
-func buildSearchSQL(expr string, from, to time.Time, fetchLimit int) (string, []any) {
+func buildSearchSQL(expr string, from, to time.Time, scope, projectSlug string, sessionIDs []string, fetchLimit int) (string, []any) {
 	var clauses []string
 	args := []any{expr}
 	clauses = append(clauses, "knowledge_fts MATCH ?")
+	scope = strings.ToLower(strings.TrimSpace(scope))
+	projectSlug = strings.ToLower(strings.TrimSpace(projectSlug))
+
+	switch scope {
+	case "memory":
+		clauses = append(clauses, "(scope = 'global_memory' OR scope = 'project_memory')")
+		if projectSlug != "" {
+			clauses = append(clauses, "(scope = 'global_memory' OR project_slug = ?)")
+			args = append(args, projectSlug)
+		}
+	case "global", "global_memory":
+		clauses = append(clauses, "scope = 'global_memory'")
+	case "project", "project_memory":
+		clauses = append(clauses, "scope = 'project_memory'")
+		if projectSlug != "" {
+			clauses = append(clauses, "project_slug = ?")
+			args = append(args, projectSlug)
+		}
+	case "wiki":
+		clauses = append(clauses, "scope = 'wiki'")
+	case "raw":
+		clauses = append(clauses, "(scope = 'raw_document' OR scope = 'raw_lme')")
+	case "raw_document":
+		clauses = append(clauses, "scope = 'raw_document'")
+	case "raw_lme":
+		clauses = append(clauses, "scope = 'raw_lme'")
+	case "sources":
+		clauses = append(clauses, "scope = 'sources'")
+	default:
+		if scope != "" {
+			clauses = append(clauses, "scope = ?")
+			args = append(args, scope)
+		}
+	}
 
 	if !from.IsZero() {
 		clauses = append(clauses, "session_date >= ?")
@@ -466,16 +533,87 @@ func buildSearchSQL(expr string, from, to time.Time, fetchLimit int) (string, []
 		clauses = append(clauses, "session_date IS NOT NULL AND session_date <> ''")
 	}
 
-	query := `SELECT path, title, summary,
+	join := ""
+	normalisedSessionIDs := normaliseSQLStringList(sessionIDs)
+	if len(normalisedSessionIDs) > 0 {
+		join = " JOIN knowledge_index_metadata AS m ON m.path = knowledge_fts.path"
+		clauses = append(clauses, "m.session_id IN ("+placeholders(len(normalisedSessionIDs))+")")
+		for _, sessionID := range normalisedSessionIDs {
+			args = append(args, sessionID)
+		}
+	}
+
+	query := `SELECT knowledge_fts.path, title, summary,
 	        snippet(knowledge_fts, 4, '<mark>', '</mark>', '...', 64) AS snippet,
 	        rank AS score,
 	        scope, project_slug, session_date
-	 FROM knowledge_fts
+	 FROM knowledge_fts` + join + `
 	 WHERE ` + strings.Join(clauses, " AND ") + `
 	 ORDER BY rank
 	 LIMIT ?`
 	args = append(args, fetchLimit)
 	return query, args
+}
+
+func normaliseSQLStringList(values []string) []string {
+	if len(values) == 0 {
+		return nil
+	}
+	seen := make(map[string]bool, len(values))
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		trimmed := strings.TrimSpace(value)
+		if trimmed == "" || seen[trimmed] {
+			continue
+		}
+		seen[trimmed] = true
+		out = append(out, trimmed)
+	}
+	return out
+}
+
+func placeholders(count int) string {
+	if count <= 0 {
+		return ""
+	}
+	out := strings.Repeat("?,", count)
+	return strings.TrimSuffix(out, ",")
+}
+
+func searchScopeMatches(rowScope, want string) bool {
+	trimmed := strings.ToLower(strings.TrimSpace(want))
+	if trimmed == "" {
+		return true
+	}
+	rowScope = strings.ToLower(strings.TrimSpace(rowScope))
+	switch trimmed {
+	case "memory":
+		return rowScope == "global_memory" || rowScope == "project_memory"
+	case "global":
+		return rowScope == "global_memory"
+	case "project":
+		return rowScope == "project_memory"
+	case "raw":
+		return rowScope == "raw_document" || rowScope == "raw_lme"
+	default:
+		return rowScope == trimmed
+	}
+}
+
+func searchProjectMatches(rowScope, rowProject, wantProject, wantScope string) bool {
+	project := strings.ToLower(strings.TrimSpace(wantProject))
+	if project == "" {
+		return true
+	}
+	rowScope = strings.ToLower(strings.TrimSpace(rowScope))
+	rowProject = strings.ToLower(strings.TrimSpace(rowProject))
+	if strings.EqualFold(strings.TrimSpace(wantScope), "memory") && rowScope == "global_memory" {
+		return true
+	}
+	if rowScope == "global_memory" {
+		return false
+	}
+	return rowProject == project
 }
 
 // filterSuperseded drops memory rows whose frontmatter carries a
@@ -547,6 +685,7 @@ func extractModified(raw []byte, scope string) (time.Time, bool) {
 // carry a session or observation date. Scoped by the (?m) multiline
 // flag so a stray occurrence deeper in the body is ignored.
 var sessionDateKeyRe = regexp.MustCompile(`(?m)^(session_date|observed_on):\s*(\S.*?)\s*$`)
+var dateSearchTagKeyRe = regexp.MustCompile(`(?m)^(session_date|observed_on|event_date):\s*(\S.*?)\s*$`)
 var dateLiteralRe = regexp.MustCompile(`\b(\d{4})[/-](\d{2})[/-](\d{2})\b`)
 
 // extractSessionDate returns the ISO YYYY-MM-DD string stored into
@@ -579,7 +718,7 @@ func extractDateSearchTags(raw, scope string) []string {
 	var tokens []string
 	if closeIdx := frontmatterEnd(raw); closeIdx > 0 {
 		head := raw[:closeIdx]
-		for _, m := range sessionDateKeyRe.FindAllStringSubmatch(head, -1) {
+		for _, m := range dateSearchTagKeyRe.FindAllStringSubmatch(head, -1) {
 			tokens = append(tokens, dateSearchTokens(strings.Trim(m[2], `"'`))...)
 		}
 	}
@@ -773,6 +912,9 @@ func (idx *Index) rebuild(ctx context.Context) (RebuildStats, error) {
 	}
 	if _, err := idx.db.ExecContext(ctx, "DELETE FROM knowledge_index_state"); err != nil {
 		return stats, fmt.Errorf("clearing index state: %w", err)
+	}
+	if _, err := idx.db.ExecContext(ctx, "DELETE FROM knowledge_index_metadata"); err != nil {
+		return stats, fmt.Errorf("clearing index metadata: %w", err)
 	}
 
 	files := idx.discoverFiles(ctx)
@@ -1089,25 +1231,25 @@ func migrateSchemaIfNeeded(db *sql.DB) error {
 	err := db.QueryRow(`SELECT value FROM knowledge_index_meta WHERE key = ?`, metaSchemaVersion).Scan(&existing)
 	switch {
 	case errors.Is(err, sql.ErrNoRows):
-		// No meta table yet, or no row — harmless: the fresh
-		// schema below is version 2 already, and empty databases
-		// have nothing to drop.
-		return nil
+		return dropSearchIndexTables(db)
 	case err != nil:
 		// The meta table does not exist yet on brand-new databases.
 		if strings.Contains(err.Error(), "no such table") {
-			return nil
+			return dropSearchIndexTables(db)
 		}
 		return err
 	}
-	if existing == "" || existing == currentSchemaVersion {
+	if existing == currentSchemaVersion {
 		return nil
 	}
-	// Older version present: drop FTS and state so they get rebuilt
-	// with the new column layout.
+	return dropSearchIndexTables(db)
+}
+
+func dropSearchIndexTables(db *sql.DB) error {
 	for _, stmt := range []string{
 		`DROP TABLE IF EXISTS knowledge_fts`,
 		`DROP TABLE IF EXISTS knowledge_index_state`,
+		`DROP TABLE IF EXISTS knowledge_index_metadata`,
 	} {
 		if _, err := db.Exec(stmt); err != nil {
 			return err
@@ -1187,6 +1329,9 @@ func (idx *Index) Remove(path string) error {
 	}
 	if _, err := idx.db.Exec("DELETE FROM knowledge_index_state WHERE path = ?", path); err != nil {
 		return fmt.Errorf("removing from index state: %w", err)
+	}
+	if _, err := idx.db.Exec("DELETE FROM knowledge_index_metadata WHERE path = ?", path); err != nil {
+		return fmt.Errorf("removing from index metadata: %w", err)
 	}
 	return nil
 }
@@ -1330,6 +1475,7 @@ func (idx *Index) indexOneFile(ctx context.Context, tx *sql.Tx, f discoveredFile
 	raw := string(data)
 	title, summary, tags, body := parseFrontmatterGeneric(raw, f.scope)
 	sessionDate := extractSessionDate(raw, f.scope)
+	metadata := extractIndexedMetadata(raw)
 	tags = dedupeStringSlice(append(tags, extractDateSearchTags(raw, f.scope)...))
 
 	pathStr := string(f.path)
@@ -1337,13 +1483,55 @@ func (idx *Index) indexOneFile(ctx context.Context, tx *sql.Tx, f discoveredFile
 	if _, err := tx.ExecContext(ctx, "DELETE FROM knowledge_fts WHERE path = ?", pathStr); err != nil {
 		return fmt.Errorf("deleting old FTS entry for %s: %w", pathStr, err)
 	}
+	if _, err := tx.ExecContext(ctx, "DELETE FROM knowledge_index_metadata WHERE path = ?", pathStr); err != nil {
+		return fmt.Errorf("deleting old metadata entry for %s: %w", pathStr, err)
+	}
 
 	if _, err := tx.ExecContext(ctx,
 		`INSERT INTO knowledge_fts (path, title, summary, tags, content, scope, project_slug, session_date)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		pathStr, title, summary, strings.Join(tags, " "), body, f.scope, f.projectSlug, sessionDate,
+		pathStr,
+		title,
+		summary,
+		strings.Join(tags, " "),
+		body,
+		f.scope,
+		f.projectSlug,
+		sessionDate,
 	); err != nil {
 		return fmt.Errorf("inserting FTS entry for %s: %w", pathStr, err)
+	}
+
+	if _, err := tx.ExecContext(ctx,
+		`INSERT INTO knowledge_index_metadata (
+			path, session_id, observed_on, modified, source_role, event_date,
+			evidence_kind, evidence_group, state_key, state_kind, state_subject, state_value,
+			claim_key, claim_status, valid_from, valid_to,
+			artefact_type, artefact_ordinal, artefact_section, artefact_descriptor
+		)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		pathStr,
+		metadata.SessionID,
+		metadata.ObservedOn,
+		metadata.Modified,
+		metadata.SourceRole,
+		metadata.EventDate,
+		metadata.EvidenceKind,
+		metadata.EvidenceGroup,
+		metadata.StateKey,
+		metadata.StateKind,
+		metadata.StateSubject,
+		metadata.StateValue,
+		metadata.ClaimKey,
+		metadata.ClaimStatus,
+		metadata.ValidFrom,
+		metadata.ValidTo,
+		metadata.ArtefactType,
+		metadata.ArtefactOrdinal,
+		metadata.ArtefactSection,
+		metadata.ArtefactDescriptor,
+	); err != nil {
+		return fmt.Errorf("inserting index metadata for %s: %w", pathStr, err)
 	}
 
 	if _, err := tx.ExecContext(ctx,
@@ -1360,6 +1548,74 @@ func (idx *Index) indexOneFile(ctx context.Context, tx *sql.Tx, f discoveredFile
 	}
 
 	return nil
+}
+
+type indexedMetadata struct {
+	SessionID          string
+	ObservedOn         string
+	Modified           string
+	SourceRole         string
+	EventDate          string
+	EvidenceKind       string
+	EvidenceGroup      string
+	StateKey           string
+	StateKind          string
+	StateSubject       string
+	StateValue         string
+	ClaimKey           string
+	ClaimStatus        string
+	ValidFrom          string
+	ValidTo            string
+	ArtefactType       string
+	ArtefactOrdinal    string
+	ArtefactSection    string
+	ArtefactDescriptor string
+}
+
+func extractIndexedMetadata(raw string) indexedMetadata {
+	return indexedMetadata{
+		SessionID:          firstFrontmatterString(raw, "session_id", "sessionId"),
+		ObservedOn:         firstFrontmatterString(raw, "observed_on", "observedOn"),
+		Modified:           firstFrontmatterString(raw, "modified"),
+		SourceRole:         firstFrontmatterString(raw, "source_role", "sourceRole"),
+		EventDate:          firstFrontmatterString(raw, "event_date", "eventDate"),
+		EvidenceKind:       firstFrontmatterString(raw, "evidence_kind", "evidenceKind"),
+		EvidenceGroup:      firstFrontmatterString(raw, "evidence_group", "evidenceGroup"),
+		StateKey:           firstFrontmatterString(raw, "state_key", "stateKey"),
+		StateKind:          firstFrontmatterString(raw, "state_kind", "stateKind"),
+		StateSubject:       firstFrontmatterString(raw, "state_subject", "stateSubject"),
+		StateValue:         firstFrontmatterString(raw, "state_value", "stateValue"),
+		ClaimKey:           firstFrontmatterString(raw, "claim_key", "claimKey"),
+		ClaimStatus:        firstFrontmatterString(raw, "claim_status", "claimStatus"),
+		ValidFrom:          firstFrontmatterString(raw, "valid_from", "validFrom"),
+		ValidTo:            firstFrontmatterString(raw, "valid_to", "validTo"),
+		ArtefactType:       firstFrontmatterString(raw, "artefact_type", "artefactType"),
+		ArtefactOrdinal:    firstFrontmatterString(raw, "artefact_ordinal", "artefactOrdinal"),
+		ArtefactSection:    firstFrontmatterString(raw, "artefact_section", "artefactSection"),
+		ArtefactDescriptor: firstFrontmatterString(raw, "artefact_descriptor", "artefactDescriptor"),
+	}
+}
+
+func firstFrontmatterString(raw string, keys ...string) string {
+	closeIdx := frontmatterEnd(raw)
+	if closeIdx <= 0 {
+		return ""
+	}
+	head := raw[:closeIdx]
+	for _, line := range strings.Split(head, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || trimmed == "---" {
+			continue
+		}
+		for _, key := range keys {
+			prefix := key + ":"
+			if strings.HasPrefix(trimmed, prefix) {
+				value := strings.TrimSpace(strings.TrimPrefix(trimmed, prefix))
+				return strings.Trim(value, `"'`)
+			}
+		}
+	}
+	return ""
 }
 
 // parseFrontmatterGeneric delegates to the appropriate parser based

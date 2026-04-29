@@ -215,7 +215,11 @@ func (d *Daemon) runSearchPipeline(r *http.Request, br *BrainResources, req sear
 			if took == 0 {
 				took = time.Since(started).Milliseconds()
 			}
-			return filterRetrievedChunksByPath(resp.Chunks, req.Filters), &resp.Trace, resp.Attempts, took
+			chunks := filterRetrievedChunksByPath(resp.Chunks, req.Filters)
+			for i := range chunks {
+				chunks[i] = hydrateFallbackChunk(r.Context(), br.Store, chunks[i], "")
+			}
+			return chunks, &resp.Trace, resp.Attempts, took
 		}
 	}
 	if br.Search == nil {

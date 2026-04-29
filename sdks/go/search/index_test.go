@@ -138,6 +138,50 @@ func TestNewIndex_CreatesTables(t *testing.T) {
 	}
 }
 
+func TestNewIndex_DropsLegacySchemaWithoutVersion(t *testing.T) {
+	db := openTestDB(t)
+	if _, err := db.Exec(`CREATE VIRTUAL TABLE knowledge_fts USING fts5(
+		path,
+		title,
+		summary,
+		tags,
+		content,
+		scope,
+		project_slug,
+		tokenize='porter unicode61'
+	)`); err != nil {
+		t.Fatalf("create legacy fts: %v", err)
+	}
+	if _, err := db.Exec(`CREATE TABLE knowledge_index_meta (
+		key TEXT PRIMARY KEY,
+		value TEXT NOT NULL
+	)`); err != nil {
+		t.Fatalf("create legacy meta: %v", err)
+	}
+	if _, err := db.Exec(`CREATE TABLE knowledge_index_state (
+		path TEXT PRIMARY KEY,
+		checksum TEXT NOT NULL
+	)`); err != nil {
+		t.Fatalf("create legacy state: %v", err)
+	}
+
+	idx, err := NewIndex(db, memstoreEmpty(t))
+	if err != nil {
+		t.Fatalf("NewIndex: %v", err)
+	}
+	if idx == nil {
+		t.Fatal("expected non-nil index")
+	}
+
+	if _, err := db.Exec(`INSERT INTO knowledge_fts
+		(path, title, summary, tags, content, scope, project_slug, session_date)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		"wiki/current.md", "Current", "", "", "body", "wiki", "", "2024-03-15",
+	); err != nil {
+		t.Fatalf("insert with current schema: %v", err)
+	}
+}
+
 // writeTestFile creates a markdown file in the given directory.
 func writeTestFile(t *testing.T, dir, name, content string) string {
 	t.Helper()
@@ -375,6 +419,105 @@ Content about the brand new topic we just discovered.
 	}
 	if len(results) == 0 {
 		t.Fatal("expected results after indexing new file")
+	}
+}
+
+func TestLookupRows_ReturnsIndexedFrontmatterMetadata(t *testing.T) {
+	_, idx := newIndexEmpty(t)
+
+	content := []byte(`---
+name: Metadata Fact
+session_id: session-123
+observed_on: 2024-03-14
+modified: 2024-03-15T09:30:00Z
+source_role: user
+event_date: 2024-03-13
+evidence_kind: atomic
+evidence_group: atomic|money|purchase|usd-1200|2024-03-13
+state_key: state.owned_item_set.bikes
+state_kind: owned_item_set
+state_subject: bikes
+state_value: commuter bike and road bike
+claim_key: claim.user.bikes
+claim_status: asserted
+valid_from: 2024-03-13
+valid_to: 2024-04-01
+artefact_type: markdown_table
+artefact_ordinal: 2
+artefact_section: Inventory
+artefact_descriptor: Bike table
+---
+The user completed the migration checklist.
+`)
+	path := brain.Path("memory/global/metadata-fact.md")
+	if err := idx.indexFiles(context.Background(), []discoveredFile{
+		{
+			path:     path,
+			scope:    "global_memory",
+			content:  content,
+			checksum: checksumBytes(content),
+		},
+	}); err != nil {
+		t.Fatalf("indexFiles: %v", err)
+	}
+
+	rows, err := idx.LookupRows(context.Background(), []string{string(path)})
+	if err != nil {
+		t.Fatalf("LookupRows: %v", err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("rows = %d, want 1", len(rows))
+	}
+	row := rows[0]
+	if row.SessionDate != "2024-03-14" {
+		t.Fatalf("SessionDate = %q, want observed date", row.SessionDate)
+	}
+	if row.SessionID != "session-123" ||
+		row.ObservedOn != "2024-03-14" ||
+		row.Modified != "2024-03-15T09:30:00Z" ||
+		row.SourceRole != "user" ||
+		row.EventDate != "2024-03-13" ||
+		row.EvidenceKind != "atomic" ||
+		row.StateKey != "state.owned_item_set.bikes" ||
+		row.ClaimKey != "claim.user.bikes" ||
+		row.ValidFrom != "2024-03-13" ||
+		row.ArtefactType != "markdown_table" ||
+		row.ArtefactOrdinal != "2" {
+		t.Fatalf("metadata not preserved: %+v", row)
+	}
+
+	metadataRows, err := idx.AllMetadataRows(context.Background())
+	if err != nil {
+		t.Fatalf("AllMetadataRows: %v", err)
+	}
+	if len(metadataRows) != 1 {
+		t.Fatalf("metadata rows = %d, want 1", len(metadataRows))
+	}
+	meta := metadataRows[0]
+	if meta.Content != "" || meta.Title != "" || meta.Summary != "" {
+		t.Fatalf("metadata-only row loaded body fields: %+v", meta)
+	}
+	if meta.Path != string(path) || meta.SessionID != "session-123" || meta.SourceRole != "user" || meta.StateKey != "state.owned_item_set.bikes" {
+		t.Fatalf("metadata-only row lost filter fields: %+v", meta)
+	}
+
+	sessionRows, err := idx.SessionRows(context.Background(), []string{"session-123"})
+	if err != nil {
+		t.Fatalf("SessionRows: %v", err)
+	}
+	if len(sessionRows) != 1 {
+		t.Fatalf("session rows = %d, want 1", len(sessionRows))
+	}
+	if sessionRows[0].Path != string(path) || sessionRows[0].SessionID != "session-123" {
+		t.Fatalf("SessionRows lost row identity: %+v", sessionRows[0])
+	}
+
+	results, err := idx.Search("Wednesday", SearchOpts{})
+	if err != nil {
+		t.Fatalf("Search event date: %v", err)
+	}
+	if len(results) == 0 || results[0].Path != string(path) {
+		t.Fatalf("event_date was not indexed as a searchable date tag: %+v", results)
 	}
 }
 
@@ -624,6 +767,71 @@ func TestSearch_ProjectSlugFilter(t *testing.T) {
 	}
 	if results[0].Title != "Jeff API Notes" {
 		t.Errorf("expected 'Jeff API Notes', got %q", results[0].Title)
+	}
+}
+
+func TestSearch_MemoryScopeProjectFilterIncludesGlobalAndMatchingProject(t *testing.T) {
+	db, idx := newIndexEmpty(t)
+
+	insertSearchTestRow(t, db,
+		"memory/global/api.md", "Global API", "Shared API memory",
+		"global_memory", "",
+	)
+	insertSearchTestRow(t, db,
+		"memory/project/jeff/api.md", "Jeff API", "Project API memory",
+		"project_memory", "jeff",
+	)
+	insertSearchTestRow(t, db,
+		"memory/project/other/api.md", "Other API", "Other project API memory",
+		"project_memory", "other",
+	)
+	insertSearchTestRow(t, db,
+		"raw/lme/api.md", "Raw API", "Raw API transcript",
+		"raw_lme", "",
+	)
+
+	results, err := idx.Search("API memory transcript", SearchOpts{
+		Scope:       "memory",
+		ProjectSlug: "jeff",
+		MaxResults:  10,
+	})
+	if err != nil {
+		t.Fatalf("Search memory scope: %v", err)
+	}
+	got := searchResultPaths(results)
+	want := []string{"memory/global/api.md", "memory/project/jeff/api.md"}
+	if !sameSet(got, want) {
+		t.Fatalf("memory scoped project hits = %v, want %v", got, want)
+	}
+}
+
+func TestSearch_RawScopeIncludesRawDocumentsAndRawLME(t *testing.T) {
+	db, idx := newIndexEmpty(t)
+
+	insertSearchTestRow(t, db,
+		"raw/documents/api.md", "Raw Document API", "Shared raw api document",
+		"raw_document", "",
+	)
+	insertSearchTestRow(t, db,
+		"raw/lme/session.md", "Raw LME API", "Shared raw api transcript",
+		"raw_lme", "",
+	)
+	insertSearchTestRow(t, db,
+		"wiki/api.md", "Wiki API", "Shared raw api wiki",
+		"wiki", "",
+	)
+
+	results, err := idx.Search("raw api", SearchOpts{
+		Scope:      "raw",
+		MaxResults: 10,
+	})
+	if err != nil {
+		t.Fatalf("Search raw scope: %v", err)
+	}
+	got := searchResultPaths(results)
+	want := []string{"raw/documents/api.md", "raw/lme/session.md"}
+	if !sameSet(got, want) {
+		t.Fatalf("raw scoped hits = %v, want %v", got, want)
 	}
 }
 

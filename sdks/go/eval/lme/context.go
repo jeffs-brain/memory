@@ -26,8 +26,10 @@ type sessionBlock struct {
 }
 
 var (
-	sessionDateRe = regexp.MustCompile(`(?m)^session_date:\s*(.+?)\s*$`)
-	sessionIDRe   = regexp.MustCompile(`(?m)^session_id:\s*(\S+)\s*$`)
+	sessionDateRe     = regexp.MustCompile(`(?m)^session_date:\s*(.+?)\s*$`)
+	sessionIDRe       = regexp.MustCompile(`(?m)^session_id:\s*(\S+)\s*$`)
+	daysAgoQuestionRe = regexp.MustCompile(`(?i)\bhow\s+many\s+days?\s+ago\b`)
+	datePrefixRe      = regexp.MustCompile(`^\d{4}[-/]\d{2}[-/]\d{2}$`)
 )
 
 // processSessionContext takes raw retrieved content (multiple sessions
@@ -288,11 +290,22 @@ func parseSessionTime(value string) (time.Time, bool) {
 // RetrievedPassage is the retrieve-only rendering shape used by the
 // actor-backed LongMemEval path.
 type RetrievedPassage struct {
-	Path      string
-	Score     float64
-	Body      string
-	Date      string
-	SessionID string
+	Path            string
+	Score           float64
+	Body            string
+	Date            string
+	SessionID       string
+	SourceRole      string
+	EventDate       string
+	EvidenceKind    string
+	EvidenceGroup   string
+	StateKey        string
+	ClaimStatus     string
+	ValidFrom       string
+	ValidTo         string
+	ArtefactType    string
+	ArtefactOrdinal string
+	ArtefactSection string
 }
 
 // RenderRetrievedPassages renders retrieve-only evidence with explicit
@@ -312,6 +325,33 @@ func RenderRetrievedPassages(passages []RetrievedPassage, question, questionDate
 		labels := []string{fmt.Sprintf("[%s]", passageDate(passage))}
 		if sessionID := passageSessionID(passage); sessionID != "" {
 			labels = append(labels, fmt.Sprintf("[session=%s]", sessionID))
+		}
+		if sourceRole := passageSourceRole(passage); sourceRole != "" {
+			labels = append(labels, fmt.Sprintf("[source_role=%s]", sourceRole))
+		}
+		if eventDate := passageEventDate(passage); eventDate != "" {
+			labels = append(labels, fmt.Sprintf("[event_date=%s]", eventDate))
+		}
+		if temporalDelta := passageTemporalDeltaLabel(passage, question, questionDate); temporalDelta != "" {
+			labels = append(labels, fmt.Sprintf("[%s]", temporalDelta))
+		}
+		if evidenceKind := passageEvidenceKind(passage); evidenceKind != "" {
+			labels = append(labels, fmt.Sprintf("[evidence=%s]", evidenceKind))
+		}
+		if evidenceGroup := passageEvidenceGroup(passage); evidenceGroup != "" {
+			labels = append(labels, fmt.Sprintf("[group=%s]", evidenceGroup))
+		}
+		if stateKey := passageStateKey(passage); stateKey != "" {
+			labels = append(labels, fmt.Sprintf("[state=%s]", stateKey))
+		}
+		if claimStatus := passageClaimStatus(passage); claimStatus != "" {
+			labels = append(labels, fmt.Sprintf("[claim=%s]", claimStatus))
+		}
+		if validWindow := passageValidWindow(passage); validWindow != "" {
+			labels = append(labels, fmt.Sprintf("[valid=%s]", validWindow))
+		}
+		if artefactLabel := passageArtefactLabel(passage); artefactLabel != "" {
+			labels = append(labels, fmt.Sprintf("[artefact=%s]", artefactLabel))
 		}
 		if source := sourceTagFromPath(passage.Path); source != "" {
 			labels = append(labels, fmt.Sprintf("[%s]", source))
@@ -364,6 +404,164 @@ func passageSessionID(passage RetrievedPassage) string {
 		return trimmed
 	}
 	return firstFrontmatterValue(passage.Body, "session_id")
+}
+
+func passageSourceRole(passage RetrievedPassage) string {
+	role := strings.ToLower(strings.TrimSpace(passage.SourceRole))
+	if role == "" {
+		role = strings.ToLower(strings.TrimSpace(firstFrontmatterValue(passage.Body, "source_role")))
+	}
+	switch role {
+	case "user", "assistant", "mixed":
+		return role
+	default:
+		return ""
+	}
+}
+
+func passageEventDate(passage RetrievedPassage) string {
+	if trimmed := strings.TrimSpace(passage.EventDate); trimmed != "" {
+		return trimmed
+	}
+	return firstFrontmatterValue(passage.Body, "event_date")
+}
+
+func passageTemporalDeltaLabel(passage RetrievedPassage, question, questionDate string) string {
+	if !daysAgoQuestionRe.MatchString(question) {
+		return ""
+	}
+	anchor, ok := parsePassageDate(questionDate)
+	if !ok {
+		return ""
+	}
+	dateValue := passageEventDate(passage)
+	if dateValue == "" {
+		dateValue = passageDate(passage)
+	}
+	eventDate, ok := parsePassageDate(dateValue)
+	if !ok {
+		return ""
+	}
+	days := int(anchor.Sub(eventDate).Hours() / 24)
+	if days < 0 {
+		return ""
+	}
+	return fmt.Sprintf("days_before_question=%d", days)
+}
+
+func parsePassageDate(raw string) (time.Time, bool) {
+	candidate := normalisePassageDate(raw)
+	if candidate == "" {
+		return time.Time{}, false
+	}
+	for _, layout := range []string{
+		time.RFC3339,
+		"2006/01/02 (Mon) 15:04",
+		"2006/01/02 (Mon)",
+		"2006/01/02 15:04",
+		"2006/01/02",
+		"2006-01-02",
+	} {
+		parsed, err := time.Parse(layout, candidate)
+		if err == nil {
+			year, month, day := parsed.Date()
+			return time.Date(year, month, day, 0, 0, 0, 0, time.UTC), true
+		}
+	}
+	return time.Time{}, false
+}
+
+func normalisePassageDate(raw string) string {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" || trimmed == "unknown" {
+		return ""
+	}
+	if len(trimmed) >= len("2006-01-02") {
+		prefix := trimmed[:10]
+		if datePrefixRe.MatchString(prefix) {
+			return prefix
+		}
+	}
+	return trimmed
+}
+
+func passageEvidenceKind(passage RetrievedPassage) string {
+	kind := strings.ToLower(strings.TrimSpace(passage.EvidenceKind))
+	switch kind {
+	case "atomic", "rollup", "recap", "plan", "unknown":
+		return kind
+	default:
+		return ""
+	}
+}
+
+func passageEvidenceGroup(passage RetrievedPassage) string {
+	group := strings.TrimSpace(passage.EvidenceGroup)
+	if group == "" {
+		return ""
+	}
+	return strings.Map(func(r rune) rune {
+		if r == '\n' || r == '\r' || r == '\t' {
+			return -1
+		}
+		return r
+	}, group)
+}
+
+func passageStateKey(passage RetrievedPassage) string {
+	return safePassageLabel(passage.StateKey)
+}
+
+func passageClaimStatus(passage RetrievedPassage) string {
+	status := strings.ToLower(strings.TrimSpace(passage.ClaimStatus))
+	switch status {
+	case "asserted", "currently_true", "superseded", "unknown":
+		return status
+	default:
+		return ""
+	}
+}
+
+func passageValidWindow(passage RetrievedPassage) string {
+	from := safePassageLabel(passage.ValidFrom)
+	to := safePassageLabel(passage.ValidTo)
+	if from == "" && to == "" {
+		return ""
+	}
+	if from == "" {
+		from = "unknown"
+	}
+	if to == "" {
+		to = "present"
+	}
+	return from + ".." + to
+}
+
+func passageArtefactLabel(passage RetrievedPassage) string {
+	kind := safePassageLabel(passage.ArtefactType)
+	if kind == "" {
+		return ""
+	}
+	if ordinal := safePassageLabel(passage.ArtefactOrdinal); ordinal != "" {
+		kind += "#" + ordinal
+	}
+	if section := safePassageLabel(passage.ArtefactSection); section != "" {
+		kind += ":" + section
+	}
+	return kind
+}
+
+func safePassageLabel(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	return strings.Map(func(r rune) rune {
+		if r == '\n' || r == '\r' || r == '\t' || r == ' ' {
+			return '_'
+		}
+		return r
+	}, value)
 }
 
 func passageDisplayBody(passage RetrievedPassage) string {
