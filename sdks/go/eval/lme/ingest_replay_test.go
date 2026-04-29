@@ -4,6 +4,7 @@ package lme
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -17,6 +18,15 @@ import (
 	"github.com/jeffs-brain/memory/go/store/mem"
 	"github.com/jeffs-brain/memory/go/store/pt"
 )
+
+type replayFailingBatchStore struct {
+	brain.Store
+	err error
+}
+
+func (s replayFailingBatchStore) Batch(_ context.Context, _ brain.BatchOptions, _ func(brain.Batch) error) error {
+	return s.err
+}
 
 // replayFakeProvider is a test double that returns canned extraction
 // responses as raw JSON strings. Tracks the model field of each
@@ -628,6 +638,195 @@ func TestIngestReplay_RetriesTransientExtractionErrors(t *testing.T) {
 	}
 }
 
+func TestIngestReplay_RetriesMalformedExtractionJSON(t *testing.T) {
+	store := mem.New()
+	ds := &Dataset{Questions: []Question{{
+		ID: "q1", Category: "single-session", Question: "Q?", Answer: "A",
+		SessionIDs: []string{"sess-001"},
+		HaystackSessions: [][]SessionMessage{{
+			{Role: "user", Content: "Hello."},
+			{Role: "assistant", Content: "Hi."},
+		}},
+	}}}
+
+	provider := &replayFakeProvider{responses: []string{
+		`{"memories":[`,
+		`{"memories":[]}`,
+	}}
+
+	result, err := IngestReplay(context.Background(), store, ds, provider, ReplayOpts{Concurrency: 1})
+	if err != nil {
+		t.Fatalf("IngestReplay: %v", err)
+	}
+	if provider.callCount() != 2 {
+		t.Fatalf("provider.calls = %d, want 2 after parse retry", provider.callCount())
+	}
+	if result.FailedSessions != 0 {
+		t.Fatalf("FailedSessions = %d, want 0", result.FailedSessions)
+	}
+	if len(result.Warnings) != 0 {
+		t.Fatalf("unexpected warnings after parse retry: %v", result.Warnings)
+	}
+}
+
+func TestIngestReplay_FinalParseFailureUsesHeuristicFallback(t *testing.T) {
+	store := mem.New()
+	ds := &Dataset{Questions: []Question{
+		{
+			ID: "q1", Category: "single-session", Question: "Q?", Answer: "A",
+			SessionIDs: []string{"sess-001"},
+			HaystackSessions: [][]SessionMessage{{
+				{Role: "user", Content: "The car is red."},
+				{Role: "assistant", Content: "Noted."},
+			}},
+		},
+		{
+			ID: "q2", Category: "single-session", Question: "Q?", Answer: "A",
+			SessionIDs: []string{"sess-002"},
+			HaystackSessions: [][]SessionMessage{{
+				{Role: "user", Content: "The bike is blue."},
+				{Role: "assistant", Content: "Noted."},
+			}},
+		},
+	}}
+
+	provider := &replayFakeProvider{responses: []string{
+		`{"memories": [{"action": "create", "filename": "car.md", "name": "Car", "description": "d", "type": "project", "content": "The car is red.", "index_entry": "- car", "scope": "project"}]}`,
+		`{"memories":[`,
+		`{"memories":[`,
+		`{"memories":[`,
+	}}
+
+	result, err := IngestReplay(context.Background(), store, ds, provider, ReplayOpts{Concurrency: 1})
+	if err != nil {
+		t.Fatalf("IngestReplay: %v", err)
+	}
+	if result.FailedSessions != 0 {
+		t.Fatalf("FailedSessions = %d, want 0", result.FailedSessions)
+	}
+	if result.FallbackSessions != 1 {
+		t.Fatalf("FallbackSessions = %d, want 1", result.FallbackSessions)
+	}
+	if result.WarningCounts["heuristic_fallback_sessions"] != 1 {
+		t.Fatalf("warning counts = %+v, want heuristic fallback warning", result.WarningCounts)
+	}
+	if result.FactsWritten != 1 {
+		t.Fatalf("FactsWritten = %d, want only successfully extracted fact written", result.FactsWritten)
+	}
+	slug := memory.ProjectSlug("/eval/lme")
+	files, err := store.List(context.Background(), brain.MemoryProjectPrefix(slug), brain.ListOpts{
+		Recursive:        true,
+		IncludeGenerated: true,
+	})
+	if err != nil {
+		t.Fatalf("list project memories: %v", err)
+	}
+	var sawCar bool
+	for _, f := range files {
+		if strings.Contains(string(f.Path), "car") {
+			sawCar = true
+		}
+	}
+	if !sawCar {
+		t.Fatalf("expected successfully extracted car memory, files=%+v", files)
+	}
+}
+
+func TestIngestReplay_ApplyFailureReturnsError(t *testing.T) {
+	applyErr := errors.New("batch failed")
+	store := replayFailingBatchStore{Store: mem.New(), err: applyErr}
+	ds := &Dataset{Questions: []Question{{
+		ID: "q1", Category: "single-session", Question: "Q?", Answer: "A",
+		SessionIDs: []string{"sess-001"},
+		HaystackSessions: [][]SessionMessage{{
+			{Role: "user", Content: "The car is red."},
+			{Role: "assistant", Content: "I will remember that."},
+		}},
+	}}}
+	provider := &replayFakeProvider{responses: []string{
+		`{"memories": [{"action": "create", "filename": "car.md", "name": "Car", "description": "d", "type": "project", "content": "The car is red.", "index_entry": "- car", "scope": "project"}]}`,
+	}}
+
+	result, err := IngestReplay(context.Background(), store, ds, provider, ReplayOpts{Concurrency: 1})
+	if !errors.Is(err, applyErr) {
+		t.Fatalf("IngestReplay err = %v, want apply error", err)
+	}
+	if result == nil {
+		t.Fatal("expected partial result with warning counts")
+	}
+	if result.WarningCounts["apply_failures"] != 1 {
+		t.Fatalf("apply_failures = %d, want 1", result.WarningCounts["apply_failures"])
+	}
+}
+
+func TestIngestReplay_RewritesAllExtractedFilenamesWithSessionAndHash(t *testing.T) {
+	store := mem.New()
+	ds := &Dataset{Questions: []Question{{
+		ID:            "q1",
+		Category:      "multi-session",
+		Question:      "What did I mention?",
+		Answer:        "two facts",
+		SessionIDs:    []string{"sess-A", "sess-B"},
+		HaystackDates: []string{"2024/03/25 (Mon) 10:00", "2024/03/25 (Mon) 10:00"},
+		HaystackSessions: [][]SessionMessage{
+			{
+				{Role: "user", Content: "The red car is parked downstairs."},
+				{Role: "assistant", Content: "Noted."},
+			},
+			{
+				{Role: "user", Content: "The blue bike is locked outside."},
+				{Role: "assistant", Content: "Noted."},
+			},
+		},
+	}}}
+	provider := &replayFakeProvider{responses: []string{
+		`{"memories": [{"action": "create", "filename": "shared.md", "name": "Shared", "description": "d", "type": "project", "content": "The red car is parked downstairs.", "index_entry": "- shared", "scope": "project"}]}`,
+		`{"memories": [{"action": "create", "filename": "shared.md", "name": "Shared", "description": "d", "type": "project", "content": "The blue bike is locked outside.", "index_entry": "- shared", "scope": "project"}]}`,
+	}}
+
+	result, err := IngestReplay(context.Background(), store, ds, provider, ReplayOpts{Concurrency: 1})
+	if err != nil {
+		t.Fatalf("IngestReplay: %v", err)
+	}
+	if result.FactsWritten != 2 {
+		t.Fatalf("FactsWritten = %d, want 2", result.FactsWritten)
+	}
+	if result.DuplicatePaths != 0 {
+		t.Fatalf("DuplicatePaths = %d, want 0", result.DuplicatePaths)
+	}
+
+	slug := memory.ProjectSlug("/eval/lme")
+	files, err := store.List(context.Background(), brain.MemoryProjectPrefix(slug), brain.ListOpts{
+		Recursive:        true,
+		IncludeGenerated: true,
+	})
+	if err != nil {
+		t.Fatalf("list project memories: %v", err)
+	}
+
+	var paths []string
+	for _, f := range files {
+		path := string(f.Path)
+		if f.IsDir || strings.HasSuffix(path, "MEMORY.md") || !strings.Contains(path, "shared-") {
+			continue
+		}
+		paths = append(paths, path)
+	}
+	if len(paths) != 2 {
+		t.Fatalf("shared fact paths = %d, want 2; paths=%v", len(paths), paths)
+	}
+	joined := strings.Join(paths, "\n")
+	if !strings.Contains(joined, "sess-A") || !strings.Contains(joined, "sess-B") {
+		t.Fatalf("paths should include session ids, got:\n%s", joined)
+	}
+	for _, path := range paths {
+		base := filepath.Base(path)
+		if len(strings.Split(strings.TrimSuffix(base, ".md"), "-")) < 4 {
+			t.Fatalf("path %q should include readable slug, session id, and hash", path)
+		}
+	}
+}
+
 func TestIngestReplay_EmptySessionIsHandled(t *testing.T) {
 	store := mem.New()
 	ds := &Dataset{Questions: []Question{{
@@ -771,7 +970,7 @@ func TestIngestReplay_PassthroughLayoutPersistsGlobalMemory(t *testing.T) {
 		}},
 	}}}
 
-	// Note the `scope: "global"` on the extraction — triggers the
+	// Note the `scope: "global"` on the extraction, which triggers the
 	// global-memory write path inside ApplyExtractions.
 	provider := &replayFakeProvider{responses: []string{
 		`{"memories": [{"action": "create", "filename": "globally_important.md", "name": "GloballyImportant", "description": "d", "type": "global", "content": "A globally important fact.", "index_entry": "- g", "scope": "global"}]}`,
@@ -785,7 +984,22 @@ func TestIngestReplay_PassthroughLayoutPersistsGlobalMemory(t *testing.T) {
 		t.Fatalf("FactsWritten = %d, want 1", result.FactsWritten)
 	}
 
-	literal := filepath.Join(dir, "memory", "global", "globally_important.md")
+	globalDir := filepath.Join(dir, "memory", "global")
+	entries, err := os.ReadDir(globalDir)
+	if err != nil {
+		t.Fatalf("read global memory dir %s: %v", globalDir, err)
+	}
+	literal := ""
+	for _, entry := range entries {
+		name := entry.Name()
+		if strings.HasPrefix(name, "globally_important-sess-001-") && strings.HasSuffix(name, ".md") {
+			literal = filepath.Join(globalDir, name)
+			break
+		}
+	}
+	if literal == "" {
+		t.Fatalf("expected collision-safe global memory file in %s, entries=%v", globalDir, entries)
+	}
 	body, err := os.ReadFile(literal)
 	if err != nil {
 		t.Fatalf("expected file at %s (passthrough layout): %v", literal, err)
@@ -795,12 +1009,17 @@ func TestIngestReplay_PassthroughLayoutPersistsGlobalMemory(t *testing.T) {
 	}
 
 	// Defence in depth: the fs.Store remap would create the file at
-	// memory/globally_important.md under the root. Confirm that is
+	// memory/globally_important*.md under the root. Confirm that is
 	// absent so a future regression that reintroduces fs.New here
 	// fails this test.
-	remapped := filepath.Join(dir, "memory", "globally_important.md")
-	if _, err := os.Stat(remapped); err == nil {
-		t.Fatalf("found file at remapped path %s; passthrough store must not remap", remapped)
+	rootEntries, err := os.ReadDir(filepath.Join(dir, "memory"))
+	if err != nil {
+		t.Fatalf("read memory root: %v", err)
+	}
+	for _, entry := range rootEntries {
+		if strings.HasPrefix(entry.Name(), "globally_important") {
+			t.Fatalf("found file at remapped root path %s; passthrough store must not remap", entry.Name())
+		}
 	}
 }
 

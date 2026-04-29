@@ -434,6 +434,21 @@ func scanVectorEntry(row vectorRow) (VectorEntry, error) {
 // Safe to call from multiple goroutines: the method only reads from
 // the database and maintains no mutable state on the receiver.
 func (v *VectorIndex) Search(ctx context.Context, queryVec []float32, model string, k int) ([]VectorHit, error) {
+	return v.search(ctx, queryVec, model, k, nil)
+}
+
+// SearchAllowed computes cosine similarity only for entries whose
+// path is present in allowedPaths. It is used when retrieval filters
+// scope, project, tags, or dates: filtering before the top-k cut
+// avoids unrelated vectors crowding out valid in-scope hits.
+func (v *VectorIndex) SearchAllowed(ctx context.Context, queryVec []float32, model string, k int, allowedPaths map[string]struct{}) ([]VectorHit, error) {
+	if len(allowedPaths) == 0 {
+		return []VectorHit{}, nil
+	}
+	return v.search(ctx, queryVec, model, k, allowedPaths)
+}
+
+func (v *VectorIndex) search(ctx context.Context, queryVec []float32, model string, k int, allowedPaths map[string]struct{}) ([]VectorHit, error) {
 	if k <= 0 {
 		k = defaultVectorSearchK
 	}
@@ -453,6 +468,11 @@ func (v *VectorIndex) Search(ctx context.Context, queryVec []float32, model stri
 	hits := make([]VectorHit, 0, len(entries))
 	for i := range entries {
 		e := &entries[i]
+		if allowedPaths != nil {
+			if _, ok := allowedPaths[e.Path]; !ok {
+				continue
+			}
+		}
 		if len(e.Vector) != len(queryVec) {
 			// Dimension mismatch means the stored vector comes from a
 			// different model version; skip rather than poison the
@@ -505,6 +525,60 @@ func (v *VectorIndex) DeleteByPath(ctx context.Context, path string) error {
 	}
 	v.ClearCache()
 	return nil
+}
+
+// DeleteByPaths removes entries for the active model and the supplied
+// paths. It is used by daemon warmup to keep semantic search aligned
+// with the FTS index without disturbing vectors for other models.
+func (v *VectorIndex) DeleteByPaths(ctx context.Context, model string, paths []string) (int, error) {
+	if len(paths) == 0 {
+		return 0, nil
+	}
+	if model == "" {
+		return 0, fmt.Errorf("deleting vectors: empty model")
+	}
+
+	tx, err := v.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, fmt.Errorf("beginning vector delete: %w", err)
+	}
+
+	stmt, err := tx.PrepareContext(ctx,
+		"DELETE FROM knowledge_embeddings WHERE model = ? AND path = ?",
+	)
+	if err != nil {
+		_ = tx.Rollback()
+		return 0, fmt.Errorf("preparing vector delete: %w", err)
+	}
+	defer stmt.Close()
+
+	var deleted int64
+	for _, path := range paths {
+		if path == "" {
+			_ = tx.Rollback()
+			return 0, fmt.Errorf("deleting vectors: empty path")
+		}
+		res, err := stmt.ExecContext(ctx, model, path)
+		if err != nil {
+			_ = tx.Rollback()
+			return 0, fmt.Errorf("deleting vector for %s: %w", path, err)
+		}
+		n, err := res.RowsAffected()
+		if err != nil {
+			_ = tx.Rollback()
+			return 0, fmt.Errorf("counting deleted vector rows for %s: %w", path, err)
+		}
+		deleted += n
+	}
+
+	if err := tx.Commit(); err != nil {
+		return 0, fmt.Errorf("committing vector delete: %w", err)
+	}
+
+	if deleted > 0 {
+		v.invalidateModels(map[string]struct{}{model: {}})
+	}
+	return int(deleted), nil
 }
 
 // DeleteByModel removes every entry for a given model. Used when

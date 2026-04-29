@@ -92,7 +92,7 @@ func TestPreferenceMultiplier_GlobalUserPreferenceWins(t *testing.T) {
 		Text:  "I prefer oat milk",
 	}
 	text := retrievalResultText(r)
-	got := preferenceIntentMultiplier(r, text)
+	got := preferenceIntentMultiplier("recommend coffee", r, text)
 	if got != 2.35 {
 		t.Fatalf("user-preference multiplier %v, want 2.35", got)
 	}
@@ -106,7 +106,7 @@ func TestPreferenceMultiplier_GlobalPreferenceNote(t *testing.T) {
 		Text:  "I really love flat whites",
 	}
 	text := retrievalResultText(r)
-	got := preferenceIntentMultiplier(r, text)
+	got := preferenceIntentMultiplier("recommend coffee", r, text)
 	if got != 2.1 {
 		t.Fatalf("global preference multiplier %v, want 2.1", got)
 	}
@@ -119,7 +119,7 @@ func TestPreferenceMultiplier_GenericNonGlobal(t *testing.T) {
 		Text: "here are some tips for improving throughput",
 	}
 	text := retrievalResultText(r)
-	got := preferenceIntentMultiplier(r, text)
+	got := preferenceIntentMultiplier("recommend throughput", r, text)
 	if got != 0.82 {
 		t.Fatalf("generic non-global multiplier %v, want 0.82", got)
 	}
@@ -132,7 +132,7 @@ func TestPreferenceMultiplier_Rollup(t *testing.T) {
 		Text: "overview summary totalling everything",
 	}
 	text := retrievalResultText(r)
-	got := preferenceIntentMultiplier(r, text)
+	got := preferenceIntentMultiplier("recommend summary", r, text)
 	if got != 0.9 {
 		t.Fatalf("rollup multiplier %v, want 0.9", got)
 	}
@@ -171,7 +171,7 @@ func TestConcreteFactMultiplier_RollupPenalty(t *testing.T) {
 		Text: "summary recap overview totalling monthly figures",
 	}
 	text := retrievalResultText(r)
-	got := concreteFactIntentMultiplier("What is the total amount I spent?", r, text)
+	got := concreteFactIntentMultiplier("How many morning commutes did I log?", r, text)
 	// Neither user-fact path nor atomic event with no date tag
 	// guarded by !isRollUp -> concrete-fact false; isRollUp true.
 	if got != 0.45 {
@@ -186,7 +186,7 @@ func TestConcreteFactMultiplier_ComposedWithGenericPenalty(t *testing.T) {
 		Text: "general guide and tips",
 	}
 	text := retrievalResultText(r)
-	got := concreteFactIntentMultiplier("What is the total amount I spent?", r, text)
+	got := concreteFactIntentMultiplier("How many morning commutes did I log?", r, text)
 	if got != 0.75 {
 		t.Fatalf("generic non-global multiplier %v, want 0.75", got)
 	}
@@ -218,6 +218,19 @@ func TestConcreteFactMultiplier_PenalisesMeasurementlessDurationNotes(t *testing
 	}
 }
 
+func TestConcreteFactMultiplier_BoostsWordNumberDurations(t *testing.T) {
+	t.Parallel()
+	r := RetrievedChunk{
+		Path: "memory/global/user-japan-trip.md",
+		Text: "The user spent two weeks travelling solo around Japan.",
+	}
+	text := retrievalResultText(r)
+	got := concreteFactIntentMultiplier("How long was I in Japan for?", r, text)
+	if got <= 1.0 {
+		t.Fatalf("word-number duration multiplier %v, want boost", got)
+	}
+}
+
 func TestFocusAlignedConcreteFactMultiplier_BoostsExactProbeMatches(t *testing.T) {
 	t.Parallel()
 	got := focusAlignedConcreteFactMultiplier(
@@ -234,6 +247,17 @@ func TestFocusAlignedConcreteFactMultiplier_BoostsStrongPhraseOverlap(t *testing
 	got := focusAlignedConcreteFactMultiplier(
 		"How long is my daily commute to work?",
 		"My daily commute takes 45 minutes each way.",
+	)
+	if got != 1.6 {
+		t.Fatalf("focus multiplier %v, want 1.6", got)
+	}
+}
+
+func TestFocusAlignedConcreteFactMultiplier_BoostsCoverageFacetOverlap(t *testing.T) {
+	t.Parallel()
+	got := focusAlignedConcreteFactMultiplier(
+		"How many attendee questions came from the Atlas Webinar and Beacon Podcast episode?",
+		"The Beacon Podcast episode received 17 attendee questions.",
 	)
 	if got != 1.6 {
 		t.Fatalf("focus multiplier %v, want 1.6", got)
@@ -333,6 +357,28 @@ func TestReweight_FirstPersonPropertyPrefersDirectGlobalFactOverProjectGuide(t *
 	}
 }
 
+func TestReweight_FirstPersonCountCanPromotePersonalProjectFact(t *testing.T) {
+	t.Parallel()
+	out := reweightSharedMemoryRanking(
+		"How many bikes do I currently own?",
+		[]RetrievedChunk{
+			{
+				Path:  "memory/global/user-current-keyboard.md",
+				Score: 1.0,
+				Text:  "The user is currently using a Logitech keyboard.",
+			},
+			{
+				Path:  "memory/project/eval-lme/user-road-trip-bike-plan.md",
+				Score: 0.62,
+				Text:  "[Date: 2023-05-25 Thursday May 2023] The user will bring four bikes: a road bike, mountain bike, commuter bike, and a new hybrid bike.",
+			},
+		},
+	)
+	if out[0].Path != "memory/project/eval-lme/user-road-trip-bike-plan.md" {
+		t.Fatalf("top path = %q, want personal project fact", out[0].Path)
+	}
+}
+
 func TestReweight_PenalisesSupersededConcreteFactNotes(t *testing.T) {
 	t.Parallel()
 	out := reweightSharedMemoryRanking(
@@ -353,6 +399,119 @@ func TestReweight_PenalisesSupersededConcreteFactNotes(t *testing.T) {
 	)
 	if out[0].Path != "memory/global/user-fact-new-internet-plan.md" {
 		t.Fatalf("top path = %q, want current fact", out[0].Path)
+	}
+}
+
+func TestReweight_MeasurementTotalPrefersMeasuredUserFactsOverGenericGuides(t *testing.T) {
+	t.Parallel()
+	out := reweightSharedMemoryRanking(
+		"How many hours have I spent playing games in total?",
+		[]RetrievedChunk{
+			{
+				Path:  "memory/project/eval-lme/game-backlog-planning.md",
+				Score: 1.0,
+				Text:  "General tips for tracking a game backlog and keeping notes about completed titles.",
+			},
+			{
+				Path:  "memory/global/user-fact-2023-04-08-playing-the-last-of-us-part-ii.md",
+				Score: 0.5,
+				Text:  "I finished playing The Last of Us Part II and it took 30 hours.",
+			},
+		},
+	)
+	if out[0].Path != "memory/global/user-fact-2023-04-08-playing-the-last-of-us-part-ii.md" {
+		t.Fatalf("top path = %q, want measured user fact", out[0].Path)
+	}
+}
+
+func TestReweight_MoneyQuestionPrefersCurrencyEvidenceOverGenericGuides(t *testing.T) {
+	t.Parallel()
+	out := reweightSharedMemoryRanking(
+		"Which grocery store did I spend the most money at in the past month?",
+		[]RetrievedChunk{
+			{
+				Path:  "memory/project/eval-lme/grocery-budgeting-guide.md",
+				Score: 1.0,
+				Text:  "General tips for tracking grocery spending, meal planning, and reducing overspend.",
+			},
+			{
+				Path:  "memory/project/eval-lme/grocery-expense-reference.md",
+				Score: 0.58,
+				Text:  "Costco: $120 on 2023-02-15. Publix: $85 on 2023-02-18. Walmart: $72 on 2023-02-25.",
+			},
+		},
+	)
+	if out[0].Path != "memory/project/eval-lme/grocery-expense-reference.md" {
+		t.Fatalf("top path = %q, want explicit currency evidence", out[0].Path)
+	}
+}
+
+func TestReweight_AggregateMoneyQuestionsPromoteDistinctEvidence(t *testing.T) {
+	t.Parallel()
+	out := reweightSharedMemoryRanking(
+		"Which store did I spend the most money at this month?",
+		[]RetrievedChunk{
+			{
+				Path:  "memory/project/budgeting-guide.md",
+				Score: 1.0,
+				Text:  "Guide to reducing shopping costs and keeping a store-by-store budget.",
+			},
+			{
+				Path:     "memory/global/user-store-alpha.md",
+				Score:    0.58,
+				Text:     "The user spent $45 at Alpha Market on groceries.",
+				Metadata: map[string]any{"session_id": "alpha", "source_role": "user"},
+			},
+			{
+				Path:     "memory/global/user-store-beta.md",
+				Score:    0.54,
+				Text:     "The user spent $120 at Beta Foods on pantry staples.",
+				Metadata: map[string]any{"session_id": "beta", "source_role": "user"},
+			},
+			{
+				Path:     "memory/global/user-store-gamma.md",
+				Score:    0.52,
+				Text:     "The user spent $80 at Gamma Grocery.",
+				Metadata: map[string]any{"session_id": "gamma", "source_role": "user"},
+			},
+		},
+	)
+	if len(out) < 3 {
+		t.Fatalf("unexpected output length %d", len(out))
+	}
+	topThree := map[string]bool{out[0].Path: true, out[1].Path: true, out[2].Path: true}
+	for _, want := range []string{
+		"memory/global/user-store-alpha.md",
+		"memory/global/user-store-beta.md",
+		"memory/global/user-store-gamma.md",
+	} {
+		if !topThree[want] {
+			t.Fatalf("top three paths = %v, want transactional evidence %q", topThree, want)
+		}
+	}
+}
+
+func TestReweight_FirstPersonFactPenalisesAssistantOnlyEvidence(t *testing.T) {
+	t.Parallel()
+	out := reweightSharedMemoryRanking(
+		"How many bikes do I own?",
+		[]RetrievedChunk{
+			{
+				Path:     "memory/project/bike-buying-guide.md",
+				Score:    1.0,
+				Text:     "The assistant suggested comparing three road bikes before buying.",
+				Metadata: map[string]any{"source_role": "assistant"},
+			},
+			{
+				Path:     "memory/global/user-bike-count.md",
+				Score:    0.62,
+				Text:     "The user currently owns two bikes.",
+				Metadata: map[string]any{"source_role": "user"},
+			},
+		},
+	)
+	if out[0].Path != "memory/global/user-bike-count.md" {
+		t.Fatalf("top path = %q, want user-sourced fact", out[0].Path)
 	}
 }
 
@@ -395,6 +554,108 @@ func TestReweight_CompositeTotalsDiversifyAcrossFocuses(t *testing.T) {
 	sort.Strings(want)
 	if topTwo[0] != want[0] || topTwo[1] != want[1] {
 		t.Fatalf("top two = %v, want %v", topTwo, want)
+	}
+}
+
+func TestReweight_CompositeCoverageFacetsPromoteDistinctEvidence(t *testing.T) {
+	t.Parallel()
+	out := reweightSharedMemoryRanking(
+		"What is the total number of attendee questions from the Atlas Webinar and Beacon Podcast episode?",
+		[]RetrievedChunk{
+			{
+				Path:  "memory/global/user-fact-atlas-webinar.md",
+				Score: 1.0,
+				Text:  "The Atlas Webinar received 11 attendee questions.",
+			},
+			{
+				Path:  "memory/global/user-fact-event-questions.md",
+				Score: 0.95,
+				Text:  "The event planning guide recommends tracking attendee questions after each launch.",
+			},
+			{
+				Path:  "memory/global/user-fact-beacon-podcast.md",
+				Score: 0.4,
+				Text:  "The Beacon Podcast episode received 17 attendee questions.",
+			},
+		},
+	)
+	if len(out) < 2 {
+		t.Fatalf("unexpected output length %d", len(out))
+	}
+	topTwo := map[string]bool{out[0].Path: true, out[1].Path: true}
+	for _, want := range []string{
+		"memory/global/user-fact-atlas-webinar.md",
+		"memory/global/user-fact-beacon-podcast.md",
+	} {
+		if !topTwo[want] {
+			t.Fatalf("top two paths = %v, want distinct facet fact %q", topTwo, want)
+		}
+	}
+}
+
+func TestReweight_TypeCountQueryDoesNotPromoteLowSignalTypePhrase(t *testing.T) {
+	t.Parallel()
+	out := reweightSharedMemoryRanking(
+		"How many different types of citrus fruits have I used in my cocktail recipes?",
+		[]RetrievedChunk{
+			{
+				Path:  "memory/global/user-fact-wood-types.md",
+				Score: 1.0,
+				Text:  "The user experimented with different types of wood chips for smoking vegetables.",
+			},
+			{
+				Path:  "memory/project/cocktail-lime.md",
+				Score: 0.5,
+				Text:  "Cocktail brief: a refreshing drink made with rum, lime juice, and lemon garnish.",
+			},
+			{
+				Path:  "memory/global/user-preference-orange-cocktail.md",
+				Score: 0.4,
+				Text:  "The user liked the Orange You Glad It's a Whiskey Sour cocktail recipe.",
+			},
+		},
+	)
+	if len(out) < 2 {
+		t.Fatalf("unexpected output length %d", len(out))
+	}
+	if out[0].Path == "memory/global/user-fact-wood-types.md" {
+		t.Fatalf("top path = %q, want relevant type-context evidence promoted", out[0].Path)
+	}
+}
+
+func TestReweight_DateDifferencePromotesBothEventFacts(t *testing.T) {
+	t.Parallel()
+	out := reweightSharedMemoryRanking(
+		"How many days ago did I launch my website when I signed a contract with my first client?",
+		[]RetrievedChunk{
+			{
+				Path:  "memory/global/user_first_client_contract.md",
+				Score: 1.0,
+				Text:  "User signed a contract with their first client on March 1, 2023.",
+			},
+			{
+				Path:  "memory/global/user_online_necklace.md",
+				Score: 0.9,
+				Text:  "The user bought a necklace from an online jewellery retailer's website.",
+			},
+			{
+				Path:  "memory/global/user_post_launch_priorities.md",
+				Score: 0.1,
+				Text:  "User launched a website and created a business plan.",
+			},
+		},
+	)
+	if len(out) < 2 {
+		t.Fatalf("unexpected output length %d", len(out))
+	}
+	topTwo := map[string]bool{out[0].Path: true, out[1].Path: true}
+	for _, want := range []string{
+		"memory/global/user_first_client_contract.md",
+		"memory/global/user_post_launch_priorities.md",
+	} {
+		if !topTwo[want] {
+			t.Fatalf("top two paths = %v, want date event fact %q", topTwo, want)
+		}
 	}
 }
 

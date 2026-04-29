@@ -137,6 +137,19 @@ func TestEmbedderFromEnvFake(t *testing.T) {
 	}
 }
 
+func TestEmbedderFromEnvNone(t *testing.T) {
+	t.Parallel()
+	e, err := llm.EmbedderFromEnv(envMap(map[string]string{
+		llm.EnvEmbedProvider: "none",
+	}))
+	if err != nil {
+		t.Fatalf("embedder: %v", err)
+	}
+	if e != nil {
+		t.Fatalf("embedder = %#v, want nil", e)
+	}
+}
+
 func TestEmbedderFromEnvAnthropicUnsupported(t *testing.T) {
 	t.Parallel()
 	_, err := llm.EmbedderFromEnv(envMap(map[string]string{

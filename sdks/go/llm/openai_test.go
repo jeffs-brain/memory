@@ -142,6 +142,40 @@ func TestOpenAIToolCall(t *testing.T) {
 	}
 }
 
+func TestOpenAICompleteJSONResponseFormat(t *testing.T) {
+	t.Parallel()
+
+	var captured struct {
+		ResponseFormat struct {
+			Type string `json:"type"`
+		} `json:"response_format"`
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&captured); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprint(w, `{
+			"choices": [{"index":0,"message":{"role":"assistant","content":"{\"ok\":true}"},"finish_reason":"stop"}],
+			"usage": {"prompt_tokens": 1, "completion_tokens": 1}
+		}`)
+	}))
+	defer srv.Close()
+
+	p := llm.NewOpenAI(llm.OpenAIConfig{APIKey: "k", BaseURL: srv.URL})
+	_, err := p.Complete(context.Background(), llm.CompleteRequest{
+		Model:              "gpt-test",
+		Messages:           []llm.Message{{Role: llm.RoleUser, Content: "Return JSON."}},
+		ResponseFormatJSON: true,
+	})
+	if err != nil {
+		t.Fatalf("complete: %v", err)
+	}
+	if captured.ResponseFormat.Type != "json_object" {
+		t.Fatalf("response_format.type = %q, want json_object", captured.ResponseFormat.Type)
+	}
+}
+
 func TestOpenAIErrorParsing(t *testing.T) {
 	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

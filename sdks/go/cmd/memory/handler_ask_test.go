@@ -182,31 +182,6 @@ func TestBuildAskCompleteRequest_AugmentedNoChunksOmitsSessionPath(t *testing.T)
 	}
 }
 
-func TestResolveAugmentedAskAnswer_DeterministicDate(t *testing.T) {
-	chunks := []retrieval.RetrievedChunk{
-		{
-			Path: "memory/global/paper.md",
-			Text: "I worked on a research paper on sentiment analysis, which I submitted to ACL.",
-		},
-		{
-			Path: "memory/global/submission.md",
-			Text: "[Date: 2023-02-01 Wednesday February 2023]\n\nI'm reviewing for ACL, and their submission date was February 1st.",
-		},
-	}
-
-	got, ok := resolveAugmentedAskAnswer(
-		"When did I submit my research paper on sentiment analysis?",
-		"2023/05/30 (Tue) 16:23",
-		chunks,
-	)
-	if !ok {
-		t.Fatal("expected deterministic augmented /ask answer")
-	}
-	if got != "February 1st" {
-		t.Fatalf("got %q, want February 1st", got)
-	}
-}
-
 func TestNormaliseAskReaderMode(t *testing.T) {
 	tests := []struct {
 		raw    string

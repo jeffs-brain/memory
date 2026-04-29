@@ -16,15 +16,18 @@ import (
 // retrieval unit tests. Every field is optional; unset fields default
 // to the empty string so callers can keep fixtures compact.
 type fakeChunk struct {
-	ID      string
-	Path    string
-	Title   string
-	Summary string
-	Content string
-	Tags    []string
-	Scope   string
-	Project string
-	Session string
+	ID         string
+	Path       string
+	Title      string
+	Summary    string
+	Content    string
+	Tags       []string
+	Scope      string
+	Project    string
+	Session    string
+	SessionID  string
+	SourceRole string
+	EventDate  string
 }
 
 // fakeSource implements [Source] over an in-mem slice. BM25 ranking
@@ -178,6 +181,10 @@ func (f *fakeSource) Chunks(ctx context.Context) ([]trigramChunk, error) {
 			Title:   c.Title,
 			Summary: c.Summary,
 			Content: c.Content,
+			Tags:    strings.Join(c.Tags, " "),
+			Scope:   c.Scope,
+			Project: c.Project,
+			Session: c.Session,
 		})
 	}
 	return out, nil
@@ -204,11 +211,84 @@ func (f *fakeSource) Lookup(ctx context.Context, ids []string) ([]search.Indexed
 				Scope:       chunk.Scope,
 				ProjectSlug: chunk.Project,
 				SessionDate: chunk.Session,
+				SessionID:   fakeChunkSessionID(chunk),
+				SourceRole:  chunk.SourceRole,
+				EventDate:   chunk.EventDate,
 			})
 			break
 		}
 	}
 	return rows, nil
+}
+
+func (f *fakeSource) SessionNeighbours(ctx context.Context, seeds []SessionNeighbourSeed, opts SessionNeighbourOptions) ([]search.IndexedRow, error) {
+	maxSessions := opts.MaxSessions
+	if maxSessions <= 0 {
+		maxSessions = 3
+	}
+	maxRowsPerSession := opts.MaxRowsPerSession
+	if maxRowsPerSession <= 0 {
+		maxRowsPerSession = 3
+	}
+	maxRowsTotal := opts.MaxRowsTotal
+	if maxRowsTotal <= 0 {
+		maxRowsTotal = maxSessions * maxRowsPerSession
+	}
+
+	sessionOrder := make([]string, 0, maxSessions)
+	wanted := make(map[string]bool, maxSessions)
+	seedPaths := make(map[string]bool, len(seeds))
+	for _, seed := range seeds {
+		if strings.TrimSpace(seed.Path) != "" {
+			seedPaths[seed.Path] = true
+		}
+		sessionID := strings.TrimSpace(seed.SessionID)
+		if sessionID == "" || wanted[sessionID] {
+			continue
+		}
+		wanted[sessionID] = true
+		sessionOrder = append(sessionOrder, sessionID)
+		if len(sessionOrder) >= maxSessions {
+			break
+		}
+	}
+	if len(sessionOrder) == 0 {
+		return nil, nil
+	}
+
+	out := make([]search.IndexedRow, 0, maxRowsTotal)
+	for _, sessionID := range sessionOrder {
+		sessionRows := 0
+		for _, chunk := range f.chunks {
+			if fakeChunkSessionID(chunk) != sessionID {
+				continue
+			}
+			if seedPaths[chunk.Path] || !matchesFakeFilter(chunk, opts.Filters) {
+				continue
+			}
+			out = append(out, search.IndexedRow{
+				Path:        chunk.Path,
+				Title:       chunk.Title,
+				Summary:     chunk.Summary,
+				Content:     chunk.Content,
+				Tags:        strings.Join(chunk.Tags, " "),
+				Scope:       chunk.Scope,
+				ProjectSlug: chunk.Project,
+				SessionDate: chunk.Session,
+				SessionID:   fakeChunkSessionID(chunk),
+				SourceRole:  chunk.SourceRole,
+				EventDate:   chunk.EventDate,
+			})
+			sessionRows++
+			if sessionRows >= maxRowsPerSession || len(out) >= maxRowsTotal {
+				break
+			}
+		}
+		if len(out) >= maxRowsTotal {
+			break
+		}
+	}
+	return out, nil
 }
 
 // matchesFakeFilter mirrors the contract of real Source filters. A
@@ -217,21 +297,44 @@ func matchesFakeFilter(c fakeChunk, f Filters) bool {
 	if f.PathPrefix != "" && !strings.HasPrefix(c.Path, f.PathPrefix) {
 		return false
 	}
-	if f.Scope != "" && c.Scope != f.Scope {
+	if !scopeMatchesFilter(c.Scope, f.Scope) {
+		return false
+	}
+	if !projectMatchesFilter(c.Scope, c.Project, f.Project) {
+		return false
+	}
+	if !dateMatchesFilter(c.Session, f) {
+		return false
+	}
+	if !sessionMatchesFilter(fakeChunkSessionID(c), f.SessionIDs) {
 		return false
 	}
 	if len(f.Tags) > 0 {
-		tagSet := make(map[string]bool, len(c.Tags))
+		tags := make(map[string]bool, len(c.Tags))
 		for _, t := range c.Tags {
-			tagSet[t] = true
+			tags[normaliseTag(t)] = true
 		}
 		for _, want := range f.Tags {
-			if !tagSet[want] {
+			tag := normaliseTag(want)
+			if tag == "" {
+				continue
+			}
+			if !tags[tag] {
 				return false
 			}
 		}
 	}
 	return true
+}
+
+func fakeChunkSessionID(c fakeChunk) string {
+	if strings.TrimSpace(c.SessionID) != "" {
+		return strings.TrimSpace(c.SessionID)
+	}
+	if sessionID := firstFrontmatterValue(c.Content, "session_id"); sessionID != "" {
+		return sessionID
+	}
+	return ""
 }
 
 func chunkID(c fakeChunk) string {

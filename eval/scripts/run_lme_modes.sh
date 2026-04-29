@@ -8,7 +8,13 @@ MEMORY_DIR="${MEMORY_DIR:-$ROOT_DIR/memory}"
 GO_SDK_DIR="${GO_SDK_DIR:-$MEMORY_DIR/sdks/go}"
 RESULTS_DIR="${RESULTS_DIR:-$MEMORY_DIR/eval/results}"
 
-S_DATASET="${S_DATASET:-$MEMORY_DIR/eval/datasets/longmemeval_s.json}"
+DEFAULT_S_DATASET="$MEMORY_DIR/eval/datasets/longmemeval_s.json"
+S_DATASET="${S_DATASET:-$DEFAULT_S_DATASET}"
+DEFAULT_S_DATASET_SHA256="08d8dad4be43ee2049a22ff5674eb86725d0ce5ff434cde2627e5e8e7e117894"
+S_DATASET_SHA256="${S_DATASET_SHA256:-}"
+if [[ -z "$S_DATASET_SHA256" && "$S_DATASET" == "$DEFAULT_S_DATASET" ]]; then
+  S_DATASET_SHA256="$DEFAULT_S_DATASET_SHA256"
+fi
 ORACLE_DATASET="${ORACLE_DATASET:-$MEMORY_DIR/eval/datasets/longmemeval_oracle.json}"
 ORACLE_URL="${ORACLE_URL:-https://huggingface.co/datasets/xiaowu0162/longmemeval-cleaned/resolve/main/longmemeval_oracle.json}"
 ORACLE_SHA256="${ORACLE_SHA256:-821a2034d219ab45846873dd14c14f12cfe7776e73527a483f9dac095d38620c}"
@@ -23,10 +29,18 @@ JUDGE_MODEL="${JUDGE_MODEL:-gpt-4o}"
 EXTRACT_MODEL="${EXTRACT_MODEL:-gpt-5}"
 RETRIEVAL_MODE="${RETRIEVAL_MODE:-hybrid-rerank}"
 MAX_COST="${MAX_COST:-20}"
+CONTEXTUALISE="${CONTEXTUALISE:-0}"
+CONTEXTUALISE_CACHE_DIR="${CONTEXTUALISE_CACHE_DIR:-$HOME/.local/state/jeffs-brain/evals/contextualise-cache}"
+JB_EXTRACT_HEURISTICS="${JB_EXTRACT_HEURISTICS:-}"
+REPLAY_EXTRACTION_PIPELINE_VERSION="${REPLAY_EXTRACTION_PIPELINE_VERSION:-2}"
+ACTOR_FILTER_QUESTION_SESSIONS="${ACTOR_FILTER_QUESTION_SESSIONS:-1}"
 OUTPUT_ROOT="${OUTPUT_ROOT:-$RESULTS_DIR/lme-modes-$(date +%Y%m%d-%H%M%S)}"
 MEMORY_GO="${MEMORY_GO:-/tmp/memory-go}"
 RUN_VERBATIM_RETRIEVAL="${RUN_VERBATIM_RETRIEVAL:-0}"
 SKIP_EXTRACT="${SKIP_EXTRACT:-0}"
+EXTRACT_CACHE_DIR="${EXTRACT_CACHE_DIR:-$HOME/.local/state/jeffs-brain/evals/replay-brain-cache}"
+REUSE_EXTRACT_CACHE="${REUSE_EXTRACT_CACHE:-1}"
+SAVE_EXTRACT_CACHE="${SAVE_EXTRACT_CACHE:-1}"
 SHARED_JB_HOME="${SHARED_JB_HOME:-$OUTPUT_ROOT/shared-brain}"
 READER_CACHE_DIR="${READER_CACHE_DIR:-$HOME/.local/state/jeffs-brain/evals/reader-cache}"
 JUDGE_CACHE_DIR="${JUDGE_CACHE_DIR:-$HOME/.local/state/jeffs-brain/evals/judge-cache}"
@@ -116,6 +130,21 @@ require_dataset() {
   local label=$2
   if [[ ! -f "$path" ]]; then
     echo "ERROR: $label dataset not found at $path" >&2
+    exit 2
+  fi
+}
+
+verify_dataset_sha() {
+  local path=$1
+  local expected_sha=$2
+  local label=$3
+  if [[ -z "$expected_sha" ]]; then
+    return 0
+  fi
+  local actual_sha
+  actual_sha="$(sha256sum "$path" | awk '{print $1}')"
+  if [[ "$actual_sha" != "$expected_sha" ]]; then
+    echo "ERROR: $label dataset SHA mismatch: got $actual_sha expected $expected_sha" >&2
     exit 2
   fi
 }
@@ -394,7 +423,12 @@ PY
 }
 
 require_dataset "$S_DATASET" "full-context"
+verify_dataset_sha "$S_DATASET" "$S_DATASET_SHA256" "S"
 ensure_oracle_dataset
+S_EXPECTED_SHA_ARGS=()
+if [[ -n "$S_DATASET_SHA256" ]]; then
+  S_EXPECTED_SHA_ARGS=(--expected-sha "$S_DATASET_SHA256")
+fi
 SAMPLE_IDS_FILE="$OUTPUT_ROOT/sample-ids.txt"
 ALIGNED_ORACLE_DATASET="$OUTPUT_ROOT/oracle-sample-aligned.json"
 if [[ -n "$PINNED_SAMPLE_IDS_FILE" ]]; then
@@ -449,6 +483,7 @@ run_logged_step \
   "full-context benchmark" \
   env JB_LLM_MODEL="$ACTOR_MODEL" "$MEMORY_GO" eval lme run \
     --dataset "$S_DATASET" \
+    "${S_EXPECTED_SHA_ARGS[@]}" \
     --benchmark-mode full-context \
     --sample-size "$SAMPLE_SIZE" \
     --seed "$SEED" \
@@ -474,6 +509,7 @@ run_logged_step \
   "real-retrieval benchmark" \
   env \
     DATASET="$S_DATASET" \
+    EXPECTED_SHA="$S_DATASET_SHA256" \
     SAMPLE_SIZE="$SAMPLE_SIZE" \
     SEED="$SEED" \
     CONCURRENCY="$CONCURRENCY" \
@@ -482,6 +518,14 @@ run_logged_step \
     ACTOR_MODEL="$ACTOR_MODEL" \
     JUDGE_MODEL="$JUDGE_MODEL" \
     EXTRACT_MODEL="$EXTRACT_MODEL" \
+    CONTEXTUALISE="$CONTEXTUALISE" \
+    CONTEXTUALISE_CACHE_DIR="$CONTEXTUALISE_CACHE_DIR" \
+    JB_EXTRACT_HEURISTICS="$JB_EXTRACT_HEURISTICS" \
+    REPLAY_EXTRACTION_PIPELINE_VERSION="$REPLAY_EXTRACTION_PIPELINE_VERSION" \
+    EXTRACT_CACHE_DIR="$EXTRACT_CACHE_DIR" \
+    REUSE_EXTRACT_CACHE="$REUSE_EXTRACT_CACHE" \
+    SAVE_EXTRACT_CACHE="$SAVE_EXTRACT_CACHE" \
+    ACTOR_FILTER_QUESTION_SESSIONS="$ACTOR_FILTER_QUESTION_SESSIONS" \
     RETRIEVAL_MODE="$RETRIEVAL_MODE" \
     READER_CACHE_DIR="$READER_CACHE_DIR" \
     JUDGE_CACHE_DIR="$JUDGE_CACHE_DIR" \
@@ -497,6 +541,7 @@ if [[ "$RUN_VERBATIM_RETRIEVAL" == "1" || "$RUN_VERBATIM_RETRIEVAL" == "true" ]]
     "verbatim-retrieval benchmark" \
     env \
       DATASET="$S_DATASET" \
+      EXPECTED_SHA="$S_DATASET_SHA256" \
       SAMPLE_SIZE="$SAMPLE_SIZE" \
       SEED="$SEED" \
       CONCURRENCY="$CONCURRENCY" \
@@ -505,6 +550,14 @@ if [[ "$RUN_VERBATIM_RETRIEVAL" == "1" || "$RUN_VERBATIM_RETRIEVAL" == "true" ]]
       ACTOR_MODEL="$ACTOR_MODEL" \
       JUDGE_MODEL="$JUDGE_MODEL" \
       EXTRACT_MODEL="$EXTRACT_MODEL" \
+      CONTEXTUALISE="$CONTEXTUALISE" \
+      CONTEXTUALISE_CACHE_DIR="$CONTEXTUALISE_CACHE_DIR" \
+      JB_EXTRACT_HEURISTICS="$JB_EXTRACT_HEURISTICS" \
+      REPLAY_EXTRACTION_PIPELINE_VERSION="$REPLAY_EXTRACTION_PIPELINE_VERSION" \
+      EXTRACT_CACHE_DIR="$EXTRACT_CACHE_DIR" \
+      REUSE_EXTRACT_CACHE="$REUSE_EXTRACT_CACHE" \
+      SAVE_EXTRACT_CACHE="$SAVE_EXTRACT_CACHE" \
+      ACTOR_FILTER_QUESTION_SESSIONS="$ACTOR_FILTER_QUESTION_SESSIONS" \
       RETRIEVAL_MODE="$RETRIEVAL_MODE" \
       READER_CACHE_DIR="$READER_CACHE_DIR" \
       JUDGE_CACHE_DIR="$JUDGE_CACHE_DIR" \

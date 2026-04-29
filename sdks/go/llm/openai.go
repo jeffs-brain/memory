@@ -16,8 +16,8 @@ import (
 
 // OpenAIConfig configures [NewOpenAI].
 type OpenAIConfig struct {
-	APIKey     string
-	BaseURL    string
+	APIKey  string
+	BaseURL string
 	// Model is the default completion model used when CompleteRequest.Model is
 	// empty. If unset here too, requests without a model will fail at the API.
 	Model      string
@@ -72,14 +72,19 @@ type openAIProvider struct {
 }
 
 type openAIChatRequest struct {
-	Model               string              `json:"model"`
-	Messages            []openAIChatMessage `json:"messages"`
-	Temperature         float64             `json:"temperature,omitempty"`
-	MaxTokens           int                 `json:"max_tokens,omitempty"`
-	MaxCompletionTokens int                 `json:"max_completion_tokens,omitempty"`
-	Stop                []string            `json:"stop,omitempty"`
-	Stream              bool                `json:"stream,omitempty"`
-	Tools               []openAIToolDef     `json:"tools,omitempty"`
+	Model               string                `json:"model"`
+	Messages            []openAIChatMessage   `json:"messages"`
+	Temperature         float64               `json:"temperature,omitempty"`
+	MaxTokens           int                   `json:"max_tokens,omitempty"`
+	MaxCompletionTokens int                   `json:"max_completion_tokens,omitempty"`
+	Stop                []string              `json:"stop,omitempty"`
+	Stream              bool                  `json:"stream,omitempty"`
+	Tools               []openAIToolDef       `json:"tools,omitempty"`
+	ResponseFormat      *openAIResponseFormat `json:"response_format,omitempty"`
+}
+
+type openAIResponseFormat struct {
+	Type string `json:"type"`
 }
 
 // usesMaxCompletionTokens reports whether the model expects
@@ -106,8 +111,8 @@ type openAIChatMessage struct {
 }
 
 type openAIToolDef struct {
-	Type     string                 `json:"type"`
-	Function openAIToolDefFunction  `json:"function"`
+	Type     string                `json:"type"`
+	Function openAIToolDefFunction `json:"function"`
 }
 
 type openAIToolDefFunction struct {
@@ -117,9 +122,9 @@ type openAIToolDefFunction struct {
 }
 
 type openAIToolCall struct {
-	ID       string                  `json:"id"`
-	Type     string                  `json:"type"`
-	Function openAIToolCallFunction  `json:"function"`
+	ID       string                 `json:"id"`
+	Type     string                 `json:"type"`
+	Function openAIToolCallFunction `json:"function"`
 }
 
 type openAIToolCallFunction struct {
@@ -157,15 +162,15 @@ type openAIStreamChunk struct {
 }
 
 type openAIStreamChoice struct {
-	Index        int                `json:"index"`
-	Delta        openAIStreamDelta  `json:"delta"`
-	FinishReason string             `json:"finish_reason"`
+	Index        int               `json:"index"`
+	Delta        openAIStreamDelta `json:"delta"`
+	FinishReason string            `json:"finish_reason"`
 }
 
 type openAIStreamDelta struct {
-	Role      string                  `json:"role,omitempty"`
-	Content   string                  `json:"content,omitempty"`
-	ToolCalls []openAIStreamToolCall  `json:"tool_calls,omitempty"`
+	Role      string                 `json:"role,omitempty"`
+	Content   string                 `json:"content,omitempty"`
+	ToolCalls []openAIStreamToolCall `json:"tool_calls,omitempty"`
 }
 
 type openAIStreamToolCall struct {
@@ -371,6 +376,9 @@ func openAIBuildRequest(req CompleteRequest, stream bool) openAIChatRequest {
 	} else {
 		out.MaxTokens = req.MaxTokens
 		out.Temperature = req.Temperature
+	}
+	if req.ResponseFormatJSON {
+		out.ResponseFormat = &openAIResponseFormat{Type: "json_object"}
 	}
 	for _, m := range req.Messages {
 		msg := openAIChatMessage{

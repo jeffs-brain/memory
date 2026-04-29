@@ -62,6 +62,31 @@ type BodyLookupSource interface {
 	Lookup(ctx context.Context, ids []string) ([]search.IndexedRow, error)
 }
 
+// SessionNeighbourSource is an optional extension for sources that can
+// fetch compact sibling facts from the same conversation/session as a
+// strong retrieval hit. The retriever treats these rows as supporting
+// evidence and scores them below their seed.
+type SessionNeighbourSource interface {
+	SessionNeighbours(ctx context.Context, seeds []SessionNeighbourSeed, opts SessionNeighbourOptions) ([]search.IndexedRow, error)
+}
+
+// SessionNeighbourSeed identifies a retrieved chunk whose session is
+// worth expanding.
+type SessionNeighbourSeed struct {
+	Path      string
+	SessionID string
+	Score     float64
+	Rank      int
+}
+
+// SessionNeighbourOptions bounds and filters same-session expansion.
+type SessionNeighbourOptions struct {
+	MaxSessions       int
+	MaxRowsPerSession int
+	MaxRowsTotal      int
+	Filters           Filters
+}
+
 // compileToFTS is a lightweight wrapper around [search.BuildFTS5Expr]
 // applied to the output of [search.ParseQuery]. The retrieval layer
 // calls this before each BM25 leg so the expression is identical to

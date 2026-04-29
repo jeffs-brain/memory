@@ -47,42 +47,43 @@ func evalLmeCmd() *cobra.Command {
 //	                    --judge claude-haiku-4-5
 func evalLmeRunCmd() *cobra.Command {
 	var (
-		datasetPath        string
-		sampleSize         int
-		seed               int64
-		sampleIDsPath      string
-		concurrency        int
-		ingestMode         string
-		benchmarkMode      string
-		expectedSHA        string
-		maxCostUSD         float64
-		judgeModel         string
-		actorModel         string
-		extractModel       string
-		replayConcurrency  int
-		maxIterations      int
-		questionTimeout    time.Duration
-		outputPath         string
-		manifestPath       string
-		slackWebhook       string
-		disableReader      bool
-		readerCacheDir     string
-		judgeCacheDir      string
-		judgeTimeout       time.Duration
-		extractOnly        bool
-		brainCache         string
-		contextualise      bool
-		contextualCacheDir string
-		actorEndpoint      string
-		actorBrain         string
-		actorEndpointStyle string
-		actorRetrievalMode string
-		actorTopK          int
-		actorCandidateK    int
-		actorRerankTopN    int
-		actorScope         string
-		actorProject       string
-		actorPathPrefix    string
+		datasetPath           string
+		sampleSize            int
+		seed                  int64
+		sampleIDsPath         string
+		concurrency           int
+		ingestMode            string
+		benchmarkMode         string
+		expectedSHA           string
+		maxCostUSD            float64
+		judgeModel            string
+		actorModel            string
+		extractModel          string
+		replayConcurrency     int
+		maxIterations         int
+		questionTimeout       time.Duration
+		outputPath            string
+		manifestPath          string
+		slackWebhook          string
+		disableReader         bool
+		readerCacheDir        string
+		judgeCacheDir         string
+		judgeTimeout          time.Duration
+		extractOnly           bool
+		brainCache            string
+		contextualise         bool
+		contextualCacheDir    string
+		actorEndpoint         string
+		actorBrain            string
+		actorEndpointStyle    string
+		actorRetrievalMode    string
+		actorTopK             int
+		actorCandidateK       int
+		actorRerankTopN       int
+		actorScope            string
+		actorProject          string
+		actorPathPrefix       string
+		actorQuestionSessions bool
 	)
 
 	cmd := &cobra.Command{
@@ -153,6 +154,7 @@ func evalLmeRunCmd() *cobra.Command {
 					Project:    actorProject,
 					PathPrefix: actorPathPrefix,
 				},
+				ActorFilterQuestionSessions: actorQuestionSessions,
 			}
 			if sampleIDsPath != "" {
 				ids, err := loadSampleIDs(sampleIDsPath)
@@ -319,6 +321,7 @@ func evalLmeRunCmd() *cobra.Command {
 	cmd.Flags().StringVar(&actorScope, "actor-scope", "", "Optional retrieve-only daemon scope filter, for example 'project' to search replay memory facts only.")
 	cmd.Flags().StringVar(&actorProject, "actor-project", "", "Optional retrieve-only daemon project slug filter, for example 'eval-lme' for memory/project/eval-lme.")
 	cmd.Flags().StringVar(&actorPathPrefix, "actor-path-prefix", "", "Optional retrieve-only daemon path prefix filter.")
+	cmd.Flags().BoolVar(&actorQuestionSessions, "actor-filter-question-sessions", true, "In retrieve-only mode, constrain each question to its LongMemEval haystack session ids.")
 
 	return cmd
 }

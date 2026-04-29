@@ -4,6 +4,7 @@ package retrieval
 
 import (
 	"context"
+	"strings"
 	"testing"
 )
 
@@ -250,4 +251,140 @@ func TestRetryLadder_SkipRetryLadder_BypassesRungs(t *testing.T) {
 	if len(resp.Attempts) != 1 {
 		t.Fatalf("expected single initial attempt, got %d", len(resp.Attempts))
 	}
+}
+
+func TestRetryLadder_GenericNonZeroHitTriggersQualityRetry(t *testing.T) {
+	t.Parallel()
+
+	src := newFakeSource(retryCorpus())
+	src.bm25Override = func(expr string) ([]BM25Hit, bool) {
+		if expr == "kitchencabinetspecial" {
+			return []BM25Hit{{
+				ID:      "target",
+				Path:    "memory/global/kitchen-choice.md",
+				Title:   "Kitchen cabinet choice",
+				Content: "The conversation recap planning note says the kitchencabinetspecial finish we chose was sage green.",
+			}}, true
+		}
+		if strings.Contains(expr, "kitchencabinetspecial") {
+			return []BM25Hit{{
+				ID:      "generic",
+				Path:    "memory/global/noise.md",
+				Title:   "Metadata",
+				Content: "Conversation metadata.",
+			}}, true
+		}
+		return nil, true
+	}
+
+	r, err := New(Config{Source: src})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	resp, err := r.Retrieve(context.Background(), Request{
+		Query: "conversation recap planning kitchencabinetspecial",
+		Mode:  ModeBM25,
+		TopK:  3,
+	})
+	if err != nil {
+		t.Fatalf("Retrieve: %v", err)
+	}
+	if !resp.Trace.UsedRetry || !resp.Trace.QualityRetry {
+		t.Fatalf("quality retry should have fired, trace: %+v", resp.Trace)
+	}
+	if len(resp.Chunks) == 0 || resp.Chunks[0].ChunkID != "target" {
+		t.Fatalf("top chunk = %+v, want target", resp.Chunks)
+	}
+	if len(resp.Attempts) < 2 {
+		t.Fatalf("expected initial plus retry attempts, got %+v", resp.Attempts)
+	}
+	if resp.Attempts[0].Quality != "generic" && resp.Attempts[0].Quality != "weak" {
+		t.Fatalf("initial quality = %q, want generic or weak; attempts=%+v", resp.Attempts[0].Quality, resp.Attempts)
+	}
+	var sawStrongest bool
+	for _, attempt := range resp.Attempts {
+		if attempt.Reason == "strongest_term" {
+			sawStrongest = true
+			if attempt.Quality != "good" {
+				t.Fatalf("strongest quality = %q, want good", attempt.Quality)
+			}
+		}
+	}
+	if !sawStrongest {
+		t.Fatalf("strongest_term attempt missing: %+v", resp.Attempts)
+	}
+}
+
+func TestRetryLadder_QualityRetryPreservesBaselineRecall(t *testing.T) {
+	t.Parallel()
+
+	src := newFakeSource(nil)
+	src.bm25Override = func(expr string) ([]BM25Hit, bool) {
+		if expr == "playing" {
+			return []BM25Hit{{
+				ID:      "tlou-hard",
+				Path:    "memory/global/tlou-hard.md",
+				Content: "I spent 30 hours playing The Last of Us Part II on hard difficulty.",
+			}}, true
+		}
+		return []BM25Hit{
+			{
+				ID:      "guide-1",
+				Path:    "memory/project/eval-lme/game-backlog-guide.md",
+				Content: "General notes for keeping a game backlog.",
+			},
+			{
+				ID:      "guide-2",
+				Path:    "memory/project/eval-lme/games-list.md",
+				Content: "A list of games to consider next.",
+			},
+			{
+				ID:      "guide-3",
+				Path:    "memory/project/eval-lme/playtime-template.md",
+				Content: "A template for tracking playtime.",
+			},
+			{
+				ID:      "celeste",
+				Path:    "memory/global/celeste.md",
+				Content: "The user completed Celeste in 10 hours.",
+			},
+			{
+				ID:      "hyper-light",
+				Path:    "memory/global/hyper-light-drifter.md",
+				Content: "Hyper Light Drifter took the user 5 hours to finish.",
+			},
+		}, true
+	}
+
+	r, err := New(Config{Source: src})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	resp, err := r.Retrieve(context.Background(), Request{
+		Query:      "How many hours have I spent playing games in total?",
+		Mode:       ModeBM25,
+		TopK:       10,
+		CandidateK: 10,
+	})
+	if err != nil {
+		t.Fatalf("Retrieve: %v", err)
+	}
+	if !resp.Trace.UsedRetry || !resp.Trace.QualityRetry {
+		t.Fatalf("quality retry should have fired, trace: %+v", resp.Trace)
+	}
+	if !chunkPathPresent(resp.Chunks, "memory/global/tlou-hard.md") {
+		t.Fatalf("retry hit missing from final chunks: %+v", resp.Chunks)
+	}
+	if !chunkPathPresent(resp.Chunks, "memory/global/celeste.md") {
+		t.Fatalf("baseline-only recall hit missing from final chunks: %+v", resp.Chunks)
+	}
+}
+
+func chunkPathPresent(chunks []RetrievedChunk, path string) bool {
+	for _, c := range chunks {
+		if c.Path == path {
+			return true
+		}
+	}
+	return false
 }

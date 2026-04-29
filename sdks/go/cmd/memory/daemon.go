@@ -337,10 +337,10 @@ func (bm *BrainManager) build(ctx context.Context, brainID string) (*BrainResour
 		// slower remote embed batches populate the vector index in the
 		// background.
 		go func() {
-			defer close(initialScan)
 			if err := idx.Update(context.Background()); err != nil {
 				bm.d.Logger.Debug("search: initial update failed", "brain", brainID, "err", err)
 			}
+			close(initialScan)
 			if vecIdx != nil && bm.d.Embedder != nil && bm.d.EmbedModel != "" {
 				backfillVectors(context.Background(), brainID, store, idx, vecIdx,
 					bm.d.Embedder, bm.d.EmbedModel, bm.d.Logger)

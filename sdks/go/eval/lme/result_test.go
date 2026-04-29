@@ -11,6 +11,7 @@ func TestLMEResult_RoundTrip(t *testing.T) {
 	r := &LMEResult{
 		DatasetSHA:      "abc123",
 		IngestMode:      "bulk",
+		SampleIDs:       []string{"q1"},
 		RunSeed:         42,
 		QuestionsRun:    100,
 		OverallScore:    0.72,
@@ -28,6 +29,44 @@ func TestLMEResult_RoundTrip(t *testing.T) {
 				Question:    "What colour was the car?",
 				GroundTruth: "red",
 				AgentAnswer: "red",
+				RetrievalDiagnostics: &RetrievalDiagnostics{
+					Request: RetrievalRequestDiagnostics{
+						EndpointStyle: "retrieve-only",
+						BrainID:       "eval-lme",
+						Mode:          "hybrid-rerank",
+						TopK:          20,
+						QueryHash:     "abc",
+						QueryPreview:  "What colour was the car?",
+					},
+					Response: RetrievalResponseDiagnostics{HTTPStatus: 200, TookMs: 12},
+					Evidence: RetrievalEvidenceSummary{
+						ReturnedCount:    1,
+						RenderedBytes:    128,
+						ApproxTokens:     24,
+						UniquePaths:      1,
+						UniqueSessionIDs: 1,
+					},
+					Returned: []RetrievedPassageDiagnostic{
+						{
+							Rank:         1,
+							Path:         "memory/project/eval-lme/fact.md",
+							SessionID:    "s1",
+							Date:         "2024-03-01",
+							Score:        0.8,
+							TextSHA256:   "def",
+							Preview:      "The car was red.",
+							ApproxTokens: 4,
+						},
+					},
+					Trace: &RetrievalTraceDiagnostics{
+						RequestedMode: "hybrid-rerank",
+						EffectiveMode: "hybrid-rerank",
+						Reranked:      true,
+					},
+					Attempts: []RetrievalAttemptDiagnostic{
+						{Rung: 0, Mode: "hybrid-rerank", TopK: 20, Chunks: 1, QueryHash: "abc"},
+					},
+				},
 			},
 		},
 	}
@@ -54,7 +93,19 @@ func TestLMEResult_RoundTrip(t *testing.T) {
 	if len(got.Questions) != 1 {
 		t.Errorf("Questions has %d entries, want 1", len(got.Questions))
 	}
+	if len(got.SampleIDs) != 1 || got.SampleIDs[0] != "q1" {
+		t.Errorf("SampleIDs = %#v, want q1", got.SampleIDs)
+	}
 	if got.Questions[0].Question != "What colour was the car?" {
 		t.Errorf("Question = %q, want %q", got.Questions[0].Question, "What colour was the car?")
+	}
+	if got.Questions[0].RetrievalDiagnostics == nil {
+		t.Fatal("RetrievalDiagnostics = nil, want populated")
+	}
+	if got.Questions[0].RetrievalDiagnostics.Evidence.ReturnedCount != 1 {
+		t.Errorf("diagnostic returned count = %d, want 1", got.Questions[0].RetrievalDiagnostics.Evidence.ReturnedCount)
+	}
+	if got.Questions[0].RetrievalDiagnostics.Returned[0].Preview != "The car was red." {
+		t.Errorf("diagnostic preview = %q", got.Questions[0].RetrievalDiagnostics.Returned[0].Preview)
 	}
 }

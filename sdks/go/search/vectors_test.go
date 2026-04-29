@@ -235,6 +235,30 @@ func TestVectorIndex_Search_RankingOrder(t *testing.T) {
 	}
 }
 
+func TestVectorIndex_SearchAllowed_FiltersBeforeTopK(t *testing.T) {
+	_, vi := openVectorDB(t)
+	ctx := context.Background()
+
+	entries := []VectorEntry{
+		{Path: "wiki/high-a.md", Checksum: "a", Model: testModel, Vector: []float32{1, 0}},
+		{Path: "wiki/high-b.md", Checksum: "b", Model: testModel, Vector: []float32{0.99, 0.01}},
+		{Path: "wiki/allowed.md", Checksum: "allowed", Model: testModel, Vector: []float32{0, 1}},
+	}
+	if err := vi.StoreBatch(ctx, entries); err != nil {
+		t.Fatalf("StoreBatch: %v", err)
+	}
+
+	hits, err := vi.SearchAllowed(ctx, []float32{1, 0}, testModel, 1, map[string]struct{}{
+		"wiki/allowed.md": {},
+	})
+	if err != nil {
+		t.Fatalf("SearchAllowed: %v", err)
+	}
+	if len(hits) != 1 || hits[0].Path != "wiki/allowed.md" {
+		t.Fatalf("allowed hits = %v, want allowed path before top-k cut", pathsOf(hits))
+	}
+}
+
 func pathsOf(hits []VectorHit) []string {
 	out := make([]string, len(hits))
 	for i, h := range hits {

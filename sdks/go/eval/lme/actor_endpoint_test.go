@@ -139,9 +139,10 @@ func TestCallActorRetrieve_RendersStructuredEvidenceAndThreadsQuestionDate(t *te
 		CandidateK   int    `json:"candidateK"`
 		RerankTopN   int    `json:"rerankTopN"`
 		Filters      struct {
-			Scope      string `json:"scope"`
-			Project    string `json:"project"`
-			PathPrefix string `json:"pathPrefix"`
+			Scope      string   `json:"scope"`
+			Project    string   `json:"project"`
+			PathPrefix string   `json:"pathPrefix"`
+			SessionIDs []string `json:"sessionIds"`
 		} `json:"filters"`
 	}
 
@@ -177,7 +178,7 @@ func TestCallActorRetrieve_RendersStructuredEvidenceAndThreadsQuestionDate(t *te
 	}))
 	defer srv.Close()
 
-	content, err := callActorRetrieve(
+	content, diagnostics, err := callActorRetrieve(
 		context.Background(),
 		srv.URL,
 		"eval-lme",
@@ -191,10 +192,29 @@ func TestCallActorRetrieve_RendersStructuredEvidenceAndThreadsQuestionDate(t *te
 			Scope:      "project",
 			Project:    "eval-lme",
 			PathPrefix: "memory/project/eval-lme/",
+			SessionIDs: []string{"s1", "s2"},
 		},
 	)
 	if err != nil {
 		t.Fatalf("callActorRetrieve: %v", err)
+	}
+	if diagnostics.Request.Mode != "hybrid-rerank" {
+		t.Fatalf("diagnostic mode = %q, want hybrid-rerank", diagnostics.Request.Mode)
+	}
+	if diagnostics.Request.TopK != 3 {
+		t.Fatalf("diagnostic topK = %d, want 3", diagnostics.Request.TopK)
+	}
+	if len(diagnostics.Returned) != 3 {
+		t.Fatalf("diagnostic returned = %d, want 3", len(diagnostics.Returned))
+	}
+	if diagnostics.Returned[0].Path != "raw/lme/s1-a.md" {
+		t.Fatalf("diagnostic first path = %q", diagnostics.Returned[0].Path)
+	}
+	if diagnostics.Returned[0].TextSHA256 == "" || diagnostics.Returned[0].Preview == "" {
+		t.Fatal("diagnostic first hit missing hash or preview")
+	}
+	if diagnostics.Evidence.ReturnedCount != 3 || diagnostics.Evidence.UniqueSessionIDs != 2 {
+		t.Fatalf("diagnostic evidence = %+v, want 3 hits and 2 sessions", diagnostics.Evidence)
 	}
 	if captured.QuestionDate != "2024/03/13 (Wed) 10:00" {
 		t.Fatalf("questionDate = %q, want threaded request value", captured.QuestionDate)
@@ -216,6 +236,9 @@ func TestCallActorRetrieve_RendersStructuredEvidenceAndThreadsQuestionDate(t *te
 	}
 	if captured.Filters.PathPrefix != "memory/project/eval-lme/" {
 		t.Fatalf("filters.pathPrefix = %q, want memory/project/eval-lme/", captured.Filters.PathPrefix)
+	}
+	if len(captured.Filters.SessionIDs) != 2 || captured.Filters.SessionIDs[0] != "s1" || captured.Filters.SessionIDs[1] != "s2" {
+		t.Fatalf("filters.sessionIds = %v, want [s1 s2]", captured.Filters.SessionIDs)
 	}
 	if !strings.Contains(content, "Retrieved facts (3):") {
 		t.Fatalf("rendered evidence missing header:\n%s", content)
@@ -259,7 +282,7 @@ func TestCallActorRetrieve_AcceptsLegacyCapitalisedChunkKeys(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	content, err := callActorRetrieve(
+	content, _, err := callActorRetrieve(
 		context.Background(),
 		srv.URL,
 		"eval-lme",

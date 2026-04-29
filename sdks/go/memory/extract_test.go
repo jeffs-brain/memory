@@ -5,6 +5,7 @@ package memory
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 
@@ -30,6 +31,9 @@ func TestParseExtractionResult_ValidJSON(t *testing.T) {
 func TestParseExtractionResult_EmptyMemories(t *testing.T) {
 	input := `{"memories": []}`
 	result := parseExtractionResult(input)
+	if !result.Parsed {
+		t.Fatalf("expected empty memories response to parse, got err %v", result.Err)
+	}
 	if len(result.Memories) != 0 {
 		t.Errorf("expected 0 memories, got %d", len(result.Memories))
 	}
@@ -37,8 +41,27 @@ func TestParseExtractionResult_EmptyMemories(t *testing.T) {
 
 func TestParseExtractionResult_InvalidJSON(t *testing.T) {
 	result := parseExtractionResult("not json")
+	if result.Parsed {
+		t.Fatal("expected invalid JSON to be unparsed")
+	}
+	if !errors.Is(result.Err, ErrExtractionParse) {
+		t.Fatalf("parse err = %v, want ErrExtractionParse", result.Err)
+	}
 	if len(result.Memories) != 0 {
 		t.Errorf("expected 0 memories for invalid JSON, got %d", len(result.Memories))
+	}
+}
+
+func TestExtractFromMessages_ReturnsParseErrorForMalformedJSON(t *testing.T) {
+	mem, _ := newTestMemory(t)
+	provider := &extractStubProvider{reply: `{"memories":[`}
+
+	_, err := ExtractFromMessages(context.Background(), provider, "test-model", mem, "/project", []Message{
+		{Role: RoleUser, Content: "Remember that the car is red."},
+		{Role: RoleAssistant, Content: "Understood."},
+	})
+	if !errors.Is(err, ErrExtractionParse) {
+		t.Fatalf("ExtractFromMessages err = %v, want ErrExtractionParse", err)
 	}
 }
 
@@ -67,7 +90,7 @@ func TestParseExtractionResult_AcceptsBareArray(t *testing.T) {
 }
 
 func TestParseExtractionResult_NormalisesFields(t *testing.T) {
-	input := `{"memories":[{"action":"unexpected","filename":"x.md","type":"unexpected","scope":"unexpected","content":"hello","indexEntry":"entry","observedOn":"2023-07-15T22:42:00Z","sessionDate":"2023-07-15","contextPrefix":"session context","modifiedOverride":"2023-07-15T22:42:00Z"}]}`
+	input := `{"memories":[{"action":"unexpected","filename":"x.md","type":"unexpected","scope":"unexpected","content":"hello","indexEntry":"entry","observedOn":"2023-07-15T22:42:00Z","sessionDate":"2023-07-15","sourceRole":"assistant","eventDate":"2023-07-14","contextPrefix":"session context","modifiedOverride":"2023-07-15T22:42:00Z"}]}`
 
 	result := parseExtractionResult(input)
 	if len(result.Memories) != 1 {
@@ -92,6 +115,12 @@ func TestParseExtractionResult_NormalisesFields(t *testing.T) {
 	}
 	if got.SessionDate != "2023-07-15" {
 		t.Fatalf("sessionDate = %q, want propagated value", got.SessionDate)
+	}
+	if got.SourceRole != "assistant" {
+		t.Fatalf("sourceRole = %q, want assistant", got.SourceRole)
+	}
+	if got.EventDate != "2023-07-14" {
+		t.Fatalf("eventDate = %q, want propagated value", got.EventDate)
 	}
 	if got.ContextPrefix != "session context" {
 		t.Fatalf("contextPrefix = %q, want propagated value", got.ContextPrefix)
@@ -156,6 +185,23 @@ func TestRewriteHeuristicFilenameForSession(t *testing.T) {
 				t.Fatalf("RewriteHeuristicFilenameForSession(%q, %q) = %q, want %q", tc.filename, tc.sessionID, got, tc.want)
 			}
 		})
+	}
+}
+
+func TestRewriteFilenameForSessionContent(t *testing.T) {
+	a := RewriteFilenameForSessionContent("shared.md", "sess 001", "First durable fact.")
+	b := RewriteFilenameForSessionContent("shared.md", "sess 001", "Second durable fact.")
+
+	if a == b {
+		t.Fatalf("filenames should differ for different content, got %q", a)
+	}
+	for _, got := range []string{a, b} {
+		if !strings.HasPrefix(got, "shared-sess-001-") {
+			t.Fatalf("filename = %q, want readable slug and sanitised session", got)
+		}
+		if !strings.HasSuffix(got, ".md") {
+			t.Fatalf("filename = %q, want .md suffix", got)
+		}
 	}
 }
 
@@ -275,6 +321,8 @@ func TestApplyExtractions_CreatesFiles(t *testing.T) {
 			Content:     "Always use early returns.",
 			IndexEntry:  "- [Code Style](feedback_style.md) — prefer short functions",
 			Scope:       "project",
+			SourceRole:  "assistant",
+			EventDate:   "2024-03-13",
 		},
 	}
 
@@ -295,6 +343,12 @@ func TestApplyExtractions_CreatesFiles(t *testing.T) {
 	}
 	if !strings.Contains(content, "type: feedback") {
 		t.Error("expected type in frontmatter")
+	}
+	if !strings.Contains(content, "source_role: assistant") {
+		t.Error("expected source role in frontmatter")
+	}
+	if !strings.Contains(content, "event_date: 2024-03-13") {
+		t.Error("expected event date in frontmatter")
 	}
 	if !strings.Contains(content, "Always use early returns.") {
 		t.Error("expected content body")
@@ -472,14 +526,20 @@ func TestExtractUserPrompt_NoExistingMemories(t *testing.T) {
 }
 
 func TestExtractUserPrompt_TruncatesLongMessages(t *testing.T) {
-	long := strings.Repeat("x", 5000)
+	long := "start-" + strings.Repeat("x", 5000) + "-end"
 	msgs := []Message{
 		{Role: RoleUser, Content: long},
 	}
 
 	result := extractUserPrompt(msgs, nil)
-	if !strings.Contains(result, "[...truncated]") {
+	if !strings.Contains(result, "[...middle truncated...]") {
 		t.Error("expected truncation of long message")
+	}
+	if !strings.Contains(result, "start-") {
+		t.Error("expected head of long message to be preserved")
+	}
+	if !strings.Contains(result, "-end") {
+		t.Error("expected tail of long message to be preserved")
 	}
 }
 
@@ -742,6 +802,12 @@ The project uses OIDC.
 	if provider.req.Temperature != 0 {
 		t.Fatalf("temperature = %v, want 0", provider.req.Temperature)
 	}
+	if provider.req.MaxTokens != extractMaxTokens {
+		t.Fatalf("max tokens = %d, want %d", provider.req.MaxTokens, extractMaxTokens)
+	}
+	if !provider.req.ResponseFormatJSON {
+		t.Fatal("expected extraction request to enable JSON response format")
+	}
 
 	if len(provider.req.Messages) != 2 {
 		t.Fatalf("expected system and user prompt messages, got %d", len(provider.req.Messages))
@@ -890,6 +956,30 @@ func TestExtractFromMessages_AddsHeuristicUserFactForQuantifiedUpdate(t *testing
 	if !strings.Contains(found.Filename, "user-fact-2023-07-15") {
 		t.Fatalf("heuristic filename = %q, want dated user-fact prefix", found.Filename)
 	}
+}
+
+func TestExtractFromMessages_AddsHeuristicUserFactForTookMeDuration(t *testing.T) {
+	mem, _ := newTestMemory(t)
+	provider := &extractStubProvider{reply: `{"memories":[]}`}
+
+	out, err := ExtractFromMessages(context.Background(), provider, "test-model", mem, "/project", []Message{
+		{Role: RoleSystem, Content: "This conversation took place on 2023/05/27 (Sat) 12:34."},
+		{Role: RoleUser, Content: "Can you recommend games similar to Celeste, which took me 10 hours to complete?"},
+		{Role: RoleAssistant, Content: "Celeste is an excellent game."},
+	})
+	if err != nil {
+		t.Fatalf("ExtractFromMessages: %v", err)
+	}
+
+	for _, memory := range out {
+		if strings.Contains(memory.Content, "took me 10 hours to complete") {
+			if memory.Scope != "global" || memory.Type != "user" {
+				t.Fatalf("heuristic fact scope/type = %q/%q, want global/user", memory.Scope, memory.Type)
+			}
+			return
+		}
+	}
+	t.Fatalf("expected took-me duration heuristic fact, got %#v", out)
 }
 
 func TestExtractFromMessages_AddsHeuristicCadenceFact(t *testing.T) {
@@ -1055,6 +1145,183 @@ func TestExtractFromMessages_AddsHeuristicStorageLocationFact(t *testing.T) {
 	}
 
 	t.Fatalf("expected storage-location heuristic in %#v", out)
+}
+
+func TestExtractFromMessages_AddsHeuristicStorageLocationForPlannedRack(t *testing.T) {
+	mem, _ := newTestMemory(t)
+	provider := &extractStubProvider{reply: `{"memories":[]}`}
+
+	out, err := ExtractFromMessages(context.Background(), provider, "test-model", mem, "/project", []Message{
+		{Role: RoleSystem, Content: "This conversation took place on 2023/05/29 (Mon) 15:01."},
+		{Role: RoleUser, Content: "I'm thinking of buying a new pair of sandals. By the way, I need to organize my closet this weekend, and I'm looking forward to storing my old sneakers in a shoe rack, they're currently taking up space."},
+		{Role: RoleAssistant, Content: "A shoe rack should help free up closet space."},
+	})
+	if err != nil {
+		t.Fatalf("ExtractFromMessages: %v", err)
+	}
+
+	for _, memory := range out {
+		if !strings.Contains(memory.Content, "old sneakers in a shoe rack") {
+			continue
+		}
+		if memory.Scope != "global" || memory.Type != "user" {
+			t.Fatalf("planned storage heuristic scope/type = %q/%q, want global/user", memory.Scope, memory.Type)
+		}
+		return
+	}
+
+	t.Fatalf("expected planned storage-location heuristic in %#v", out)
+}
+
+func TestExtractFromMessages_AddsHeuristicPersonalSetupFacts(t *testing.T) {
+	mem, _ := newTestMemory(t)
+	provider := &extractStubProvider{reply: `{"memories":[]}`}
+
+	out, err := ExtractFromMessages(context.Background(), provider, "test-model", mem, "/project", []Message{
+		{Role: RoleSystem, Content: "This conversation took place on 2023/05/22 (Mon) 05:54."},
+		{Role: RoleUser, Content: "I recently installed a slim wall shelf to keep the hallway clutter-free. I noticed a crack on my oak desk near the lamp."},
+		{Role: RoleAssistant, Content: "Those are useful household details to remember."},
+	})
+	if err != nil {
+		t.Fatalf("ExtractFromMessages: %v", err)
+	}
+
+	want := []string{
+		"wall shelf to keep the hallway clutter-free",
+		"crack on my oak desk near the lamp",
+	}
+	for _, phrase := range want {
+		found := false
+		for _, memory := range out {
+			if !strings.Contains(memory.Content, phrase) {
+				continue
+			}
+			if memory.Scope != "global" || memory.Type != "user" {
+				t.Fatalf("personal setup fact scope/type = %q/%q, want global/user", memory.Scope, memory.Type)
+			}
+			found = true
+			break
+		}
+		if !found {
+			t.Fatalf("expected personal setup fact containing %q in %#v", phrase, out)
+		}
+	}
+}
+
+func TestExtractFromMessages_SkipsKitchenRecommendationRequestBeforePersonalSetupFacts(t *testing.T) {
+	mem, _ := newTestMemory(t)
+	provider := &extractStubProvider{reply: `{"memories":[]}`}
+
+	out, err := ExtractFromMessages(context.Background(), provider, "test-model", mem, "/project", []Message{
+		{Role: RoleSystem, Content: "This conversation took place on 2023/05/22 (Mon) 05:54."},
+		{Role: RoleUser, Content: "Can you give me tips for creating a boot tray that fits inside the narrow cupboard? I recently bought a slim wall shelf to keep my hallway clutter-free. I noticed a crack on my oak desk near the lamp."},
+		{Role: RoleAssistant, Content: "A fitted storage tray and surface repair approach would both help."},
+	})
+	if err != nil {
+		t.Fatalf("ExtractFromMessages: %v", err)
+	}
+
+	for _, memory := range out {
+		if strings.Contains(memory.Content, "give me tips for creating a boot tray") {
+			t.Fatalf("recommendation request should not become a heuristic user fact: %#v", out)
+		}
+	}
+
+	want := []string{
+		"wall shelf to keep my hallway clutter-free",
+		"crack on my oak desk near the lamp",
+	}
+	for _, phrase := range want {
+		found := false
+		for _, memory := range out {
+			if !strings.Contains(memory.Content, phrase) {
+				continue
+			}
+			if memory.Scope != "global" || memory.Type != "user" {
+				t.Fatalf("personal setup fact scope/type = %q/%q, want global/user", memory.Scope, memory.Type)
+			}
+			found = true
+			break
+		}
+		if !found {
+			t.Fatalf("expected personal setup fact containing %q in %#v", phrase, out)
+		}
+	}
+}
+
+func TestExtractFromMessages_AddsApplicationApprovalDurationFact(t *testing.T) {
+	mem, _ := newTestMemory(t)
+	provider := &extractStubProvider{reply: `{"memories":[]}`}
+
+	out, err := ExtractFromMessages(context.Background(), provider, "test-model", mem, "/project", []Message{
+		{Role: RoleSystem, Content: "This conversation took place on 2023/05/22 (Mon) 05:54."},
+		{Role: RoleUser, Content: "I've been keeping my documents in the hallway cabinet. I go to the community centre every week. It's crazy how long it took for my asylum application to get approved. Over a year of uncertainty was really tough."},
+		{Role: RoleAssistant, Content: "That was a long period to deal with."},
+	})
+	if err != nil {
+		t.Fatalf("ExtractFromMessages: %v", err)
+	}
+
+	for _, memory := range out {
+		if !strings.Contains(memory.Content, "asylum application to get approved") {
+			continue
+		}
+		if !strings.Contains(memory.Content, "Over a year of uncertainty") {
+			t.Fatalf("application timeline content = %q, want approval and duration", memory.Content)
+		}
+		if memory.Scope != "global" || memory.Type != "user" {
+			t.Fatalf("application timeline scope/type = %q/%q, want global/user", memory.Scope, memory.Type)
+		}
+		return
+	}
+
+	t.Fatalf("expected application approval duration fact in %#v", out)
+}
+
+func TestExtractFromMessages_DoesNotExtractAssistantApplicationTimelineAdvice(t *testing.T) {
+	mem, _ := newTestMemory(t)
+	provider := &extractStubProvider{reply: `{"memories":[]}`}
+
+	out, err := ExtractFromMessages(context.Background(), provider, "test-model", mem, "/project", []Message{
+		{Role: RoleSystem, Content: "This conversation took place on 2023/05/22 (Mon) 05:54."},
+		{Role: RoleUser, Content: "How long can visa applications take?"},
+		{Role: RoleAssistant, Content: "A visa application can take over a year to get approved, depending on the case."},
+	})
+	if err != nil {
+		t.Fatalf("ExtractFromMessages: %v", err)
+	}
+
+	for _, memory := range out {
+		if strings.Contains(memory.Content, "visa application can take over a year") {
+			t.Fatalf("assistant advice should not become a user fact: %#v", out)
+		}
+	}
+}
+
+func TestExtractFromMessages_AddsCreativeProgressCountFact(t *testing.T) {
+	mem, _ := newTestMemory(t)
+	provider := &extractStubProvider{reply: `{"memories":[]}`}
+
+	out, err := ExtractFromMessages(context.Background(), provider, "test-model", mem, "/project", []Message{
+		{Role: RoleSystem, Content: "This conversation took place on 2023/05/22 (Mon) 05:54."},
+		{Role: RoleUser, Content: "I've written five short stories so far."},
+		{Role: RoleAssistant, Content: "That is good progress."},
+	})
+	if err != nil {
+		t.Fatalf("ExtractFromMessages: %v", err)
+	}
+
+	for _, memory := range out {
+		if !strings.Contains(memory.Content, "written five short stories") {
+			continue
+		}
+		if memory.Scope != "global" || memory.Type != "user" {
+			t.Fatalf("creative progress scope/type = %q/%q, want global/user", memory.Scope, memory.Type)
+		}
+		return
+	}
+
+	t.Fatalf("expected creative progress count fact in %#v", out)
 }
 
 func TestExtractFromMessages_AddsHeuristicMilestoneFact(t *testing.T) {
@@ -1265,4 +1532,53 @@ func TestExtractFromMessages_AddsReligiousServiceEventFact(t *testing.T) {
 	}
 
 	t.Fatalf("expected religious-service heuristic in %#v", out)
+}
+
+func TestExtractFromMessages_AddsParticipationEventFact(t *testing.T) {
+	mem, _ := newTestMemory(t)
+	provider := &extractStubProvider{reply: `{"memories":[]}`}
+
+	out, err := ExtractFromMessages(context.Background(), provider, "test-model", mem, "/project", []Message{
+		{Role: RoleSystem, Content: "This conversation took place on 2023/05/29 (Mon) 15:01."},
+		{Role: RoleUser, Content: "I will participate in the company's annual charity soccer tournament today."},
+		{Role: RoleAssistant, Content: "That sounds worthwhile."},
+	})
+	if err != nil {
+		t.Fatalf("ExtractFromMessages: %v", err)
+	}
+
+	for _, memory := range out {
+		if !strings.Contains(memory.Content, "company's annual charity soccer tournament") {
+			continue
+		}
+		if !strings.Contains(memory.Content, "The user will participate in the company's annual charity soccer tournament") {
+			t.Fatalf("participation event content = %q, want future participation summary", memory.Content)
+		}
+		if memory.Scope != "global" || memory.Type != "user" {
+			t.Fatalf("participation event scope/type = %q/%q, want global/user", memory.Scope, memory.Type)
+		}
+		return
+	}
+
+	t.Fatalf("expected participation event heuristic in %#v", out)
+}
+
+func TestExtractFromMessages_DoesNotAddParticipationAspirationEventFact(t *testing.T) {
+	mem, _ := newTestMemory(t)
+	provider := &extractStubProvider{reply: `{"memories":[]}`}
+
+	out, err := ExtractFromMessages(context.Background(), provider, "test-model", mem, "/project", []Message{
+		{Role: RoleSystem, Content: "This conversation took place on 2023/05/29 (Mon) 15:01."},
+		{Role: RoleUser, Content: "I hope to participate in the company's annual charity soccer tournament someday."},
+		{Role: RoleAssistant, Content: "That would be a good goal."},
+	})
+	if err != nil {
+		t.Fatalf("ExtractFromMessages: %v", err)
+	}
+
+	for _, memory := range out {
+		if strings.Contains(memory.Content, "company's annual charity soccer tournament") {
+			t.Fatalf("aspiration should not become an event fact: %#v", out)
+		}
+	}
 }

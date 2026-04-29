@@ -3,6 +3,7 @@
 package retrieval
 
 import (
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -19,6 +20,8 @@ var recencyQueryHints = []string{
 	"now",
 	"newest",
 }
+
+var bodyMonthDayRe = regexp.MustCompile(`(?i)\b(?:on\s+)?(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\.?\s+(\d{1,2})(?:st|nd|rd|th)?\b`)
 
 var earliestQueryHints = []string{
 	"earliest",
@@ -44,10 +47,17 @@ func reweightTemporalRanking(question, questionDate string, results []RetrievedC
 	}
 
 	if anchor, ok := parseCandidateTime(questionDate); ok {
+		filterFutureEvents := shouldFilterFutureEventFacts(question)
 		filtered := make([]RetrievedChunk, 0, len(results))
 		for _, chunk := range results {
+			if filterFutureEvents {
+				eventDate, hasEventDate := extractBodyMonthDayEventDate(chunk.Text, anchor)
+				if hasEventDate && candidateDateAfterAnchorDate(eventDate, anchor) {
+					continue
+				}
+			}
 			candidate, hasTime := extractCandidateTime(chunk)
-			if hasTime && candidate.After(anchor) {
+			if hasTime && candidateDateAfterAnchorDate(candidate, anchor) {
 				continue
 			}
 			filtered = append(filtered, chunk)
@@ -68,6 +78,9 @@ func reweightTemporalRanking(question, questionDate string, results []RetrievedC
 	}
 
 	lower := strings.ToLower(question)
+	if dateArithmeticQueryRe.MatchString(lower) {
+		return results
+	}
 	wantsRecency := containsAnyHint(lower, recencyQueryHints)
 	wantsEarliest := !wantsRecency && containsAnyHint(lower, earliestQueryHints)
 	if !wantsRecency && !wantsEarliest && len(hintTimes) == 0 {
@@ -140,6 +153,97 @@ func reweightTemporalRanking(question, questionDate string, results []RetrievedC
 	return out
 }
 
+func shouldFilterFutureEventFacts(question string) bool {
+	lower := strings.ToLower(question)
+	if strings.Contains(lower, "plan") ||
+		strings.Contains(lower, "planning") ||
+		strings.Contains(lower, "upcoming") ||
+		strings.Contains(lower, "future") ||
+		strings.Contains(lower, "will i") ||
+		strings.Contains(lower, "going to") {
+		return false
+	}
+	fundraisingQuery := strings.Contains(lower, "charity") ||
+		strings.Contains(lower, "fundrais") ||
+		strings.Contains(lower, "donation") ||
+		strings.Contains(lower, "donations") ||
+		strings.Contains(lower, "raised") ||
+		strings.Contains(lower, "raise")
+	totalQuery := strings.Contains(lower, "how much") ||
+		strings.Contains(lower, "total")
+	return fundraisingQuery && totalQuery
+}
+
+func extractBodyMonthDayEventDate(text string, anchor time.Time) (time.Time, bool) {
+	body := stripFrontmatterBody(text)
+	for _, match := range bodyMonthDayRe.FindAllStringSubmatch(body, -1) {
+		if len(match) < 3 {
+			continue
+		}
+		month, ok := monthNameNumber(match[1])
+		if !ok {
+			continue
+		}
+		day, ok := parseSmallDay(match[2])
+		if !ok {
+			continue
+		}
+		candidate := time.Date(anchor.Year(), month, day, 0, 0, 0, 0, time.UTC)
+		return candidate, true
+	}
+	return time.Time{}, false
+}
+
+func monthNameNumber(raw string) (time.Month, bool) {
+	switch strings.ToLower(strings.Trim(strings.TrimSpace(raw), ".")) {
+	case "jan", "january":
+		return time.January, true
+	case "feb", "february":
+		return time.February, true
+	case "mar", "march":
+		return time.March, true
+	case "apr", "april":
+		return time.April, true
+	case "may":
+		return time.May, true
+	case "jun", "june":
+		return time.June, true
+	case "jul", "july":
+		return time.July, true
+	case "aug", "august":
+		return time.August, true
+	case "sep", "sept", "september":
+		return time.September, true
+	case "oct", "october":
+		return time.October, true
+	case "nov", "november":
+		return time.November, true
+	case "dec", "december":
+		return time.December, true
+	default:
+		return time.January, false
+	}
+}
+
+func parseSmallDay(raw string) (int, bool) {
+	day := 0
+	for _, r := range strings.TrimSpace(raw) {
+		if r < '0' || r > '9' {
+			return 0, false
+		}
+		day = day*10 + int(r-'0')
+	}
+	return day, day >= 1 && day <= 31
+}
+
+func candidateDateAfterAnchorDate(candidate, anchor time.Time) bool {
+	candidateYear, candidateMonth, candidateDay := candidate.Date()
+	anchorYear, anchorMonth, anchorDay := anchor.Date()
+	candidateDate := time.Date(candidateYear, candidateMonth, candidateDay, 0, 0, 0, 0, time.UTC)
+	anchorDate := time.Date(anchorYear, anchorMonth, anchorDay, 0, 0, 0, 0, time.UTC)
+	return candidateDate.After(anchorDate)
+}
+
 func temporalHintMultiplier(candidate time.Time, hints []time.Time) float64 {
 	nearestDays := 1e9
 	for _, hint := range hints {
@@ -184,7 +288,7 @@ func extractMetadataTime(metadata map[string]any) (time.Time, bool) {
 	if metadata == nil {
 		return time.Time{}, false
 	}
-	for _, key := range []string{"observedOn", "observed_on", "sessionDate", "session_date", "modified"} {
+	for _, key := range []string{"eventDate", "event_date", "observedOn", "observed_on", "sessionDate", "session_date", "modified"} {
 		value, ok := metadata[key]
 		if !ok {
 			continue
@@ -222,7 +326,7 @@ func extractTimeFromText(text string) (time.Time, bool) {
 				return parsed, true
 			}
 		default:
-			for _, key := range []string{"session_date:", "observed_on:", "modified:"} {
+			for _, key := range []string{"event_date:", "session_date:", "observed_on:", "modified:"} {
 				if !strings.HasPrefix(lower, key) {
 					continue
 				}

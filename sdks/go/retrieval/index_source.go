@@ -99,12 +99,21 @@ func (s *IndexSource) SearchBM25(ctx context.Context, expr string, k int, filter
 	}
 	opts := search.SearchOpts{
 		MaxResults: searchLimit,
+		DateFrom:   filters.DateFrom,
+		DateTo:     filters.DateTo,
+		SessionIDs: normaliseStringList(filters.SessionIDs),
 	}
-	if scope, ok := exactSearchScope(filters.Scope); ok {
+	if strings.EqualFold(strings.TrimSpace(filters.Scope), "memory") {
+		opts.Scope = "memory"
+		opts.ProjectSlug = strings.TrimSpace(filters.Project)
+	} else if scope, ok := exactSearchScope(filters.Scope); ok {
 		opts.Scope = scope
 		if scope == "project_memory" {
 			opts.ProjectSlug = strings.TrimSpace(filters.Project)
 		}
+	} else if strings.TrimSpace(filters.Project) != "" {
+		opts.Scope = "memory"
+		opts.ProjectSlug = strings.TrimSpace(filters.Project)
 	}
 	results, err := s.index.SearchRaw(expr, opts)
 	if err != nil {
@@ -170,10 +179,17 @@ func (s *IndexSource) SearchVector(ctx context.Context, embedding []float32, k i
 	if searchLimit <= 0 {
 		searchLimit = 20
 	}
+	var hits []search.VectorHit
+	var err error
 	if filters.HasAny() {
-		searchLimit = max(searchLimit*10, 200)
+		allowed, aerr := s.allowedVectorPaths(ctx, filters)
+		if aerr != nil {
+			return nil, aerr
+		}
+		hits, err = s.vectors.SearchAllowed(ctx, embedding, s.model, searchLimit, allowed)
+	} else {
+		hits, err = s.vectors.Search(ctx, embedding, s.model, searchLimit)
 	}
-	hits, err := s.vectors.Search(ctx, embedding, s.model, searchLimit)
 	if err != nil {
 		return nil, fmt.Errorf("retrieval: IndexSource VectorIndex.Search: %w", err)
 	}
@@ -223,6 +239,20 @@ func (s *IndexSource) SearchVector(ctx context.Context, embedding []float32, k i
 	return out, nil
 }
 
+func (s *IndexSource) allowedVectorPaths(ctx context.Context, filters Filters) (map[string]struct{}, error) {
+	rows, err := s.index.AllMetadataRows(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("retrieval: IndexSource AllMetadataRows for vector filters: %w", err)
+	}
+	allowed := make(map[string]struct{}, len(rows))
+	for _, row := range rows {
+		if indexedRowPassesFilters(row, filters) {
+			allowed[row.Path] = struct{}{}
+		}
+	}
+	return allowed, nil
+}
+
 // Chunks implements [Source]. Walks every row in the FTS index so the
 // retriever's trigram fallback can build a slug index. The result is
 // stable across calls within a single process: the underlying SQLite
@@ -238,11 +268,16 @@ func (s *IndexSource) Chunks(ctx context.Context) ([]trigramChunk, error) {
 	out := make([]trigramChunk, 0, len(rows))
 	for _, r := range rows {
 		out = append(out, trigramChunk{
-			ID:      r.Path,
-			Path:    r.Path,
-			Title:   r.Title,
-			Summary: r.Summary,
-			Content: r.Content,
+			ID:        r.Path,
+			Path:      r.Path,
+			Title:     r.Title,
+			Summary:   r.Summary,
+			Content:   r.Content,
+			Tags:      r.Tags,
+			Scope:     r.Scope,
+			Project:   r.ProjectSlug,
+			Session:   r.SessionDate,
+			SessionID: r.SessionID,
 		})
 	}
 	return out, nil
@@ -263,6 +298,79 @@ func (s *IndexSource) Lookup(ctx context.Context, ids []string) ([]search.Indexe
 	return s.index.LookupRows(ctx, ids)
 }
 
+// SessionNeighbours implements [SessionNeighbourSource] by looking up
+// all indexed rows that share one of the seed session ids, then applying
+// the same retrieval filters and caps used by the direct search legs.
+func (s *IndexSource) SessionNeighbours(ctx context.Context, seeds []SessionNeighbourSeed, opts SessionNeighbourOptions) ([]search.IndexedRow, error) {
+	if s == nil || s.index == nil {
+		return nil, errors.New("retrieval: IndexSource: nil index")
+	}
+	if len(seeds) == 0 {
+		return nil, nil
+	}
+	maxSessions := opts.MaxSessions
+	if maxSessions <= 0 {
+		maxSessions = 3
+	}
+	maxRowsPerSession := opts.MaxRowsPerSession
+	if maxRowsPerSession <= 0 {
+		maxRowsPerSession = 3
+	}
+	maxRowsTotal := opts.MaxRowsTotal
+	if maxRowsTotal <= 0 {
+		maxRowsTotal = maxRowsPerSession * maxSessions
+	}
+
+	sessionIDs := make([]string, 0, maxSessions)
+	wantedSessions := make(map[string]bool, maxSessions)
+	seedPaths := make(map[string]bool, len(seeds))
+	for _, seed := range seeds {
+		if strings.TrimSpace(seed.Path) != "" {
+			seedPaths[seed.Path] = true
+		}
+		sessionID := strings.TrimSpace(seed.SessionID)
+		if sessionID == "" || wantedSessions[sessionID] {
+			continue
+		}
+		wantedSessions[sessionID] = true
+		sessionIDs = append(sessionIDs, sessionID)
+		if len(sessionIDs) >= maxSessions {
+			break
+		}
+	}
+	if len(sessionIDs) == 0 {
+		return nil, nil
+	}
+
+	rows, err := s.index.SessionRows(ctx, sessionIDs)
+	if err != nil {
+		return nil, fmt.Errorf("retrieval: IndexSource SessionRows: %w", err)
+	}
+	out := make([]search.IndexedRow, 0, min(maxRowsTotal, len(rows)))
+	perSession := make(map[string]int, len(sessionIDs))
+	for _, row := range rows {
+		sessionID := strings.TrimSpace(row.SessionID)
+		if sessionID == "" || !wantedSessions[sessionID] {
+			continue
+		}
+		if seedPaths[row.Path] {
+			continue
+		}
+		if !indexedRowPassesFilters(row, opts.Filters) {
+			continue
+		}
+		if perSession[sessionID] >= maxRowsPerSession {
+			continue
+		}
+		out = append(out, row)
+		perSession[sessionID]++
+		if len(out) >= maxRowsTotal {
+			break
+		}
+	}
+	return out, nil
+}
+
 func exactSearchScope(scope string) (string, bool) {
 	switch strings.ToLower(strings.TrimSpace(scope)) {
 	case "global", "global_memory":
@@ -271,7 +379,9 @@ func exactSearchScope(scope string) (string, bool) {
 		return "project_memory", true
 	case "wiki":
 		return "wiki", true
-	case "raw", "raw_document":
+	case "raw":
+		return "raw", true
+	case "raw_document":
 		return "raw_document", true
 	case "raw_lme":
 		return "raw_lme", true
@@ -286,26 +396,106 @@ func indexedRowPassesFilters(row search.IndexedRow, filters Filters) bool {
 	if !filters.MatchesPath(row.Path) {
 		return false
 	}
+	if !sessionMatchesFilter(row.SessionID, filters.SessionIDs) {
+		return false
+	}
 	if !scopeMatchesFilter(row.Scope, filters.Scope) {
 		return false
 	}
-	project := strings.ToLower(strings.TrimSpace(filters.Project))
-	rowProject := strings.ToLower(strings.TrimSpace(row.ProjectSlug))
-	if project != "" && rowProject != "" && rowProject != project {
+	if !projectMatchesFilter(row.Scope, row.ProjectSlug, filters.Project) {
+		return false
+	}
+	if !dateMatchesFilter(row.SessionDate, filters) {
 		return false
 	}
 	if len(filters.Tags) > 0 {
-		rowTags := make(map[string]bool)
-		for _, tag := range strings.Fields(strings.ToLower(row.Tags)) {
-			rowTags[tag] = true
-		}
+		rowTags := tagSet(row.Tags)
 		for _, tag := range filters.Tags {
-			if !rowTags[strings.ToLower(strings.TrimSpace(tag))] {
+			want := normaliseTag(tag)
+			if want == "" {
+				continue
+			}
+			if !rowTags[want] {
 				return false
 			}
 		}
 	}
 	return true
+}
+
+func sessionMatchesFilter(rowSessionID string, want []string) bool {
+	sessions := normaliseStringList(want)
+	if len(sessions) == 0 {
+		return true
+	}
+	rowSessionID = strings.TrimSpace(rowSessionID)
+	if rowSessionID == "" {
+		return false
+	}
+	for _, sessionID := range sessions {
+		if sessionID == rowSessionID {
+			return true
+		}
+	}
+	return false
+}
+
+func projectMatchesFilter(rowScope, rowProject, want string) bool {
+	project := strings.ToLower(strings.TrimSpace(want))
+	if project == "" {
+		return true
+	}
+	rowProject = strings.ToLower(strings.TrimSpace(rowProject))
+	scope := strings.ToLower(strings.TrimSpace(rowScope))
+	switch scope {
+	case "global_memory":
+		return true
+	case "project_memory":
+		return rowProject == project
+	case "":
+		return rowProject == project
+	default:
+		return rowProject != "" && rowProject == project
+	}
+}
+
+func dateMatchesFilter(sessionDate string, filters Filters) bool {
+	if filters.DateFrom.IsZero() && filters.DateTo.IsZero() {
+		return true
+	}
+	parsed, ok := parseCandidateTime(sessionDate)
+	if !ok {
+		return false
+	}
+	if !filters.DateFrom.IsZero() && parsed.Before(filters.DateFrom) {
+		return false
+	}
+	if !filters.DateTo.IsZero() && parsed.After(filters.DateTo) {
+		return false
+	}
+	return true
+}
+
+func tagSet(raw string) map[string]bool {
+	out := make(map[string]bool)
+	for _, field := range strings.FieldsFunc(raw, func(r rune) bool {
+		switch r {
+		case '[', ']', ',', '"', '\'', '\n', '\r', '\t', ' ':
+			return true
+		default:
+			return false
+		}
+	}) {
+		tag := normaliseTag(field)
+		if tag != "" {
+			out[tag] = true
+		}
+	}
+	return out
+}
+
+func normaliseTag(tag string) string {
+	return strings.ToLower(strings.Trim(strings.TrimSpace(tag), "[],'\""))
 }
 
 func scopeMatchesFilter(rowScope, want string) bool {

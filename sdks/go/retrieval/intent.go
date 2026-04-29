@@ -34,7 +34,11 @@ var (
 	questionLikeNoteRe            = regexp.MustCompile(`(?i)(?:^|\n)(?:what\s+(?:are|is|should|could)|which\s+(?:should|would)|how\s+(?:can|should|could|long)|can\s+you|could\s+you|should\s+i|would\s+you|when\s+did|where\s+(?:can|should)|why\s+(?:is|does|did))\b`)
 	durationQueryRe               = regexp.MustCompile(`(?i)\bhow long\b`)
 	bodyAbsoluteDateRe            = regexp.MustCompile(`(?i)\b(?:january|february|march|april|may|june|july|august|september|october|november|december)\s+\d{1,2}(?:st|nd|rd|th)?\b`)
-	measurementValueRe            = regexp.MustCompile(`(?i)\b\d+(?:\.\d+)?(?:\s*-\s*\d+(?:\.\d+)?)?(?:\s+|-)(?:minutes?|hours?|days?|weeks?|months?|years?)\b`)
+	measurementValueRe            = regexp.MustCompile(`(?i)\b(?:(?:\d+(?:\.\d+)?|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)(?:\s*-\s*(?:\d+(?:\.\d+)?|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve))?)(?:\s+|-)(?:minutes?|hours?|days?|weeks?|months?|years?)\b`)
+	measurementUnitQueryRe        = regexp.MustCompile(`(?i)\b(?:minutes?|hours?|days?|weeks?|months?|years?)\b`)
+	currencyValueRe               = regexp.MustCompile(`(?i)(?:[$€£]\s?\d|\b\d+(?:\.\d{1,2})?\s?(?:dollars?|usd|eur|gbp|pounds?|euros?)\b)`)
+	numericValueRe                = regexp.MustCompile(`(?i)\b(?:\d+(?:\.\d+)?|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\b`)
+	valueComparisonQueryRe        = regexp.MustCompile(`(?i)\b(?:most|least|highest|lowest|largest|smallest|biggest|which|where)\b`)
 	routineScopeQueryRe           = regexp.MustCompile(`(?i)\b(?:daily|every|weekday|each way)\b`)
 	routineScopeNoteRe            = regexp.MustCompile(`(?i)\b(?:daily commute|every day|every weekday|weekday|weekdays|each way)\b`)
 	segmentQualifierNoteRe        = regexp.MustCompile(`(?i)\b(?:morning commute|often|some days?|sometimes|around)\b`)
@@ -73,6 +77,7 @@ func detectRetrievalIntent(query string) retrievalIntent {
 			propertyLookupQueryRe.MatchString(normalised) ||
 			len(deriveActionDateProbes(query)) > 0 ||
 			hasSpecificRecallCue(normalised) ||
+			(firstPersonConcreteQueryRe.MatchString(normalised) && moneyEventQueryRe.MatchString(normalised)) ||
 			(firstPersonFactLookupRe.MatchString(normalised) && factLookupVerbRe.MatchString(normalised)),
 	}
 }
@@ -122,14 +127,17 @@ func reweightSharedMemoryRanking(query string, results []RetrievedChunk) []Retri
 	for i, c := range copied {
 		out[i] = c.chunk
 	}
-	return diversifyCompositeConcreteRanking(query, out)
+	out = diversifyCompositeConcreteRanking(query, out)
+	out = diversifyAggregateEvidenceRanking(query, out)
+	out = diversifyPreferencePersonalContextRanking(query, out)
+	return diversifyDateDifferenceRanking(query, out)
 }
 
 func retrievalIntentMultiplier(intent retrievalIntent, query string, r RetrievedChunk) float64 {
 	multiplier := 1.0
 	text := retrievalResultText(r)
 	if intent.preferenceQuery {
-		multiplier *= preferenceIntentMultiplier(r, text)
+		multiplier *= preferenceIntentMultiplier(query, r, text)
 	}
 	if intent.concreteFactQuery {
 		multiplier *= concreteFactIntentMultiplier(query, r, text)
@@ -140,8 +148,9 @@ func retrievalIntentMultiplier(intent retrievalIntent, query string, r Retrieved
 	return multiplier
 }
 
-func preferenceIntentMultiplier(r RetrievedChunk, text string) float64 {
+func preferenceIntentMultiplier(query string, r RetrievedChunk, text string) float64 {
 	path := strings.ToLower(r.Path)
+	sourceRole := chunkSourceRole(r)
 	isGlobalPreferenceNote := strings.Contains(path, "memory/global/") &&
 		(strings.Contains(path, "user-preference-") || preferenceNoteRe.MatchString(text))
 	if isGlobalPreferenceNote {
@@ -149,6 +158,9 @@ func preferenceIntentMultiplier(r RetrievedChunk, text string) float64 {
 			return 2.35
 		}
 		return 2.1
+	}
+	if sourceRole == "assistant" && assistantOutputQuestion(strings.ToLower(query)) {
+		return 1.35
 	}
 	if !strings.Contains(path, "memory/global/") && genericNoteRe.MatchString(text) {
 		return 0.82
@@ -183,6 +195,20 @@ func concreteFactIntentMultiplier(query string, r RetrievedChunk, text string) f
 			multiplier *= 0.72
 		}
 	}
+	if measurementTotalQuery(query) {
+		if measurementValueRe.MatchString(text) {
+			multiplier *= 1.55
+		} else if genericNoteRe.MatchString(text) || questionLikeNoteRe.MatchString(text) {
+			multiplier *= 0.68
+		}
+	}
+	if moneyEventQueryRe.MatchString(query) {
+		if currencyValueRe.MatchString(text) {
+			multiplier *= 1.45
+		} else if genericNoteRe.MatchString(text) || questionLikeNoteRe.MatchString(text) {
+			multiplier *= 0.62
+		}
+	}
 	if isQuestionLikeNote {
 		multiplier *= 0.45
 	}
@@ -195,8 +221,12 @@ func concreteFactIntentMultiplier(query string, r RetrievedChunk, text string) f
 	return multiplier
 }
 
+func measurementTotalQuery(query string) bool {
+	return enumerationOrTotalQueryRe.MatchString(query) && measurementUnitQueryRe.MatchString(query)
+}
+
 func focusAlignedConcreteFactMultiplier(query, text string) float64 {
-	phrases := derivePrioritySubQueries(query)
+	phrases := buildPriorityBM25Queries(query)
 	if len(phrases) == 0 {
 		phrases = filteredPhraseProbes(query)
 	}
@@ -210,6 +240,9 @@ func focusAlignedConcreteFactMultiplier(query, text string) float64 {
 		if score := focusAlignmentScore(loweredText, phrase); score > best {
 			best = score
 		}
+	}
+	if isTypeContextCountQuery(query) && best < 0.25 {
+		return 0.18
 	}
 
 	switch {
@@ -232,12 +265,18 @@ func firstPersonConcreteFactMultiplier(query string, r RetrievedChunk, text stri
 	}
 
 	path := strings.ToLower(r.Path)
+	sourceRole := chunkSourceRole(r)
 	isGlobal := strings.Contains(path, "memory/global/")
 	isDirectFact := isConcreteFactLike(path, text)
+	isPersonalMemory := strings.Contains(path, "user") ||
+		strings.Contains(text, "the user ") ||
+		strings.Contains(text, "user ")
 	multiplier := 1.0
 	switch {
 	case isGlobal && isDirectFact:
 		multiplier *= 1.35
+	case isDirectFact && isPersonalMemory:
+		multiplier *= 1.25
 	case isGlobal:
 		multiplier *= 1.22
 	case isDirectFact:
@@ -247,6 +286,14 @@ func firstPersonConcreteFactMultiplier(query string, r RetrievedChunk, text stri
 	}
 	if !isGlobal && genericNoteRe.MatchString(text) {
 		multiplier *= 0.82
+	}
+	switch sourceRole {
+	case "user":
+		multiplier *= 1.18
+	case "assistant":
+		if !assistantOutputQuestion(normalisedQuery) {
+			multiplier *= 0.72
+		}
 	}
 	if durationQueryRe.MatchString(normalisedQuery) && routineScopeQueryRe.MatchString(normalisedQuery) {
 		if routineScopeNoteRe.MatchString(text) {
@@ -259,6 +306,19 @@ func firstPersonConcreteFactMultiplier(query string, r RetrievedChunk, text stri
 	return multiplier
 }
 
+func assistantOutputQuestion(normalisedQuery string) bool {
+	if normalisedQuery == "" {
+		return false
+	}
+	return strings.Contains(normalisedQuery, "recommended") ||
+		strings.Contains(normalisedQuery, "suggested") ||
+		strings.Contains(normalisedQuery, "you recommended") ||
+		strings.Contains(normalisedQuery, "you suggested") ||
+		strings.Contains(normalisedQuery, "previous chat") ||
+		strings.Contains(normalisedQuery, "previous conversation") ||
+		strings.Contains(normalisedQuery, "remind me")
+}
+
 func staleSupersededConcreteFactMultiplier(r RetrievedChunk, text string) float64 {
 	if metadataHasNonEmptyString(r.Metadata, "superseded_by", "supersededBy") || supersededFrontmatterRe.MatchString(text) {
 		return 0.18
@@ -267,8 +327,12 @@ func staleSupersededConcreteFactMultiplier(r RetrievedChunk, text string) float6
 }
 
 func metadataHasNonEmptyString(metadata map[string]any, keys ...string) bool {
+	return metadataStringValue(metadata, keys...) != ""
+}
+
+func metadataStringValue(metadata map[string]any, keys ...string) string {
 	if metadata == nil {
-		return false
+		return ""
 	}
 	for _, key := range keys {
 		value, ok := metadata[key]
@@ -277,10 +341,20 @@ func metadataHasNonEmptyString(metadata map[string]any, keys ...string) bool {
 		}
 		text, ok := value.(string)
 		if ok && strings.TrimSpace(text) != "" {
-			return true
+			return strings.TrimSpace(text)
 		}
 	}
-	return false
+	return ""
+}
+
+func chunkSourceRole(r RetrievedChunk) string {
+	role := metadataStringValue(r.Metadata, "source_role", "sourceRole")
+	switch strings.ToLower(strings.TrimSpace(role)) {
+	case "user", "assistant", "mixed":
+		return strings.ToLower(strings.TrimSpace(role))
+	default:
+		return ""
+	}
 }
 
 func isConcreteFactLike(path, text string) bool {
@@ -332,6 +406,273 @@ func diversifyCompositeConcreteRanking(query string, results []RetrievedChunk) [
 	return out
 }
 
+func diversifyAggregateEvidenceRanking(query string, results []RetrievedChunk) []RetrievedChunk {
+	if len(results) < 2 || !isAggregateEvidenceQuery(query) || isTypeContextCountQuery(query) {
+		return results
+	}
+	focuses := aggregateFocusProbes(query)
+	type candidate struct {
+		index    int
+		chunk    RetrievedChunk
+		session  string
+		focus    int
+		strength float64
+	}
+	candidates := make([]candidate, 0, len(results))
+	for i, result := range results {
+		text := retrievalResultText(result)
+		focus, focusScore := bestAggregateFocus(text, focuses)
+		strength := aggregateEvidenceStrength(query, result, text, focusScore)
+		if strength < 1.25 {
+			continue
+		}
+		candidates = append(candidates, candidate{
+			index:    i,
+			chunk:    result,
+			session:  chunkSessionID(result),
+			focus:    focus,
+			strength: strength,
+		})
+	}
+	if len(candidates) == 0 {
+		return results
+	}
+	sort.SliceStable(candidates, func(i, j int) bool {
+		if candidates[i].strength != candidates[j].strength {
+			return candidates[i].strength > candidates[j].strength
+		}
+		return candidates[i].index < candidates[j].index
+	})
+
+	const maxAggregateCoveragePromotions = 8
+	selected := make(map[int]bool, len(candidates))
+	coveredSessions := make(map[string]bool, len(candidates))
+	coveredFocuses := make(map[int]bool, len(focuses))
+	primary := make([]RetrievedChunk, 0, maxAggregateCoveragePromotions)
+	for _, c := range candidates {
+		if len(primary) == maxAggregateCoveragePromotions {
+			break
+		}
+		sessionCovered := c.session != "" && coveredSessions[c.session]
+		focusCovered := c.focus >= 0 && coveredFocuses[c.focus]
+		if (sessionCovered || focusCovered) && c.strength < 3.4 {
+			continue
+		}
+		selected[c.index] = true
+		if c.session != "" {
+			coveredSessions[c.session] = true
+		}
+		if c.focus >= 0 {
+			coveredFocuses[c.focus] = true
+		}
+		primary = append(primary, c.chunk)
+	}
+	if len(primary) == 0 || (len(primary) == 1 && candidates[0].strength < 2.0) {
+		return results
+	}
+	out := make([]RetrievedChunk, 0, len(results))
+	out = append(out, primary...)
+	for i, result := range results {
+		if selected[i] {
+			continue
+		}
+		out = append(out, result)
+	}
+	return out
+}
+
+func isAggregateEvidenceQuery(query string) bool {
+	lowered := strings.ToLower(strings.TrimSpace(query))
+	if lowered == "" {
+		return false
+	}
+	return enumerationOrTotalQueryRe.MatchString(lowered) ||
+		(moneyEventQueryRe.MatchString(lowered) && valueComparisonQueryRe.MatchString(lowered)) ||
+		(measurementUnitQueryRe.MatchString(lowered) && valueComparisonQueryRe.MatchString(lowered))
+}
+
+func aggregateFocusProbes(query string) []string {
+	out := make([]string, 0, maxCoverageFacetQueries+maxDerivedSubQueries)
+	out = append(out, deriveCoverageFacetQueries(query)...)
+	out = append(out, filteredPhraseProbes(query)...)
+	out = append(out, deriveMoneyFocusProbes(query)...)
+	return dedupeTrimmedStrings(out)
+}
+
+func bestAggregateFocus(text string, focuses []string) (int, float64) {
+	if len(focuses) == 0 {
+		return -1, 0
+	}
+	match := bestCompositeFocusMatch(text, focuses)
+	return match.index, match.score
+}
+
+func aggregateEvidenceStrength(query string, r RetrievedChunk, text string, focusScore float64) float64 {
+	loweredQuery := strings.ToLower(strings.TrimSpace(query))
+	path := strings.ToLower(r.Path)
+	hasFocuses := len(aggregateFocusProbes(query)) > 0
+	strength := 0.0
+	switch {
+	case focusScore >= 0.99:
+		strength += 2.0
+	case focusScore >= 0.66:
+		strength += 1.35
+	case focusScore >= 0.5:
+		strength += 0.8
+	case focusScore >= 0.25:
+		strength += 0.35
+	case !hasFocuses:
+		strength += 0.6
+	}
+	if moneyEventQueryRe.MatchString(loweredQuery) && currencyValueRe.MatchString(text) {
+		strength += 2.4
+	} else if measurementTotalQuery(loweredQuery) && measurementValueRe.MatchString(text) {
+		strength += 2.0
+	} else if numericValueRe.MatchString(text) {
+		strength += 1.0
+	}
+	if isConcreteFactLike(path, text) {
+		strength += 1.2
+	}
+	if strings.Contains(path, "memory/global/") {
+		strength += 0.65
+	}
+	switch chunkSourceRole(r) {
+	case "user":
+		strength += 0.8
+	case "assistant":
+		if !assistantOutputQuestion(loweredQuery) {
+			strength -= 0.6
+		}
+	}
+	if genericNoteRe.MatchString(text) {
+		strength -= 0.45
+	}
+	if questionLikeNoteRe.MatchString(text) {
+		strength -= 0.75
+	}
+	if rollupNoteRe.MatchString(text) {
+		strength -= 0.35
+	}
+	if hasFocuses && focusScore < 0.25 && !currencyValueRe.MatchString(text) && !measurementValueRe.MatchString(text) {
+		strength -= 1.5
+	}
+	return strength
+}
+
+func diversifyDateDifferenceRanking(query string, results []RetrievedChunk) []RetrievedChunk {
+	if len(results) < 3 {
+		return results
+	}
+	match := dateArithmeticWhenRe.FindStringSubmatch(query)
+	if len(match) < 3 {
+		return results
+	}
+	events := [][]string{
+		questionTokens(match[1]),
+		questionTokens(match[2]),
+	}
+	return promoteMatchingCoverage(results, len(events), func(result RetrievedChunk) int {
+		text := retrievalResultText(result)
+		for i, tokens := range events {
+			if matchesEventEvidence(text, tokens) {
+				return i
+			}
+		}
+		return -1
+	})
+}
+
+func promoteMatchingCoverage(results []RetrievedChunk, slots int, matchIndex func(RetrievedChunk) int) []RetrievedChunk {
+	if slots <= 0 {
+		return results
+	}
+	primary := make([]RetrievedChunk, 0, slots)
+	secondary := make([]RetrievedChunk, 0, len(results))
+	covered := map[int]bool{}
+	for _, result := range results {
+		idx := matchIndex(result)
+		if idx >= 0 && !covered[idx] {
+			covered[idx] = true
+			primary = append(primary, result)
+			continue
+		}
+		secondary = append(secondary, result)
+	}
+	if len(primary) == 0 {
+		return results
+	}
+	out := append(primary, secondary...)
+	return out
+}
+
+func matchesEventEvidence(text string, tokens []string) bool {
+	if len(tokens) == 0 {
+		return false
+	}
+	for i, token := range tokens {
+		if token == "" {
+			continue
+		}
+		if strings.Contains(text, token) {
+			continue
+		}
+		if i == 0 {
+			past := inflectProbeVerbPast(token)
+			if past != "" && strings.Contains(text, past) {
+				continue
+			}
+		}
+		return false
+	}
+	return true
+}
+
+func diversifyPreferencePersonalContextRanking(query string, results []RetrievedChunk) []RetrievedChunk {
+	if len(results) < 3 || !preferenceQueryRe.MatchString(query) {
+		return results
+	}
+	focuses := buildPriorityBM25Queries(query)
+	if len(focuses) == 0 {
+		focuses = filteredPhraseProbes(query)
+	}
+	if len(focuses) == 0 {
+		return results
+	}
+
+	primary := make([]RetrievedChunk, 0, len(focuses))
+	secondary := make([]RetrievedChunk, 0, len(results))
+	covered := make(map[int]bool, len(focuses))
+	for _, result := range results {
+		text := retrievalResultText(result)
+		match := bestCompositeFocusMatch(text, focuses)
+		if isDirectPersonalContextEvidence(result, text) && match.index >= 0 && match.score >= 0.5 && !covered[match.index] {
+			covered[match.index] = true
+			primary = append(primary, result)
+			continue
+		}
+		secondary = append(secondary, result)
+	}
+	if len(primary) == 0 {
+		return results
+	}
+	out := append(primary, secondary...)
+	return out
+}
+
+func isDirectPersonalContextEvidence(r RetrievedChunk, text string) bool {
+	path := strings.ToLower(r.Path)
+	if strings.Contains(path, "user-preference-") {
+		return false
+	}
+	if strings.Contains(path, "memory/project/") && genericNoteRe.MatchString(text) {
+		return false
+	}
+	return strings.Contains(path, "memory/global/") &&
+		(strings.Contains(path, "user-fact-") || strings.Contains(path, "user_") || strings.Contains(path, "user-") ||
+			strings.Contains(text, "the user ") || strings.Contains(text, "user ") || strings.Contains(text, "i "))
+}
+
 func isCompositeConcreteQuery(query string) bool {
 	lowered := strings.ToLower(strings.TrimSpace(query))
 	hasCompositeSeparator := strings.Contains(lowered, " and ") || strings.Contains(lowered, " plus ") || strings.Contains(lowered, " or ")
@@ -364,8 +705,8 @@ func focusAlignmentScore(loweredText, phrase string) float64 {
 		return 1.0
 	}
 
-	textTokens := tokenSet(strings.Fields(loweredText))
-	phraseTokens := strings.Fields(loweredPhrase)
+	textTokens := tokenSetWithSingulars(strings.Fields(loweredText))
+	phraseTokens := singularFocusTokens(strings.Fields(loweredPhrase))
 	if len(phraseTokens) == 0 {
 		return 0
 	}
@@ -377,6 +718,35 @@ func focusAlignmentScore(loweredText, phrase string) float64 {
 		}
 	}
 	return float64(matched) / float64(len(phraseTokens))
+}
+
+func tokenSetWithSingulars(tokens []string) map[string]bool {
+	out := make(map[string]bool, len(tokens)*2)
+	for _, token := range tokens {
+		if token == "" {
+			continue
+		}
+		out[token] = true
+		if singular := singularProbeEntityToken(token); singular != "" {
+			out[singular] = true
+		}
+	}
+	return out
+}
+
+func singularFocusTokens(tokens []string) []string {
+	out := make([]string, 0, len(tokens))
+	for _, token := range tokens {
+		if token == "" {
+			continue
+		}
+		singular := singularProbeEntityToken(token)
+		if singular == "" {
+			singular = token
+		}
+		out = append(out, singular)
+	}
+	return out
 }
 
 func normaliseFocusAlignmentText(raw string) string {

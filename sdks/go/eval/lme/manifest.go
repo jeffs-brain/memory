@@ -17,32 +17,52 @@ import (
 // reproducibility can be verified. Actor-backed runs also persist the
 // daemon retrieval settings that materially change cross-SDK outcomes.
 type RunManifest struct {
-	DatasetSHA         string `json:"dataset_sha"`
-	SampleSignature    string `json:"sample_signature,omitempty"`
-	JudgeModel         string `json:"judge_model,omitempty"`
-	JudgeModelSHA      string `json:"judge_model_sha,omitempty"`
-	JudgePromptVersion int    `json:"judge_prompt_version"`
-	JudgeBackend       string `json:"judge_backend,omitempty"`
-	JudgeFailureMode   string `json:"judge_failure_mode,omitempty"`
-	ReaderFailureMode  string `json:"reader_failure_mode,omitempty"`
-	ReaderModel        string `json:"reader_model,omitempty"`
-	ExtractModel       string `json:"extract_model,omitempty"`
-	Contextualise      bool   `json:"contextualise"`
-	ExtractOnly        bool   `json:"extract_only"`
-	RunSeed            int64  `json:"run_seed"`
-	SampleSize         int    `json:"sample_size"`
-	IngestMode         string `json:"ingest_mode"`
-	BenchmarkMode      string `json:"benchmark_mode"`
-	ContextSource      string `json:"context_source"`
-	ActorEndpointStyle string `json:"actor_endpoint_style,omitempty"`
-	ActorBrain         string `json:"actor_brain,omitempty"`
-	ActorRetrievalMode string `json:"actor_retrieval_mode,omitempty"`
-	ActorTopK          *int   `json:"actor_topk,omitempty"`
-	ActorCandidateK    *int   `json:"actor_candidatek,omitempty"`
-	ActorRerankTopN    *int   `json:"actor_rerank_topn,omitempty"`
-	ActorScope         string `json:"actor_scope,omitempty"`
-	ActorProject       string `json:"actor_project,omitempty"`
-	ActorPathPrefix    string `json:"actor_path_prefix,omitempty"`
+	DatasetSHA            string                `json:"dataset_sha"`
+	SampleSignature       string                `json:"sample_signature,omitempty"`
+	SampleIDs             []string              `json:"sample_ids,omitempty"`
+	JudgeModel            string                `json:"judge_model,omitempty"`
+	JudgeModelSHA         string                `json:"judge_model_sha,omitempty"`
+	JudgePromptVersion    int                   `json:"judge_prompt_version"`
+	JudgeBackend          string                `json:"judge_backend,omitempty"`
+	JudgeFailureMode      string                `json:"judge_failure_mode,omitempty"`
+	ReaderFailureMode     string                `json:"reader_failure_mode,omitempty"`
+	ReaderModel           string                `json:"reader_model,omitempty"`
+	ExtractModel          string                `json:"extract_model,omitempty"`
+	ExtractHeuristics     string                `json:"extract_heuristics,omitempty"`
+	ExtractionPipeline    int                   `json:"extraction_pipeline,omitempty"`
+	ReplayConcurrency     int                   `json:"replay_concurrency,omitempty"`
+	Contextualise         bool                  `json:"contextualise"`
+	ExtractOnly           bool                  `json:"extract_only"`
+	CacheSignature        string                `json:"cache_signature,omitempty"`
+	CacheSignatureInputs  *CacheSignatureInputs `json:"cache_signature_inputs,omitempty"`
+	RunSeed               int64                 `json:"run_seed"`
+	SampleSize            int                   `json:"sample_size"`
+	IngestMode            string                `json:"ingest_mode"`
+	BenchmarkMode         string                `json:"benchmark_mode"`
+	ContextSource         string                `json:"context_source"`
+	ActorEndpointStyle    string                `json:"actor_endpoint_style,omitempty"`
+	ActorBrain            string                `json:"actor_brain,omitempty"`
+	ActorRetrievalMode    string                `json:"actor_retrieval_mode,omitempty"`
+	ActorTopK             *int                  `json:"actor_topk,omitempty"`
+	ActorCandidateK       *int                  `json:"actor_candidatek,omitempty"`
+	ActorRerankTopN       *int                  `json:"actor_rerank_topn,omitempty"`
+	ActorScope            string                `json:"actor_scope,omitempty"`
+	ActorProject          string                `json:"actor_project,omitempty"`
+	ActorPathPrefix       string                `json:"actor_path_prefix,omitempty"`
+	ActorQuestionSessions bool                  `json:"actor_question_sessions,omitempty"`
+}
+
+// CacheSignatureInputs records the fields used to validate that a populated
+// brain cache matches the extraction run a script is about to reuse.
+type CacheSignatureInputs struct {
+	DatasetSHA         string   `json:"dataset_sha"`
+	SampleSignature    string   `json:"sample_signature"`
+	SampleIDs          []string `json:"sample_ids"`
+	IngestMode         string   `json:"ingest_mode"`
+	ExtractModel       string   `json:"extract_model,omitempty"`
+	ExtractHeuristics  string   `json:"extract_heuristics,omitempty"`
+	ExtractionPipeline int      `json:"extraction_pipeline,omitempty"`
+	Contextualise      bool     `json:"contextualise"`
 }
 
 // BuildRunManifest derives the persisted manifest from the completed run and
@@ -64,6 +84,10 @@ func BuildRunManifest(result *LMEResult, cfg RunConfig, judgeModel string) RunMa
 	if extractModel == "" && cfg.IngestMode == "replay" {
 		extractModel = DefaultReplayExtractModel
 	}
+	replayConcurrency := 0
+	if cfg.IngestMode == "replay" {
+		replayConcurrency = normaliseReplayConcurrencyForManifest(cfg.ReplayConcurrency)
+	}
 	manifest := RunManifest{
 		JudgeModel:         judgeModel,
 		JudgePromptVersion: JudgePromptVersion,
@@ -71,6 +95,9 @@ func BuildRunManifest(result *LMEResult, cfg RunConfig, judgeModel string) RunMa
 		ReaderFailureMode:  "question-error",
 		ReaderModel:        readerModel,
 		ExtractModel:       extractModel,
+		ExtractHeuristics:  normaliseExtractHeuristicsEnv(os.Getenv("JB_EXTRACT_HEURISTICS")),
+		ExtractionPipeline: ReplayExtractionPipelineVersion,
+		ReplayConcurrency:  replayConcurrency,
 		Contextualise:      cfg.Contextualiser != nil,
 		ExtractOnly:        cfg.ExtractOnly,
 		RunSeed:            cfg.Seed,
@@ -81,10 +108,21 @@ func BuildRunManifest(result *LMEResult, cfg RunConfig, judgeModel string) RunMa
 	if result != nil {
 		manifest.DatasetSHA = result.DatasetSHA
 		manifest.IngestMode = result.IngestMode
+		if manifest.IngestMode == "replay" && manifest.ReplayConcurrency == 0 {
+			manifest.ReplayConcurrency = normaliseReplayConcurrencyForManifest(cfg.ReplayConcurrency)
+		}
+		manifest.SampleIDs = append([]string(nil), result.SampleIDs...)
 		manifest.SampleSignature = buildSampleSignatureFromOutcomes(result.Questions)
 	}
+	if len(manifest.SampleIDs) == 0 {
+		manifest.SampleIDs = append([]string(nil), cfg.SampleIDs...)
+	}
 	if manifest.SampleSignature == "" {
-		manifest.SampleSignature = buildSampleSignatureFromIDs(cfg.SampleIDs)
+		manifest.SampleSignature = buildSampleSignatureFromIDs(manifest.SampleIDs)
+	}
+	if manifest.IngestMode == "replay" || cfg.ExtractOnly {
+		manifest.CacheSignatureInputs = buildCacheSignatureInputs(manifest)
+		manifest.CacheSignature = buildCacheSignature(manifest.CacheSignatureInputs)
 	}
 
 	if strings.TrimSpace(cfg.ActorEndpoint) == "" {
@@ -120,6 +158,7 @@ func BuildRunManifest(result *LMEResult, cfg RunConfig, judgeModel string) RunMa
 	manifest.ActorScope = strings.TrimSpace(cfg.ActorFilters.Scope)
 	manifest.ActorProject = strings.TrimSpace(cfg.ActorFilters.Project)
 	manifest.ActorPathPrefix = strings.TrimSpace(cfg.ActorFilters.PathPrefix)
+	manifest.ActorQuestionSessions = cfg.ActorFilterQuestionSessions
 	return manifest
 }
 
@@ -182,8 +221,11 @@ func (m RunManifest) IsComparable(other RunManifest) bool {
 		m.ReaderFailureMode == other.ReaderFailureMode &&
 		m.ReaderModel == other.ReaderModel &&
 		m.ExtractModel == other.ExtractModel &&
+		m.ExtractHeuristics == other.ExtractHeuristics &&
+		m.ExtractionPipeline == other.ExtractionPipeline &&
 		m.Contextualise == other.Contextualise &&
 		m.ExtractOnly == other.ExtractOnly &&
+		m.CacheSignature == other.CacheSignature &&
 		m.BenchmarkMode == other.BenchmarkMode &&
 		m.ContextSource == other.ContextSource &&
 		m.ActorEndpointStyle == other.ActorEndpointStyle &&
@@ -194,7 +236,54 @@ func (m RunManifest) IsComparable(other RunManifest) bool {
 		intPtrEqual(m.ActorRerankTopN, other.ActorRerankTopN) &&
 		m.ActorScope == other.ActorScope &&
 		m.ActorProject == other.ActorProject &&
-		m.ActorPathPrefix == other.ActorPathPrefix
+		m.ActorPathPrefix == other.ActorPathPrefix &&
+		m.ActorQuestionSessions == other.ActorQuestionSessions
+}
+
+func buildCacheSignatureInputs(m RunManifest) *CacheSignatureInputs {
+	if m.DatasetSHA == "" || m.SampleSignature == "" || m.IngestMode == "" {
+		return nil
+	}
+	return &CacheSignatureInputs{
+		DatasetSHA:         m.DatasetSHA,
+		SampleSignature:    m.SampleSignature,
+		SampleIDs:          append([]string(nil), m.SampleIDs...),
+		IngestMode:         m.IngestMode,
+		ExtractModel:       m.ExtractModel,
+		ExtractHeuristics:  m.ExtractHeuristics,
+		ExtractionPipeline: m.ExtractionPipeline,
+		Contextualise:      m.Contextualise,
+	}
+}
+
+func normaliseExtractHeuristicsEnv(raw string) string {
+	mode := strings.ToLower(strings.TrimSpace(raw))
+	if mode == "" {
+		return "default"
+	}
+	return mode
+}
+
+func buildCacheSignature(inputs *CacheSignatureInputs) string {
+	if inputs == nil {
+		return ""
+	}
+	data, err := json.Marshal(inputs)
+	if err != nil {
+		return ""
+	}
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:])
+}
+
+func normaliseReplayConcurrencyForManifest(value int) int {
+	if value <= 0 {
+		return defaultReplayConcurrency
+	}
+	if value > maxReplayConcurrency {
+		return maxReplayConcurrency
+	}
+	return value
 }
 
 func buildSampleSignatureFromOutcomes(outcomes []QuestionOutcome) string {

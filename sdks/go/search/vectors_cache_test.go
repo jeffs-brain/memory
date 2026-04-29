@@ -309,6 +309,47 @@ func TestVectorIndex_CacheInvalidatedOnDelete(t *testing.T) {
 	}
 }
 
+func TestVectorIndex_DeleteByPathsDeletesOnlyRequestedModel(t *testing.T) {
+	_, vi := openVectorDB(t)
+	ctx := context.Background()
+
+	entries := []VectorEntry{
+		{Path: "wiki/keep.md", Checksum: "keep", Model: testModel, Vector: []float32{1, 0}},
+		{Path: "wiki/drop.md", Checksum: "drop", Model: testModel, Vector: []float32{0, 1}},
+		{Path: "wiki/drop.md", Checksum: "other", Model: "other-model", Vector: []float32{1, 1}},
+	}
+	if err := vi.StoreBatch(ctx, entries); err != nil {
+		t.Fatalf("StoreBatch: %v", err)
+	}
+	if _, err := vi.LoadAll(ctx, testModel); err != nil {
+		t.Fatalf("warm test model cache: %v", err)
+	}
+
+	deleted, err := vi.DeleteByPaths(ctx, testModel, []string{"wiki/drop.md"})
+	if err != nil {
+		t.Fatalf("DeleteByPaths: %v", err)
+	}
+	if deleted != 1 {
+		t.Fatalf("DeleteByPaths deleted %d rows, want 1", deleted)
+	}
+
+	testRows, err := vi.LoadAll(ctx, testModel)
+	if err != nil {
+		t.Fatalf("LoadAll test model: %v", err)
+	}
+	if len(testRows) != 1 || testRows[0].Path != "wiki/keep.md" {
+		t.Fatalf("test model rows = %+v, want only wiki/keep.md", pathsOfEntries(testRows))
+	}
+
+	otherRows, err := vi.LoadAll(ctx, "other-model")
+	if err != nil {
+		t.Fatalf("LoadAll other model: %v", err)
+	}
+	if len(otherRows) != 1 || otherRows[0].Path != "wiki/drop.md" {
+		t.Fatalf("other model rows = %+v, want wiki/drop.md untouched", pathsOfEntries(otherRows))
+	}
+}
+
 // TestVectorIndex_SearchReturnsHydratedHits proves Search copies
 // the stored Title / Summary fields onto each VectorHit so hybrid
 // retrieval no longer needs to read the frontmatter from disk.

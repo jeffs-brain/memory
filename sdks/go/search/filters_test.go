@@ -115,6 +115,31 @@ func TestSearch_DateRangePushedToSQL(t *testing.T) {
 	}
 }
 
+func TestSearch_SessionIDsPushedToSQL(t *testing.T) {
+	db, idx := newIndexEmpty(t)
+
+	insertDateRow(t, db, "memory/project/app/a.md", "A", "shared term", "project_memory", "2024-03-01")
+	insertDateRow(t, db, "memory/project/app/b.md", "B", "shared term", "project_memory", "2024-03-02")
+	insertDateRow(t, db, "memory/project/app/c.md", "C", "shared term", "project_memory", "2024-03-03")
+	insertSessionMetadata(t, db, "memory/project/app/a.md", "session-a")
+	insertSessionMetadata(t, db, "memory/project/app/b.md", "session-b")
+	insertSessionMetadata(t, db, "memory/project/app/c.md", "session-c")
+
+	results, err := idx.Search("shared term", SearchOpts{
+		MaxResults: 10,
+		Scope:      "project_memory",
+		SessionIDs: []string{"session-b", "session-c"},
+	})
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	got := searchResultPaths(results)
+	want := []string{"memory/project/app/b.md", "memory/project/app/c.md"}
+	if !sameSet(got, want) {
+		t.Errorf("session hits = %v, want %v", got, want)
+	}
+}
+
 // TestSearch_DateRangeComposesWithScope asserts the range filter
 // intersects cleanly with the scope filter.
 func TestSearch_DateRangeComposesWithScope(t *testing.T) {
@@ -319,5 +344,27 @@ func insertDateRow(t *testing.T, db *sql.DB, path, title, body, scope, sessionDa
 		path, title, "", "", body, scope, "", sessionDate,
 	); err != nil {
 		t.Fatalf("insert row %s: %v", path, err)
+	}
+}
+
+func insertSearchTestRow(t *testing.T, db *sql.DB, path, title, body, scope, projectSlug string) {
+	t.Helper()
+	if _, err := db.Exec(
+		`INSERT INTO knowledge_fts (path, title, summary, tags, content, scope, project_slug)
+		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		path, title, "", "", body, scope, projectSlug,
+	); err != nil {
+		t.Fatalf("insert row %s: %v", path, err)
+	}
+}
+
+func insertSessionMetadata(t *testing.T, db *sql.DB, path, sessionID string) {
+	t.Helper()
+	if _, err := db.Exec(
+		`INSERT INTO knowledge_index_metadata (path, session_id)
+		 VALUES (?, ?)`,
+		path, sessionID,
+	); err != nil {
+		t.Fatalf("insert metadata %s: %v", path, err)
 	}
 }
