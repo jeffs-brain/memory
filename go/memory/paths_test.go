@@ -128,7 +128,11 @@ func TestProjectSlug_GitRepoWithoutRemoteFallsBackToPath(t *testing.T) {
 	if slug == "" {
 		t.Error("slug should not be empty")
 	}
-	if want := pathBasedSlug(tmp); slug != want {
+	root := gitRoot(tmp)
+	if root == "" {
+		t.Fatal("expected git root")
+	}
+	if want := pathBasedSlug(root); slug != want {
 		t.Errorf("ProjectSlug = %q, want path-based slug %q", slug, want)
 	}
 }
