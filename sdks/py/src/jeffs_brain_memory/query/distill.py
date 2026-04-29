@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """LLM-backed query distiller with an LRU result cache.
 
-The prompt is ported verbatim from ``sdks/go/query/prompt.go`` to keep
+The prompt is ported verbatim from ``go/query/prompt.go`` to keep
 behaviour aligned across SDKs.
 """
 

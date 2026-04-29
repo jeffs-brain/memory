@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Extract durable knowledge from a session into memory files.
 
-The ``EXTRACTION_PROMPT`` is ported verbatim from ``sdks/go/memory/extract.go``.
+The ``EXTRACTION_PROMPT`` is ported verbatim from ``go/memory/extract.go``.
 """
 
 from __future__ import annotations

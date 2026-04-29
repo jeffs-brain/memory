@@ -2,7 +2,7 @@
 """Situating-prefix builder for extracted memory facts.
 
 ``CONTEXTUAL_PREFIX_SYSTEM_PROMPT`` is ported verbatim from
-``sdks/go/memory/contextualise.go``.
+``go/memory/contextualise.go``.
 """
 
 from __future__ import annotations

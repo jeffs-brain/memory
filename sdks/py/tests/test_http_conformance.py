@@ -5,7 +5,7 @@ Loads `spec/conformance/http-contract.json` from the repository root, spins
 up the Starlette `memory serve` app via a background uvicorn instance,
 and replays every case against a freshly provisioned brain.
 
-The harness mirrors `sdks/go/cmd/memory/conformance_test.go` step for step:
+The harness mirrors `go/cmd/memory/conformance_test.go` step for step:
 placeholder substitution, setup/followUp/teardown chains, JSON structural
 matching (with `"<ISO-8601>"` tolerated as a parseability assertion), the
 bodyAssertions vocabulary (items-include-path, items-files-equal, etc.),

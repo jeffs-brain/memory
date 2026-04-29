@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Hybrid retrieval orchestrator.
 
-Mirrors ``sdks/go/retrieval/retrieval.go``: mode resolution, BM25 leg
+Mirrors ``go/retrieval/retrieval.go``: mode resolution, BM25 leg
 with retry ladder, vector leg, RRF fusion, English intent reweight,
 optional rerank pass, unanimity shortcut.
 """

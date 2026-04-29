@@ -8,9 +8,8 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// version is the SDK scaffold version. Bumped in lockstep with the wire
-// protocol once implementations land.
-const version = "0.1.0-alpha.1"
+// version is the released Go CLI version.
+const version = "0.2.1"
 
 func versionCmd() *cobra.Command {
 	return &cobra.Command{

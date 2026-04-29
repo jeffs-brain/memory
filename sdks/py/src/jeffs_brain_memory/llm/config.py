@@ -140,7 +140,7 @@ def resolve_embed_model(
     """Return the effective embedding model name.
 
     Mirrors the Go helper ``resolveEmbedModel`` in
-    ``sdks/go/cmd/memory/daemon_vectors.go``. The resolved string pins
+    ``go/cmd/memory/daemon_vectors.go``. The resolved string pins
     the active model so persisted vectors can be tagged alongside each
     row and a model swap cannot mix dimensions at query time.
 

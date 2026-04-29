@@ -6,7 +6,7 @@
  * used entry is the first key returned by `keys().next()`. Reads promote
  * the hit to the most recent position by delete + re-insert.
  *
- * Mirrors the bookkeeping semantics of sdks/go/query/cache.go without
+ * Mirrors the bookkeeping semantics of go/query/cache.go without
  * the SHA-256 hashing step: TypeScript callers hash via `cacheKey`
  * before insertion when they want a deterministic, prompt-versioned
  * key.

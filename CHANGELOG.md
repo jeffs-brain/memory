@@ -7,6 +7,17 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-04-29
+
+### Added
+
+- First installable Go module release under `github.com/jeffs-brain/memory/go`, tagged as `go/v0.2.1`.
+- Go release workflow validation for `go/vX.Y.Z` tags.
+
+### Changed
+
+- Moved the Go module to the repository `go/` directory so the public module path resolves through the standard Go toolchain.
+
 ## [0.2.0] - 2026-04-22
 
 ### Added
@@ -32,9 +43,10 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ### Notes
 
-- Go and Python SDKs are in the pipeline. See `sdks/go/` and `sdks/py/` README files.
+- Go and Python SDKs are in the pipeline. See `go/` and `sdks/py/` README files.
 - Platform integration (multi-tenant backend) is private and unpublished.
 
-[Unreleased]: https://github.com/jeffs-brain/memory/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/jeffs-brain/memory/compare/go/v0.2.1...HEAD
+[0.2.1]: https://github.com/jeffs-brain/memory/compare/v0.2.0...go/v0.2.1
 [0.2.0]: https://github.com/jeffs-brain/memory/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/jeffs-brain/memory/releases/tag/v0.1.0

@@ -5,12 +5,12 @@ on:
   push:
     branches: [main]
     paths:
-      - 'sdks/go/**'
+      - 'go/**'
       - 'spec/**'
       - '.github/workflows/go.yml'
   pull_request:
     paths:
-      - 'sdks/go/**'
+      - 'go/**'
       - 'spec/**'
       - '.github/workflows/go.yml'
   workflow_dispatch: {}
@@ -25,14 +25,14 @@ jobs:
     runs-on: ${{ matrix.os }}
     defaults:
       run:
-        working-directory: sdks/go
+        working-directory: go
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
           go-version: ${{ matrix.go }}
           cache: true
-          cache-dependency-path: sdks/go/go.sum
+          cache-dependency-path: go/go.sum
       - name: Verify go.mod tidy
         run: |
           go mod tidy

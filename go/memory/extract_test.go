@@ -832,6 +832,36 @@ The project uses OIDC.
 	}
 }
 
+func TestExtractFromMessagesWithProjectSlug_UsesExplicitSlug(t *testing.T) {
+	mem, store := newTestMemory(t)
+	projectPath := "/project"
+	explicitSlug := "explicit-project"
+
+	writeTopic(t, store, brain.MemoryProjectTopic(explicitSlug, "project-auth"), strings.TrimSpace(`
+---
+name: Auth choice
+description: Use OIDC for auth
+type: project
+modified: 2026-04-18T11:00:00Z
+---
+
+The explicit project uses OIDC.
+`))
+
+	provider := &extractStubProvider{reply: `{"memories":[]}`}
+	if _, err := ExtractFromMessagesWithProjectSlug(context.Background(), provider, "test-model", mem, projectPath, explicitSlug, []Message{
+		{Role: RoleUser, Content: "msg 0"},
+		{Role: RoleAssistant, Content: "msg 1"},
+	}); err != nil {
+		t.Fatalf("ExtractFromMessagesWithProjectSlug: %v", err)
+	}
+
+	prompt := provider.req.Messages[1].Content
+	if !strings.Contains(prompt, "The explicit project uses OIDC.") {
+		t.Fatalf("expected prompt to use explicit project slug, got:\n%s", prompt)
+	}
+}
+
 func TestExtractorMaybeExtract_DefaultsToTwoMessageTurn(t *testing.T) {
 	mem, store := newTestMemory(t)
 	extractor := NewExtractor(mem)

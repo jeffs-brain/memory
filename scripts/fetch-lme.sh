@@ -21,7 +21,7 @@ HF_URL="https://huggingface.co/datasets/xiaowu0162/LongMemEval/resolve/main/long
 
 # Pinned SHA256 for longmemeval_s.json. Update when intentionally
 # upgrading the dataset. Keep in sync with ExpectedLMESmallSHA256 in
-# sdks/go/eval/lme/lme_dataset.go.
+# go/eval/lme/lme_dataset.go.
 EXPECTED_SHA256="08d8dad4be43ee2049a22ff5674eb86725d0ce5ff434cde2627e5e8e7e117894"
 
 log() { printf '[fetch-lme] %s\n' "$*"; }

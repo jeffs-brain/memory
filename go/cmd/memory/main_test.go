@@ -30,6 +30,24 @@ func TestSmokeVersion(t *testing.T) {
 	}
 }
 
+func TestPlannedCommandsHiddenFromHelp(t *testing.T) {
+	var stdout bytes.Buffer
+	cmd := rootCmd()
+	cmd.SetArgs([]string{"--help"})
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stdout)
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("help execute: %v", err)
+	}
+
+	help := stdout.String()
+	for _, name := range []string{"init", "ingest", "search", "ask", "remember", "recall", "reflect", "consolidate", "create-brain", "list-brains"} {
+		if strings.Contains(help, "\n  "+name) {
+			t.Fatalf("planned command %q should be hidden from help:\n%s", name, help)
+		}
+	}
+}
+
 // TestSmokeServe verifies `memory serve` binds a port and serves /healthz
 // then shuts down cleanly on context cancel.
 func TestSmokeServe(t *testing.T) {

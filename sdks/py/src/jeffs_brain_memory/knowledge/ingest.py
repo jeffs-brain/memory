@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Ingest routing — markdown, plain text, HTML, PDF, and URLs.
 
-Ported from ``sdks/go/knowledge/ingest.go``. Every ingested document
+Ported from ``go/knowledge/ingest.go``. Every ingested document
 lands under ``raw/documents/<slug>.md`` with a regenerated YAML
 frontmatter header so downstream search indexes see a canonical shape.
 """

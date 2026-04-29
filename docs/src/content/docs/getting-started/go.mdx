@@ -1,6 +1,6 @@
 ---
 title: Go
-description: Install the Go SDK and run the reference CLI.
+description: Install the Go SDK and run the implemented CLI surface.
 sidebar:
   order: 2
 ---
@@ -8,29 +8,25 @@ sidebar:
 ## Install
 
 ```bash
-go install github.com/jeffs-brain/memory/go/cmd/memory@latest
+go install github.com/jeffs-brain/memory/go/cmd/memory@v0.2.1
 ```
 
 The binary is named `memory` and lives under `$GOPATH/bin` (usually `~/go/bin`). Ensure that's on your `PATH`.
 
-Build from source if you'd rather:
-
-```bash
-git clone https://github.com/jeffs-brain/memory
-cd memory/sdks/go
-go build ./...
-go install ./cmd/memory
-```
+For local checkout development, run `go build ./...` from the repository's
+`go/` directory.
 
 ## CLI quick start
 
 ```bash
-memory init ./my-brain
-memory ingest ./docs/hedgehogs.md --brain ./my-brain
-memory search "where do hedgehogs live?" --brain ./my-brain
+memory version
+memory serve --addr 127.0.0.1:18841
 ```
 
-Same subcommand shapes as the TypeScript CLI. See the [CLI reference](/reference/cli/) for every flag.
+The production-ready Go CLI surface is `version`, `serve`, and `eval lme`.
+Planned local workflow commands such as `init`, `ingest`, and `search` remain
+hidden placeholders in the Go binary until they are implemented. See the [CLI
+reference](/reference/cli/) for the cross-SDK command matrix.
 
 Cross-SDK eval parity today is the shared daemon surface: `ask-basic`, `ask-augmented`, and `search-retrieve-only`. Go also ships the native `memory eval lme run` path for full replay and agentic LongMemEval work.
 
@@ -122,7 +118,8 @@ func main() {
 
 ## Status
 
-Go ships the reference CLI, HTTP daemon, MCP wrapper, and native LongMemEval runner. See the [Go SDK README](https://github.com/jeffs-brain/memory/tree/main/sdks/go) for the full surface.
+Go ships the HTTP daemon, MCP wrapper, native LongMemEval runner, and public
+packages. See the [Go SDK README](https://github.com/jeffs-brain/memory/tree/main/go) for the full surface.
 
 ## Next steps
 

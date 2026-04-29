@@ -132,7 +132,7 @@ func jsonString(v any) string {
 
 // locateGoldenFixture walks up from the package directory to find
 // the spec/fixtures/query-parser/cases.json file. The Go SDK lives
-// below spec/ in the wider monorepo (jeffs-brain/memory/sdks/go/
+// below spec/ in the wider monorepo (jeffs-brain/memory/go/
 // against jeffs-brain/memory/spec/fixtures/), so an upward search
 // is the robust way to locate the fixture without hard-coding the
 // module layout.

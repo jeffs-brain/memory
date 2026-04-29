@@ -2,7 +2,7 @@
 
 /**
  * Integration tests for the memory HTTP daemon. Mirrors the nine Go
- * tests in `sdks/go/cmd/memory/serve_integration_test.go` so the two
+ * tests in `go/cmd/memory/serve_integration_test.go` so the two
  * SDKs stay behaviourally aligned.
  */
 

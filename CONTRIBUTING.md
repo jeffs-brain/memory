@@ -53,7 +53,7 @@ There is no CLA. Sign-off is sufficient.
 ## Per-SDK notes
 
 - **TypeScript (`sdks/ts/*`)**: shipping today at `0.0.x`. Core package is `@jeffs-brain/memory`, with adapters `@jeffs-brain/memory-postgres` and `@jeffs-brain/memory-openfga`. MCP wrapper lives at `mcp/ts`.
-- **Go (`sdks/go/`)**: coming in Phase 3. Contributions welcome once the scaffold lands.
+- **Go (`go/`)**: coming in Phase 3. Contributions welcome once the scaffold lands.
 - **Python (`sdks/py/`)**: coming in Phase 4. Contributions welcome once the scaffold lands.
 
 ## Conformance tests

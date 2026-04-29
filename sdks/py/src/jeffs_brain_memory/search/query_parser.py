@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Query DSL parser and FTS5 compiler.
 
-Ported from ``sdks/go/search/query_parser.go`` and validated against
+Ported from ``go/search/query_parser.go`` and validated against
 the cross-SDK goldens at ``spec/fixtures/query-parser/cases.json``.
 Behaviour is bit-for-bit compatible with the TypeScript and Go SDKs:
 

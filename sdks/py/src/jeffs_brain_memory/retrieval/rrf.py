@@ -6,7 +6,7 @@ Merges an arbitrary number of ranked lists into a single ranking with
 of the input lists does not change the fused score; it only controls
 which list seeds the metadata for a candidate seen in multiple lists.
 
-Mirrors ``sdks/go/retrieval/rrf.go`` bit for bit.
+Mirrors ``go/retrieval/rrf.go`` bit for bit.
 """
 
 from __future__ import annotations

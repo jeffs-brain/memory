@@ -157,7 +157,7 @@ def test_prompt_matches_go_source_verbatim() -> None:
     # Read the Go source and extract the raw string literal; compare
     # byte-for-byte against the Python constant.
     go_src = Path(
-        "/home/jaythegeek/code/jeffs-brain/memory/sdks/go/query/prompt.go"
+        "/home/jaythegeek/code/jeffs-brain/memory/go/query/prompt.go"
     ).read_text()
     start = go_src.index("`") + 1
     end = go_src.index("`", start)

@@ -5,7 +5,7 @@ set -euo pipefail
 
 ROOT_DIR="${ROOT_DIR:-$HOME/code/jeffs-brain}"
 MEMORY_DIR="${MEMORY_DIR:-$ROOT_DIR/memory}"
-GO_SDK_DIR="${GO_SDK_DIR:-$MEMORY_DIR/sdks/go}"
+GO_SDK_DIR="${GO_SDK_DIR:-$MEMORY_DIR/go}"
 RESULTS_DIR="${RESULTS_DIR:-$MEMORY_DIR/eval/results}"
 
 DEFAULT_S_DATASET="$MEMORY_DIR/eval/datasets/longmemeval_s.json"

@@ -3,7 +3,7 @@
 
 See ``spec/ALGORITHMS.md`` for ranking details and
 ``spec/QUERY-DSL.md`` for the parser contract. The public surface
-mirrors the Go SDK module at ``sdks/go/search/``.
+mirrors the Go SDK module at ``go/search/``.
 """
 
 from __future__ import annotations

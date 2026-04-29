@@ -2,7 +2,7 @@
 """Consolidation: index rebuild, dedup, staleness, reinforcement.
 
 ``DEDUPLICATION_SYSTEM_PROMPT`` is ported verbatim from
-``sdks/go/memory/consolidate.go``.
+``go/memory/consolidate.go``.
 """
 
 from __future__ import annotations

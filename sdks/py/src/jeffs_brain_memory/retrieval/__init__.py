@@ -2,7 +2,7 @@
 """Hybrid retrieval — BM25 + vector search with RRF fusion.
 
 See ``spec/ALGORITHMS.md`` for the pipeline definition and
-``sdks/go/retrieval`` for the reference Go implementation this package
+``go/retrieval`` for the reference Go implementation this package
 tracks bit-for-bit.
 """
 

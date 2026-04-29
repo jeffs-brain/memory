@@ -3,7 +3,7 @@
 /**
  * Vector backfill routine for the memory HTTP daemon.
  *
- * Port of `sdks/go/cmd/memory/daemon_vectors.go` so TS and Go stay in
+ * Port of `go/cmd/memory/daemon_vectors.go` so TS and Go stay in
  * lockstep on vector coverage: after the initial FTS scan completes,
  * every indexed path that lacks a vector for the currently-configured
  * embedding model is embedded and persisted. Runs asynchronously so

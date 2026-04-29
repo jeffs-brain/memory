@@ -4,24 +4,25 @@ The Go implementation of the Jeffs Brain memory and knowledge stack. Ships the p
 
 Module path: `github.com/jeffs-brain/memory/go`.
 
-Wire-compatible with the TypeScript and Python SDKs over the [`spec/PROTOCOL.md`](../../spec/PROTOCOL.md) HTTP contract. Cross-SDK daemon parity today is `ask-basic`, `ask-augmented`, and `search-retrieve-only` through `memory serve`.
+Current CLI version: `0.2.1`.
+
+Wire-compatible with the TypeScript and Python SDKs over the [`spec/PROTOCOL.md`](../spec/PROTOCOL.md) HTTP contract. Cross-SDK daemon parity today is `ask-basic`, `ask-augmented`, and `search-retrieve-only` through `memory serve`.
 
 ## Install
 
-```bash
-go get github.com/jeffs-brain/memory/go@latest
-```
-
-CLI binaries:
+Install the released CLI and MCP wrapper:
 
 ```bash
-go install github.com/jeffs-brain/memory/go/cmd/memory@latest
-go install github.com/jeffs-brain/memory/go/cmd/memory-mcp@latest
+go install github.com/jeffs-brain/memory/go/cmd/memory@v0.2.1
+go install github.com/jeffs-brain/memory/go/cmd/memory-mcp@v0.2.1
 ```
+
+For local programmatic development from a checkout, use a `replace` to this
+directory while iterating.
 
 ## Quickstart
 
-Open a filesystem-backed brain, attach a search index, ingest a document, and run a hybrid search. Mirrors [`examples/go/hello-world`](../../examples/go/hello-world).
+Open a filesystem-backed brain, attach a search index, ingest a document, and run a hybrid search. Mirrors [`examples/go/hello-world`](../examples/go/hello-world).
 
 ```go
 package main
@@ -123,6 +124,19 @@ The `cmd/memory` binary is the reference CLI plus HTTP daemon. The `cmd/memory-m
 - Configuration reference: <https://docs.jeffsbrain.com/reference/configuration/>
 - Wire spec and algorithms: <https://docs.jeffsbrain.com/spec/protocol/>, [`/spec/algorithms/`](https://docs.jeffsbrain.com/spec/algorithms/), [`/spec/storage/`](https://docs.jeffsbrain.com/spec/storage/), [`/spec/query-dsl/`](https://docs.jeffsbrain.com/spec/query-dsl/), [`/spec/mcp-tools/`](https://docs.jeffsbrain.com/spec/mcp-tools/)
 
+## Release and tags
+
+The Go module is released with a `go/vX.Y.Z` tag because this module lives in
+the repository's `go/` directory. The release workflow validates `go/vX.Y.Z`
+tags by running `go run ./cmd/memory version`, `go build ./...`, and focused
+command tests from `go`.
+
+Before tagging a Go release:
+
+1. Update `cmd/memory/version.go` to match the tag without the leading `v`.
+2. Run `cd go && go test ./cmd/memory ./cmd/memory-mcp`.
+3. Tag from the repository root, for example `git tag go/v0.2.1`.
+
 ## Postgres store
 
 The Go SDK does not currently ship a Postgres store adapter. A Postgres-backed store is provided by the TypeScript SDK only. Use `store/fs`, `store/git`, `store/http`, or `store/pt` from Go.
@@ -132,7 +146,6 @@ The Go SDK does not currently ship a Postgres store adapter. A Postgres-backed s
 ```bash
 memory version
 memory serve --addr 127.0.0.1:18841
-memory eval lme run --dataset eval/datasets/longmemeval_s.json --sample-size 50
 ```
 
 Today the production-ready Go CLI surface is `version`, `serve`, and
@@ -202,7 +215,7 @@ How we test it:
 Run the shared daemon scenario checks with:
 
 ```bash
-cd sdks/go
+cd go
 go test ./cmd/memory ./eval/lme
 ```
 
@@ -215,11 +228,11 @@ OPENAI_API_KEY=sk-... uv run python runner.py --sdk go --dataset datasets/lme.js
 OPENAI_API_KEY=sk-... uv run python runner.py --sdk go --dataset datasets/lme.jsonl --scorer judge --scenario search-retrieve-only --brain eval --output results/search-retrieve-only
 ```
 
-Use one output root per scenario so same-day runs do not overwrite `<output>/<date>/go.json`. For the full three-way comparison flow, see [`../../eval/README.md`](../../eval/README.md).
+Use one output root per scenario so same-day runs do not overwrite `<output>/<date>/go.json`. For the full three-way comparison flow, see [`../eval/README.md`](../eval/README.md).
 
 ## LongMemEval replay
 
-Go is the reference native LME runner and the coordinator for the replay-backed tri-SDK retrieve-only workflow. For the cross-SDK replay comparison, run [`../../eval/scripts/run_tri_lme.sh`](../../eval/scripts/run_tri_lme.sh) from the repo root rather than stitching the three daemons together by hand.
+Go is the reference native LME runner and the coordinator for the replay-backed tri-SDK retrieve-only workflow. For the cross-SDK replay comparison, run [`../eval/scripts/run_tri_lme.sh`](../eval/scripts/run_tri_lme.sh) from the repo root rather than stitching the three daemons together by hand.
 
 ```bash
 memory eval lme run \
@@ -235,14 +248,14 @@ Env knobs: `JB_LME_JUDGE_MODEL`, `JB_LME_ACTOR_MODEL`, plus the standard `JB_LLM
 ## Build from source
 
 ```bash
-cd sdks/go
+cd go
 go build ./...
 go test ./...
 ```
 
 ## Examples
 
-- [`examples/go/hello-world`](../../examples/go/hello-world) - ingest a markdown doc into a brain and run a hybrid search over it.
+- [`examples/go/hello-world`](../examples/go/hello-world) - ingest a markdown doc into a brain and run a hybrid search over it.
 
 ## Licence
 

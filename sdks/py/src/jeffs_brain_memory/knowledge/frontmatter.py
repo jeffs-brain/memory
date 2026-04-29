@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """YAML frontmatter parsing with a line-scan fallback.
 
-Ported from ``sdks/go/knowledge/frontmatter.go`` and the original
+Ported from ``go/knowledge/frontmatter.go`` and the original
 ``jeff/apps/jeff/internal/knowledge/frontmatter.go``. The parser stays
 lenient about quoting and list shapes that hand-authored markdown
 commonly uses.

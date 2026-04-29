@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Dataclasses and enums shared across the retrieval package.
 
-The public shapes mirror the Go SDK in ``sdks/go/retrieval/types.go``.
+The public shapes mirror the Go SDK in ``go/retrieval/types.go``.
 They are deliberately plain ``@dataclass`` values so trace emission can
 serialise them with the stdlib ``dataclasses.asdict`` when needed.
 """

@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """HTTP daemon state: `Daemon`, `BrainManager`, `BrainResources`.
 
-Mirrors the Go reference in `sdks/go/cmd/memory/daemon.go`. Per-brain
+Mirrors the Go reference in `go/cmd/memory/daemon.go`. Per-brain
 resources are constructed lazily on first access and cached for the
 daemon's lifetime. A per-daemon `asyncio.Lock` guards the cache dict
 so concurrent handlers cannot race construction.

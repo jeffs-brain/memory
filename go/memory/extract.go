@@ -524,7 +524,7 @@ func (e *Extractor) MaybeExtract(
 		recent = recent[len(recent)-extractMaxRecent:]
 	}
 
-	existingMemories, _ := listExistingMemories(ctx, e.mem, projectPath)
+	existingMemories, _ := listExistingMemoriesForSlug(ctx, e.mem, slug)
 	userPrompt := extractUserPrompt(recent, existingMemories)
 
 	resp, err := provider.Complete(ctx, llm.CompleteRequest{
@@ -598,7 +598,21 @@ func ExtractFromMessages(
 	projectPath string,
 	messages []Message,
 ) ([]ExtractedMemory, error) {
-	return ExtractFromMessagesWithSession(ctx, provider, model, mem, projectPath, messages, "", "")
+	return extractFromMessagesWithSession(ctx, provider, model, mem, projectPath, "", messages, "", "")
+}
+
+// ExtractFromMessagesWithProjectSlug runs the extraction LLM call using
+// an already-resolved project slug.
+func ExtractFromMessagesWithProjectSlug(
+	ctx context.Context,
+	provider llm.Provider,
+	model string,
+	mem *Memory,
+	projectPath string,
+	projectSlug string,
+	messages []Message,
+) ([]ExtractedMemory, error) {
+	return extractFromMessagesWithSession(ctx, provider, model, mem, projectPath, projectSlug, messages, "", "")
 }
 
 // ExtractFromMessagesWithSession runs the extraction LLM call and
@@ -614,8 +628,42 @@ func ExtractFromMessagesWithSession(
 	sessionID string,
 	sessionDate string,
 ) ([]ExtractedMemory, error) {
+	return extractFromMessagesWithSession(ctx, provider, model, mem, projectPath, "", messages, sessionID, sessionDate)
+}
+
+// ExtractFromMessagesWithSessionAndProjectSlug runs the extraction LLM
+// call with explicit session metadata and an already-resolved project
+// slug.
+func ExtractFromMessagesWithSessionAndProjectSlug(
+	ctx context.Context,
+	provider llm.Provider,
+	model string,
+	mem *Memory,
+	projectPath string,
+	projectSlug string,
+	messages []Message,
+	sessionID string,
+	sessionDate string,
+) ([]ExtractedMemory, error) {
+	return extractFromMessagesWithSession(ctx, provider, model, mem, projectPath, projectSlug, messages, sessionID, sessionDate)
+}
+
+func extractFromMessagesWithSession(
+	ctx context.Context,
+	provider llm.Provider,
+	model string,
+	mem *Memory,
+	projectPath string,
+	projectSlug string,
+	messages []Message,
+	sessionID string,
+	sessionDate string,
+) ([]ExtractedMemory, error) {
 	if len(messages) < 2 {
 		return nil, nil
+	}
+	if strings.TrimSpace(projectSlug) == "" {
+		projectSlug = ProjectSlug(projectPath)
 	}
 
 	recent := messages
@@ -623,7 +671,7 @@ func ExtractFromMessagesWithSession(
 		recent = recent[len(recent)-extractMaxRecent:]
 	}
 
-	existingMemories, _ := listExistingMemories(ctx, mem, projectPath)
+	existingMemories, _ := listExistingMemoriesForSlug(ctx, mem, projectSlug)
 	userPrompt := extractUserPrompt(recent, existingMemories)
 
 	resp, err := provider.Complete(ctx, llm.CompleteRequest{
@@ -684,7 +732,11 @@ func HeuristicExtractionsFromMessagesWithSession(
 }
 
 func listExistingMemories(ctx context.Context, mem *Memory, projectPath string) ([]existingMemorySummary, error) {
-	projectTopics, err := mem.ListProjectTopics(ctx, projectPath)
+	return listExistingMemoriesForSlug(ctx, mem, ProjectSlug(projectPath))
+}
+
+func listExistingMemoriesForSlug(ctx context.Context, mem *Memory, projectSlug string) ([]existingMemorySummary, error) {
+	projectTopics, err := mem.ListProjectTopicsForSlug(ctx, projectSlug)
 	if err != nil {
 		return nil, err
 	}

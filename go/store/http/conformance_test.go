@@ -22,7 +22,7 @@ import (
 // conformanceFile returns the language-neutral conformance fixture path. The
 // cases live in ../../../spec/conformance/http-contract.json relative to
 // this test file. Resolved via the repository root two levels above
-// sdks/go/store/http.
+// go/store/http.
 func conformanceFile(t *testing.T) string {
 	t.Helper()
 	// Walk up from this package directory until we find spec/conformance.

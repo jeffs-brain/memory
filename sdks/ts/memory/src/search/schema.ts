@@ -112,7 +112,7 @@ CREATE VIRTUAL TABLE IF NOT EXISTS knowledge_fts USING fts5(
  * The `model` column on `knowledge_vec_map` pins the embedding model
  * name alongside each vector so switching models cleanly invalidates
  * stale vectors. Parity with the Go VectorIndex `Model` column in
- * `sdks/go/search/vectors.go`. Added via ALTER TABLE so existing
+ * `go/search/vectors.go`. Added via ALTER TABLE so existing
  * deployments migrate in-place; rows without a model stay NULL and are
  * treated as belonging to no model for backfill probing purposes.
  *

@@ -29,7 +29,7 @@ Do not open public issues for security problems.
 
 In scope:
 
-- Any SDK in this repository (`sdks/ts`, `sdks/go`, `sdks/py`)
+- Any SDK in this repository (`sdks/ts`, `go`, `sdks/py`)
 - Any MCP wrapper in this repository (`mcp/ts`, `mcp/go`, `mcp/py`)
 - The `@jeffs-brain/install` orchestrator under `install/`
 - Sibling adapter packages published from this repo (`@jeffs-brain/memory-postgres`, `@jeffs-brain/memory-openfga`)
