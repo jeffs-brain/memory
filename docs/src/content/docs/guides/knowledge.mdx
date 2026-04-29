@@ -35,16 +35,24 @@ Construct a knowledge handle from a store plus, optionally, a search index, retr
   <TabItem label="Go">
     ```go
     import (
-        "github.com/jeffs-brain/memory/go/brain/fsstore"
         "github.com/jeffs-brain/memory/go/knowledge"
         "github.com/jeffs-brain/memory/go/search"
+        "github.com/jeffs-brain/memory/go/store/fs"
     )
 
-    store, err := fsstore.Open("./data/my-brain")
+    store, err := fs.New("./data/my-brain")
     if err != nil {
         return err
     }
-    idx, err := search.Open("./data/my-brain/search.db")
+    defer store.Close()
+
+    db, err := search.OpenDB("./data/my-brain/search.db")
+    if err != nil {
+        return err
+    }
+    defer search.CloseDB(db)
+
+    idx, err := search.NewIndex(db, store)
     if err != nil {
         return err
     }
