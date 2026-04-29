@@ -439,9 +439,12 @@ func (r *retriever) runBM25RetryRungs(ctx context.Context, req Request, candidat
 		}
 	}
 
-	// Rung 2: force-refresh pass-through. No trace row; documented
-	// no-op so later SDKs can see the boundary.
-	forceRefreshIndex()
+	// Rung 2: refresh the backing index when the source can do so.
+	// No trace row is emitted because the following rungs carry the
+	// refreshed_* labels that matter to callers and eval traces.
+	if err := r.refreshIndex(ctx); err != nil {
+		return nil, attempts, false, fmt.Errorf("retrieval: rung 2 refresh index: %w", err)
+	}
 
 	// Rung 3: refreshed sanitised query.
 	sanitised := sanitiseQuery(req.Query)
@@ -539,6 +542,17 @@ func (r *retriever) runBM25RetryRungs(ctx context.Context, req Request, candidat
 	}
 
 	return nil, attempts, false, nil
+}
+
+func (r *retriever) refreshIndex(ctx context.Context) error {
+	if r == nil || r.source == nil {
+		return nil
+	}
+	source, ok := r.source.(RefreshSource)
+	if !ok {
+		return nil
+	}
+	return source.Refresh(ctx)
 }
 
 func trigramHitPassesFilters(hit trigramHit, filters Filters) bool {

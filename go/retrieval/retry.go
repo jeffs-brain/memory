@@ -333,12 +333,6 @@ func absDurationDays(d time.Duration) float64 {
 	return d.Hours() / 24
 }
 
-// forceRefreshIndex is a documented no-op for SQLite / WAL backed
-// indices. The spec keeps it in the rung list so attempt traces stay
-// diffable against other SDKs; callers may re-wire it to drive a
-// genuine reindex when a backend warrants it.
-func forceRefreshIndex() { /* no-op; see doc.go. */ }
-
 // trigramChunk is the minimum payload the trigram index needs. Paths
 // are required; title / summary / content are optional but used to
 // hydrate the hit so callers can read the match without another

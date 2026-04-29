@@ -54,6 +54,14 @@ type Source interface {
 	Chunks(ctx context.Context) ([]trigramChunk, error)
 }
 
+// RefreshSource is an optional extension implemented by sources that
+// can refresh their underlying index before retrying a search. The
+// retry ladder calls it at the documented refresh rung, after the
+// first fallback has failed and before the refreshed query attempts.
+type RefreshSource interface {
+	Refresh(ctx context.Context) error
+}
+
 // BodyLookupSource is an optional extension implemented by sources
 // that can hydrate full indexed rows by logical identifier. Retrieval
 // uses it after fusion so BM25 and vector hits can both surface the

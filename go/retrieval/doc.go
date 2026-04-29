@@ -2,7 +2,7 @@
 
 // Package retrieval composes BM25 and vector search into a hybrid
 // pipeline with Reciprocal Rank Fusion, an optional cross-encoder
-// rerank pass and the five-rung `forceRefreshIndex` retry ladder from
+// rerank pass and the five-rung index-refresh retry ladder from
 // spec/ALGORITHMS.md.
 //
 // The pipeline is the Go port of the TypeScript reference in

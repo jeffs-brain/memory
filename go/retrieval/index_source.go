@@ -283,6 +283,19 @@ func (s *IndexSource) Chunks(ctx context.Context) ([]trigramChunk, error) {
 	return out, nil
 }
 
+// Refresh implements [RefreshSource] by asking the underlying search
+// index to pick up changed brain files before the retry ladder runs
+// its refreshed query rungs.
+func (s *IndexSource) Refresh(ctx context.Context) error {
+	if s == nil || s.index == nil {
+		return errors.New("retrieval: IndexSource: nil index")
+	}
+	if err := s.index.Update(ctx); err != nil {
+		return fmt.Errorf("retrieval: IndexSource Update: %w", err)
+	}
+	return nil
+}
+
 // Lookup returns the full indexed payload for a slice of brain paths.
 // Useful for adapters that have already collected chunk identifiers
 // (e.g. from a cached trigram pass) and now need the body for
