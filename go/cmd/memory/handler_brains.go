@@ -9,6 +9,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/jeffs-brain/memory/go/brain"
 	"github.com/jeffs-brain/memory/go/internal/httpd"
 )
 
@@ -43,6 +44,10 @@ func (d *Daemon) handleGetBrain(w http.ResponseWriter, r *http.Request) {
 		httpd.ValidationError(w, "missing brainId")
 		return
 	}
+	if err := brain.ValidateBrainID(id); err != nil {
+		httpd.ValidationError(w, err.Error())
+		return
+	}
 	if !d.brainExists(id) {
 		httpd.NotFound(w, "brain not found: "+id)
 		return
@@ -58,6 +63,10 @@ func (d *Daemon) handleCreateBrain(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.BrainID == "" {
 		httpd.ValidationError(w, "brainId required")
+		return
+	}
+	if err := brain.ValidateBrainID(req.BrainID); err != nil {
+		httpd.ValidationError(w, err.Error())
 		return
 	}
 	if _, err := d.Brains.Create(r.Context(), req.BrainID); err != nil {
@@ -78,6 +87,10 @@ func (d *Daemon) handleDeleteBrain(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("brainId")
 	if id == "" {
 		httpd.ValidationError(w, "missing brainId")
+		return
+	}
+	if err := brain.ValidateBrainID(id); err != nil {
+		httpd.ValidationError(w, err.Error())
 		return
 	}
 	if r.Header.Get("X-Confirm-Delete") != "yes" {
