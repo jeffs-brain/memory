@@ -3,6 +3,7 @@
 package httpd
 
 import (
+	"crypto/subtle"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -32,7 +33,6 @@ func AuthMiddleware(token string, next http.Handler) http.Handler {
 	if token == "" {
 		return next
 	}
-	expected := "Bearer " + token
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/healthz" {
 			next.ServeHTTP(w, r)
@@ -43,12 +43,31 @@ func AuthMiddleware(token string, next http.Handler) http.Handler {
 			Unauthorized(w, "missing Authorization header")
 			return
 		}
-		if !strings.EqualFold(got, expected) {
+		if !validBearerToken(got, token) {
 			Forbidden(w, "invalid bearer token")
 			return
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+const bearerPrefix = "bearer "
+
+// validBearerToken checks that header is a Bearer token matching expected.
+// The scheme prefix comparison is case-insensitive (RFC 7235); the token
+// comparison uses constant-time equality to prevent timing side-channels.
+func validBearerToken(header, expected string) bool {
+	if len(header) < len(bearerPrefix) {
+		return false
+	}
+	if !strings.EqualFold(header[:len(bearerPrefix)], bearerPrefix) {
+		return false
+	}
+	actual := header[len(bearerPrefix):]
+	if len(actual) == 0 {
+		return false
+	}
+	return subtle.ConstantTimeCompare([]byte(actual), []byte(expected)) == 1
 }
 
 // Implements http.ResponseWriter / http.Flusher passthrough so SSE
