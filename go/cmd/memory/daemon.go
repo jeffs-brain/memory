@@ -104,12 +104,19 @@ func (d *Daemon) Close() error {
 	return nil
 }
 
-func (d *Daemon) brainRoot(brainID string) string {
-	return filepath.Join(d.Root, "brains", brainID)
+func (d *Daemon) brainRoot(brainID string) (string, error) {
+	if err := brain.ValidateBrainID(brainID); err != nil {
+		return "", err
+	}
+	return filepath.Join(d.Root, "brains", brainID), nil
 }
 
 func (d *Daemon) brainExists(brainID string) bool {
-	info, err := os.Stat(d.brainRoot(brainID))
+	root, err := d.brainRoot(brainID)
+	if err != nil {
+		return false
+	}
+	info, err := os.Stat(root)
 	if err != nil {
 		return false
 	}
@@ -224,7 +231,10 @@ func (bm *BrainManager) Create(ctx context.Context, brainID string) (*BrainResou
 	if brainID == "" {
 		return nil, errors.New("brain manager: brainID required")
 	}
-	root := bm.d.brainRoot(brainID)
+	root, err := bm.d.brainRoot(brainID)
+	if err != nil {
+		return nil, fmt.Errorf("brain manager: %w", err)
+	}
 	if _, err := os.Stat(root); err == nil {
 		return nil, fmt.Errorf("brain manager: brain %s: %w", brainID, brain.ErrConflict)
 	}
@@ -271,7 +281,10 @@ func (bm *BrainManager) Delete(brainID string) error {
 		_ = entry.Close()
 		delete(bm.all, brainID)
 	}
-	root := bm.d.brainRoot(brainID)
+	root, err := bm.d.brainRoot(brainID)
+	if err != nil {
+		return fmt.Errorf("brain manager: %w", err)
+	}
 	info, err := os.Stat(root)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
@@ -300,7 +313,10 @@ func (bm *BrainManager) Close() error {
 // search is left nil and the retriever falls back to BM25-via-search
 // (or no-op when no index is present).
 func (bm *BrainManager) build(ctx context.Context, brainID string) (*BrainResources, error) {
-	root := bm.d.brainRoot(brainID)
+	root, err := bm.d.brainRoot(brainID)
+	if err != nil {
+		return nil, fmt.Errorf("brain manager: %w", err)
+	}
 	store, err := pt.New(root)
 	if err != nil {
 		return nil, fmt.Errorf("brain manager: store %s: %w", root, err)
