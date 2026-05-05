@@ -3,6 +3,7 @@
 package httpd
 
 import (
+	"crypto/sha256"
 	"crypto/subtle"
 	"log/slog"
 	"net/http"
@@ -51,23 +52,31 @@ func AuthMiddleware(token string, next http.Handler) http.Handler {
 	})
 }
 
-const bearerPrefix = "bearer "
+const bearerScheme = "bearer"
 
 // validBearerToken checks that header is a Bearer token matching expected.
-// The scheme prefix comparison is case-insensitive (RFC 7235); the token
-// comparison uses constant-time equality to prevent timing side-channels.
+// The scheme comparison is case-insensitive per RFC 7235 and accepts
+// one-or-more spaces between scheme and token per the RFC grammar.
+// Token comparison hashes both sides with SHA-256 before calling
+// ConstantTimeCompare so that differing lengths do not leak timing.
 func validBearerToken(header, expected string) bool {
-	if len(header) < len(bearerPrefix) {
+	if len(header) < len(bearerScheme)+1 {
 		return false
 	}
-	if !strings.EqualFold(header[:len(bearerPrefix)], bearerPrefix) {
+	if !strings.EqualFold(header[:len(bearerScheme)], bearerScheme) {
 		return false
 	}
-	actual := header[len(bearerPrefix):]
+	rest := header[len(bearerScheme):]
+	if len(rest) == 0 || rest[0] != ' ' {
+		return false
+	}
+	actual := strings.TrimLeft(rest, " ")
 	if len(actual) == 0 {
 		return false
 	}
-	return subtle.ConstantTimeCompare([]byte(actual), []byte(expected)) == 1
+	actualHash := sha256.Sum256([]byte(actual))
+	expectedHash := sha256.Sum256([]byte(expected))
+	return subtle.ConstantTimeCompare(actualHash[:], expectedHash[:]) == 1
 }
 
 // Implements http.ResponseWriter / http.Flusher passthrough so SSE
