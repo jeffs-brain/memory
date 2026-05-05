@@ -38,7 +38,7 @@ func NewAnthropic(cfg AnthropicConfig) Provider {
 		cfg.Version = anthropicDefaultVersion
 	}
 	if cfg.HTTPClient == nil {
-		cfg.HTTPClient = http.DefaultClient
+		cfg.HTTPClient = newDefaultClient()
 	}
 	return &anthropicProvider{cfg: cfg}
 }

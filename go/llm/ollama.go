@@ -41,7 +41,7 @@ func NewOllama(cfg OllamaConfig) Provider {
 		cfg.BaseURL = ollamaDefaultBase
 	}
 	if cfg.HTTPClient == nil {
-		cfg.HTTPClient = http.DefaultClient
+		cfg.HTTPClient = newDefaultClient()
 	}
 	return &ollamaProvider{cfg: cfg}
 }
@@ -59,7 +59,7 @@ func NewOllamaEmbedder(cfg OllamaEmbedConfig) Embedder {
 		cfg.Dimensions = ollamaDefaultEmbedDims
 	}
 	if cfg.HTTPClient == nil {
-		cfg.HTTPClient = http.DefaultClient
+		cfg.HTTPClient = newDefaultClient()
 	}
 	return &ollamaEmbedder{cfg: cfg}
 }
