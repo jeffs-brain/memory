@@ -94,6 +94,57 @@ describe('reciprocalRankFusion', () => {
     expect(fused[0]?.summary).toBe('Late summary')
   })
 
+  it('skips candidates with empty id', () => {
+    const list = [
+      { id: 'a', path: 'p/a.md', title: 'A', summary: 'sa' },
+      { id: '', path: 'p/ghost.md', title: 'Ghost', summary: 'sg' },
+      { id: 'b', path: 'p/b.md', title: 'B', summary: 'sb' },
+    ]
+
+    const fused = reciprocalRankFusion([list], RRF_DEFAULT_K)
+    expect(fused.map((r) => r.id)).toEqual(['a', 'b'])
+    expect(fused.find((r) => r.path === 'p/ghost.md')).toBeUndefined()
+  })
+
+  it('returns empty when all candidates have empty id', () => {
+    const list = [
+      { id: '', path: 'p/x.md' },
+      { id: '', path: 'p/y.md' },
+    ]
+
+    const fused = reciprocalRankFusion([list], RRF_DEFAULT_K)
+    expect(fused).toEqual([])
+  })
+
+  it('filters empty ids across multiple lists leaving valid ones intact', () => {
+    const bm25 = [
+      { id: '', path: 'p/ghost.md' },
+      { id: 'a', path: 'p/a.md', title: 'A', summary: 'sa' },
+    ]
+    const vec = [
+      { id: 'b', path: 'p/b.md', title: 'B', summary: 'sb' },
+      { id: '', path: 'p/phantom.md' },
+      { id: 'a', path: 'p/a.md' },
+    ]
+
+    const fused = reciprocalRankFusion([bm25, vec], RRF_DEFAULT_K)
+    const ids = fused.map((r) => r.id)
+    expect(ids).toContain('a')
+    expect(ids).toContain('b')
+    expect(ids).not.toContain('')
+    expect(fused).toHaveLength(2)
+  })
+
+  it('does not skip candidates with id "0" (falsy-looking but valid)', () => {
+    const list = [
+      { id: '0', path: 'p/zero.md', title: 'Zero', summary: 'sz' },
+      { id: 'a', path: 'p/a.md', title: 'A', summary: 'sa' },
+    ]
+
+    const fused = reciprocalRankFusion([list], RRF_DEFAULT_K)
+    expect(fused.map((r) => r.id)).toEqual(['0', 'a'])
+  })
+
   it('breaks score ties by path ascending for deterministic output', () => {
     // Two docs at the same rank across a single list: identical scores,
     // deterministic path-asc ordering.
