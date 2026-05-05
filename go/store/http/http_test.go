@@ -723,7 +723,10 @@ func TestAuthHeaderForwarded(t *testing.T) {
 	})
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
-	store := New(Config{BaseURL: srv.URL, BrainID: "b1", Token: "jbk_test_secret"})
+	store, err := New(Config{BaseURL: srv.URL, BrainID: "b1", Token: "jbk_test_secret"})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
 	t.Cleanup(func() { _ = store.Close() })
 	if err := store.Write(context.Background(), brain.Path("memory/auth.md"), []byte("x")); err != nil {
 		t.Fatalf("write: %v", err)
@@ -748,7 +751,10 @@ func TestRetryHonoursRetryAfter(t *testing.T) {
 	})
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
-	store := New(Config{BaseURL: srv.URL, BrainID: "b1"})
+	store, err := New(Config{BaseURL: srv.URL, BrainID: "b1"})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
 	t.Cleanup(func() { _ = store.Close() })
 	if err := store.Write(context.Background(), brain.Path("memory/a.md"), []byte("x")); err != nil {
 		t.Fatalf("write: %v", err)
@@ -767,9 +773,12 @@ func TestRetryExhaustedReturnsRateLimited(t *testing.T) {
 	})
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
-	store := New(Config{BaseURL: srv.URL, BrainID: "b1", MaxRetries: 1})
+	store, err := New(Config{BaseURL: srv.URL, BrainID: "b1", MaxRetries: 1})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
 	t.Cleanup(func() { _ = store.Close() })
-	err := store.Write(context.Background(), brain.Path("memory/a.md"), []byte("x"))
+	err = store.Write(context.Background(), brain.Path("memory/a.md"), []byte("x"))
 	if !errors.Is(err, brain.ErrRateLimited) {
 		t.Fatalf("want ErrRateLimited got %v", err)
 	}
@@ -815,9 +824,92 @@ func newStore(t *testing.T) (*Store, *memBackend) {
 	t.Helper()
 	backend := newMemBackend()
 	srv := newTestServer(t, "b1", backend)
-	store := New(Config{BaseURL: srv.URL, BrainID: "b1"})
+	store, err := New(Config{BaseURL: srv.URL, BrainID: "b1"})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
 	t.Cleanup(func() { _ = store.Close() })
 	return store, backend
+}
+
+func TestNew_InvalidConfig(t *testing.T) {
+	tests := []struct {
+		name    string
+		cfg     Config
+		wantErr string
+	}{
+		{
+			name:    "empty base URL and brain ID",
+			cfg:     Config{},
+			wantErr: "base URL is required",
+		},
+		{
+			name:    "empty base URL with brain ID",
+			cfg:     Config{BrainID: "b1"},
+			wantErr: "base URL is required",
+		},
+		{
+			name:    "empty brain ID with base URL",
+			cfg:     Config{BaseURL: "http://localhost:8080"},
+			wantErr: "brain ID is required",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store, err := New(tt.cfg)
+			if err == nil {
+				t.Fatal("expected error, got nil")
+			}
+			if store != nil {
+				t.Fatal("expected nil store on error")
+			}
+			if !strings.Contains(err.Error(), tt.wantErr) {
+				t.Errorf("error %q does not contain %q", err.Error(), tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestNew_ValidConfig(t *testing.T) {
+	tests := []struct {
+		name string
+		cfg  Config
+	}{
+		{
+			name: "minimal valid config",
+			cfg:  Config{BaseURL: "http://localhost:8080", BrainID: "b1"},
+		},
+		{
+			name: "full config with token and user agent",
+			cfg: Config{
+				BaseURL:    "http://localhost:8080",
+				BrainID:    "brain-123",
+				Token:      "test-token",
+				UserAgent:  "test-agent/1.0",
+				MaxRetries: 5,
+			},
+		},
+		{
+			name: "negative max retries disables retries",
+			cfg: Config{
+				BaseURL:    "http://localhost:8080",
+				BrainID:    "b1",
+				MaxRetries: -1,
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store, err := New(tt.cfg)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if store == nil {
+				t.Fatal("expected non-nil store")
+			}
+			_ = store.Close()
+		})
+	}
 }
 
 func stringSliceEqual(a, b []string) bool {
