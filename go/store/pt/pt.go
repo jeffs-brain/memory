@@ -459,7 +459,71 @@ func (b *batch) Stat(ctx context.Context, p brain.Path) (brain.FileInfo, error) 
 }
 
 func (b *batch) List(ctx context.Context, dir brain.Path, opts brain.ListOpts) ([]brain.FileInfo, error) {
-	return b.store.List(ctx, dir, opts)
+	base, err := b.store.List(ctx, dir, opts)
+	if err != nil {
+		return nil, err
+	}
+	byPath := make(map[brain.Path]brain.FileInfo, len(base))
+	for _, fi := range base {
+		byPath[fi.Path] = fi
+	}
+
+	// Collect every path mentioned by the journal (source and destination).
+	touched := make(map[brain.Path]struct{})
+	for _, op := range b.ops {
+		touched[op.path] = struct{}{}
+		if op.kind == opRename {
+			touched[op.src] = struct{}{}
+		}
+	}
+
+	for p := range touched {
+		if !pathUnder(p, dir, opts.Recursive) {
+			continue
+		}
+		content, present, _, eerr := b.effective(ctx, p, len(b.ops))
+		if eerr != nil {
+			return nil, eerr
+		}
+		if !present {
+			delete(byPath, p)
+			continue
+		}
+		byPath[p] = brain.FileInfo{Path: p, Size: int64(len(content)), ModTime: time.Now()}
+	}
+
+	result := make([]brain.FileInfo, 0, len(byPath))
+	for _, fi := range byPath {
+		if !opts.IncludeGenerated && brain.IsGenerated(fi.Path) {
+			continue
+		}
+		result = append(result, fi)
+	}
+	sort.Slice(result, func(i, j int) bool { return result[i].Path < result[j].Path })
+	return result, nil
+}
+
+// pathUnder reports whether p is under dir according to recursive/shallow
+// semantics.
+func pathUnder(p, dir brain.Path, recursive bool) bool {
+	if dir == "" {
+		return true
+	}
+	ps := string(p)
+	ds := string(dir)
+	if !((ps == ds) || (len(ps) > len(ds) && ps[:len(ds)] == ds && ps[len(ds)] == '/')) {
+		return false
+	}
+	if recursive {
+		return true
+	}
+	rest := ps[len(ds)+1:]
+	for i := 0; i < len(rest); i++ {
+		if rest[i] == '/' {
+			return false
+		}
+	}
+	return true
 }
 
 func (b *batch) Write(ctx context.Context, p brain.Path, content []byte) error {
