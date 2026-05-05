@@ -44,6 +44,16 @@ func TestValidBearerToken_valid(t *testing.T) {
 			header: "Bearer " + string(make([]byte, 4096)),
 			token:  string(make([]byte, 4096)),
 		},
+		{
+			name:   "multiple spaces between scheme and token",
+			header: "Bearer   my-secret-token",
+			token:  "my-secret-token",
+		},
+		{
+			name:   "two spaces between scheme and token",
+			header: "Bearer  my-secret-token",
+			token:  "my-secret-token",
+		},
 	}
 
 	for _, tt := range tests {
@@ -124,6 +134,7 @@ func TestAuthMiddleware_authorized(t *testing.T) {
 		{name: "standard bearer", header: "Bearer secret"},
 		{name: "lowercase bearer", header: "bearer secret"},
 		{name: "uppercase bearer", header: "BEARER secret"},
+		{name: "multiple spaces", header: "Bearer   secret"},
 	}
 
 	for _, tt := range tests {
