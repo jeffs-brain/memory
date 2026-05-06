@@ -254,9 +254,15 @@ func (c *localClient) resolveBrainID(override string) string {
 	return defaultBrainID
 }
 
-// brainRoot returns the on-disk root for a brain.
+// brainRoot returns the on-disk root for a brain. When the ID passes
+// [brain.ValidateBrainID] it is used directly; otherwise the legacy
+// sanitiser normalises it to a safe filesystem component.
 func (c *localClient) brainRoot(id string) string {
-	return filepath.Join(c.cfg.BrainRoot, "brains", sanitiseBrainID(id))
+	safe := id
+	if brain.ValidateBrainID(id) != nil {
+		safe = sanitiseBrainID(id)
+	}
+	return filepath.Join(c.cfg.BrainRoot, "brains", safe)
 }
 
 // openBrain returns a cached [localBrain] for id, constructing one on
