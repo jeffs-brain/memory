@@ -125,6 +125,15 @@ export {
   JUDGE_PROMPT_ABSTENTION,
 } from './judge.js'
 export { buildReport, writeReport } from './report.js'
+export {
+  CostAccumulator,
+  DEFAULT_PRICING,
+  addCostAccounting,
+  estimateUSD,
+  usageFromTokens,
+  zeroCostAccounting,
+} from './costs.js'
+export type { CostAccounting, Pricing, Usage } from './costs.js'
 
 export const DEFAULT_OUT_DIR = '.eval/lme'
 
