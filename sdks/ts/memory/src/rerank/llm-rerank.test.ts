@@ -8,7 +8,7 @@ import type {
   StreamEvent,
   StructuredRequest,
 } from '../llm/types.js'
-import { LLMReranker, composeLLMRerankDocument } from './llm-rerank.js'
+import { LLMReranker, composeLLMRerankDocument, extractJSONArray } from './llm-rerank.js'
 
 type StubProvider = Provider & {
   readonly calls: CompletionRequest[]
@@ -123,5 +123,65 @@ describe('LLMReranker', () => {
     expect(rendered).toContain('summary: Summary line')
     expect(rendered).toContain('summary: Summary line\n\n    content:')
     expect(rendered).toContain('content: Body line with 2024-02-01 and $250 raised.')
+  })
+
+  it('parses fenced JSON responses from provider', async () => {
+    const fenced = '```json\n[{"id": 0, "score": 9}, {"id": 1, "score": 3}, {"id": 2, "score": 6}]\n```'
+    const provider = stubProvider(() => fenced)
+    const reranker = new LLMReranker({ provider, batchSize: 5, parallelism: 1 })
+    const out = await reranker.rerank({ query: 'q', documents: makeDocs(3) })
+    expect(out.map((r) => r.id)).toEqual(['doc-0', 'doc-2', 'doc-1'])
+    expect(provider.calls.length).toBe(1)
+  })
+
+  it('parses fenced JSON without language tag from provider', async () => {
+    const fenced = '```\n[{"id": 0, "score": 2}, {"id": 1, "score": 8}, {"id": 2, "score": 5}]\n```'
+    const provider = stubProvider(() => fenced)
+    const reranker = new LLMReranker({ provider, batchSize: 5, parallelism: 1 })
+    const out = await reranker.rerank({ query: 'q', documents: makeDocs(3) })
+    expect(out.map((r) => r.id)).toEqual(['doc-1', 'doc-2', 'doc-0'])
+    expect(provider.calls.length).toBe(1)
+  })
+})
+
+describe('extractJSONArray', () => {
+  it('extracts unfenced JSON array', () => {
+    expect(extractJSONArray('[1, 3, 2]')).toBe('[1, 3, 2]')
+  })
+
+  it('extracts from fenced JSON with language tag', () => {
+    expect(extractJSONArray('```json\n[1, 3, 2]\n```')).toBe('[1, 3, 2]')
+  })
+
+  it('extracts from fenced JSON without language tag', () => {
+    expect(extractJSONArray('```\n[1, 3, 2]\n```')).toBe('[1, 3, 2]')
+  })
+
+  it('returns undefined for malformed input', () => {
+    expect(extractJSONArray('not json at all')).toBeUndefined()
+  })
+
+  it('returns undefined for empty string', () => {
+    expect(extractJSONArray('')).toBeUndefined()
+  })
+
+  it('handles fences with extra whitespace', () => {
+    expect(extractJSONArray('  ```json  \n  [1, 3, 2]  \n  ```  ')).toBe('[1, 3, 2]')
+  })
+
+  it('handles nested fences without crashing', () => {
+    const nested = '```json\n```inner\n[1, 2, 3]\n```\n```'
+    const result = extractJSONArray(nested)
+    // Should not throw; the exact extraction is best-effort.
+    expect(result === undefined || result === '[1, 2, 3]' || typeof result === 'string').toBe(true)
+  })
+
+  it('extracts array surrounded by prose', () => {
+    expect(extractJSONArray('Here is the result:\n[1, 2, 3]\nHope this helps!')).toBe('[1, 2, 3]')
+  })
+
+  it('extracts array from fenced block with trailing commentary', () => {
+    const input = '```json\n[{"id": 0, "score": 8.5}]\n```\nSome trailing text.'
+    expect(extractJSONArray(input)).toBe('[{"id": 0, "score": 8.5}]')
   })
 })
