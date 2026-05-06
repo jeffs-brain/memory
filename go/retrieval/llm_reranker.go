@@ -10,8 +10,10 @@ import (
 	"log/slog"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/jeffs-brain/memory/go/llm"
+	"golang.org/x/sync/errgroup"
 )
 
 // LLMRerankerDefaultMaxBatch is the default number of candidates shipped
@@ -20,6 +22,12 @@ import (
 // to chew through in well under a second; larger batches amortise the
 // request overhead at the cost of response latency.
 const LLMRerankerDefaultMaxBatch = 5
+
+// LLMRerankerDefaultParallelism is the default number of batch calls
+// that may be in flight concurrently. Matches the TS SDK default of 4
+// so wall-clock cost is bounded by ceil(batches/parallelism) provider
+// round trips rather than a sequential sum.
+const LLMRerankerDefaultParallelism = 4
 
 // llmRerankMaxTokens is the max_tokens budget given to the provider for
 // the rerank response. A batch of five candidates at ~40 bytes per
@@ -78,6 +86,10 @@ type LLMReranker struct {
 	// MaxBatch caps how many candidates go into one provider call. When
 	// zero or negative, LLMRerankerDefaultMaxBatch applies.
 	MaxBatch int
+	// Parallelism limits how many batch calls may be in flight
+	// concurrently. When zero or negative, LLMRerankerDefaultParallelism
+	// applies. Set to 1 for sequential execution.
+	Parallelism int
 	// Logger receives warnings when a batch fails or produces malformed
 	// output. Defaults to slog.Default when nil.
 	Logger *slog.Logger
@@ -118,9 +130,13 @@ func (r *LLMReranker) Rerank(ctx context.Context, query string, candidates []Ret
 	}
 	defer release()
 
-	batch := r.MaxBatch
-	if batch <= 0 {
-		batch = LLMRerankerDefaultMaxBatch
+	batchSize := r.MaxBatch
+	if batchSize <= 0 {
+		batchSize = LLMRerankerDefaultMaxBatch
+	}
+	parallelism := r.Parallelism
+	if parallelism <= 0 {
+		parallelism = LLMRerankerDefaultParallelism
 	}
 
 	payloads := make([]llmRerankCandidate, len(candidates))
@@ -134,37 +150,62 @@ func (r *LLMReranker) Rerank(ctx context.Context, query string, candidates []Ret
 		}
 	}
 
-	scores := make([]float64, len(candidates))
-	scored := make([]bool, len(candidates))
-	failures := 0
-	for start := 0; start < len(candidates); start += batch {
-		end := start + batch
+	type batchSpec struct {
+		start int
+		local []llmRerankCandidate
+	}
+	var batches []batchSpec
+	for start := 0; start < len(candidates); start += batchSize {
+		end := start + batchSize
 		if end > len(candidates) {
 			end = len(candidates)
 		}
 		slice := payloads[start:end]
-
-		// Re-ID the slice so the prompt IDs are always 0..len(slice)-1.
 		local := make([]llmRerankCandidate, len(slice))
 		for li, c := range slice {
 			local[li] = c
 			local[li].ID = li
 		}
+		batches = append(batches, batchSpec{start: start, local: local})
+	}
 
-		batchScores, err := r.callBatch(ctx, query, local)
-		if err != nil {
-			failures++
-			r.warn("retrieval: LLMReranker batch failed", "query", query, "start", start, "err", err)
-			continue
-		}
-		for li, s := range batchScores {
-			gi := start + li
-			if gi >= len(candidates) {
-				break
+	scores := make([]float64, len(candidates))
+	scored := make([]bool, len(candidates))
+
+	var mu sync.Mutex
+	var failures int
+
+	g, gctx := errgroup.WithContext(ctx)
+	g.SetLimit(parallelism)
+
+	for _, b := range batches {
+		b := b // capture loop variable
+		g.Go(func() error {
+			batchScores, err := r.callBatch(gctx, query, b.local)
+			if err != nil {
+				mu.Lock()
+				failures++
+				mu.Unlock()
+				r.warn("retrieval: LLMReranker batch failed", "query", query, "start", b.start, "err", err)
+				return nil // non-fatal: other batches continue
 			}
-			scores[gi] = s
-			scored[gi] = true
-		}
+			mu.Lock()
+			for li, s := range batchScores {
+				gi := b.start + li
+				if gi >= len(candidates) {
+					break
+				}
+				scores[gi] = s
+				scored[gi] = true
+			}
+			mu.Unlock()
+			return nil
+		})
+	}
+	// All goroutines return nil, so Wait never returns a non-nil error,
+	// but we honour the contract for future-proofing.
+	if err := g.Wait(); err != nil {
+		return nil, err
 	}
 
 	// Every batch failed: hand back the input order so callers see a
