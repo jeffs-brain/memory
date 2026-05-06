@@ -62,9 +62,14 @@ var (
 // when the caller does not supply an override.
 type defaultFetcher struct{}
 
-// Fetch implements [Fetcher].
+// Fetch implements [Fetcher]. Uses an SSRF-safe transport that
+// validates resolved IPs before connecting, preventing requests to
+// private networks regardless of DNS rebinding or redirects.
 func (defaultFetcher) Fetch(ctx context.Context, rawURL string) ([]byte, string, error) {
-	client := &http.Client{Timeout: defaultHTTPTimeout}
+	client := &http.Client{
+		Timeout:   defaultHTTPTimeout,
+		Transport: newSSRFSafeTransport(),
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
 	if err != nil {
 		return nil, "", fmt.Errorf("knowledge: building request: %w", err)
@@ -520,7 +525,9 @@ func collapseWhitespace(s string) string {
 	return strings.TrimSpace(joined)
 }
 
-// normaliseURL ensures a URL has a scheme and is well-formed.
+// normaliseURL ensures a URL has a scheme, is well-formed, and uses an
+// allowed scheme. Only http and https are permitted to prevent file://,
+// gopher://, and other protocol-based SSRF vectors.
 func normaliseURL(raw string) (string, error) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
@@ -535,6 +542,9 @@ func normaliseURL(raw string) (string, error) {
 	}
 	if parsed.Host == "" {
 		return "", fmt.Errorf("knowledge: URL missing host")
+	}
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return "", fmt.Errorf("ingest: unsupported scheme %q (only http and https allowed)", parsed.Scheme)
 	}
 	return parsed.String(), nil
 }
