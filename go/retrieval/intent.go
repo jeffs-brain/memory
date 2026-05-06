@@ -142,9 +142,9 @@ func retrievalIntentMultiplier(intent retrievalIntent, query string, r Retrieved
 	if intent.concreteFactQuery {
 		multiplier *= concreteFactIntentMultiplier(query, r, text)
 		multiplier *= focusAlignedConcreteFactMultiplier(query, text)
-		multiplier *= staleSupersededConcreteFactMultiplier(r, text)
 		multiplier *= firstPersonConcreteFactMultiplier(query, r, text)
 	}
+	multiplier *= staleSupersededNoteMultiplier(r, text)
 	return multiplier
 }
 
@@ -319,9 +319,17 @@ func assistantOutputQuestion(normalisedQuery string) bool {
 		strings.Contains(normalisedQuery, "remind me")
 }
 
-func staleSupersededConcreteFactMultiplier(r RetrievedChunk, text string) float64 {
-	if metadataHasNonEmptyString(r.Metadata, "superseded_by", "supersededBy") || supersededFrontmatterRe.MatchString(text) {
+func staleSupersededNoteMultiplier(r RetrievedChunk, text string) float64 {
+	if metadataHasNonEmptyString(r.Metadata, "superseded_by", "supersededBy") {
 		return 0.18
+	}
+	status := strings.ToLower(metadataStringValue(r.Metadata, "status"))
+	switch status {
+	case "superseded", "stale", "obsolete":
+		return 0.18
+	}
+	if supersededFrontmatterRe.MatchString(text) {
+		return 0.32
 	}
 	return 1.0
 }
