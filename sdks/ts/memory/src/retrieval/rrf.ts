@@ -72,6 +72,7 @@ export function reciprocalRankFusion(
     for (let rank = 0; rank < list.length; rank++) {
       const c = list[rank]
       if (c === undefined) continue
+      if (c.id === '') continue
       const existing = buckets.get(c.id)
       if (existing === undefined) {
         const next: Bucket = {
