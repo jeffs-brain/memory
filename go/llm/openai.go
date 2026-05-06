@@ -454,8 +454,9 @@ func (e *openAIEmbedder) Embed(ctx context.Context, texts []string) ([][]float32
 		return nil, nil
 	}
 	body, err := json.Marshal(openAIEmbedRequest{
-		Input: texts,
-		Model: e.cfg.Model,
+		Input:      texts,
+		Model:      e.cfg.Model,
+		Dimensions: e.cfg.Dimensions,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("llm: marshal openai embed request: %w", err)

@@ -223,3 +223,89 @@ func TestOpenAIEmbedder(t *testing.T) {
 		t.Fatalf("dims %d", e.Dimensions())
 	}
 }
+
+func TestOpenAIEmbedder_DimensionsInRequest(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		dimensions int
+		wantInBody bool
+		wantValue  int
+	}{
+		{"configured 256 is sent", 256, true, 256},
+		{"configured 1536 is sent", 1536, true, 1536},
+		{"configured 3072 is sent", 3072, true, 3072},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			var gotBody map[string]any
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if err := json.NewDecoder(r.Body).Decode(&gotBody); err != nil {
+					t.Errorf("decode request body: %v", err)
+				}
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = fmt.Fprint(w, `{"data":[{"index":0,"embedding":[0.1,0.2]}]}`)
+			}))
+			defer srv.Close()
+
+			e := llm.NewOpenAIEmbedder(llm.OpenAIEmbedConfig{
+				APIKey:     "k",
+				BaseURL:    srv.URL,
+				Dimensions: tt.dimensions,
+			})
+			defer func() { _ = e.Close() }()
+
+			vecs, err := e.Embed(context.Background(), []string{"test"})
+			if err != nil {
+				t.Fatalf("embed: %v", err)
+			}
+			if len(vecs) != 1 {
+				t.Fatalf("expected 1 vector, got %d", len(vecs))
+			}
+
+			dim, exists := gotBody["dimensions"]
+			if !exists {
+				t.Fatalf("dimensions field missing from request body")
+			}
+			if int(dim.(float64)) != tt.wantValue {
+				t.Fatalf("dimensions = %v, want %d", dim, tt.wantValue)
+			}
+		})
+	}
+}
+
+func TestOpenAIEmbedder_DefaultDimensionsSent(t *testing.T) {
+	t.Parallel()
+
+	var gotBody map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&gotBody); err != nil {
+			t.Errorf("decode request body: %v", err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprint(w, `{"data":[{"index":0,"embedding":[0.1,0.2]}]}`)
+	}))
+	defer srv.Close()
+
+	e := llm.NewOpenAIEmbedder(llm.OpenAIEmbedConfig{
+		APIKey:  "k",
+		BaseURL: srv.URL,
+	})
+	defer func() { _ = e.Close() }()
+
+	_, err := e.Embed(context.Background(), []string{"test"})
+	if err != nil {
+		t.Fatalf("embed: %v", err)
+	}
+
+	dim, exists := gotBody["dimensions"]
+	if !exists {
+		t.Fatalf("dimensions field missing when default should be applied")
+	}
+	if int(dim.(float64)) != 1536 {
+		t.Fatalf("default dimensions = %v, want 1536", dim)
+	}
+}
