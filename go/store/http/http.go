@@ -78,12 +78,14 @@ type Store struct {
 	subDone    chan struct{}
 }
 
-// New returns an HTTP-backed Store. Panics if BrainID is empty because
-// every request needs it and catching the error at every call site would
-// be noisy.
-func New(cfg Config) *Store {
+// New returns an HTTP-backed Store. Returns an error if the config is
+// invalid (e.g. missing BrainID or BaseURL).
+func New(cfg Config) (*Store, error) {
+	if cfg.BaseURL == "" {
+		return nil, fmt.Errorf("http store: base URL is required")
+	}
 	if cfg.BrainID == "" {
-		panic("store/http: Config.BrainID is required")
+		return nil, fmt.Errorf("http store: brain ID is required")
 	}
 	client := cfg.Client
 	if client == nil {
@@ -111,7 +113,7 @@ func New(cfg Config) *Store {
 		userAgent:  ua,
 		maxRetries: retries,
 		sinks:      make(map[uint64]brain.EventSink),
-	}
+	}, nil
 }
 
 // compile-time guard.
