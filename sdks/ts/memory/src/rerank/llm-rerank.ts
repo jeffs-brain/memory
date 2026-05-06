@@ -283,9 +283,19 @@ function parseRerankResponse(raw: string, expected: number): readonly number[] |
   }
 }
 
-function extractJSONArray(raw: string): string | undefined {
-  const start = raw.indexOf('[')
-  const end = raw.lastIndexOf(']')
+export function extractJSONArray(raw: string): string | undefined {
+  let s = raw.trim()
+  // Strip markdown code fences before searching for the array.
+  if (s.startsWith('```')) {
+    s = s.slice(3)
+    const nl = s.indexOf('\n')
+    if (nl >= 0) s = s.slice(nl + 1)
+    const end = s.lastIndexOf('```')
+    if (end >= 0) s = s.slice(0, end)
+    s = s.trim()
+  }
+  const start = s.indexOf('[')
+  const end = s.lastIndexOf(']')
   if (start < 0 || end <= start) return undefined
-  return raw.slice(start, end + 1)
+  return s.slice(start, end + 1)
 }
