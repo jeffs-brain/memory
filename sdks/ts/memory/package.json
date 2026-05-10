@@ -115,6 +115,7 @@
     "@stackone/defender": "^0.6.3",
     "citty": "^0.1.6",
     "isomorphic-git": "^1.37.5",
+    "snowball-stemmers": "^0.6.0",
     "sqlite-vec": "^0.1.9"
   },
   "optionalDependencies": {
@@ -122,5 +123,8 @@
     "better-sqlite3": "^12.9.0",
     "@types/better-sqlite3": "^7.6.13",
     "pdf-parse": "^1.1.1"
+  },
+  "devDependencies": {
+    "@types/snowball-stemmers": "^0.6.2"
   }
 }
