@@ -7,6 +7,9 @@ import (
 	"strings"
 )
 
+// Compile-time interface compliance check.
+var _ Chunker = (*MarkdownChunker)(nil)
+
 // atxHeadingRe matches ATX-style markdown headings (# through ######).
 var atxHeadingRe = regexp.MustCompile(`^(#{1,6})\s+(.+?)\s*#*\s*$`)
 

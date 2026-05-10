@@ -6,6 +6,9 @@ import (
 	"strings"
 )
 
+// Compile-time interface compliance check.
+var _ Chunker = (*RecursiveChunker)(nil)
+
 // separators is the hierarchy of split points used by RecursiveChunker.
 // Tried in order: paragraph breaks, single newlines, sentence endings,
 // word boundaries, and finally character-level as a last resort.
