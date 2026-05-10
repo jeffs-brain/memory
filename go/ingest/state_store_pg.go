@@ -4,9 +4,19 @@ package ingest
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
+	"regexp"
 	"time"
 )
+
+// listIncompleteInitialCap is the initial capacity for the result slice in
+// ListIncomplete, chosen to avoid small re-allocations for typical workloads.
+const listIncompleteInitialCap = 16
+
+// schemaNamePattern validates PostgreSQL schema names: lowercase letters or
+// underscore start, followed by lowercase alphanumerics or underscores.
+var schemaNamePattern = regexp.MustCompile(`^[a-z_][a-z0-9_]*$`)
 
 // PostgresPipelineStateStore implements PipelineStateStore backed by a
 // PostgreSQL pipeline_state table. Uses prepared statements for safe
@@ -26,12 +36,16 @@ type PostgresStateStoreConfig struct {
 }
 
 // NewPostgresPipelineStateStore creates a PostgreSQL-backed state store.
-func NewPostgresPipelineStateStore(cfg PostgresStateStoreConfig) *PostgresPipelineStateStore {
+// Returns an error if the schema name is invalid.
+func NewPostgresPipelineStateStore(cfg PostgresStateStoreConfig) (*PostgresPipelineStateStore, error) {
 	schema := cfg.Schema
 	if schema == "" {
 		schema = "memory"
 	}
-	return &PostgresPipelineStateStore{db: cfg.DB, schema: schema}
+	if !schemaNamePattern.MatchString(schema) {
+		return nil, fmt.Errorf("ingest: invalid schema name %q: must match ^[a-z_][a-z0-9_]*$", schema)
+	}
+	return &PostgresPipelineStateStore{db: cfg.DB, schema: schema}, nil
 }
 
 func (s *PostgresPipelineStateStore) table() string {
@@ -49,7 +63,7 @@ func (s *PostgresPipelineStateStore) Get(ctx context.Context, documentHash strin
 	row := s.db.QueryRowContext(ctx, query, documentHash)
 	entry, err := scanEntry(row)
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("ingest: pg state get %s: %w", documentHash, err)
@@ -111,7 +125,7 @@ func (s *PostgresPipelineStateStore) ListIncomplete(ctx context.Context, brainID
 	}
 	defer rows.Close()
 
-	entries := make([]PipelineStateEntry, 0, 16)
+	entries := make([]PipelineStateEntry, 0, listIncompleteInitialCap)
 	for rows.Next() {
 		entry, scanErr := scanRows(rows)
 		if scanErr != nil {
@@ -132,10 +146,6 @@ func (s *PostgresPipelineStateStore) Delete(ctx context.Context, documentHash st
 		return fmt.Errorf("ingest: pg state delete %s: %w", documentHash, err)
 	}
 	return nil
-}
-
-type scanner interface {
-	Scan(dest ...interface{}) error
 }
 
 func scanEntry(row *sql.Row) (*PipelineStateEntry, error) {

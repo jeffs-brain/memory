@@ -40,6 +40,8 @@ type StateRow = {
   completed_at: Date | null
 }
 
+const SCHEMA_NAME_PATTERN = /^[a-z_][a-z0-9_]*$/
+
 const rowToEntry = (row: StateRow): PipelineStateEntry => ({
   documentHash: row.document_hash,
   brainId: row.brain_id,
@@ -65,6 +67,11 @@ export class PostgresPipelineStateStore implements PipelineStateStore {
   constructor(opts: PostgresPipelineStateStoreOptions) {
     this.sql = opts.sql
     const schema = opts.schema ?? 'memory'
+    if (!SCHEMA_NAME_PATTERN.test(schema)) {
+      throw new Error(
+        `Invalid schema name "${schema}": must match ^[a-z_][a-z0-9_]*$`,
+      )
+    }
     this.table = `${schema}.pipeline_state`
   }
 
