@@ -1,5 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
+/**
+ * Ontology module -- type definitions, validation, and industry templates
+ * for the memory ontology system.
+ */
+
 export type {
   BuiltInEdgeType,
   BuiltInNodeType,
@@ -44,3 +49,10 @@ export {
   formatEdgeTypeLabel,
   formatNodeTypeLabel,
 } from './format.js'
+
+export type { TypeEntry, IndustryTemplate, TemplateName } from './templates.js'
+export {
+  INDUSTRY_TEMPLATES,
+  listTemplates,
+  getTemplate,
+} from './templates.js'
