@@ -154,12 +154,12 @@ export const ingestDocument = async (deps: IngestPipelineDeps): Promise<IngestPi
         detail: `ingested ${buffer.length} bytes -> ${storedPath}`,
         when: nowFn().toISOString(),
       })
-    })
-    await writePipelineState(store, {
-      documentId,
-      hash,
-      stage: 'stored',
-      updatedAt: nowFn().toISOString(),
+      await writePipelineState(batch, {
+        documentId,
+        hash,
+        stage: 'stored',
+        updatedAt: nowFn().toISOString(),
+      })
     })
   }
   onProgress?.({ stage: 'store', completed: 1, total: 1 })

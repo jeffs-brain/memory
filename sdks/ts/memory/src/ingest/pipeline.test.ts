@@ -8,6 +8,7 @@
  * boundary and verify the pipeline resumes correctly on re-entry.
  */
 
+import { createHash } from 'node:crypto'
 import { afterEach, describe, expect, it } from 'vitest'
 import { createHashEmbedder } from '../llm/hashembed.js'
 import { type SearchIndex, createSearchIndex } from '../search/index.js'
@@ -21,6 +22,9 @@ import {
   createMockStore,
   testLogger,
 } from './test-helpers.js'
+
+const sha256Hex = (s: string): string =>
+  createHash('sha256').update(Buffer.from(s, 'utf8')).digest('hex')
 
 const indices: SearchIndex[] = []
 
@@ -158,10 +162,7 @@ describe('ingestDocument crash recovery', () => {
     ).rejects.toThrow('embedder crashed')
 
     // Verify state was persisted at 'chunked' stage.
-    const hash = require('node:crypto')
-      .createHash('sha256')
-      .update(Buffer.from(DOC_CONTENT, 'utf8'))
-      .digest('hex')
+    const hash = sha256Hex(DOC_CONTENT)
     const state = await readPipelineState(store, hash, testLogger)
     expect(state).toBeDefined()
     expect(state?.stage).toBe('chunked')
@@ -206,10 +207,7 @@ describe('ingestDocument crash recovery', () => {
     ).rejects.toThrow('index upsert crashed')
 
     // Verify state was persisted at 'embedded' stage.
-    const hash = require('node:crypto')
-      .createHash('sha256')
-      .update(Buffer.from(DOC_CONTENT, 'utf8'))
-      .digest('hex')
+    const hash = sha256Hex(DOC_CONTENT)
     const state = await readPipelineState(store, hash, testLogger)
     expect(state).toBeDefined()
     expect(state?.stage).toBe('embedded')
@@ -242,10 +240,7 @@ describe('ingestDocument crash recovery', () => {
     expect(first.reused).toBe(false)
 
     // Pipeline state should be marked as 'indexed' after successful completion.
-    const hash = require('node:crypto')
-      .createHash('sha256')
-      .update(Buffer.from(DOC_CONTENT, 'utf8'))
-      .digest('hex')
+    const hash = sha256Hex(DOC_CONTENT)
     const stateAfter = await readPipelineState(store, hash, testLogger)
     expect(stateAfter).toBeDefined()
     expect(stateAfter?.stage).toBe('indexed')
@@ -306,10 +301,7 @@ describe('ingestDocument crash recovery', () => {
       logger: testLogger,
     })
 
-    const hash = require('node:crypto')
-      .createHash('sha256')
-      .update(Buffer.from(DOC_CONTENT, 'utf8'))
-      .digest('hex')
+    const hash = sha256Hex(DOC_CONTENT)
     const finalState = await readPipelineState(store, hash, testLogger)
     expect(finalState).toBeDefined()
     expect(finalState?.stage).toBe('indexed')
@@ -386,10 +378,7 @@ describe('ingestDocument crash recovery', () => {
     ).rejects.toThrow('batch write failed')
 
     // No state should have been written since store failed.
-    const hash = require('node:crypto')
-      .createHash('sha256')
-      .update(Buffer.from(DOC_CONTENT, 'utf8'))
-      .digest('hex')
+    const hash = sha256Hex(DOC_CONTENT)
     const state = await readPipelineState(store, hash, testLogger)
     expect(state).toBeUndefined()
 

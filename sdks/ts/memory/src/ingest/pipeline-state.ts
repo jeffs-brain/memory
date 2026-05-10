@@ -8,11 +8,13 @@
  *
  * State files live at `raw/.pipeline-state/{hash}.json` alongside the
  * raw document content. On successful full completion the state file is
- * deleted to keep the store clean.
+ * left in place at `stage: 'indexed'` so subsequent ingests of the same
+ * content can be deduplicated (`reused: true`). It is only deleted when
+ * chunking yields zero chunks (no usable content).
  */
 
 import type { Logger } from '../llm/types.js'
-import type { Path, Store } from '../store/index.js'
+import type { Batch, Path, Store } from '../store/index.js'
 import { isNotFound, joinPath, toPath } from '../store/index.js'
 
 // ---------------------------------------------------------------------------
@@ -92,12 +94,12 @@ export const readPipelineState = async (
 }
 
 export const writePipelineState = async (
-  store: Store,
+  writer: Store | Batch,
   state: PipelineState,
 ): Promise<void> => {
   const path = pipelineStatePath(state.hash)
   const content = Buffer.from(JSON.stringify(state), 'utf8')
-  await store.write(toPath(path as string), content)
+  await writer.write(toPath(path as string), content)
 }
 
 export const deletePipelineState = async (
