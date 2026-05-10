@@ -60,6 +60,22 @@ export type FileOntologyStoreConfig = {
   readonly orgId: string
 }
 
+const VALID_ID_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9_-]*$/
+
+/**
+ * Validates that an ID is safe for path interpolation. IDs must start with an
+ * alphanumeric character and contain only alphanumeric, underscore, or hyphen
+ * characters. This prevents path traversal attacks via ".." or "/" in IDs.
+ */
+function validateId(id: string): void {
+  if (id === '') {
+    throw new Error('ontology: ID must not be empty')
+  }
+  if (!VALID_ID_PATTERN.test(id)) {
+    throw new Error(`ontology: invalid ID "${id}": must match ^[a-zA-Z0-9][a-zA-Z0-9_-]*$`)
+  }
+}
+
 /**
  * Creates a FileOntologyStore backed by the given Store.
  * Types are stored as JSON files at well-known paths:
@@ -68,8 +84,13 @@ export type FileOntologyStoreConfig = {
  *   - Brain: ontology/brain/{brainId}/types.json
  *
  * Built-in types are hardcoded and always available without I/O.
+ * Throws if any configured ID fails validation (path traversal prevention).
  */
 export function createFileOntologyStore(store: Store, config: FileOntologyStoreConfig): OntologyStore {
+  if (config.brainId !== '') validateId(config.brainId)
+  if (config.projectId !== '') validateId(config.projectId)
+  if (config.orgId !== '') validateId(config.orgId)
+
   const cache = new Map<string, ResolvedOntology>()
 
   function idForScope(scope: OntologyScope): string {
@@ -252,6 +273,10 @@ export function createFileOntologyStore(store: Store, config: FileOntologyStoreC
     projectId: string,
     orgId: string,
   ): Promise<ResolvedOntology> {
+    if (brainId !== '') validateId(brainId)
+    if (projectId !== '') validateId(projectId)
+    if (orgId !== '') validateId(orgId)
+
     const cacheKey = `org:${orgId}:proj:${projectId}:brain:${brainId}`
     const cached = cache.get(cacheKey)
     if (cached) {
@@ -385,19 +410,29 @@ function listBuiltInTypes(): OntologyTypeDefinition[] {
   return defs
 }
 
+function isValidTypeDefinition(value: unknown): value is OntologyTypeDefinition {
+  if (value === null || typeof value !== 'object') return false
+  const obj = value as Record<string, unknown>
+  return (
+    typeof obj['type'] === 'string' &&
+    typeof obj['label'] === 'string' &&
+    typeof obj['status'] === 'string'
+  )
+}
+
 function parseStoredOntology(raw: unknown): StoredOntology {
   if (raw === null || typeof raw !== 'object') {
     return { customNodeTypes: [], customEdgeTypes: [], customBusinessCategories: [] }
   }
   const obj = raw as Record<string, unknown>
   const nodeTypes = Array.isArray(obj['customNodeTypes'])
-    ? (obj['customNodeTypes'] as OntologyTypeDefinition[])
+    ? (obj['customNodeTypes'] as unknown[]).filter(isValidTypeDefinition)
     : []
   const edgeTypes = Array.isArray(obj['customEdgeTypes'])
-    ? (obj['customEdgeTypes'] as OntologyTypeDefinition[])
+    ? (obj['customEdgeTypes'] as unknown[]).filter(isValidTypeDefinition)
     : []
   const categories = Array.isArray(obj['customBusinessCategories'])
-    ? (obj['customBusinessCategories'] as string[])
+    ? (obj['customBusinessCategories'] as unknown[]).filter((v): v is string => typeof v === 'string')
     : []
   return {
     customNodeTypes: nodeTypes,

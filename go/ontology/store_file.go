@@ -6,11 +6,29 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 	"sync"
 
 	"github.com/jeffs-brain/memory/go/brain"
 )
+
+// validIDPattern matches IDs that start with an alphanumeric character followed
+// by zero or more alphanumeric, underscore, or hyphen characters.
+var validIDPattern = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_-]*$`)
+
+// validateID checks that an ID is safe for path interpolation. IDs must start
+// with an alphanumeric character and contain only alphanumeric, underscore, or
+// hyphen characters. This prevents path traversal attacks via ".." or "/" in IDs.
+func validateID(id string) error {
+	if id == "" {
+		return fmt.Errorf("ontology: ID must not be empty")
+	}
+	if !validIDPattern.MatchString(id) {
+		return fmt.Errorf("ontology: invalid ID %q: must match ^[a-zA-Z0-9][a-zA-Z0-9_-]*$", id)
+	}
+	return nil
+}
 
 // FileOntologyStoreConfig holds the IDs used by FileOntologyStore to
 // determine which scope files to read and write for CRUD operations.
@@ -37,12 +55,28 @@ type FileOntologyStore struct {
 var _ OntologyStore = (*FileOntologyStore)(nil)
 
 // NewFileOntologyStore creates a FileOntologyStore backed by the given store.
-func NewFileOntologyStore(store brain.Store, cfg FileOntologyStoreConfig) *FileOntologyStore {
+// Returns an error if any configured ID fails validation (path traversal prevention).
+func NewFileOntologyStore(store brain.Store, cfg FileOntologyStoreConfig) (*FileOntologyStore, error) {
+	if cfg.BrainID != "" {
+		if err := validateID(cfg.BrainID); err != nil {
+			return nil, fmt.Errorf("ontology: invalid BrainID: %w", err)
+		}
+	}
+	if cfg.ProjectID != "" {
+		if err := validateID(cfg.ProjectID); err != nil {
+			return nil, fmt.Errorf("ontology: invalid ProjectID: %w", err)
+		}
+	}
+	if cfg.OrgID != "" {
+		if err := validateID(cfg.OrgID); err != nil {
+			return nil, fmt.Errorf("ontology: invalid OrgID: %w", err)
+		}
+	}
 	return &FileOntologyStore{
 		store:  store,
 		config: cfg,
 		cache:  make(map[string]*ResolvedOntology),
-	}
+	}, nil
 }
 
 // GetType returns a single type definition at the given scope.
@@ -134,6 +168,18 @@ func (f *FileOntologyStore) DeleteType(ctx context.Context, scope Scope, typeID 
 
 // GetResolvedOntology returns the fully merged ontology across all 4 layers.
 func (f *FileOntologyStore) GetResolvedOntology(ctx context.Context, brainID, projectID, orgID string) (*ResolvedOntology, error) {
+	for _, pair := range []struct{ name, id string }{
+		{"brainID", brainID},
+		{"projectID", projectID},
+		{"orgID", orgID},
+	} {
+		if pair.id != "" {
+			if err := validateID(pair.id); err != nil {
+				return nil, fmt.Errorf("ontology: GetResolvedOntology invalid %s: %w", pair.name, err)
+			}
+		}
+	}
+
 	cacheKey := buildCacheKey(brainID, projectID, orgID)
 	f.mu.RLock()
 	cached, ok := f.cache[cacheKey]

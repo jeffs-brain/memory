@@ -20,7 +20,11 @@ func newTestStore(t *testing.T) (*ontology.FileOntologyStore, *mem.Store) {
 		ProjectID: "proj-1",
 		OrgID:     "org-1",
 	}
-	return ontology.NewFileOntologyStore(ms, cfg), ms
+	store, err := ontology.NewFileOntologyStore(ms, cfg)
+	if err != nil {
+		t.Fatalf("NewFileOntologyStore: %v", err)
+	}
+	return store, ms
 }
 
 func TestGetType_BuiltInNodeType(t *testing.T) {
@@ -477,7 +481,10 @@ func TestGetResolvedOntology_CustomCategories(t *testing.T) {
 		ProjectID: "proj-1",
 		OrgID:     "org-1",
 	}
-	s := ontology.NewFileOntologyStore(ms, cfg)
+	s, err := ontology.NewFileOntologyStore(ms, cfg)
+	if err != nil {
+		t.Fatalf("NewFileOntologyStore: %v", err)
+	}
 	ctx := context.Background()
 
 	stored := ontology.StoredOntology{
