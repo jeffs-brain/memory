@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Ontology module -- type definitions, validation, and industry templates
- * for the memory ontology system.
+ * Ontology module -- type definitions, validation, industry templates,
+ * and deduplication for the memory ontology system.
  */
 
 export type {
@@ -71,3 +71,21 @@ export { createFileOntologyStore } from './store.js'
 
 export type { RegistryOptions } from './registry.js'
 export { Registry, PROPOSE_DEDUP_THRESHOLD } from './registry.js'
+
+export type { TypeDefinition } from './types.js'
+export {
+  Deduplicator,
+  deduplicateType,
+  EMBEDDING_AUTO_MERGE_THRESHOLD,
+  EMBEDDING_REVIEW_THRESHOLD,
+  FUZZY_LABEL_THRESHOLD,
+} from './dedup.js'
+export type {
+  DeduplicationResult,
+  DedupMethod,
+  DedupResult,
+  DedupResultKind,
+  DeduplicatorConfig,
+  MergedPair,
+} from './dedup.js'
+export { cosineSimilarity, jaroWinklerDistance } from './similarity.js'
