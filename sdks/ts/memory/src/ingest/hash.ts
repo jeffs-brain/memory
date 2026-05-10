@@ -4,6 +4,11 @@
  * BLAKE3 and SHA-256 hashing utilities for the ingest pipeline.
  * BLAKE3 is used for all new documents. SHA-256 is retained for
  * dual-read compatibility during the migration period.
+ *
+ * Provides deterministic 256-bit BLAKE3 hashes hex-encoded to 64-character
+ * strings. Used for document deduplication and chunk-level change detection.
+ * Cross-SDK conformant: identical inputs produce identical outputs in both
+ * the Go and TypeScript SDKs.
  */
 
 import { createHash } from 'node:crypto'
@@ -43,3 +48,42 @@ export const hashContentSHA256 = (buf: Buffer): string =>
  * hashSlug used prior to the BLAKE3 migration.
  */
 export const hashSlugSHA256 = (data: Buffer): string => hashContentSHA256(data).slice(0, 12)
+
+/**
+ * Compute the BLAKE3 256-bit hash of document content.
+ * Returns a 64-character lowercase hex string.
+ *
+ * Time: O(n) where n = content.length.
+ * Space: O(1) beyond the 32-byte digest.
+ */
+export const hashDocument = (content: Buffer): string => {
+  const digest = blake3(content)
+  return bytesToHex(digest)
+}
+
+/**
+ * Compute the BLAKE3 256-bit hash of chunk content.
+ * Semantically identical to hashDocument but named separately for clarity
+ * at call sites performing chunk-level change detection.
+ *
+ * Time: O(n) where n = content.length.
+ * Space: O(1) beyond the 32-byte digest.
+ */
+export const hashChunk = (content: Buffer): string => {
+  const digest = blake3(content)
+  return bytesToHex(digest)
+}
+
+/**
+ * Compute the BLAKE3 256-bit hash of a string input.
+ * Convenience wrapper that encodes the string as UTF-8 before hashing.
+ * Returns a 64-character lowercase hex string.
+ *
+ * Time: O(n) where n = byte length of the UTF-8 encoding.
+ * Space: O(n) for the intermediate buffer.
+ */
+export const hashString = (s: string): string => {
+  const buf = Buffer.from(s, 'utf8')
+  const digest = blake3(buf)
+  return bytesToHex(digest)
+}

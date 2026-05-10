@@ -422,3 +422,41 @@ Wiring these utilities into the FTS5 custom tokenizer requires:
 5. Per-document language tag stored in `knowledge_chunks` metadata to avoid re-detection at query time.
 
 This is tracked separately and NOT implemented in this ticket.
+
+## Content Hashing
+
+All document and chunk content hashing uses BLAKE3 with a 256-bit output, hex-encoded to a 64-character lowercase string. BLAKE3 was selected for its combination of speed on x86-64 platforms (4-10x faster than SHA-256 on single-threaded workloads with AVX2/AVX-512), streaming support, and equivalent collision resistance to SHA-256.
+
+### Specification
+
+- **Algorithm**: BLAKE3
+- **Output**: 256-bit digest, lowercase hex-encoded (64 characters)
+- **Input**: Raw byte content (UTF-8 for text documents)
+- **Use cases**:
+  - Document deduplication: identical content produces identical hash regardless of path or metadata
+  - Chunk-level change detection: re-ingesting a modified document identifies which chunks changed
+  - Document ID derivation: content hash is the seed for deterministic document identifiers
+
+### Cross-SDK conformance
+
+All SDK implementations (Go, TypeScript) MUST produce identical hex output for identical byte input. The canonical test vector is:
+
+```
+Input (UTF-8): "jeff's brain memory system"
+BLAKE3-256:    e311e54b56b26bfef4e5c8501f04c708f1e02233106022f58a7e94b728b7265c
+```
+
+SDK conformance tests MUST assert this exact output. Any implementation that diverges from this value is non-conformant.
+
+### Implementation references
+
+| SDK | Package | Function |
+| --- | --- | --- |
+| Go | `github.com/zeebo/blake3` | `ingest.HashDocument`, `ingest.HashChunk`, `ingest.HashString` |
+| TypeScript | `@noble/hashes/blake3` | `hashDocument`, `hashChunk`, `hashString` |
+
+### Performance notes
+
+- On x86-64 with AVX2/AVX-512: BLAKE3 is 4-10x faster than SHA-256 for inputs above 1KB.
+- On ARM64 (Apple Silicon): SHA-256 benefits from dedicated hardware instructions and may outperform the software BLAKE3 implementation. This is an acceptable trade-off because production workloads target AMD64 infrastructure.
+- Both algorithms are O(n) in input size with constant memory overhead (32 bytes for the digest).

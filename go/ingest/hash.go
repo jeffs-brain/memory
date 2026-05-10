@@ -5,13 +5,14 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 
-	"lukechampine.com/blake3"
+	"github.com/zeebo/blake3"
+	lukechampineblake3 "lukechampine.com/blake3"
 )
 
 // HashContent computes the BLAKE3 hash of data and returns the full
 // hex-encoded digest (64 characters).
 func HashContent(data []byte) string {
-	sum := blake3.Sum256(data)
+	sum := lukechampineblake3.Sum256(data)
 	return hex.EncodeToString(sum[:])
 }
 
@@ -26,7 +27,7 @@ func HashSlug(data []byte) string {
 // BLAKE3(brainID + ":" + contentHash).
 func HashDocumentID(brainID, contentHash string) string {
 	combined := []byte(brainID + ":" + contentHash)
-	sum := blake3.Sum256(combined)
+	sum := lukechampineblake3.Sum256(combined)
 	return hex.EncodeToString(sum[:])[:16]
 }
 
@@ -43,4 +44,29 @@ func HashContentSHA256(data []byte) string {
 // knowledge/ingest.go.
 func HashSlugSHA256(data []byte) string {
 	return HashContentSHA256(data)[:12]
+}
+
+// HashDocument computes the BLAKE3 hash of document content and returns
+// the full hex-encoded 256-bit digest (64 characters). Used for document
+// deduplication in the ingest pipeline.
+func HashDocument(content []byte) string {
+	sum := blake3.Sum256(content)
+	return hex.EncodeToString(sum[:])
+}
+
+// HashChunk computes the BLAKE3 hash of chunk content and returns the
+// full hex-encoded 256-bit digest (64 characters). Semantically identical
+// to HashDocument but named separately for clarity at call sites where
+// chunk-level change detection is the intent.
+func HashChunk(content []byte) string {
+	sum := blake3.Sum256(content)
+	return hex.EncodeToString(sum[:])
+}
+
+// HashString computes the BLAKE3 hash of a string input and returns the
+// full hex-encoded 256-bit digest (64 characters). Convenience wrapper
+// that avoids a []byte conversion at call sites.
+func HashString(s string) string {
+	sum := blake3.Sum256([]byte(s))
+	return hex.EncodeToString(sum[:])
 }

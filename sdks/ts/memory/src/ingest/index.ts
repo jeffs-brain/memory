@@ -14,6 +14,8 @@ export {
   type ChunkOptions,
 } from './chunker.js'
 
+export { hashChunk, hashDocument, hashString } from './hash.js'
+
 export {
   DEFAULT_CHUNK_CONFIG,
   DEFAULT_MAX_TOKENS,
