@@ -110,3 +110,48 @@ export const validateChunkConfig = (cfg: ChunkConfig): void => {
  */
 export const estimateTokens = (text: string): number =>
   text.length === 0 ? 0 : Math.ceil(text.length / 4)
+
+export class ChunkConfigError extends Error {
+  override readonly name = 'ChunkConfigError'
+  constructor(message: string) {
+    super(message)
+  }
+}
+
+/**
+ * Creates a validated ChunkConfig. Applies defaults for zero/negative
+ * values. Throws ChunkConfigError when invariants are violated:
+ * minTokens must be less than maxTokens; overlapTokens must be less
+ * than maxTokens.
+ */
+export const createChunkConfig = (
+  maxTokens?: number,
+  overlapTokens?: number,
+  minTokens?: number,
+): ChunkConfig => {
+  const max = maxTokens !== undefined && maxTokens > 0 ? maxTokens : DEFAULT_MAX_TOKENS
+  const overlap =
+    overlapTokens !== undefined && overlapTokens >= 0 ? overlapTokens : DEFAULT_OVERLAP_TOKENS
+  const min = minTokens !== undefined && minTokens >= 0 ? minTokens : DEFAULT_MIN_TOKENS
+
+  if (min >= max) {
+    throw new ChunkConfigError(
+      `minTokens (${min}) must be less than maxTokens (${max})`,
+    )
+  }
+  if (overlap >= max) {
+    throw new ChunkConfigError(
+      `overlapTokens (${overlap}) must be less than maxTokens (${max})`,
+    )
+  }
+  return { maxTokens: max, overlapTokens: overlap, minTokens: min, strategy: DEFAULT_STRATEGY, separators: [...DEFAULT_SEPARATORS] }
+}
+
+/** Returns a ChunkConfig with the package defaults. */
+export const defaultChunkConfig = (): ChunkConfig => ({
+  maxTokens: DEFAULT_MAX_TOKENS,
+  overlapTokens: DEFAULT_OVERLAP_TOKENS,
+  minTokens: DEFAULT_MIN_TOKENS,
+  strategy: DEFAULT_STRATEGY,
+  separators: [...DEFAULT_SEPARATORS],
+})

@@ -115,3 +115,30 @@ func ValidateChunkConfig(cfg ChunkConfig) error {
 func EstimateTokens(text string) int {
 	return (len(text) + 3) / 4
 }
+
+// NewChunkConfig validates and returns a ChunkConfig for the chunker
+// registry. Returns an error when maxTokens < minTokens, overlapTokens
+// >= maxTokens, or any value is negative. Applies defaults for
+// zero/negative values.
+func NewChunkConfig(maxTokens, overlapTokens, minTokens int) (ChunkConfig, error) {
+	if maxTokens <= 0 {
+		maxTokens = DefaultMaxTokens
+	}
+	if overlapTokens < 0 {
+		overlapTokens = DefaultOverlapTokens
+	}
+	if minTokens < 0 {
+		minTokens = DefaultMinTokens
+	}
+	cfg := ChunkConfig{
+		MaxTokens:     maxTokens,
+		OverlapTokens: overlapTokens,
+		MinTokens:     minTokens,
+		Strategy:      StrategyRecursive,
+		Separators:    DefaultSeparators,
+	}
+	if err := ValidateChunkConfig(cfg); err != nil {
+		return ChunkConfig{}, err
+	}
+	return cfg, nil
+}
