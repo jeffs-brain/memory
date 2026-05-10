@@ -374,11 +374,16 @@ export const chunkAuto = (text: string, opts?: ChunkOptions): readonly Chunk[] =
   return chunkPlainText(text, opts)
 }
 
+const RE_ATX_HEADING = /^#{1,6}\s+\S/m
+const RE_BLOCKQUOTE = /^>\s+\S/m
+const RE_UNORDERED_LIST = /^\s*[-*+]\s+\S/m
+const RE_ORDERED_LIST = /^\s*\d+\.\s+\S/m
+
 export const looksLikeMarkdown = (text: string): boolean => {
   if (text === '') return false
-  if (/^#{1,6}\s+\S/m.test(text)) return true
-  if (/^>\s+\S/m.test(text)) return true
-  if (/^\s*[-*+]\s+\S/m.test(text)) return true
-  if (/^\s*\d+\.\s+\S/m.test(text)) return true
+  if (RE_ATX_HEADING.test(text)) return true
+  if (RE_BLOCKQUOTE.test(text)) return true
+  if (RE_UNORDERED_LIST.test(text)) return true
+  if (RE_ORDERED_LIST.test(text)) return true
   return false
 }

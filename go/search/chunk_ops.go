@@ -124,27 +124,38 @@ func (idx *Index) DeleteByDocPath(ctx context.Context, path string) error {
 		return fmt.Errorf("search: empty path in DeleteByDocPath")
 	}
 
-	// Chunks store the parent path in the project_slug column with scope = 'chunk'.
+	// Collect chunk IDs before deleting from FTS so we can clean up metadata.
+	rows, err := idx.db.QueryContext(ctx,
+		"SELECT path FROM knowledge_fts WHERE scope = 'chunk' AND project_slug = ?",
+		path,
+	)
+	if err != nil {
+		return fmt.Errorf("search: querying chunk IDs for document %s: %w", path, err)
+	}
+	var chunkIDs []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return fmt.Errorf("search: scanning chunk ID for document %s: %w", path, err)
+		}
+		chunkIDs = append(chunkIDs, id)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("search: iterating chunk IDs for document %s: %w", path, err)
+	}
+
+	// Delete chunks from FTS by exact match on project_slug.
 	if _, err := idx.db.ExecContext(ctx,
-		"DELETE FROM knowledge_fts WHERE project_slug = ? AND scope = 'chunk'",
+		"DELETE FROM knowledge_fts WHERE scope = 'chunk' AND project_slug = ?",
 		path,
 	); err != nil {
 		return fmt.Errorf("search: deleting chunks for document %s: %w", path, err)
 	}
 
-	// Clean up chunk metadata for all chunks belonging to this document.
-	if _, err := idx.db.ExecContext(ctx,
-		`DELETE FROM knowledge_chunk_metadata
-		 WHERE chunk_id IN (
-		     SELECT chunk_id FROM knowledge_chunk_metadata
-		     WHERE chunk_id LIKE ?
-		 )`,
-		path+"%",
-	); err != nil {
-		return fmt.Errorf("search: deleting chunk metadata for document %s: %w", path, err)
-	}
-
-	return nil
+	// Clean up chunk metadata for collected IDs.
+	return idx.deleteChunkMetadataBatch(ctx, chunkIDs)
 }
 
 // deleteChunkMetadataBatch removes metadata rows for the given chunk IDs.
