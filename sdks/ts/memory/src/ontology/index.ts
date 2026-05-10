@@ -57,3 +57,14 @@ export {
   getTemplate,
   registerTemplate,
 } from './templates.js'
+
+export type {
+  FileOntologyStoreConfig,
+  ListTypesOpts,
+  OntologyStore,
+  ResolvedOntology,
+  ResolvedType,
+  StoredOntology,
+} from './store.js'
+
+export { createFileOntologyStore } from './store.js'
