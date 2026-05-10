@@ -3,6 +3,7 @@ package ontology
 
 import (
 	"math"
+	"strings"
 	"testing"
 )
 
@@ -63,7 +64,10 @@ func TestCosineSimilarity(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			got := CosineSimilarity(tc.a, tc.b)
+			got, err := CosineSimilarity(tc.a, tc.b)
+			if err != nil {
+				t.Fatalf("CosineSimilarity(%v, %v) unexpected error: %v", tc.a, tc.b, err)
+			}
 			if math.Abs(got-tc.want) > 1e-7 {
 				t.Fatalf("CosineSimilarity(%v, %v) = %f, want %f", tc.a, tc.b, got, tc.want)
 			}
@@ -71,13 +75,13 @@ func TestCosineSimilarity(t *testing.T) {
 	}
 }
 
-func TestCosineSimilarity_PanicOnMismatch(t *testing.T) {
+func TestCosineSimilarity_ErrorOnMismatch(t *testing.T) {
 	t.Parallel()
-	defer func() {
-		r := recover()
-		if r == nil {
-			t.Fatal("expected panic on mismatched vector lengths")
-		}
-	}()
-	CosineSimilarity([]float32{1, 0}, []float32{1, 0, 0})
+	_, err := CosineSimilarity([]float32{1, 0}, []float32{1, 0, 0})
+	if err == nil {
+		t.Fatal("expected error on mismatched vector lengths, got nil")
+	}
+	if !strings.Contains(err.Error(), "equal-length vectors") {
+		t.Fatalf("expected error about equal-length vectors, got: %v", err)
+	}
 }

@@ -180,10 +180,13 @@ func TestDedup_SemanticReviewZone(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	similarity := CosineSimilarity(
+	similarity, simErr := CosineSimilarity(
 		[]float32{0.8, 0.4, 0.2},
 		[]float32{0.5, 0.7, 0.5},
 	)
+	if simErr != nil {
+		t.Fatalf("CosineSimilarity: %v", simErr)
+	}
 	if similarity < EmbeddingReviewThreshold || similarity >= EmbeddingAutoMerge {
 		t.Skipf("test vectors produce similarity %f outside review zone [%f, %f)", similarity, EmbeddingReviewThreshold, EmbeddingAutoMerge)
 	}

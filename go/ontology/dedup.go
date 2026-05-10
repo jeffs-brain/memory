@@ -105,7 +105,10 @@ func DeduplicateType(ctx context.Context, candidate TypeDefinition, existing []T
 	var bestIdx int
 
 	for j := range existingEmbeddings {
-		sim := CosineSimilarity(candidateVec, existingEmbeddings[j])
+		sim, err := CosineSimilarity(candidateVec, existingEmbeddings[j])
+		if err != nil {
+			return DedupResult{}, fmt.Errorf("ontology: cosine similarity: %w", err)
+		}
 		if sim > bestSimilarity {
 			bestSimilarity = sim
 			bestIdx = j
@@ -288,7 +291,10 @@ func (d *Deduplicator) deduplicateSemantic(
 			if j >= len(existingEmbeddings) {
 				break
 			}
-			similarity := CosineSimilarity(candidateVec, existingEmbeddings[j])
+			similarity, err := CosineSimilarity(candidateVec, existingEmbeddings[j])
+			if err != nil {
+				return fmt.Errorf("ontology: cosine similarity: %w", err)
+			}
 			if similarity > bestSimilarity {
 				bestSimilarity = similarity
 				bestMatch = existingEntry

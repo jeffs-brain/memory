@@ -2,6 +2,7 @@
 package ontology
 
 import (
+	"fmt"
 	"math"
 	"strings"
 
@@ -31,16 +32,16 @@ func JaroWinklerDistance(s1, s2 string) float64 {
 // direction, 0 indicates orthogonal vectors, and -1 indicates opposite
 // direction. Returns 0 when either vector has zero magnitude.
 //
-// Panics if the vectors have different lengths.
+// Returns an error if the vectors have different lengths.
 //
 // Time: O(n) where n = len(a)
 // Space: O(1)
-func CosineSimilarity(a, b []float32) float64 {
+func CosineSimilarity(a, b []float32) (float64, error) {
 	if len(a) != len(b) {
-		panic("ontology: cosine similarity requires equal-length vectors")
+		return 0, fmt.Errorf("ontology: cosine similarity requires equal-length vectors, got %d and %d", len(a), len(b))
 	}
 	if len(a) == 0 {
-		return 0
+		return 0, nil
 	}
 
 	var dot, normA, normB float64
@@ -55,7 +56,7 @@ func CosineSimilarity(a, b []float32) float64 {
 	magA := math.Sqrt(normA)
 	magB := math.Sqrt(normB)
 	if magA == 0 || magB == 0 {
-		return 0
+		return 0, nil
 	}
-	return dot / (magA * magB)
+	return dot / (magA * magB), nil
 }
