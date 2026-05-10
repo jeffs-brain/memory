@@ -59,8 +59,7 @@ func HashDocument(content []byte) string {
 // to HashDocument but named separately for clarity at call sites where
 // chunk-level change detection is the intent.
 func HashChunk(content []byte) string {
-	sum := blake3.Sum256(content)
-	return hex.EncodeToString(sum[:])
+	return HashDocument(content)
 }
 
 // HashString computes the BLAKE3 hash of a string input and returns the
