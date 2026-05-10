@@ -102,7 +102,13 @@ const bufferStream = async (source: Readable, maxBytes?: number): Promise<Buffer
   let totalBytes = 0
 
   for await (const chunk of source) {
-    const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as Uint8Array)
+    const buf = Buffer.isBuffer(chunk)
+      ? chunk
+      : typeof chunk === 'string'
+        ? Buffer.from(chunk)
+        : chunk instanceof Uint8Array
+          ? Buffer.from(chunk)
+          : Buffer.from(String(chunk))
     if (maxBytes !== undefined && maxBytes > 0) {
       const remaining = maxBytes - totalBytes
       if (remaining <= 0) break
@@ -135,11 +141,12 @@ export const createPlainTextExtractor = (): Extractor => ({
   ],
 
   async extract(raw: Buffer, _opts: ExtractOptions): Promise<ExtractResult> {
-    const text = raw.toString('utf8')
-    return {
-      text,
-      metadata: {},
-      skipped: false,
+    const textDecoder = new TextDecoder('utf-8', { fatal: true })
+    try {
+      const text = textDecoder.decode(raw)
+      return { text, metadata: {}, skipped: false }
+    } catch {
+      return { text: '', metadata: {}, skipped: true, reason: 'invalid utf-8 content' }
     }
   },
 
