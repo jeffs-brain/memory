@@ -196,6 +196,30 @@ export const pipelineMachine = setup({
   },
 })
 
+/** Set of valid pipeline stages for runtime validation. */
+const VALID_STAGES: ReadonlySet<string> = new Set([
+  'received',
+  'stored',
+  'chunked',
+  'embedded',
+  'indexed',
+  'completed',
+  'failed',
+])
+
+/**
+ * Asserts that a state machine value is a valid PipelineStage. Throws if
+ * the value does not match a known stage, guarding against runtime state
+ * machine misconfiguration.
+ */
+const assertValidStage = (value: unknown): PipelineStage => {
+  const s = String(value)
+  if (!VALID_STAGES.has(s)) {
+    throw new Error(`ingest: unexpected state machine value: ${s}`)
+  }
+  return s as PipelineStage
+}
+
 /** Configuration for creating a PipelineStateMachine instance. */
 export type PipelineStateMachineConfig = {
   readonly stateStore: PipelineStateStore
@@ -251,10 +275,10 @@ export const createPipelineStateMachine = (config: PipelineStateMachineConfig) =
     })
 
     actor.start()
-    const beforeState = actor.getSnapshot().value as PipelineStage
+    const beforeState = assertValidStage(actor.getSnapshot().value)
     actor.send(event)
     const afterSnapshot = actor.getSnapshot()
-    const afterState = afterSnapshot.value as PipelineStage
+    const afterState = assertValidStage(afterSnapshot.value)
     actor.stop()
 
     const now = new Date().toISOString()
