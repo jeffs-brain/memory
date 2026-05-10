@@ -15,6 +15,19 @@ export {
 } from './chunker.js'
 
 export {
+  DEFAULT_CHUNK_CONFIG,
+  DEFAULT_MAX_TOKENS,
+  DEFAULT_MIN_TOKENS,
+  DEFAULT_OVERLAP_TOKENS,
+  DEFAULT_SEPARATORS,
+  DEFAULT_STRATEGY,
+  estimateTokens,
+  validateChunkConfig,
+  type ChunkConfig,
+  type Strategy,
+} from './chunk-config.js'
+
+export {
   ingestDocument,
   type IngestPipelineDeps,
   type IngestPipelineInput,
