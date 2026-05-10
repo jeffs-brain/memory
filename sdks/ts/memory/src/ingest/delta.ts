@@ -23,6 +23,18 @@ import { isNotFound, toPath } from '../store/index.js'
 
 const CHUNK_MANIFESTS_PREFIX = 'raw/.chunk-manifests'
 
+/**
+ * Validates that a document hash is a lowercase hex string. Prevents
+ * path traversal attacks via crafted hash values.
+ */
+const VALID_DOCUMENT_HASH_RE = /^[a-f0-9]+$/
+
+const validateDocumentHash = (documentHash: string): void => {
+  if (!VALID_DOCUMENT_HASH_RE.test(documentHash)) {
+    throw new Error(`ingest: invalid document hash "${documentHash}": must match ^[a-f0-9]+$`)
+  }
+}
+
 export type ChunkManifestEntry = {
   readonly hash: string
   readonly chunkId: string
@@ -176,13 +188,29 @@ export const buildChunkManifest = (
   }
 }
 
-const manifestPath = (documentHash: string): string =>
-  `${CHUNK_MANIFESTS_PREFIX}/${documentHash}.json`
+const manifestPath = (documentHash: string): string => {
+  validateDocumentHash(documentHash)
+  return `${CHUNK_MANIFESTS_PREFIX}/${documentHash}.json`
+}
 
 /**
  * Loads the chunk manifest for a document from the store. Returns
  * undefined when the manifest does not exist (first ingest scenario).
  */
+/**
+ * Validates that a parsed JSON value has the required shape of a
+ * ChunkManifest. Returns undefined if invalid (treats as missing
+ * manifest, triggering first-ingest behaviour).
+ */
+const validateChunkManifest = (parsed: unknown): ChunkManifest | undefined => {
+  if (parsed === null || typeof parsed !== 'object') return undefined
+  const obj = parsed as Record<string, unknown>
+  if (typeof obj['documentHash'] !== 'string') return undefined
+  if (typeof obj['generation'] !== 'number') return undefined
+  if (!Array.isArray(obj['chunks'])) return undefined
+  return parsed as ChunkManifest
+}
+
 export const readChunkManifest = async (
   store: Store,
   documentHash: string,
@@ -191,7 +219,7 @@ export const readChunkManifest = async (
   try {
     const data = await store.read(p)
     const parsed: unknown = JSON.parse(data.toString('utf8'))
-    return parsed as ChunkManifest
+    return validateChunkManifest(parsed)
   } catch (err: unknown) {
     if (isNotFound(err)) {
       return undefined

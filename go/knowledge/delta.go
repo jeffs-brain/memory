@@ -8,10 +8,16 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"time"
 
 	"github.com/jeffs-brain/memory/go/brain"
 )
+
+// validDocumentHashRe validates that a document hash is a lowercase hex
+// string (SHA-256 or BLAKE3 output). Prevents path traversal via
+// crafted hash values.
+var validDocumentHashRe = regexp.MustCompile(`^[a-f0-9]+$`)
 
 // chunkManifestsPrefix is the logical prefix where chunk manifests are
 // persisted. Each document gets one manifest keyed by its content hash.
@@ -22,7 +28,7 @@ const chunkManifestsPrefix = "raw/.chunk-manifests"
 // detection is by Hash (content-based), not by ChunkID (ordinal-based).
 type ChunkManifestEntry struct {
 	Hash    string `json:"hash"`
-	ChunkID string `json:"chunk_id"`
+	ChunkID string `json:"chunkId"`
 }
 
 // ChunkManifest records all chunk hashes for a document. Used by delta
@@ -30,10 +36,10 @@ type ChunkManifestEntry struct {
 // increments on every successful write, enabling external consumers to
 // detect stale manifests.
 type ChunkManifest struct {
-	DocumentHash string               `json:"document_hash"`
+	DocumentHash string               `json:"documentHash"`
 	Generation   int                  `json:"generation"`
 	Chunks       []ChunkManifestEntry `json:"chunks"`
-	UpdatedAt    time.Time            `json:"updated_at"`
+	UpdatedAt    time.Time            `json:"updatedAt"`
 }
 
 // DeltaCategory classifies a chunk's change status during re-ingest.
@@ -152,8 +158,18 @@ func ComputeChunkDeltas(newChunks []Chunk, manifest *ChunkManifest) []ChunkDelta
 	return out
 }
 
+// validateDocumentHash returns an error if the hash is not a valid
+// lowercase hex string. This prevents path traversal attacks via crafted
+// document hash values containing slashes or relative paths.
+func validateDocumentHash(documentHash string) error {
+	if !validDocumentHashRe.MatchString(documentHash) {
+		return fmt.Errorf("knowledge: invalid document hash %q: must match ^[a-f0-9]+$", documentHash)
+	}
+	return nil
+}
+
 // manifestPath returns the brain.Path where a document's chunk manifest
-// is persisted.
+// is persisted. Caller must validate documentHash before calling.
 func manifestPath(documentHash string) brain.Path {
 	return brain.Path(chunkManifestsPrefix + "/" + documentHash + ".json")
 }
@@ -162,6 +178,9 @@ func manifestPath(documentHash string) brain.Path {
 // store. Returns nil and no error when the manifest does not exist (first
 // ingest scenario).
 func ReadChunkManifest(ctx context.Context, store brain.Store, documentHash string) (*ChunkManifest, error) {
+	if err := validateDocumentHash(documentHash); err != nil {
+		return nil, err
+	}
 	p := manifestPath(documentHash)
 	data, err := store.Read(ctx, p)
 	if err != nil {
@@ -181,6 +200,9 @@ func ReadChunkManifest(ctx context.Context, store brain.Store, documentHash stri
 // the prior manifest to increment the generation counter. When no prior
 // manifest exists, generation starts at 1.
 func WriteChunkManifest(ctx context.Context, store brain.Store, manifest ChunkManifest) error {
+	if err := validateDocumentHash(manifest.DocumentHash); err != nil {
+		return err
+	}
 	p := manifestPath(manifest.DocumentHash)
 
 	prior, err := ReadChunkManifest(ctx, store, manifest.DocumentHash)

@@ -354,7 +354,7 @@ func TestReadChunkManifest_missing(t *testing.T) {
 	store := mem.New()
 	t.Cleanup(func() { _ = store.Close() })
 
-	loaded, err := ReadChunkManifest(ctx, store, "nonexistent")
+	loaded, err := ReadChunkManifest(ctx, store, "deadbeef0123456789abcdef")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -373,13 +373,13 @@ func TestWriteChunkManifest_increments_generation(t *testing.T) {
 		{DocumentID: "doc1", Ordinal: 0, Text: "content v1"},
 	}
 
-	manifest := BuildChunkManifest("docXYZ", chunks)
+	manifest := BuildChunkManifest("d0c000000000000000000000000000000000000000000000000000000000abcd", chunks)
 
 	if err := WriteChunkManifest(ctx, store, manifest); err != nil {
 		t.Fatalf("first write: %v", err)
 	}
 
-	loaded, err := ReadChunkManifest(ctx, store, "docXYZ")
+	loaded, err := ReadChunkManifest(ctx, store, "d0c000000000000000000000000000000000000000000000000000000000abcd")
 	if err != nil {
 		t.Fatalf("first read: %v", err)
 	}
@@ -391,13 +391,13 @@ func TestWriteChunkManifest_increments_generation(t *testing.T) {
 	chunks2 := []Chunk{
 		{DocumentID: "doc1", Ordinal: 0, Text: "content v2"},
 	}
-	manifest2 := BuildChunkManifest("docXYZ", chunks2)
+	manifest2 := BuildChunkManifest("d0c000000000000000000000000000000000000000000000000000000000abcd", chunks2)
 
 	if err := WriteChunkManifest(ctx, store, manifest2); err != nil {
 		t.Fatalf("second write: %v", err)
 	}
 
-	loaded2, err := ReadChunkManifest(ctx, store, "docXYZ")
+	loaded2, err := ReadChunkManifest(ctx, store, "d0c000000000000000000000000000000000000000000000000000000000abcd")
 	if err != nil {
 		t.Fatalf("second read: %v", err)
 	}

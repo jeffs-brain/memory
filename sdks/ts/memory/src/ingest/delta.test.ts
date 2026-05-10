@@ -298,24 +298,24 @@ describe('readChunkManifest/writeChunkManifest', () => {
 
   it('returns undefined for missing manifest', async () => {
     const store = freshStore()
-    const loaded = await readChunkManifest(store, 'nonexistent')
+    const loaded = await readChunkManifest(store, 'deadbeef0123456789abcdef')
     expect(loaded).toBeUndefined()
   })
 
   it('increments generation on subsequent writes', async () => {
     const store = freshStore()
     const chunks1: Chunk[] = [makeChunk('content v1', 0)]
-    const manifest1 = buildChunkManifest('docXYZ', chunks1)
+    const manifest1 = buildChunkManifest('d0c000000000000000000000000000000000000000000000000000000000abcd', chunks1)
 
     await writeChunkManifest(store, manifest1)
-    const first = await readChunkManifest(store, 'docXYZ')
+    const first = await readChunkManifest(store, 'd0c000000000000000000000000000000000000000000000000000000000abcd')
     expect(first?.generation).toBe(1)
 
     const chunks2: Chunk[] = [makeChunk('content v2', 0)]
-    const manifest2 = buildChunkManifest('docXYZ', chunks2)
+    const manifest2 = buildChunkManifest('d0c000000000000000000000000000000000000000000000000000000000abcd', chunks2)
 
     await writeChunkManifest(store, manifest2)
-    const second = await readChunkManifest(store, 'docXYZ')
+    const second = await readChunkManifest(store, 'd0c000000000000000000000000000000000000000000000000000000000abcd')
     expect(second?.generation).toBe(2)
   })
 })
