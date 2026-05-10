@@ -112,6 +112,7 @@
     "prepublishOnly": "bun run typecheck && bun run test && bun run build"
   },
   "dependencies": {
+    "@noble/hashes": "^2.2.0",
     "@stackone/defender": "^0.6.3",
     "citty": "^0.1.6",
     "isomorphic-git": "^1.37.5",
