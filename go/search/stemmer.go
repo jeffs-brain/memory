@@ -31,19 +31,14 @@ type Stemmer interface {
 	Language() string
 }
 
-// supportedLanguages lists all ISO 639-1 codes with available Snowball
-// stemmers. Used by NewSnowballStemmer to validate input.
-var supportedLanguages = map[string]bool{
-	"en": true, "de": true, "fr": true, "es": true, "nl": true,
-	"it": true, "pt": true, "sv": true, "no": true, "da": true,
-	"fi": true, "hu": true, "tr": true, "ro": true, "ru": true,
-}
-
 // snowballStemmer wraps a Snowball stem function for a specific language.
 type snowballStemmer struct {
 	lang   string
 	stemFn func(env *snowballRuntime.Env) bool
 }
+
+// Compile-time interface compliance check.
+var _ Stemmer = (*snowballStemmer)(nil)
 
 // NewSnowballStemmer returns a Stemmer for the given ISO 639-1 language
 // code. Returns an error if the language is not supported.
@@ -111,10 +106,9 @@ const languageConfidenceThreshold = 0.5
 // When confidence is below 0.5, returns "en" as the safe default.
 //
 // The detection uses character-level bigram frequency profiles for each
-// language. Confidence is computed as the margin between the best and
-// second-best scoring language, normalized to [0, 1]. Short texts
-// (< 20 characters of alphabetic content) always return "en" with zero
-// confidence.
+// language. Confidence is computed by scaling the best cosine similarity
+// score (typically 0.2-0.7) to [0, 1]. Short texts (< 20 characters of
+// alphabetic content) always return "en" with zero confidence.
 func DetectLanguage(text string) (string, float64) {
 	cleaned := extractAlphaRuns(text)
 	if len([]rune(cleaned)) < 20 {
@@ -126,46 +120,30 @@ func DetectLanguage(text string) (string, float64) {
 		return "en", 0.0
 	}
 
-	type scored struct {
-		lang  string
-		score float64
-	}
-	results := make([]scored, 0, len(languageProfiles))
+	var bestLang string
+	var bestScore float64
 	for lang, profile := range languageProfiles {
 		score := bigramCosineSimilarity(bigrams, profile)
-		results = append(results, scored{lang: lang, score: score})
-	}
-
-	// Find the best and second-best scores.
-	var best, secondBest scored
-	for _, r := range results {
-		if r.score > best.score {
-			secondBest = best
-			best = r
-		} else if r.score > secondBest.score {
-			secondBest = r
+		if score > bestScore {
+			bestScore = score
+			bestLang = lang
 		}
 	}
 
-	if best.score == 0 {
+	if bestScore == 0 {
 		return "en", 0.0
 	}
 
-	// Confidence combines the absolute cosine similarity with the margin
-	// over the next-best language. This handles cases where related
-	// languages (e.g. French/Spanish) have similar profiles but the raw
-	// cosine score is still well above random.
-	//
-	// Formula: scale the raw cosine score (typically 0.2-0.7) to [0, 1]
-	// using a sigmoid-like mapping. Scores above 0.35 map to confidence
-	// above 0.5, which is the threshold.
-	confidence := math.Min(1.0, best.score*2.0)
+	// Scale the raw cosine score (typically 0.2-0.7) to [0, 1].
+	// Scores above 0.35 map to confidence above 0.5, which is the
+	// detection threshold.
+	confidence := math.Min(1.0, bestScore*2.0)
 
 	if confidence < languageConfidenceThreshold {
 		return "en", confidence
 	}
 
-	return best.lang, confidence
+	return bestLang, confidence
 }
 
 // extractAlphaRuns keeps only letter characters and spaces, collapsing

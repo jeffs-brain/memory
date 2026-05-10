@@ -156,11 +156,13 @@ export function detectLanguage(text: string): DetectLanguageResult {
   let bestLang: StemmerLanguage = 'en'
   let bestScore = 0
 
-  for (const [lang, profile] of Object.entries(LANGUAGE_PROFILES)) {
+  const langs = Object.keys(LANGUAGE_PROFILES) as StemmerLanguage[]
+  for (const lang of langs) {
+    const profile = LANGUAGE_PROFILES[lang]
     const score = bigramCosineSimilarity(bigrams, profile)
     if (score > bestScore) {
       bestScore = score
-      bestLang = lang as StemmerLanguage
+      bestLang = lang
     }
   }
 
@@ -178,24 +180,25 @@ export function detectLanguage(text: string): DetectLanguageResult {
  * non-letter characters collapsed into single spaces.
  */
 function extractAlphaRuns(text: string): string {
-  let result = ''
+  const chars: string[] = []
   let prevSpace = true
   for (const char of text) {
     if (isLetter(char)) {
-      result += char.toLowerCase()
+      chars.push(char.toLowerCase())
       prevSpace = false
     } else if (!prevSpace) {
-      result += ' '
+      chars.push(' ')
       prevSpace = true
     }
   }
-  return result.trim()
+  return chars.join('').trimEnd()
 }
 
+/** Pre-compiled regex for Unicode letter detection. */
+const LETTER_RE = /\p{L}/u
+
 /** Check if a character is a Unicode letter. */
-function isLetter(char: string): boolean {
-  return /\p{L}/u.test(char)
-}
+const isLetter = (char: string): boolean => LETTER_RE.test(char)
 
 /**
  * Build a normalised bigram frequency map from text. Each bigram's
@@ -254,7 +257,7 @@ function bigramCosineSimilarity(
  * Character bigram frequency profiles for language detection. Top-40
  * bigrams per language, derived from representative corpora.
  */
-const LANGUAGE_PROFILES: Readonly<Record<string, Readonly<Record<string, number>>>> = {
+const LANGUAGE_PROFILES: Readonly<Record<StemmerLanguage, Readonly<Record<string, number>>>> = {
   en: {
     th: 0.037, he: 0.034, in: 0.029, er: 0.028, an: 0.026,
     re: 0.022, on: 0.021, en: 0.019, at: 0.018, nd: 0.018,

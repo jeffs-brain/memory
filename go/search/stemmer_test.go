@@ -102,7 +102,7 @@ func TestNewSnowballStemmer_French(t *testing.T) {
 
 func TestNewSnowballStemmer_AllLanguages(t *testing.T) {
 	t.Parallel()
-	for lang := range supportedLanguages {
+	for lang := range stemFunctions {
 		t.Run(lang, func(t *testing.T) {
 			s, err := NewSnowballStemmer(lang)
 			if err != nil {
