@@ -71,25 +71,33 @@ export const createHashMigrator = (store: Store): HashMigrator => {
     return name.slice(0, -3)
   }
 
-  const migrateDocument = async (docPath: Path, dryRun: boolean): Promise<boolean> => {
+  const migrateDocument = async (docPath: Path, dryRun: boolean): Promise<'migrated' | 'skipped' | 'not_found'> => {
     const slug = extractSlug(docPath)
-    if (slug === '') return false
+    if (slug === '') return 'skipped'
 
-    const content = await store.read(docPath)
+    let content: Buffer
+    try {
+      content = await store.read(docPath)
+    } catch (err: unknown) {
+      if (isNotFound(err)) {
+        return 'not_found'
+      }
+      throw err
+    }
     const blake3SlugValue = hashSlug(content)
 
-    if (slug === blake3SlugValue) return false
+    if (slug === blake3SlugValue) return 'skipped'
 
-    if (dryRun) return true
+    if (dryRun) return 'migrated'
 
     const newPath = rawDocumentPath(blake3SlugValue)
-    if (String(docPath) === String(newPath)) return false
+    if (String(docPath) === String(newPath)) return 'skipped'
 
     await store.batch({ reason: 'blake3-migration' }, async (batch) => {
       await batch.write(newPath, content)
       await batch.delete(docPath)
     })
-    return true
+    return 'migrated'
   }
 
   const migrate = async (opts?: MigrateOpts, signal?: AbortSignal): Promise<MigrateResult> => {
@@ -104,6 +112,11 @@ export const createHashMigrator = (store: Store): HashMigrator => {
       }
     }
 
+    // Migration processes documents in batches of batchSize. The initial list
+    // call loads all document paths into memory. For brains with >100K documents,
+    // consider running migration in multiple passes with path-prefix filtering.
+    // The Store interface doesn't support server-side pagination for file-based
+    // backends, so a streaming approach would require Store API changes.
     const entries = await store.list(toPath(RAW_DOCUMENTS_PREFIX), {
       recursive: true,
       includeGenerated: true,
@@ -129,8 +142,8 @@ export const createHashMigrator = (store: Store): HashMigrator => {
       const docPath = docPaths[i]
       if (docPath === undefined) break
 
-      const didMigrate = await migrateDocument(docPath, dryRun)
-      if (didMigrate) {
+      const result = await migrateDocument(docPath, dryRun)
+      if (result === 'migrated') {
         migrated++
       } else {
         skipped++

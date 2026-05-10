@@ -78,6 +78,11 @@ func (m *HashMigrator) Migrate(ctx context.Context, opts MigrateOpts) (*MigrateR
 		}
 	}
 
+	// Migration processes documents in batches of batchSize. The initial list
+	// call loads all document paths into memory. For brains with >100K documents,
+	// consider running migration in multiple passes with path-prefix filtering.
+	// The Store interface doesn't support server-side pagination for file-based
+	// backends, so a streaming approach would require Store API changes.
 	entries, err := m.store.List(ctx, brain.RawDocumentsPrefix(), brain.ListOpts{
 		Recursive:        true,
 		IncludeGenerated: true,
@@ -106,6 +111,10 @@ func (m *HashMigrator) Migrate(ctx context.Context, opts MigrateOpts) (*MigrateR
 		docPath := docPaths[i]
 		didMigrate, err := m.migrateDocument(ctx, docPath, opts.DryRun)
 		if err != nil {
+			if errors.Is(err, brain.ErrNotFound) {
+				skipped++
+				continue
+			}
 			return nil, fmt.Errorf("ingest: migrate %s: %w", docPath, err)
 		}
 		if didMigrate {
