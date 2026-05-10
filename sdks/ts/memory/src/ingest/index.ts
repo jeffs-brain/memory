@@ -23,6 +23,21 @@ export {
   type IngestProgressStage,
 } from './pipeline.js'
 
+export {
+  createPipelineStateMachine,
+  isValidTransition,
+  pipelineMachine,
+  STAGE_ORDER,
+  type PipelineMachineContext,
+  type PipelineMachineEvent,
+  type PipelineMachineInput,
+  type PipelineStage,
+  type PipelineStateEntry,
+  type PipelineStateStore,
+  type PipelineStateMachineConfig,
+  type TransitionCallback,
+} from './state-machine.js'
+
 export * from './sources/index.js'
 
 export {
