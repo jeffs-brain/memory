@@ -11,6 +11,13 @@ import (
 // followed by lowercase alphanumeric segments separated by underscores.
 var snakeCaseNameRe = regexp.MustCompile(`^[a-z][a-z0-9]*(_[a-z0-9]+)*$`)
 
+// validStatuses is the set of acceptable TypeStatus values for type definitions.
+var validStatuses = map[TypeStatus]struct{}{
+	TypeStatusActive:     {},
+	TypeStatusProposed:   {},
+	TypeStatusDeprecated: {},
+}
+
 // IsValidNodeType reports whether value is a valid node type identifier.
 // A value is valid if it exactly matches a built-in node type, or if it
 // starts with a valid prefix and has a valid snake_case name after the dot.
@@ -96,10 +103,8 @@ func ValidateTypeDefinition(def TypeDefinition) error {
 	if def.CreatedAt == "" {
 		return fmt.Errorf("ontology: type definition %q has empty createdAt", def.Type)
 	}
-	switch def.Status {
-	case TypeStatusActive, TypeStatusProposed, TypeStatusDeprecated:
-		return nil
-	default:
+	if _, ok := validStatuses[def.Status]; !ok {
 		return fmt.Errorf("ontology: type definition %q has invalid status %q: must be active, proposed, or deprecated", def.Type, def.Status)
 	}
+	return nil
 }

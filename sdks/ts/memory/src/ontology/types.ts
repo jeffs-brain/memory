@@ -86,7 +86,7 @@ export const BUILT_IN_EDGE_TYPES = [
 
 export type BuiltInEdgeType = (typeof BUILT_IN_EDGE_TYPES)[number]
 
-export type EdgeType = BuiltInEdgeType | string
+export type EdgeType = BuiltInEdgeType | (string & {})
 
 export const BUSINESS_CATEGORIES = [
   'customer',
