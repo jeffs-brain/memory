@@ -190,7 +190,7 @@ func parseEpisodeFileContent(path brain.Path, raw string) (EpisodeRecord, error)
 
 // parseEpisodePayloadJSON extracts the JSON payload from the
 // "## Episode data" code block in the body.
-func parseEpisodePayloadJSON(body string) map[string]interface{} {
+func parseEpisodePayloadJSON(body string) map[string]any {
 	idx := strings.Index(body, "## Episode data")
 	if idx < 0 {
 		return nil
@@ -214,7 +214,7 @@ func parseEpisodePayloadJSON(body string) map[string]interface{} {
 	if jsonStr == "" {
 		return nil
 	}
-	var payload map[string]interface{}
+	var payload map[string]any
 	if err := json.Unmarshal([]byte(jsonStr), &payload); err != nil {
 		return nil
 	}
@@ -238,7 +238,7 @@ func (fm Frontmatter) scopeVal() string {
 
 // --- Payload access helpers ---
 
-func payloadStr(m map[string]interface{}, key string) string {
+func payloadStr(m map[string]any, key string) string {
 	if m == nil {
 		return ""
 	}
@@ -253,7 +253,7 @@ func payloadStr(m map[string]interface{}, key string) string {
 	return strings.TrimSpace(s)
 }
 
-func payloadStrSlice(m map[string]interface{}, key string) []string {
+func payloadStrSlice(m map[string]any, key string) []string {
 	if m == nil {
 		return []string{}
 	}
@@ -261,7 +261,7 @@ func payloadStrSlice(m map[string]interface{}, key string) []string {
 	if !ok {
 		return []string{}
 	}
-	arr, ok := v.([]interface{})
+	arr, ok := v.([]any)
 	if !ok {
 		return []string{}
 	}
@@ -279,7 +279,7 @@ func payloadStrSlice(m map[string]interface{}, key string) []string {
 	return out
 }
 
-func payloadHeuristics(m map[string]interface{}) []EpisodeHeuristic {
+func payloadHeuristics(m map[string]any) []EpisodeHeuristic {
 	if m == nil {
 		return []EpisodeHeuristic{}
 	}
@@ -287,13 +287,13 @@ func payloadHeuristics(m map[string]interface{}) []EpisodeHeuristic {
 	if !ok {
 		return []EpisodeHeuristic{}
 	}
-	arr, ok := v.([]interface{})
+	arr, ok := v.([]any)
 	if !ok {
 		return []EpisodeHeuristic{}
 	}
 	out := make([]EpisodeHeuristic, 0, len(arr))
 	for _, item := range arr {
-		obj, ok := item.(map[string]interface{})
+		obj, ok := item.(map[string]any)
 		if !ok {
 			continue
 		}
@@ -310,7 +310,7 @@ func payloadHeuristics(m map[string]interface{}) []EpisodeHeuristic {
 	return out
 }
 
-func payloadSignals(m map[string]interface{}) EpisodeSignals {
+func payloadSignals(m map[string]any) EpisodeSignals {
 	if m == nil {
 		return EpisodeSignals{}
 	}
@@ -318,7 +318,7 @@ func payloadSignals(m map[string]interface{}) EpisodeSignals {
 	if !ok {
 		return EpisodeSignals{}
 	}
-	obj, ok := v.(map[string]interface{})
+	obj, ok := v.(map[string]any)
 	if !ok {
 		return EpisodeSignals{}
 	}
@@ -335,7 +335,7 @@ func payloadSignals(m map[string]interface{}) EpisodeSignals {
 	}
 }
 
-func payloadInt(m map[string]interface{}, key string) int {
+func payloadInt(m map[string]any, key string) int {
 	v, ok := m[key]
 	if !ok {
 		return 0
@@ -350,7 +350,7 @@ func payloadInt(m map[string]interface{}, key string) int {
 	}
 }
 
-func payloadBool(m map[string]interface{}, key string) bool {
+func payloadBool(m map[string]any, key string) bool {
 	v, ok := m[key]
 	if !ok {
 		return false
