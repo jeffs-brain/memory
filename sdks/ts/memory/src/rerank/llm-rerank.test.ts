@@ -126,7 +126,8 @@ describe('LLMReranker', () => {
   })
 
   it('parses fenced JSON responses from provider', async () => {
-    const fenced = '```json\n[{"id": 0, "score": 9}, {"id": 1, "score": 3}, {"id": 2, "score": 6}]\n```'
+    const fenced =
+      '```json\n[{"id": 0, "score": 9}, {"id": 1, "score": 3}, {"id": 2, "score": 6}]\n```'
     const provider = stubProvider(() => fenced)
     const reranker = new LLMReranker({ provider, batchSize: 5, parallelism: 1 })
     const out = await reranker.rerank({ query: 'q', documents: makeDocs(3) })
