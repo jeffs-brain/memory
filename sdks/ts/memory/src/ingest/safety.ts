@@ -20,7 +20,7 @@ const ISOLATION_TAG = 'ingested-document'
 
 /** Characters that should be stripped during preprocessing (zero-width). */
 const ZERO_WIDTH_CHARS_RE =
-  /[\u200B\u200C\u200D\u200E\u200F\u2000\u2001\u2060\u2061\u2062\u2063\u2064\uFEFF\u00AD]/g
+  /(?:[\u200B\u200C\u200E\u200F\u2000\u2001\u2060\u2061\u2062\u2063\u2064\uFEFF\u00AD]|\u200D)/g
 
 /** Pattern to detect closing isolation tags that must be escaped in content. */
 const CLOSING_TAG_RE = /<\/ingested-document>/gi
@@ -163,9 +163,7 @@ export const createSafetyScanner = (
  * when the scan did not detect injection, so spreading into metadata is
  * always safe.
  */
-export const buildSafetyMetadata = (
-  scanResult: SafetyScanResult,
-): Partial<SafetyMetadata> => {
+export const buildSafetyMetadata = (scanResult: SafetyScanResult): Partial<SafetyMetadata> => {
   if (!scanResult.injectionDetected) return {}
   return {
     injection_risk: true,
