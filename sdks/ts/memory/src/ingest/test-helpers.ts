@@ -122,10 +122,10 @@ export const createMockSearchIndex = (opts: MockSearchIndexOptions = {}): MockSe
   return new MockSearchIndex(opts)
 }
 
-export class MockSearchIndex implements Pick<
-  SearchIndex,
-  'upsertChunk' | 'upsertChunks' | 'deleteChunk' | 'deleteByPath' | 'getChunk'
-> {
+export class MockSearchIndex
+  implements
+    Pick<SearchIndex, 'upsertChunk' | 'upsertChunks' | 'deleteChunk' | 'deleteByPath' | 'getChunk'>
+{
   private readonly storedChunks = new Map<string, Chunk>()
   private readonly upsertFn: ((chunks: readonly Chunk[]) => void) | undefined
   private upsertCalls = 0
@@ -181,7 +181,7 @@ export class MockSearchIndex implements Pick<
   hasChunksForDocument(documentId: string): boolean {
     for (const chunk of this.storedChunks.values()) {
       const meta = chunk.metadata as Record<string, unknown> | undefined
-      if (meta?.['documentId'] === documentId) return true
+      if (meta?.documentId === documentId) return true
     }
     return false
   }
@@ -221,9 +221,7 @@ export class MockStore implements Store {
     this.guardClosed()
     validatePath(p)
     const existing = this.files.get(p)
-    const merged = existing
-      ? Buffer.concat([existing.content, content])
-      : Buffer.from(content)
+    const merged = existing ? Buffer.concat([existing.content, content]) : Buffer.from(content)
     this.files.set(p, { content: merged, modTime: new Date() })
   }
 
@@ -412,9 +410,7 @@ class MockBatch implements Batch {
   async append(p: Path, content: Buffer): Promise<void> {
     validatePath(p)
     const existing = this.files.get(p)
-    const merged = existing
-      ? Buffer.concat([existing.content, content])
-      : Buffer.from(content)
+    const merged = existing ? Buffer.concat([existing.content, content]) : Buffer.from(content)
     this.files.set(p, { content: merged, modTime: new Date() })
   }
 

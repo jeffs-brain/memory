@@ -12,10 +12,10 @@ import { createHash } from 'node:crypto'
 import { afterEach, describe, expect, it } from 'vitest'
 import { createHashEmbedder } from '../llm/hashembed.js'
 import { type SearchIndex, createSearchIndex } from '../search/index.js'
-import { createMemStore } from '../store/memstore.js'
-import { type IngestProgress, ingestDocument } from './pipeline.js'
-import { pipelineStatePath, readPipelineState } from './pipeline-state.js'
 import { toPath } from '../store/index.js'
+import { createMemStore } from '../store/memstore.js'
+import { pipelineStatePath, readPipelineState } from './pipeline-state.js'
+import { type IngestProgress, ingestDocument } from './pipeline.js'
 import {
   createMockEmbedder,
   createMockSearchIndex,
