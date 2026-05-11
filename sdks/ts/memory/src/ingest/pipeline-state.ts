@@ -128,10 +128,10 @@ const VALID_STAGES: ReadonlySet<string> = new Set(['stored', 'chunked', 'embedde
 const isValidState = (value: unknown): value is PipelineState => {
   if (value === null || typeof value !== 'object') return false
   const obj = value as Record<string, unknown>
-  if (typeof obj['documentId'] !== 'string') return false
-  if (typeof obj['hash'] !== 'string') return false
-  if (typeof obj['stage'] !== 'string') return false
-  if (!VALID_STAGES.has(obj['stage'])) return false
-  if (typeof obj['updatedAt'] !== 'string') return false
+  if (typeof obj.documentId !== 'string') return false
+  if (typeof obj.hash !== 'string') return false
+  if (typeof obj.stage !== 'string') return false
+  if (!VALID_STAGES.has(obj.stage)) return false
+  if (typeof obj.updatedAt !== 'string') return false
   return true
 }
