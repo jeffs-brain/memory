@@ -174,7 +174,7 @@ describe('extractJSONArray', () => {
     const nested = '```json\n```inner\n[1, 2, 3]\n```\n```'
     const result = extractJSONArray(nested)
     // Should not throw; the exact extraction is best-effort.
-    expect(result === undefined || result === '[1, 2, 3]' || typeof result === 'string').toBe(true)
+    expect([undefined, '[1, 2, 3]']).toContain(result)
   })
 
   it('extracts array surrounded by prose', () => {
