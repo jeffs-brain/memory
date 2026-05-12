@@ -294,3 +294,10 @@ export {
   type QueryProceduralRecordsArgs,
   type StoredProceduralRecord,
 } from './procedural-store.js'
+export {
+  createFeedbackClassifier,
+  type ClassifyResult,
+  type FeedbackClassifier,
+  type FeedbackEvent,
+  type Reaction,
+} from './feedback/index.js'
