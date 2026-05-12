@@ -689,7 +689,7 @@ func isCompositeConcreteQuery(query string) bool {
 	}
 	return enumerationOrTotalQueryRe.MatchString(lowered) ||
 		propertyLookupQueryRe.MatchString(lowered) ||
-		firstPersonFactLookupRe.MatchString(lowered)
+		(firstPersonFactLookupRe.MatchString(lowered) && factLookupVerbRe.MatchString(lowered))
 }
 
 func bestCompositeFocusMatch(text string, focuses []string) compositeFocusMatch {

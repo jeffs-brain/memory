@@ -821,3 +821,47 @@ func TestStaleMultiplierAppliedUnconditionally(t *testing.T) {
 		t.Errorf("fresh preference multiplier = %v, want %v", freshMult, freshExpected)
 	}
 }
+
+func TestIsCompositeConcreteQuery(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name  string
+		query string
+		want  bool
+	}{
+		{
+			name:  "first-person fact with verb",
+			query: "have I finished the report and the presentation",
+			want:  true,
+		},
+		{
+			name:  "enumeration pattern",
+			query: "how many orders and returns were there",
+			want:  true,
+		},
+		{
+			name:  "first-person without verb",
+			query: "did I go to the store and the park",
+			want:  false,
+		},
+		{
+			name:  "verb without first-person",
+			query: "bought a laptop and a monitor",
+			want:  false,
+		},
+		{
+			name:  "empty query",
+			query: "",
+			want:  false,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got := isCompositeConcreteQuery(tc.query)
+			if got != tc.want {
+				t.Errorf("isCompositeConcreteQuery(%q) = %v, want %v", tc.query, got, tc.want)
+			}
+		})
+	}
+}

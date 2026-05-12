@@ -45,7 +45,7 @@ func NewOpenAI(cfg OpenAIConfig) Provider {
 		cfg.BaseURL = openAIDefaultBase
 	}
 	if cfg.HTTPClient == nil {
-		cfg.HTTPClient = http.DefaultClient
+		cfg.HTTPClient = newDefaultClient()
 	}
 	return &openAIProvider{cfg: cfg}
 }
@@ -62,7 +62,7 @@ func NewOpenAIEmbedder(cfg OpenAIEmbedConfig) Embedder {
 		cfg.Dimensions = openAIDefaultEmbedDims
 	}
 	if cfg.HTTPClient == nil {
-		cfg.HTTPClient = http.DefaultClient
+		cfg.HTTPClient = newDefaultClient()
 	}
 	return &openAIEmbedder{cfg: cfg}
 }
@@ -454,8 +454,9 @@ func (e *openAIEmbedder) Embed(ctx context.Context, texts []string) ([][]float32
 		return nil, nil
 	}
 	body, err := json.Marshal(openAIEmbedRequest{
-		Input: texts,
-		Model: e.cfg.Model,
+		Input:      texts,
+		Model:      e.cfg.Model,
+		Dimensions: e.cfg.Dimensions,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("llm: marshal openai embed request: %w", err)
