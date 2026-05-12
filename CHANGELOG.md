@@ -7,6 +7,34 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-05-12
+
+### Added
+
+- Diversity-aware recall reranking with MMR-style greedy selection, Jaccard similarity penalties, and date-bucket diversity (Go, #22)
+- Parallel rerank batching with configurable concurrency via errgroup (Go, #23)
+- Full episode management CRUD — create, get, list, query by date range, participant, and topic (Go, #24)
+- Age-based heuristic confidence with 90-day stale demotion, 180-day force-low, and reinforcement-span promotion (Go, #25)
+- Feedback classifier for detecting positive, negative, and correction feedback in user messages (TS, #26)
+- Cost accounting with BigInt microcents for drift-free LLM cost tracking in eval framework (TS, #27)
+- Pipeline state tracking for crash recovery — documents resume from last completed stage on re-ingest (TS, #28)
+- Prompt injection safety scanner with ML-based detection via @stackone/defender (TS) and Scanner interface with preprocessing and content isolation (Go, #29)
+
+### Fixed
+
+- Timing-unsafe bearer token comparison replaced with crypto/subtle.ConstantTimeCompare and SHA-256 pre-hashing (#10)
+- SSRF in URL ingestion blocked with DNS-level IP validation via custom DialContext (#11)
+- BrainID path traversal prevented with ValidateBrainID shared validation (#12)
+- OpenAI embedder now includes Dimensions field in API requests (#13)
+- Anthropic streaming tool_use content blocks handled via state machine (#14)
+- PT store batch List correctly overlays journal state (#15)
+- HTTP client timeouts added to all LLM providers via ResponseHeaderTimeout (#16)
+- HTTP store New returns error instead of panicking (#17)
+- RRF fusion skips empty-id candidates (#18)
+- Composite-concrete query detection now requires both first-person and verb regexes, matching TS behaviour (#19)
+- Stale-superseded multiplier aligned between Go and TS — metadata check, text-regex check, and unconditional application scope (#20)
+- Markdown fence stripping added to TS LLM reranker JSON extraction (#21)
+
 ## [0.2.3] - 2026-04-29
 
 ### Fixed
@@ -58,7 +86,8 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 - Go and Python SDKs are in the pipeline. See `go/` and `sdks/py/` README files.
 - Platform integration (multi-tenant backend) is private and unpublished.
 
-[Unreleased]: https://github.com/jeffs-brain/memory/compare/go/v0.2.3...HEAD
+[Unreleased]: https://github.com/jeffs-brain/memory/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/jeffs-brain/memory/compare/go/v0.2.3...v0.3.0
 [0.2.3]: https://github.com/jeffs-brain/memory/compare/go/v0.2.2...go/v0.2.3
 [0.2.2]: https://github.com/jeffs-brain/memory/compare/go/v0.2.1...go/v0.2.2
 [0.2.1]: https://github.com/jeffs-brain/memory/compare/v0.2.0...go/v0.2.1
