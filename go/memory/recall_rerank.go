@@ -49,7 +49,7 @@ var (
 		regexp.MustCompile(`(?i)\b(?:meeting|met|workshop|call|doctor|appointment|spent|paid|bought|travelled|visited|break|holiday|trip)\b`),
 	}
 
-	tokenPattern = regexp.MustCompile(`(?i)[a-z0-9]+`)
+	rerankTokenPattern = regexp.MustCompile(`(?i)[a-z0-9]+`)
 )
 
 // rerankStopWords extends the package-level stopWords set with
@@ -438,7 +438,7 @@ func sortByRecency(memories []SurfacedMemory) []SurfacedMemory {
 // tokenise extracts unique, stemmed, non-stop-word tokens from text.
 // Mirrors the TS tokenise function.
 func tokenise(text string, limit int) []string {
-	matches := tokenPattern.FindAllString(strings.ToLower(text), -1)
+	matches := rerankTokenPattern.FindAllString(strings.ToLower(text), -1)
 	var out []string
 	seen := make(map[string]struct{})
 	for _, match := range matches {
@@ -461,39 +461,7 @@ func tokenise(text string, limit int) []string {
 	return out
 }
 
-// stemToken applies the same naive suffix-stripping as the TS
-// stemToken function.
-func stemToken(token string) string {
-	n := len(token)
-	if n > 5 && strings.HasSuffix(token, "ies") {
-		return token[:n-3] + "y"
-	}
-	if n > 5 && strings.HasSuffix(token, "es") {
-		return token[:n-2]
-	}
-	if n > 4 && strings.HasSuffix(token, "s") && !strings.HasSuffix(token, "ss") {
-		return token[:n-1]
-	}
-	return token
-}
-
-// countOverlap counts how many tokens from left appear in right.
-func countOverlap(left, right []string) int {
-	if len(left) == 0 || len(right) == 0 {
-		return 0
-	}
-	rightSet := make(map[string]struct{}, len(right))
-	for _, t := range right {
-		rightSet[t] = struct{}{}
-	}
-	count := 0
-	for _, t := range left {
-		if _, ok := rightSet[t]; ok {
-			count++
-		}
-	}
-	return count
-}
+// stemToken and countOverlap are defined in text_util.go.
 
 // buildNoteSearchText concatenates all searchable fields of a memory.
 func buildNoteSearchText(m SurfacedMemory) string {

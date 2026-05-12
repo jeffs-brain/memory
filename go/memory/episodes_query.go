@@ -197,34 +197,4 @@ func tokeniseText(text string, limit int) []string {
 	return out
 }
 
-// stemToken applies simple English suffix stripping to improve recall.
-func stemToken(token string) string {
-	if len(token) > 5 && strings.HasSuffix(token, "ies") {
-		return token[:len(token)-3] + "y"
-	}
-	if len(token) > 5 && strings.HasSuffix(token, "es") {
-		return token[:len(token)-2]
-	}
-	if len(token) > 4 && strings.HasSuffix(token, "s") && !strings.HasSuffix(token, "ss") {
-		return token[:len(token)-1]
-	}
-	return token
-}
-
-// countOverlap counts how many tokens from left appear in right.
-func countOverlap(left, right []string) int {
-	if len(left) == 0 || len(right) == 0 {
-		return 0
-	}
-	rightSet := make(map[string]bool, len(right))
-	for _, token := range right {
-		rightSet[token] = true
-	}
-	count := 0
-	for _, token := range left {
-		if rightSet[token] {
-			count++
-		}
-	}
-	return count
-}
+// stemToken and countOverlap are defined in text_util.go.
