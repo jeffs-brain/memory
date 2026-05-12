@@ -112,11 +112,13 @@
     "prepublishOnly": "bun run typecheck && bun run test && bun run build"
   },
   "dependencies": {
+    "@stackone/defender": "^0.6.3",
     "citty": "^0.1.6",
     "isomorphic-git": "^1.37.5",
     "sqlite-vec": "^0.1.9"
   },
   "optionalDependencies": {
+    "@huggingface/transformers": "^4.2.0",
     "better-sqlite3": "^12.9.0",
     "@types/better-sqlite3": "^7.6.13",
     "pdf-parse": "^1.1.1"
