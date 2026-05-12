@@ -1,19 +1,29 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Ingest pipeline orchestrator: raw content → store → chunks → embeddings
- * → search index. Re-entrant: ingesting identical bytes a second time
- * returns the original documentId without re-embedding.
+ * Ingest pipeline orchestrator: raw content -> store -> chunks -> embeddings
+ * -> search index. Crash-safe: persists pipeline state after each stage so
+ * that a restart resumes from the last completed stage rather than silently
+ * skipping documents that were stored but never indexed.
  */
 
 import { createHash } from 'node:crypto'
 import { RAW_DOCUMENTS_PREFIX } from '../knowledge/ingest.js'
 import { appendLogInBatch } from '../knowledge/log.js'
-import type { Embedder } from '../llm/index.js'
+import type { Embedder, Logger } from '../llm/index.js'
+import { noopLogger } from '../llm/index.js'
 import type { Chunk as IndexChunk, SearchIndex as SqliteSearchIndex } from '../search/index.js'
 import type { Store } from '../store/index.js'
 import { toPath } from '../store/index.js'
 import { type Chunk, chunkAuto, chunkMarkdown, chunkPlainText } from './chunker.js'
+import {
+  type PipelineStage,
+  type PipelineState,
+  deletePipelineState,
+  isStageComplete,
+  readPipelineState,
+  writePipelineState,
+} from './pipeline-state.js'
 
 export type IngestProgressStage = 'store' | 'chunk' | 'embed' | 'index'
 
@@ -51,6 +61,7 @@ export type IngestPipelineDeps = {
   readonly embedder: Embedder
   readonly doc: IngestPipelineInput
   readonly onProgress?: (event: IngestProgress) => void
+  readonly logger?: Logger
   /** Override the clock. Tests pin this to keep audit entries deterministic. */
   readonly now?: () => Date
 }
@@ -71,11 +82,9 @@ const sniffMime = (buf: Buffer, fallback: string): string => {
   if (buf.length >= 4 && buf.slice(0, 4).toString('binary') === '%PDF') {
     return 'application/pdf'
   }
-  // UTF-8 BOM
   if (buf.length >= 3 && buf[0] === 0xef && buf[1] === 0xbb && buf[2] === 0xbf) {
     return fallback
   }
-  // Detect likely HTML.
   const head = buf.slice(0, 512).toString('utf8').trim().toLowerCase()
   if (head.startsWith('<!doctype html') || head.startsWith('<html')) {
     return 'text/html'
@@ -92,10 +101,16 @@ const pickChunker = (mime: string): ((text: string) => readonly Chunk[]) => {
 /**
  * Run the full ingest pipeline for a single document. Steps are emitted
  * via `onProgress` so UIs can render a status line.
+ *
+ * Crash recovery: on re-entry, reads pipeline state from the Store. If
+ * a prior run completed partially (stored but not indexed), resumes from
+ * the last completed stage. Only returns `reused: true` when the full
+ * pipeline completed previously with the same content hash.
  */
 export const ingestDocument = async (deps: IngestPipelineDeps): Promise<IngestPipelineResult> => {
   const start = (deps.now ?? (() => new Date()))().getTime()
   const { store, searchIndex, embedder, doc, onProgress } = deps
+  const logger = deps.logger ?? noopLogger
   const buffer = typeof doc.content === 'string' ? Buffer.from(doc.content, 'utf8') : doc.content
   const mimeFallback = doc.mime ?? 'text/markdown'
   const mime = doc.mime ?? sniffMime(buffer, mimeFallback)
@@ -103,34 +118,13 @@ export const ingestDocument = async (deps: IngestPipelineDeps): Promise<IngestPi
   const ext = extensionForMime(mime)
   const storedPath = doc.path ?? `${RAW_DOCUMENTS_PREFIX}/${hash}${ext}`
   const documentId = `${doc.brainId}:${hash.slice(0, 16)}`
+  const nowFn = deps.now ?? (() => new Date())
 
-  // Step 1: write raw content inside a single batch. If the exact file
-  // already exists with the same hash we treat this as a dedup hit and
-  // return the existing id without re-chunking.
-  const existing = await store.exists(toPath(storedPath))
-  let reused = false
-  if (existing) {
-    const prior = await store.read(toPath(storedPath))
-    if (hashContent(prior) === hash) {
-      reused = true
-    }
-  }
+  const priorState = await readPipelineState(store, hash, logger)
+  const resumeDecision = resolveResumeStage(priorState, hash)
 
-  if (!reused) {
-    await store.batch({ reason: 'ingest' }, async (batch) => {
-      await batch.write(toPath(storedPath), buffer)
-      await appendLogInBatch(batch, {
-        kind: 'ingest',
-        title: doc.title ?? hash.slice(0, 12),
-        detail: `ingested ${buffer.length} bytes → ${storedPath}`,
-        when: new Date().toISOString(),
-      })
-    })
-  }
-  onProgress?.({ stage: 'store', completed: 1, total: 1 })
-
-  // Step 2: chunk — skipped on replay because the chunk rows already exist.
-  if (reused) {
+  if (resumeDecision === 'complete') {
+    onProgress?.({ stage: 'store', completed: 1, total: 1 })
     return {
       documentId,
       path: storedPath,
@@ -138,17 +132,44 @@ export const ingestDocument = async (deps: IngestPipelineDeps): Promise<IngestPi
       chunkCount: 0,
       embeddedCount: 0,
       skippedChunks: [],
-      durationMs: (deps.now ?? (() => new Date()))().getTime() - start,
+      durationMs: nowFn().getTime() - start,
       reused: true,
     }
   }
 
+  // After the 'complete' early-return above, resumeDecision is 'none' | PipelineStage.
+  const lastCompletedStage: PipelineStage | undefined =
+    resumeDecision === 'none' ? undefined : resumeDecision
+
+  const shouldSkip = (target: PipelineStage): boolean =>
+    lastCompletedStage !== undefined && isStageComplete(lastCompletedStage, target)
+
+  // Step 1: write raw content if not already stored.
+  if (!shouldSkip('stored')) {
+    await store.batch({ reason: 'ingest' }, async (batch) => {
+      await batch.write(toPath(storedPath), buffer)
+      await appendLogInBatch(batch, {
+        kind: 'ingest',
+        title: doc.title ?? hash.slice(0, 12),
+        detail: `ingested ${buffer.length} bytes -> ${storedPath}`,
+        when: nowFn().toISOString(),
+      })
+      await writePipelineState(batch, {
+        documentId,
+        hash,
+        stage: 'stored',
+        updatedAt: nowFn().toISOString(),
+      })
+    })
+  }
+  onProgress?.({ stage: 'store', completed: 1, total: 1 })
+
+  // Step 2: chunk.
   const text = buffer.toString('utf8')
   const chunker = pickChunker(mime)
   let chunks: readonly Chunk[] = []
   const skipped: string[] = []
-  // Binary / PDF / non-UTF-8 bodies fall through to a single "raw" chunk
-  // whose content is a placeholder so search still returns the document.
+
   if (mime === 'application/pdf' || mime === 'application/octet-stream') {
     skipped.push('binary-body-skipped-chunking')
     chunks = [
@@ -164,9 +185,9 @@ export const ingestDocument = async (deps: IngestPipelineDeps): Promise<IngestPi
   } else {
     chunks = chunker(text)
   }
-  onProgress?.({ stage: 'chunk', completed: chunks.length, total: chunks.length })
 
   if (chunks.length === 0) {
+    await deletePipelineState(store, hash, logger)
     return {
       documentId,
       path: storedPath,
@@ -174,14 +195,35 @@ export const ingestDocument = async (deps: IngestPipelineDeps): Promise<IngestPi
       chunkCount: 0,
       embeddedCount: 0,
       skippedChunks: skipped,
-      durationMs: (deps.now ?? (() => new Date()))().getTime() - start,
+      durationMs: nowFn().getTime() - start,
       reused: false,
     }
   }
 
+  if (!shouldSkip('chunked')) {
+    await writePipelineState(store, {
+      documentId,
+      hash,
+      stage: 'chunked',
+      updatedAt: nowFn().toISOString(),
+      chunkCount: chunks.length,
+    })
+  }
+  onProgress?.({ stage: 'chunk', completed: chunks.length, total: chunks.length })
+
   // Step 3: embed.
   const texts = chunks.map((c) => c.content)
   const embeddings = await embedder.embed(texts)
+
+  if (!shouldSkip('embedded')) {
+    await writePipelineState(store, {
+      documentId,
+      hash,
+      stage: 'embedded',
+      updatedAt: nowFn().toISOString(),
+      chunkCount: chunks.length,
+    })
+  }
   onProgress?.({ stage: 'embed', completed: embeddings.length, total: chunks.length })
 
   // Step 4: index.
@@ -189,7 +231,7 @@ export const ingestDocument = async (deps: IngestPipelineDeps): Promise<IngestPi
     const embedding = embeddings[idx]
     const titleParts: string[] = []
     if (doc.title !== undefined && doc.title !== '') titleParts.push(doc.title)
-    if (chunk.headingPath.length > 0) titleParts.push(chunk.headingPath.join(' › '))
+    if (chunk.headingPath.length > 0) titleParts.push(chunk.headingPath.join(' > '))
     const title = titleParts.join(' — ')
     const metadata: Record<string, unknown> = {
       headingPath: chunk.headingPath,
@@ -215,6 +257,15 @@ export const ingestDocument = async (deps: IngestPipelineDeps): Promise<IngestPi
   searchIndex.upsertChunks(indexChunks)
   onProgress?.({ stage: 'index', completed: indexChunks.length, total: indexChunks.length })
 
+  // Full pipeline complete: mark state as indexed for future dedup.
+  await writePipelineState(store, {
+    documentId,
+    hash,
+    stage: 'indexed',
+    updatedAt: nowFn().toISOString(),
+    chunkCount: indexChunks.length,
+  })
+
   return {
     documentId,
     path: storedPath,
@@ -222,7 +273,29 @@ export const ingestDocument = async (deps: IngestPipelineDeps): Promise<IngestPi
     chunkCount: indexChunks.length,
     embeddedCount: embeddings.length,
     skippedChunks: skipped,
-    durationMs: (deps.now ?? (() => new Date()))().getTime() - start,
+    durationMs: nowFn().getTime() - start,
     reused: false,
   }
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+type ResumeDecision = PipelineStage | 'none' | 'complete'
+
+/**
+ * Determine where to resume from based on prior state and current hash.
+ * Returns 'complete' if the document was fully indexed with a matching hash.
+ * Returns 'none' if no prior state exists or hash mismatches (start fresh).
+ * Returns the last completed stage if partially complete with matching hash.
+ */
+const resolveResumeStage = (
+  priorState: PipelineState | undefined,
+  currentHash: string,
+): ResumeDecision => {
+  if (priorState === undefined) return 'none'
+  if (priorState.hash !== currentHash) return 'none'
+  if (priorState.stage === 'indexed') return 'complete'
+  return priorState.stage
 }
