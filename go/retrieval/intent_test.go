@@ -683,6 +683,145 @@ func TestReweight_NoIntent_ReturnsInputs(t *testing.T) {
 	}
 }
 
+func TestStaleSupersededNoteMultiplier(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name string
+		r    RetrievedChunk
+		text string
+		want float64
+	}{
+		{
+			name: "metadata superseded_by present returns 0.18",
+			r:    RetrievedChunk{Metadata: map[string]any{"superseded_by": "note-v2.md"}},
+			text: "some note content",
+			want: 0.18,
+		},
+		{
+			name: "metadata supersededBy present returns 0.18",
+			r:    RetrievedChunk{Metadata: map[string]any{"supersededBy": "note-v2.md"}},
+			text: "some note content",
+			want: 0.18,
+		},
+		{
+			name: "metadata status superseded returns 0.18",
+			r:    RetrievedChunk{Metadata: map[string]any{"status": "superseded"}},
+			text: "some note content",
+			want: 0.18,
+		},
+		{
+			name: "metadata status stale returns 0.18",
+			r:    RetrievedChunk{Metadata: map[string]any{"status": "stale"}},
+			text: "some note content",
+			want: 0.18,
+		},
+		{
+			name: "metadata status obsolete returns 0.18",
+			r:    RetrievedChunk{Metadata: map[string]any{"status": "obsolete"}},
+			text: "some note content",
+			want: 0.18,
+		},
+		{
+			name: "text matches superseded regex returns 0.32",
+			r:    RetrievedChunk{},
+			text: "superseded_by: newer-note.md\nold content here",
+			want: 0.32,
+		},
+		{
+			name: "text matches replaced by returns 0.32",
+			r:    RetrievedChunk{},
+			text: "this note was replaced by a newer version",
+			want: 0.32,
+		},
+		{
+			name: "no metadata no text match returns 1.0",
+			r:    RetrievedChunk{Metadata: map[string]any{"title": "My Note"}},
+			text: "just a regular note with no stale markers",
+			want: 1.0,
+		},
+		{
+			name: "metadata status active returns 1.0",
+			r:    RetrievedChunk{Metadata: map[string]any{"status": "active"}},
+			text: "some active note content",
+			want: 1.0,
+		},
+		{
+			name: "metadata superseded_by takes priority over text match",
+			r:    RetrievedChunk{Metadata: map[string]any{"superseded_by": "newer.md"}},
+			text: "superseded_by: newer.md\nold content replaced by newer version",
+			want: 0.18,
+		},
+		{
+			name: "metadata status takes priority over text match",
+			r:    RetrievedChunk{Metadata: map[string]any{"status": "obsolete"}},
+			text: "superseded_by: newer.md\nold content",
+			want: 0.18,
+		},
+		{
+			name: "empty superseded_by metadata falls through",
+			r:    RetrievedChunk{Metadata: map[string]any{"superseded_by": ""}},
+			text: "just a regular note",
+			want: 1.0,
+		},
+		{
+			name: "nil metadata returns 1.0",
+			r:    RetrievedChunk{},
+			text: "some note content",
+			want: 1.0,
+		},
+		{
+			name: "status Superseded case insensitive returns 0.18",
+			r:    RetrievedChunk{Metadata: map[string]any{"status": "Superseded"}},
+			text: "some note content",
+			want: 0.18,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got := staleSupersededNoteMultiplier(tc.r, tc.text)
+			if got != tc.want {
+				t.Errorf("staleSupersededNoteMultiplier() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestStaleMultiplierAppliedUnconditionally(t *testing.T) {
+	t.Parallel()
+	staleChunk := RetrievedChunk{
+		Path:     "memory/global/user-preference-coffee.md",
+		Text:     "I prefer oat milk",
+		Score:    1.0,
+		Metadata: map[string]any{"status": "stale"},
+	}
+	freshChunk := RetrievedChunk{
+		Path:  "memory/global/user-preference-tea.md",
+		Text:  "I like green tea",
+		Score: 1.0,
+	}
+	query := "recommend a drink"
+	intent := detectRetrievalIntent(query)
+	if !intent.preferenceQuery {
+		t.Fatal("expected preferenceQuery to be true")
+	}
+	if intent.concreteFactQuery {
+		t.Fatal("expected concreteFactQuery to be false for preference-only query")
+	}
+	staleText := retrievalResultText(staleChunk)
+	freshText := retrievalResultText(freshChunk)
+	staleMult := retrievalIntentMultiplier(intent, query, staleChunk)
+	freshMult := retrievalIntentMultiplier(intent, query, freshChunk)
+	staleExpected := preferenceIntentMultiplier(query, staleChunk, staleText) * 0.18
+	freshExpected := preferenceIntentMultiplier(query, freshChunk, freshText) * 1.0
+	if math.Abs(staleMult-staleExpected) > 1e-9 {
+		t.Errorf("stale preference multiplier = %v, want %v", staleMult, staleExpected)
+	}
+	if math.Abs(freshMult-freshExpected) > 1e-9 {
+		t.Errorf("fresh preference multiplier = %v, want %v", freshMult, freshExpected)
+	}
+}
+
 func TestIsCompositeConcreteQuery(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
