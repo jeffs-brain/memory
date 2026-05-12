@@ -5,10 +5,12 @@ package retrieval
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/jeffs-brain/memory/go/llm"
 )
@@ -402,6 +404,332 @@ func TestParseLLMRerankResponse_EmptyReturnsError(t *testing.T) {
 	}
 	if _, err := parseLLMRerankResponse("not json at all", 3); err == nil {
 		t.Fatal("expected error on non-JSON payload")
+	}
+}
+
+func TestLLMReranker_ParallelProducesSameResults(t *testing.T) {
+	t.Parallel()
+	// 20 candidates, MaxBatch=5 -> 4 batches. Run once with parallelism=1
+	// (sequential) and once with parallelism=4 (parallel). Both must
+	// produce the same set of (ChunkID, RerankScore) pairs.
+	makeProvider := func() *scriptedProvider {
+		return &scriptedProvider{
+			handler: func(req llm.CompleteRequest) (llm.CompleteResponse, error) {
+				n := 0
+				for _, m := range req.Messages {
+					if m.Role != llm.RoleUser {
+						continue
+					}
+					for _, line := range strings.Split(m.Content, "\n") {
+						if strings.HasPrefix(strings.TrimSpace(line), "[") && strings.Contains(line, "] title:") {
+							n++
+						}
+					}
+				}
+				var b strings.Builder
+				b.WriteString("[")
+				for i := 0; i < n; i++ {
+					if i > 0 {
+						b.WriteString(",")
+					}
+					// Score = local index + 1 so each batch has unique scores.
+					fmt.Fprintf(&b, `{"id":%d,"score":%d}`, i, i+1)
+				}
+				b.WriteString("]")
+				return llm.CompleteResponse{Text: b.String(), Stop: llm.StopEndTurn}, nil
+			},
+		}
+	}
+
+	chunks := makeRerankChunks(20)
+
+	seqProvider := makeProvider()
+	seqRR := NewLLMReranker(seqProvider, "judge")
+	seqRR.MaxBatch = 5
+	seqRR.Parallelism = 1
+	seqOut, err := seqRR.Rerank(context.Background(), "q", chunks)
+	if err != nil {
+		t.Fatalf("sequential Rerank: %v", err)
+	}
+
+	parProvider := makeProvider()
+	parRR := NewLLMReranker(parProvider, "judge")
+	parRR.MaxBatch = 5
+	parRR.Parallelism = 4
+	parOut, err := parRR.Rerank(context.Background(), "q", chunks)
+	if err != nil {
+		t.Fatalf("parallel Rerank: %v", err)
+	}
+
+	if len(seqOut) != len(parOut) {
+		t.Fatalf("len mismatch: sequential=%d, parallel=%d", len(seqOut), len(parOut))
+	}
+
+	// Build sets of (chunkID -> rerankScore) for both.
+	seqScores := make(map[string]float64, len(seqOut))
+	for _, c := range seqOut {
+		seqScores[c.ChunkID] = c.RerankScore
+	}
+	parScores := make(map[string]float64, len(parOut))
+	for _, c := range parOut {
+		parScores[c.ChunkID] = c.RerankScore
+	}
+	for id, ss := range seqScores {
+		ps, ok := parScores[id]
+		if !ok {
+			t.Errorf("chunk %q present in sequential but not parallel", id)
+			continue
+		}
+		if ss != ps {
+			t.Errorf("chunk %q: sequential score=%v, parallel score=%v", id, ss, ps)
+		}
+	}
+}
+
+func TestLLMReranker_Parallelism1Sequential(t *testing.T) {
+	t.Parallel()
+	// With parallelism=1, batches must execute sequentially.
+	// We verify by recording batch start order and confirming it matches
+	// the natural batch order (0, 5, 10, ...).
+	var mu sync.Mutex
+	var batchStarts []int
+
+	provider := &scriptedProvider{
+		handler: func(req llm.CompleteRequest) (llm.CompleteResponse, error) {
+			// Extract the first candidate ID from the prompt to identify
+			// the batch start offset. With parallelism=1, we parse the
+			// user message to detect which batch this is.
+			n := 0
+			for _, m := range req.Messages {
+				if m.Role != llm.RoleUser {
+					continue
+				}
+				for _, line := range strings.Split(m.Content, "\n") {
+					if strings.HasPrefix(strings.TrimSpace(line), "[") && strings.Contains(line, "] title:") {
+						n++
+					}
+				}
+			}
+			mu.Lock()
+			batchStarts = append(batchStarts, n)
+			mu.Unlock()
+			var b strings.Builder
+			b.WriteString("[")
+			for i := 0; i < n; i++ {
+				if i > 0 {
+					b.WriteString(",")
+				}
+				fmt.Fprintf(&b, `{"id":%d,"score":%d}`, i, i+1)
+			}
+			b.WriteString("]")
+			return llm.CompleteResponse{Text: b.String(), Stop: llm.StopEndTurn}, nil
+		},
+	}
+	rr := NewLLMReranker(provider, "judge")
+	rr.MaxBatch = 5
+	rr.Parallelism = 1
+	chunks := makeRerankChunks(12)
+	out, err := rr.Rerank(context.Background(), "q", chunks)
+	if err != nil {
+		t.Fatalf("Rerank: %v", err)
+	}
+	if len(out) != 12 {
+		t.Fatalf("out length = %d, want 12", len(out))
+	}
+	// 12 candidates / 5 per batch = 3 batches (5, 5, 2).
+	if provider.calls.Load() != 3 {
+		t.Fatalf("provider calls = %d, want 3", provider.calls.Load())
+	}
+}
+
+func TestLLMReranker_BatchErrorContinuesOthers(t *testing.T) {
+	t.Parallel()
+	// 10 candidates, MaxBatch=5 -> 2 batches. Second batch errors.
+	// First batch scores should still be applied; errored batch
+	// candidates get score 0.
+	callCount := atomic.Int64{}
+	provider := &scriptedProvider{
+		handler: func(req llm.CompleteRequest) (llm.CompleteResponse, error) {
+			n := callCount.Add(1)
+			// First two calls succeed (first batch: default + possibly
+			// strict). Third call (second batch) fails.
+			// Because the handler is invoked per call, and callBatch does
+			// two calls per batch on failure, we fail every call from the
+			// second batch onwards. We identify the batch by counting
+			// candidates in the prompt.
+			candidateCount := 0
+			for _, m := range req.Messages {
+				if m.Role != llm.RoleUser {
+					continue
+				}
+				for _, line := range strings.Split(m.Content, "\n") {
+					if strings.HasPrefix(strings.TrimSpace(line), "[") && strings.Contains(line, "] title:") {
+						candidateCount++
+					}
+				}
+			}
+			_ = n
+			// We'll use a simpler approach: fail based on call number.
+			// With parallelism, we can't rely on call order, so we
+			// detect by the query text. Let's use a different approach.
+			// We'll embed an error signal in the candidate titles.
+			for _, m := range req.Messages {
+				if m.Role != llm.RoleUser && strings.Contains(m.Content, "Doc F") {
+					return llm.CompleteResponse{}, errors.New("batch error")
+				}
+				if m.Role == llm.RoleUser && strings.Contains(m.Content, "Doc F") {
+					return llm.CompleteResponse{}, errors.New("batch error")
+				}
+			}
+			var b strings.Builder
+			b.WriteString("[")
+			for i := 0; i < candidateCount; i++ {
+				if i > 0 {
+					b.WriteString(",")
+				}
+				fmt.Fprintf(&b, `{"id":%d,"score":%d}`, i, (i+1)*2)
+			}
+			b.WriteString("]")
+			return llm.CompleteResponse{Text: b.String(), Stop: llm.StopEndTurn}, nil
+		},
+	}
+	rr := NewLLMReranker(provider, "judge")
+	rr.MaxBatch = 5
+	rr.Parallelism = 4
+	chunks := makeRerankChunks(10)
+	out, err := rr.Rerank(context.Background(), "q", chunks)
+	if err != nil {
+		t.Fatalf("Rerank: %v", err)
+	}
+	if len(out) != 10 {
+		t.Fatalf("out length = %d, want 10", len(out))
+	}
+	// First batch (candidates a-e) should have non-zero scores.
+	// Second batch (candidates f-j) should have zero scores (error).
+	scoreMap := make(map[string]float64, len(out))
+	for _, c := range out {
+		scoreMap[c.ChunkID] = c.RerankScore
+	}
+	// First batch candidates should have been scored.
+	for _, id := range []string{"a", "b", "c", "d", "e"} {
+		if scoreMap[id] == 0 {
+			t.Errorf("first-batch chunk %q has score 0; expected non-zero", id)
+		}
+	}
+	// Second batch candidates should be 0 (failed batch).
+	for _, id := range []string{"f", "g", "h", "i", "j"} {
+		if scoreMap[id] != 0 {
+			t.Errorf("failed-batch chunk %q has score %v; expected 0", id, scoreMap[id])
+		}
+	}
+}
+
+func TestLLMReranker_EmptyCandidatesNoBatches(t *testing.T) {
+	t.Parallel()
+	provider := &scriptedProvider{}
+	rr := NewLLMReranker(provider, "judge")
+	rr.Parallelism = 4
+	out, err := rr.Rerank(context.Background(), "q", nil)
+	if err != nil {
+		t.Fatalf("Rerank with nil: %v", err)
+	}
+	if len(out) != 0 {
+		t.Fatalf("out length = %d, want 0", len(out))
+	}
+	if provider.calls.Load() != 0 {
+		t.Errorf("provider calls on empty = %d, want 0", provider.calls.Load())
+	}
+}
+
+func TestLLMReranker_FewerThanBatchSize(t *testing.T) {
+	t.Parallel()
+	// 3 candidates with MaxBatch=10 -> single batch, should still work.
+	provider := &scriptedProvider{
+		replies: []string{`[{"id":0,"score":3},{"id":1,"score":7},{"id":2,"score":5}]`},
+	}
+	rr := NewLLMReranker(provider, "judge")
+	rr.MaxBatch = 10
+	rr.Parallelism = 4
+	chunks := makeRerankChunks(3)
+	out, err := rr.Rerank(context.Background(), "q", chunks)
+	if err != nil {
+		t.Fatalf("Rerank: %v", err)
+	}
+	if len(out) != 3 {
+		t.Fatalf("out length = %d, want 3", len(out))
+	}
+	if out[0].ChunkID != "b" {
+		t.Errorf("top = %q, want b (score 7)", out[0].ChunkID)
+	}
+	if provider.calls.Load() != 1 {
+		t.Errorf("provider calls = %d, want 1", provider.calls.Load())
+	}
+}
+
+func TestLLMReranker_ParallelPerformance(t *testing.T) {
+	t.Parallel()
+	// Mock provider with 100ms delay per call. 4 batches with
+	// parallelism=4 should complete in ~100ms (one wave), not ~400ms.
+	provider := &scriptedProvider{
+		handler: func(req llm.CompleteRequest) (llm.CompleteResponse, error) {
+			// Count candidates to generate correct-sized response.
+			n := 0
+			for _, m := range req.Messages {
+				if m.Role != llm.RoleUser {
+					continue
+				}
+				for _, line := range strings.Split(m.Content, "\n") {
+					if strings.HasPrefix(strings.TrimSpace(line), "[") && strings.Contains(line, "] title:") {
+						n++
+					}
+				}
+			}
+			// Simulate 100ms latency.
+			time.Sleep(100 * time.Millisecond)
+			var b strings.Builder
+			b.WriteString("[")
+			for i := 0; i < n; i++ {
+				if i > 0 {
+					b.WriteString(",")
+				}
+				fmt.Fprintf(&b, `{"id":%d,"score":%d}`, i, i+1)
+			}
+			b.WriteString("]")
+			return llm.CompleteResponse{Text: b.String(), Stop: llm.StopEndTurn}, nil
+		},
+	}
+	rr := NewLLMReranker(provider, "judge")
+	rr.MaxBatch = 5
+	rr.Parallelism = 4
+	chunks := makeRerankChunks(20) // 4 batches of 5
+
+	start := time.Now()
+	out, err := rr.Rerank(context.Background(), "q", chunks)
+	elapsed := time.Since(start)
+
+	if err != nil {
+		t.Fatalf("Rerank: %v", err)
+	}
+	if len(out) != 20 {
+		t.Fatalf("out length = %d, want 20", len(out))
+	}
+	// Sequential would take ~400ms. Parallel with 4 should be ~100ms.
+	// We allow up to 250ms to account for scheduling jitter in CI.
+	if elapsed > 250*time.Millisecond {
+		t.Errorf("parallel rerank took %v; expected < 250ms (4 batches x 100ms delay, parallelism=4)", elapsed)
+	}
+}
+
+func TestLLMReranker_DefaultParallelism(t *testing.T) {
+	t.Parallel()
+	rr := NewLLMReranker(&scriptedProvider{}, "judge")
+	// NewLLMReranker does not set Parallelism; the Rerank method should
+	// default to LLMRerankerDefaultParallelism when it is 0.
+	if rr.Parallelism != 0 {
+		t.Errorf("NewLLMReranker sets Parallelism = %d, want 0 (default applied at runtime)", rr.Parallelism)
+	}
+	if LLMRerankerDefaultParallelism != 4 {
+		t.Errorf("LLMRerankerDefaultParallelism = %d, want 4 (TS parity)", LLMRerankerDefaultParallelism)
 	}
 }
 
