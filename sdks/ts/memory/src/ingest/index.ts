@@ -24,3 +24,14 @@ export {
 } from './pipeline.js'
 
 export * from './sources/index.js'
+
+export {
+  createSafetyScanner,
+  preprocessText,
+  wrapInIsolation,
+  buildSafetyMetadata,
+  type SafetyScanResult,
+  type SafetyScannerConfig,
+  type SafetyMetadata,
+  type IsolatedContent,
+} from './safety.js'

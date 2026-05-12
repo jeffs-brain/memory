@@ -57,11 +57,15 @@ func decodeJSONBody(r *http.Request, target any, limit int64) error {
 
 // resolveBrain pulls brainId from the path and looks it up via
 // BrainManager. Writes the appropriate Problem+JSON and returns nil
-// when the brain is missing.
+// when the brain is missing or invalid.
 func (d *Daemon) resolveBrain(w http.ResponseWriter, r *http.Request) *BrainResources {
 	id := r.PathValue("brainId")
 	if id == "" {
 		httpd.ValidationError(w, "missing brainId")
+		return nil
+	}
+	if err := brain.ValidateBrainID(id); err != nil {
+		httpd.ValidationError(w, err.Error())
 		return nil
 	}
 	br, err := d.Brains.Get(r.Context(), id)

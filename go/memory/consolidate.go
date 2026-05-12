@@ -436,7 +436,9 @@ func parseDeduplicationResult(content string) deduplicationResult {
 }
 
 // reinforceHeuristicsInBatch recalculates confidence levels for
-// heuristic files under the given logical prefix.
+// heuristic files under the given logical prefix. It combines
+// observation-count confidence with age-based temporal decay so that
+// stale heuristics are demoted and reinforced heuristics are promoted.
 func (c *Consolidator) reinforceHeuristicsInBatch(ctx context.Context, b brain.Batch, prefix brain.Path) (int, []string) {
 	entries, err := b.List(ctx, prefix, brain.ListOpts{IncludeGenerated: true})
 	if err != nil {
@@ -446,6 +448,7 @@ func (c *Consolidator) reinforceHeuristicsInBatch(ctx context.Context, b brain.B
 		return 0, []string{fmt.Sprintf("reading prefix for heuristics: %s: %s", prefix, err)}
 	}
 
+	now := time.Now()
 	var updated int
 	var errs []string
 
@@ -468,8 +471,16 @@ func (c *Consolidator) reinforceHeuristicsInBatch(ctx context.Context, b brain.B
 			continue
 		}
 
+		// Start with the observation-count confidence as baseline.
 		count := countSections(body)
-		newConfidence := confidenceFromObservations(count)
+		obsConfidence := confidenceFromObservations(count)
+
+		// Apply age-based temporal decay on top of the observation
+		// confidence. This matches the TS consolidation behaviour.
+		observedAt := resolveObservedAtFromFrontmatter(fm)
+		createdAt := resolveCreatedAtFromFrontmatter(fm)
+		newConfidence := DeriveHeuristicConfidence(obsConfidence, observedAt, createdAt, now)
+
 		if newConfidence == fm.Confidence {
 			continue
 		}
@@ -483,6 +494,38 @@ func (c *Consolidator) reinforceHeuristicsInBatch(ctx context.Context, b brain.B
 	}
 
 	return updated, errs
+}
+
+// resolveObservedAtFromFrontmatter extracts the most recent observation
+// time from frontmatter. Priority: modified > created > zero time.
+func resolveObservedAtFromFrontmatter(fm Frontmatter) time.Time {
+	if fm.Modified != "" {
+		if t, err := time.Parse(time.RFC3339, fm.Modified); err == nil {
+			return t
+		}
+	}
+	if fm.Created != "" {
+		if t, err := time.Parse(time.RFC3339, fm.Created); err == nil {
+			return t
+		}
+	}
+	return time.Time{}
+}
+
+// resolveCreatedAtFromFrontmatter extracts the creation time from
+// frontmatter. Falls back to modified date, then zero time.
+func resolveCreatedAtFromFrontmatter(fm Frontmatter) time.Time {
+	if fm.Created != "" {
+		if t, err := time.Parse(time.RFC3339, fm.Created); err == nil {
+			return t
+		}
+	}
+	if fm.Modified != "" {
+		if t, err := time.Parse(time.RFC3339, fm.Modified); err == nil {
+			return t
+		}
+	}
+	return time.Time{}
 }
 
 // rebuildWithUpdatedConfidence reconstructs a memory file with new

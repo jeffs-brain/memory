@@ -616,3 +616,38 @@ func TestServePreseededBrainScanOnOpen(t *testing.T) {
 		t.Fatalf("expected hedgehog.md in chunks, got: %+v", out.Chunks)
 	}
 }
+
+// TestServeCreateBrainPathTraversal verifies that POST /v1/brains
+// rejects a brainId containing path traversal sequences with 400.
+func TestServeCreateBrainPathTraversal(t *testing.T) {
+	_, srv := newTestDaemon(t)
+	c := srv.Client()
+
+	cases := []struct {
+		name string
+		id   string
+	}{
+		{"dotdot traversal", "../../etc/attack"},
+		{"relative prefix", "../attack"},
+		{"slash separator", "brain/sub"},
+		{"dot start", ".hidden"},
+		{"space in name", "brain name"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			payload, _ := json.Marshal(map[string]string{"brainId": tc.id})
+			resp, err := c.Post(srv.URL+"/v1/brains", "application/json", bytes.NewReader(payload))
+			if err != nil {
+				t.Fatalf("create %q: %v", tc.id, err)
+			}
+			body, _ := io.ReadAll(resp.Body)
+			resp.Body.Close()
+			if resp.StatusCode != http.StatusBadRequest {
+				t.Fatalf("create %q status = %d, want 400; body = %s", tc.id, resp.StatusCode, body)
+			}
+			if !strings.Contains(string(body), "validation_error") {
+				t.Fatalf("body missing validation_error code: %s", body)
+			}
+		})
+	}
+}

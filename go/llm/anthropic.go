@@ -38,7 +38,7 @@ func NewAnthropic(cfg AnthropicConfig) Provider {
 		cfg.Version = anthropicDefaultVersion
 	}
 	if cfg.HTTPClient == nil {
-		cfg.HTTPClient = http.DefaultClient
+		cfg.HTTPClient = newDefaultClient()
 	}
 	return &anthropicProvider{cfg: cfg}
 }
@@ -204,41 +204,7 @@ func (p *anthropicProvider) CompleteStream(ctx context.Context, req CompleteRequ
 	go func() {
 		defer resp.Body.Close()
 		defer close(out)
-		scanner := bufio.NewScanner(resp.Body)
-		scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
-		for scanner.Scan() {
-			line := scanner.Text()
-			if !strings.HasPrefix(line, "data: ") {
-				continue
-			}
-			payload := strings.TrimPrefix(line, "data: ")
-			if payload == "" {
-				continue
-			}
-			var ev anthropicEvent
-			if err := json.Unmarshal([]byte(payload), &ev); err != nil {
-				continue
-			}
-			switch ev.Type {
-			case "content_block_delta":
-				if ev.Delta.Text != "" {
-					select {
-					case <-ctx.Done():
-						return
-					case out <- StreamChunk{DeltaText: ev.Delta.Text}:
-					}
-				}
-			case "message_delta":
-				if ev.Delta.StopReason != "" {
-					select {
-					case <-ctx.Done():
-					case out <- StreamChunk{Stop: mapAnthropicStop(ev.Delta.StopReason)}:
-					}
-				}
-			case "message_stop":
-				return
-			}
-		}
+		anthropicStreamLoop(ctx, resp.Body, out)
 	}()
 	return out, nil
 }
@@ -311,6 +277,121 @@ func mapAnthropicStop(s string) StopReason {
 		return StopStop
 	default:
 		return StopEndTurn
+	}
+}
+
+// streamToolState tracks the current content block during SSE streaming.
+// State transitions: idle -> text (content_block_start type=text) -> idle (content_block_stop)
+//                    idle -> tool_use (content_block_start type=tool_use) -> idle (content_block_stop)
+type streamToolState struct {
+	blockType string // "text" or "tool_use"; empty when idle
+	toolID    string
+	toolName  string
+	jsonBuf   strings.Builder
+}
+
+func (s *streamToolState) reset() {
+	s.blockType = ""
+	s.toolID = ""
+	s.toolName = ""
+	s.jsonBuf.Reset()
+}
+
+// anthropicStreamLoop processes SSE events from the Anthropic streaming API,
+// handling both text and tool_use content blocks.
+func anthropicStreamLoop(ctx context.Context, body io.Reader, out chan<- StreamChunk) {
+	scanner := bufio.NewScanner(body)
+	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	var state streamToolState
+	for scanner.Scan() {
+		line := scanner.Text()
+		if !strings.HasPrefix(line, "data: ") {
+			continue
+		}
+		payload := strings.TrimPrefix(line, "data: ")
+		if payload == "" {
+			continue
+		}
+		var ev anthropicEvent
+		if err := json.Unmarshal([]byte(payload), &ev); err != nil {
+			continue
+		}
+		if done := anthropicHandleEvent(ctx, &ev, &state, out); done {
+			return
+		}
+	}
+}
+
+// anthropicHandleEvent dispatches a single parsed SSE event. Returns true when
+// streaming should terminate (message_stop or context cancelled).
+func anthropicHandleEvent(ctx context.Context, ev *anthropicEvent, state *streamToolState, out chan<- StreamChunk) bool {
+	switch ev.Type {
+	case "content_block_start":
+		state.reset()
+		state.blockType = ev.ContentBlock.Type
+		if ev.ContentBlock.Type == "tool_use" {
+			state.toolID = ev.ContentBlock.ID
+			state.toolName = ev.ContentBlock.Name
+		}
+	case "content_block_delta":
+		switch ev.Delta.Type {
+		case "text_delta":
+			if ev.Delta.Text != "" {
+				if !sendChunk(ctx, out, StreamChunk{DeltaText: ev.Delta.Text}) {
+					return true
+				}
+			}
+		case "input_json_delta":
+			state.jsonBuf.WriteString(ev.Delta.PartialJSON)
+		}
+	case "content_block_stop":
+		if state.blockType == "tool_use" {
+			tc := buildToolCallFromState(state)
+			if !sendChunk(ctx, out, StreamChunk{ToolCall: &tc}) {
+				return true
+			}
+		}
+		state.reset()
+	case "message_delta":
+		if ev.Delta.StopReason != "" {
+			if !sendChunk(ctx, out, StreamChunk{Stop: mapAnthropicStop(ev.Delta.StopReason)}) {
+				return true
+			}
+		}
+	case "message_stop":
+		return true
+	}
+	return false
+}
+
+// buildToolCallFromState constructs a ToolCall from accumulated streaming state.
+// If the accumulated JSON is malformed, Arguments will be the raw bytes as-is
+// to allow downstream error handling rather than silently dropping the call.
+func buildToolCallFromState(state *streamToolState) ToolCall {
+	raw := state.jsonBuf.String()
+	var args json.RawMessage
+	if raw == "" {
+		args = json.RawMessage("{}")
+	} else if json.Valid([]byte(raw)) {
+		args = json.RawMessage(raw)
+	} else {
+		args = json.RawMessage(raw)
+	}
+	return ToolCall{
+		ID:        state.toolID,
+		Name:      state.toolName,
+		Arguments: args,
+	}
+}
+
+// sendChunk sends a StreamChunk to the output channel, respecting context cancellation.
+// Returns false if context was cancelled (caller should stop processing).
+func sendChunk(ctx context.Context, out chan<- StreamChunk, chunk StreamChunk) bool {
+	select {
+	case <-ctx.Done():
+		return false
+	case out <- chunk:
+		return true
 	}
 }
 
