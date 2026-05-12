@@ -177,6 +177,9 @@ func (m *Memory) Recall(
 	linked := m.followWikilinks(ctx, memories, surfaced, projectPath)
 	memories = append(memories, linked...)
 
+	signals := classifyQuery(userQuery)
+	memories = rerankRecallHitsForDiversity(memories, userQuery, maxRecallTopics, signals)
+
 	return memories, nil
 }
 
