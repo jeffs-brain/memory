@@ -151,10 +151,14 @@ func TestReinforceHeuristics_UpdatesConfidence(t *testing.T) {
 	projectPath := "/example/project"
 	slug := ProjectSlug(projectPath)
 
-	writeTopic(t, store, brain.MemoryProjectTopic(slug, "heuristic-testing-go"), `---
+	now := time.Now().UTC().Format(time.RFC3339)
+	createdAt := time.Now().AddDate(0, 0, -60).UTC().Format(time.RFC3339)
+	writeTopic(t, store, brain.MemoryProjectTopic(slug, "heuristic-testing-go"), fmt.Sprintf(`---
 name: "Testing: Go patterns"
 description: "Use table-driven tests"
 type: feedback
+created: %s
+modified: %s
 confidence: low
 source: reflection
 tags:
@@ -177,7 +181,7 @@ Third pattern observed.
 ## Observation 4
 
 Fourth pattern observed.
-`)
+`, createdAt, now))
 
 	c := NewConsolidator(nil, "", mem)
 	report, err := c.RunQuick(context.Background())
