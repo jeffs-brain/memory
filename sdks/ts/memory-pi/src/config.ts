@@ -1,70 +1,70 @@
-import { z } from "zod"
+import { z } from 'zod'
 
-const StoreConfigSchema = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("auto") }),
-  z.object({ kind: z.literal("fs") }),
-  z.object({ kind: z.literal("git"), remote: z.string().optional() }),
+const StoreConfigSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('auto') }),
+  z.object({ kind: z.literal('fs') }),
+  z.object({ kind: z.literal('git'), remote: z.string().optional() }),
   z.object({
-    kind: z.literal("http"),
+    kind: z.literal('http'),
     endpoint: z.string().url(),
     token: z.string(),
   }),
 ])
 
-const EmbedderConfigSchema = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("auto") }),
+const EmbedderConfigSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('auto') }),
   z.object({
-    kind: z.literal("ollama"),
+    kind: z.literal('ollama'),
     baseUrl: z.string().optional(),
     model: z.string().optional(),
   }),
   z.object({
-    kind: z.literal("openai"),
+    kind: z.literal('openai'),
     apiKey: z.string(),
     model: z.string().optional(),
   }),
-  z.object({ kind: z.literal("tei"), endpoint: z.string().url() }),
-  z.object({ kind: z.literal("off") }),
+  z.object({ kind: z.literal('tei'), endpoint: z.string().url() }),
+  z.object({ kind: z.literal('off') }),
 ])
 
-const ProviderConfigSchema = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("auto") }),
+const ProviderConfigSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('auto') }),
   z.object({
-    kind: z.literal("openai"),
+    kind: z.literal('openai'),
     apiKey: z.string(),
     model: z.string().optional(),
   }),
   z.object({
-    kind: z.literal("anthropic"),
+    kind: z.literal('anthropic'),
     apiKey: z.string(),
     model: z.string().optional(),
   }),
   z.object({
-    kind: z.literal("ollama"),
+    kind: z.literal('ollama'),
     baseUrl: z.string().optional(),
     model: z.string().optional(),
   }),
 ])
 
-const RerankerConfigSchema = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("auto") }),
-  z.object({ kind: z.literal("llm") }),
-  z.object({ kind: z.literal("tei"), endpoint: z.string().url() }),
-  z.object({ kind: z.literal("off") }),
+const RerankerConfigSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('auto') }),
+  z.object({ kind: z.literal('llm') }),
+  z.object({ kind: z.literal('tei'), endpoint: z.string().url() }),
+  z.object({ kind: z.literal('off') }),
 ])
 
 export const MEMORY_TOOL_NAMES = [
-  "remember",
-  "recall",
-  "search",
-  "ask",
-  "ingest_file",
-  "ingest_url",
-  "extract",
-  "reflect",
-  "consolidate",
-  "create_brain",
-  "list_brains",
+  'remember',
+  'recall',
+  'search',
+  'ask',
+  'ingest_file',
+  'ingest_url',
+  'extract',
+  'reflect',
+  'consolidate',
+  'create_brain',
+  'list_brains',
 ] as const
 
 export type MemoryToolName = (typeof MEMORY_TOOL_NAMES)[number]
@@ -101,7 +101,7 @@ export const MemoryExtensionConfigSchema = z
       .optional(),
     consolidate: z
       .object({
-        schedule: z.enum(["manual", "session", "@daily"]).optional(),
+        schedule: z.enum(['manual', 'session', '@daily']).optional(),
       })
       .optional(),
     tools: z
@@ -114,8 +114,8 @@ export const MemoryExtensionConfigSchema = z
         actorId: z.string().optional(),
         provider: z
           .union([
-            z.literal("rbac"),
-            z.object({ kind: z.literal("openfga"), endpoint: z.string().url() }),
+            z.literal('rbac'),
+            z.object({ kind: z.literal('openfga'), endpoint: z.string().url() }),
           ])
           .optional(),
       })
