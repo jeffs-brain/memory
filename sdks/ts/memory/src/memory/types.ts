@@ -19,6 +19,7 @@ import type {
   EpisodeRecordArgs,
   RecordEpisodeResult,
 } from './episodes.js'
+import type { MemoryHygieneArgs, MemoryHygieneReport } from './hygiene.js'
 import type {
   DetectAndPersistProceduralRecordsArgs,
   ListProceduralRecordsArgs,
@@ -27,6 +28,8 @@ import type {
   QueryProceduralRecordsArgs,
   StoredProceduralRecord,
 } from './procedural-store.js'
+
+export type { MemoryHygieneArgs, MemoryHygieneReport } from './hygiene.js'
 
 /** Scope of a memory note. Mirrors the Go `scope` enum. */
 export type Scope = 'global' | 'project' | 'agent'
@@ -362,6 +365,7 @@ export type Memory = {
   recall(opts: RecallOpts): Promise<readonly RecallHit[]>
   reflect(args: ReflectArgs): Promise<ReflectionResult | undefined>
   consolidate(args?: ConsolidateArgs): Promise<ConsolidationReport>
+  hygiene(args?: MemoryHygieneArgs): Promise<MemoryHygieneReport>
   contextualise(args: ContextualiseArgs): Promise<PromptContext>
   recordEpisode?: (args: EpisodeRecordArgs) => Promise<RecordEpisodeResult>
   getEpisode?: (sessionId: string) => Promise<EpisodeRecord | undefined>

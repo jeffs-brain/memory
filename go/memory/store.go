@@ -41,6 +41,11 @@ type Frontmatter struct {
 	Source       string
 	Supersedes   string
 	SupersededBy string
+	ClaimKey     string
+	StateKey     string
+	StateSubject string
+	Retired      bool
+	RetiredOn    string
 }
 
 // LoadIndexAt reads a MEMORY.md at the given logical path, capped at
@@ -221,6 +226,16 @@ func ParseFrontmatter(content string) (Frontmatter, string) {
 			fm.Supersedes = val
 		case "superseded_by":
 			fm.SupersededBy = val
+		case "claim_key":
+			fm.ClaimKey = val
+		case "state_key":
+			fm.StateKey = val
+		case "state_subject":
+			fm.StateSubject = val
+		case "retired":
+			fm.Retired = strings.EqualFold(val, "true")
+		case "retired_on":
+			fm.RetiredOn = val
 		case "tags":
 			for _, tag := range strings.Split(val, ",") {
 				tag = strings.TrimSpace(tag)

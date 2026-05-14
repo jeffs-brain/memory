@@ -126,7 +126,7 @@ describe('FeedbackClassifier', () => {
 
     it('truncates snippet to 200 characters', () => {
       const c = createFeedbackClassifier()
-      const longInput = 'perfect ' + 'x'.repeat(300)
+      const longInput = `perfect ${'x'.repeat(300)}`
       const result = c.classify(longInput, [testPath])
 
       expect(result.events).toHaveLength(1)
@@ -137,7 +137,7 @@ describe('FeedbackClassifier', () => {
 
     it('truncates turnContent to 500 characters', () => {
       const c = createFeedbackClassifier()
-      const longInput = 'perfect ' + 'x'.repeat(600)
+      const longInput = `perfect ${'x'.repeat(600)}`
       const result = c.classify(longInput, [testPath])
 
       expect(result.turnContent.length).toBeLessThanOrEqual(503)
