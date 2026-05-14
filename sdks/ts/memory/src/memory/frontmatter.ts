@@ -18,6 +18,12 @@ export type Frontmatter = {
   source?: string
   supersedes?: string
   superseded_by?: string
+  claim_key?: string
+  state_key?: string
+  state_subject?: string
+  retired?: boolean
+  retired_on?: string
+  retired_reason?: string
   scope?: string
   session_id?: string
   session_date?: string
@@ -106,6 +112,24 @@ export const parseFrontmatter = (content: string): { frontmatter: Frontmatter; b
       case 'superseded_by':
         fm.superseded_by = val
         break
+      case 'claim_key':
+        fm.claim_key = val
+        break
+      case 'state_key':
+        fm.state_key = val
+        break
+      case 'state_subject':
+        fm.state_subject = val
+        break
+      case 'retired':
+        fm.retired = val.toLowerCase() === 'true'
+        break
+      case 'retired_on':
+        fm.retired_on = val
+        break
+      case 'retired_reason':
+        fm.retired_reason = val
+        break
       case 'scope':
         fm.scope = val
         break
@@ -160,6 +184,12 @@ export const buildFrontmatter = (fm: Frontmatter): string => {
   if (fm.source) out.push(`source: ${fm.source}`)
   if (fm.supersedes) out.push(`supersedes: ${fm.supersedes}`)
   if (fm.superseded_by) out.push(`superseded_by: ${fm.superseded_by}`)
+  if (fm.claim_key) out.push(`claim_key: ${fm.claim_key}`)
+  if (fm.state_key) out.push(`state_key: ${fm.state_key}`)
+  if (fm.state_subject) out.push(`state_subject: ${fm.state_subject}`)
+  if (fm.retired !== undefined) out.push(`retired: ${fm.retired ? 'true' : 'false'}`)
+  if (fm.retired_on) out.push(`retired_on: ${fm.retired_on}`)
+  if (fm.retired_reason) out.push(`retired_reason: ${fm.retired_reason}`)
   if (fm.session_id) out.push(`session_id: ${fm.session_id}`)
   if (fm.session_date) out.push(`session_date: ${fm.session_date}`)
   if (fm.observed_on) out.push(`observed_on: ${fm.observed_on}`)

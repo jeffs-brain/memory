@@ -14,6 +14,7 @@ import { createContextualPrefixBuilder } from './contextual-prefix.js'
 import { createContextualise } from './contextualise.js'
 import { createEpisodeRecorder } from './episodes.js'
 import { createExtract, createPreviewExtract, defaultExtractConfig } from './extract.js'
+import { runMemoryHygiene } from './hygiene.js'
 import { createMemoryLifecycle } from './lifecycle.js'
 import { createStoreBackedProceduralStore } from './procedural-store.js'
 import { createRecall } from './recall.js'
@@ -109,6 +110,15 @@ export const createMemory = (opts: MemoryOpts): Memory => {
     recall,
     reflect,
     consolidate,
+    hygiene: async (args = {}) =>
+      runMemoryHygiene({
+        store: opts.store,
+        scope: args.scope ?? opts.scope,
+        actorId: args.actorId ?? opts.actorId,
+        ...(args.retiredAgeDays !== undefined ? { retiredAgeDays: args.retiredAgeDays } : {}),
+        ...(args.apply !== undefined ? { apply: args.apply } : {}),
+        ...(args.now !== undefined ? { now: args.now } : {}),
+      }),
     contextualise,
     recordEpisode: episodes.record,
     getEpisode: episodes.get,
@@ -184,6 +194,8 @@ export type {
   L0Outcome,
   Memory,
   MemoryDetectAndPersistProceduralRecordsArgs,
+  MemoryHygieneArgs,
+  MemoryHygieneReport,
   MemoryNote,
   MemoryOpts,
   MemoryPersistProceduralRecordsArgs,
@@ -205,6 +217,23 @@ export type {
   Semver,
   DetectProceduralRecordsOptions,
 } from './types.js'
+
+export {
+  DEFAULT_RETIRED_AGE_DAYS,
+  runMemoryHygiene,
+  type MemoryAgingRetirement,
+  type MemoryContradictionGroup,
+  type MemoryHygieneTopic,
+  type RunMemoryHygieneOptions,
+} from './hygiene.js'
+
+export {
+  buildCorrectionReminder,
+  buildCorrectionReminderWithOptions,
+  detectCorrection,
+  type Correction,
+  type CorrectionReminderOptions,
+} from './correction.js'
 
 export {
   CONTEXTUAL_PREFIX_MARKER,

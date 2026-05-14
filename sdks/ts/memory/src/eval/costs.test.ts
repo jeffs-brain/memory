@@ -18,7 +18,12 @@ describe('estimateUSD', () => {
   })
 
   it('calculates cost for gpt-4o correctly', () => {
-    const usage: Usage = { inputTokens: 1_000_000, outputTokens: 1_000_000, cacheRead: 0, cacheCreate: 0 }
+    const usage: Usage = {
+      inputTokens: 1_000_000,
+      outputTokens: 1_000_000,
+      cacheRead: 0,
+      cacheCreate: 0,
+    }
     // input: 1M * $2.50/M = $2.50, output: 1M * $10/M = $10.00
     expect(estimateUSD('gpt-4o', usage)).toBeCloseTo(12.5, 8)
   })
@@ -36,7 +41,12 @@ describe('estimateUSD', () => {
   })
 
   it('handles zero-priced models', () => {
-    const usage: Usage = { inputTokens: 10_000_000, outputTokens: 10_000_000, cacheRead: 0, cacheCreate: 0 }
+    const usage: Usage = {
+      inputTokens: 10_000_000,
+      outputTokens: 10_000_000,
+      cacheRead: 0,
+      cacheCreate: 0,
+    }
     expect(estimateUSD('gemma-4-31B-it', usage)).toBe(0)
   })
 
@@ -180,7 +190,12 @@ describe('addCostAccounting', () => {
 
   it('handles many small additions without drift', () => {
     let running = zeroCostAccounting()
-    const small: CostAccounting = { ingestUSD: 0.0001, agentUSD: 0.0002, judgeUSD: 0.0003, totalUSD: 0.0006 }
+    const small: CostAccounting = {
+      ingestUSD: 0.0001,
+      agentUSD: 0.0002,
+      judgeUSD: 0.0003,
+      totalUSD: 0.0006,
+    }
     for (let i = 0; i < 10_000; i++) {
       running = addCostAccounting(running, small)
     }
