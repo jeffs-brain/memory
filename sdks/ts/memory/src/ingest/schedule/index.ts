@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 export type {
+  CronEngine,
   ScheduledJob,
   ScheduleTarget,
   CreateScheduleInput,

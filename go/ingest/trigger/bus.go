@@ -9,10 +9,12 @@ import (
 
 const defaultMaxQueueDepth = 1000
 
-// subscriber wraps a handler with an ID for removal.
+// subscriber wraps a handler with an ID for removal and an optional
+// event filter predicate.
 type subscriber struct {
 	id      string
 	handler TriggerHandler
+	filter  func(IngestTriggerEvent) bool
 }
 
 // inProcessBus is a channels-based event bus that dispatches events to
@@ -96,12 +98,19 @@ func (b *inProcessBus) Publish(event IngestTriggerEvent) error {
 
 // Subscribe registers a handler. Returns a function to unsubscribe.
 func (b *inProcessBus) Subscribe(handler TriggerHandler) (unsubscribe func()) {
+	return b.SubscribeWithFilter(handler, SubscribeOptions{})
+}
+
+// SubscribeWithFilter registers a handler with an optional event filter.
+// When opts.Filter is non-nil, only events for which the filter returns
+// true are delivered. When opts.Filter is nil, all events are delivered.
+func (b *inProcessBus) SubscribeWithFilter(handler TriggerHandler, opts SubscribeOptions) (unsubscribe func()) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
 	b.nextID++
 	id := strconv.FormatUint(b.nextID, 10)
-	b.subscribers[id] = subscriber{id: id, handler: handler}
+	b.subscribers[id] = subscriber{id: id, handler: handler, filter: opts.Filter}
 	b.rebuildSnapshot()
 
 	return func() {
@@ -152,6 +161,9 @@ func (b *inProcessBus) deliverToAll(event IngestTriggerEvent) {
 	b.mu.Unlock()
 
 	for _, s := range subs {
+		if s.filter != nil && !s.filter(event) {
+			continue
+		}
 		if err := s.handler(event); err != nil {
 			if b.logger != nil {
 				b.logger.Error("trigger: handler error", map[string]string{

@@ -4,6 +4,7 @@ export type {
   IngestTriggerEvent,
   IngestTriggerPayload,
   IngestTriggerSource,
+  SubscribeOptions,
   TriggerBus,
   TriggerBusOptions,
   TriggerHandler,

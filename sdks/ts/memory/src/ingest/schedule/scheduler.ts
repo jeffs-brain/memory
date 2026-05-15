@@ -5,15 +5,25 @@
  * fires them. No external cron daemon required.
  */
 
-import { nextOccurrence, parseCron } from './cron.js'
-import type { Scheduler, SchedulerOptions } from './types.js'
+import { isValid as builtInIsValid, nextOccurrence as builtInNextOccurrence, parseCron } from './cron.js'
+import type { CronEngine, Scheduler, SchedulerOptions } from './types.js'
 
 const DEFAULT_POLL_INTERVAL_MS = 30_000
+
+/** Default CronEngine backed by the built-in parser. */
+const defaultCronEngine: CronEngine = {
+  nextOccurrence: (expression: string, after: Date): Date | undefined => {
+    const sched = parseCron(expression) // throws on invalid
+    return builtInNextOccurrence(sched, after)
+  },
+  isValid: builtInIsValid,
+}
 
 export const createScheduler = (opts: SchedulerOptions): Scheduler => {
   const pollIntervalMs = opts.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS
   const logger = opts.logger
   const now = opts.now ?? (() => new Date())
+  const cronEngine = opts.cronEngine ?? defaultCronEngine
 
   let timer: ReturnType<typeof setInterval> | undefined
   let stopped = false
@@ -37,8 +47,14 @@ export const createScheduler = (opts: SchedulerOptions): Scheduler => {
       }
 
       try {
-        const sched = parseCron(job.cronExpression)
-        const nextRun = nextOccurrence(sched, currentTime)
+        const nextRun = cronEngine.nextOccurrence(job.cronExpression, currentTime)
+        if (!nextRun) {
+          logger?.error('schedule: cron next-occurrence returned undefined', {
+            jobId: job.id,
+            cronExpression: job.cronExpression,
+          })
+          continue
+        }
         await opts.scheduleStore.markRun(job.id, currentTime, nextRun)
       } catch (err) {
         logger?.error('schedule: markRun failed', {

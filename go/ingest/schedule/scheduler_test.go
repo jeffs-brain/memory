@@ -354,6 +354,105 @@ func TestSchedulerStartStop(t *testing.T) {
 	}
 }
 
+func TestSchedulerCustomCronEngine(t *testing.T) {
+	db := openTestDB(t)
+	store, _ := NewSQLiteStore(db)
+
+	fixedNext := time.Date(2099, 1, 1, 0, 0, 0, 0, time.UTC)
+	engine := &stubCronEngine{
+		nextTime: fixedNext,
+		valid:    true,
+	}
+
+	job, _ := store.Create(context.Background(), CreateInput{
+		BrainID:        "brain-1",
+		Name:           "custom engine job",
+		CronExpression: "0 3 * * *",
+		Target:         Target{Kind: "file", Path: "/data/custom.md"},
+	})
+
+	past := time.Now().UTC().Add(-1 * time.Hour)
+	store.MarkRun(context.Background(), job.ID, past.Add(-2*time.Hour), past)
+
+	scheduler := NewScheduler(SchedulerOptions{
+		Store:      store,
+		CronEngine: engine,
+		Dispatch: func(_ context.Context, _ Job) error {
+			return nil
+		},
+	})
+
+	fired, err := scheduler.RunDueJobs(context.Background())
+	if err != nil {
+		t.Fatalf("runDueJobs: %v", err)
+	}
+	if fired != 1 {
+		t.Fatalf("expected 1 fired, got %d", fired)
+	}
+
+	// Verify the custom engine was used: nextRunAt should be our fixed time.
+	updated, _ := store.Get(context.Background(), job.ID)
+	if !updated.NextRunAt.Equal(fixedNext) {
+		t.Fatalf("expected nextRunAt %v from custom engine, got %v", fixedNext, updated.NextRunAt)
+	}
+
+	if engine.callCount == 0 {
+		t.Fatal("expected custom cron engine to be called")
+	}
+}
+
+func TestSchedulerDefaultCronEngine(t *testing.T) {
+	db := openTestDB(t)
+	store, _ := NewSQLiteStore(db)
+
+	job, _ := store.Create(context.Background(), CreateInput{
+		BrainID:        "brain-1",
+		Name:           "default engine job",
+		CronExpression: "0 * * * *",
+		Target:         Target{Kind: "file", Path: "/data/default.md"},
+	})
+
+	past := time.Now().UTC().Add(-1 * time.Hour)
+	store.MarkRun(context.Background(), job.ID, past.Add(-2*time.Hour), past)
+
+	scheduler := NewScheduler(SchedulerOptions{
+		Store: store,
+		Dispatch: func(_ context.Context, _ Job) error {
+			return nil
+		},
+	})
+
+	fired, err := scheduler.RunDueJobs(context.Background())
+	if err != nil {
+		t.Fatalf("runDueJobs: %v", err)
+	}
+	if fired != 1 {
+		t.Fatalf("expected 1 fired, got %d", fired)
+	}
+
+	// Verify the default engine computed a future nextRunAt.
+	updated, _ := store.Get(context.Background(), job.ID)
+	if updated.NextRunAt.Before(time.Now().UTC()) {
+		t.Fatal("expected nextRunAt in the future with default engine")
+	}
+}
+
+// stubCronEngine is a test double for the CronEngine interface.
+type stubCronEngine struct {
+	nextTime  time.Time
+	valid     bool
+	callCount int
+}
+
+func (s *stubCronEngine) NextOccurrence(_ string, _ time.Time) (time.Time, error) {
+	s.callCount++
+	return s.nextTime, nil
+}
+
+func (s *stubCronEngine) IsValid(_ string) bool {
+	return s.valid
+}
+
 type testLogger struct{}
 
 func (l *testLogger) Debug(_ string, _ ...map[string]string) {}

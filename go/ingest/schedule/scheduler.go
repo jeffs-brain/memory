@@ -17,6 +17,9 @@ type SchedulerOptions struct {
 	Logger       Logger
 	// Now is an injectable clock for testing. Defaults to time.Now.
 	Now func() time.Time
+	// CronEngine overrides the built-in cron parser. When nil, the
+	// default engine (ParseCron + NextOccurrence) is used.
+	CronEngine CronEngine
 }
 
 // Scheduler polls the schedule store for due jobs and fires them.
@@ -33,6 +36,9 @@ func NewScheduler(opts SchedulerOptions) *Scheduler {
 	}
 	if opts.Now == nil {
 		opts.Now = func() time.Time { return time.Now().UTC() }
+	}
+	if opts.CronEngine == nil {
+		opts.CronEngine = NewDefaultCronEngine()
 	}
 	return &Scheduler{opts: opts}
 }
@@ -77,20 +83,18 @@ func (s *Scheduler) RunDueJobs(ctx context.Context) (int, error) {
 			continue
 		}
 
-		// Reschedule.
-		sched, parseErr := ParseCron(job.CronExpression)
-		if parseErr != nil {
+		// Reschedule using the configured cron engine.
+		nextRun, cronErr := s.opts.CronEngine.NextOccurrence(job.CronExpression, now)
+		if cronErr != nil {
 			if s.opts.Logger != nil {
-				s.opts.Logger.Error("schedule: parse cron failed", map[string]string{
+				s.opts.Logger.Error("schedule: cron next-occurrence failed", map[string]string{
 					"jobId":          job.ID,
 					"cronExpression": job.CronExpression,
-					"error":          parseErr.Error(),
+					"error":          cronErr.Error(),
 				})
 			}
 			continue
 		}
-
-		nextRun := NextOccurrence(sched, now)
 		if err := s.opts.Store.MarkRun(ctx, job.ID, now, nextRun); err != nil {
 			if s.opts.Logger != nil {
 				s.opts.Logger.Error("schedule: markRun failed", map[string]string{
