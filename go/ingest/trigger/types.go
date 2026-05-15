@@ -65,9 +65,21 @@ type Bus interface {
 	// The returned function removes the subscription when called.
 	Subscribe(handler TriggerHandler) (unsubscribe func())
 
+	// SubscribeWithFilter registers a handler that only receives events
+	// matching the filter predicate in opts. If opts.Filter is nil the
+	// behaviour is identical to Subscribe (all events are delivered).
+	SubscribeWithFilter(handler TriggerHandler, opts SubscribeOptions) (unsubscribe func())
+
 	// Close drains pending events and releases resources. Blocks until
 	// all inflight deliveries complete or the context deadline expires.
 	Close() error
+}
+
+// SubscribeOptions configures event filtering for a subscription.
+type SubscribeOptions struct {
+	// Filter is an optional predicate. When set, only events for which
+	// Filter returns true are delivered to the handler.
+	Filter func(IngestTriggerEvent) bool
 }
 
 // BusOptions configures the in-process event bus.

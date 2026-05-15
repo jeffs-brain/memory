@@ -7,7 +7,7 @@
  */
 
 import type { Logger } from '../../llm/types.js'
-import type { IngestTriggerEvent, TriggerBus, TriggerBusOptions, TriggerHandler, Unsubscribe } from './types.js'
+import type { IngestTriggerEvent, SubscribeOptions, TriggerBus, TriggerBusOptions, TriggerHandler, Unsubscribe } from './types.js'
 import { validateTriggerEvent } from './types.js'
 
 const DEFAULT_MAX_QUEUE_DEPTH = 1000
@@ -15,6 +15,7 @@ const DEFAULT_MAX_QUEUE_DEPTH = 1000
 type Subscriber = {
   readonly id: number
   readonly handler: TriggerHandler
+  readonly filter?: (event: IngestTriggerEvent) => boolean
 }
 
 export const createEventBus = (opts?: TriggerBusOptions): TriggerBus => {
@@ -32,6 +33,9 @@ export const createEventBus = (opts?: TriggerBusOptions): TriggerBus => {
   const deliverToAll = async (event: IngestTriggerEvent): Promise<void> => {
     const snapshot = [...subscribers]
     for (const sub of snapshot) {
+      if (sub.filter && !sub.filter(event)) {
+        continue
+      }
       try {
         await sub.handler(event)
       } catch (err) {
@@ -74,9 +78,9 @@ export const createEventBus = (opts?: TriggerBusOptions): TriggerBus => {
     void flush()
   }
 
-  const subscribe = (handler: TriggerHandler): Unsubscribe => {
+  const subscribe = (handler: TriggerHandler, opts?: SubscribeOptions): Unsubscribe => {
     const id = ++nextId
-    subscribers.push({ id, handler })
+    subscribers.push({ id, handler, ...(opts?.filter ? { filter: opts.filter } : {}) })
     return () => {
       subscribers = subscribers.filter((s) => s.id !== id)
     }

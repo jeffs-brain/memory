@@ -52,6 +52,14 @@ export type ScheduleStore = {
   markRun(id: string, ranAt: Date, nextRunAt: Date): Promise<void>
 }
 
+/** Abstraction over cron expression parsing. Supply a custom engine to
+ *  integrate third-party cron libraries. When omitted, the built-in
+ *  parser is used. */
+export type CronEngine = {
+  readonly nextOccurrence: (expression: string, after: Date) => Date | undefined
+  readonly isValid: (expression: string) => boolean
+}
+
 export type SchedulerOptions = {
   readonly scheduleStore: ScheduleStore
   readonly dispatch: (job: ScheduledJob) => Promise<void> | void
@@ -59,6 +67,8 @@ export type SchedulerOptions = {
   readonly logger?: Logger
   /** Injectable clock for testing. Defaults to () => new Date(). */
   readonly now?: () => Date
+  /** Custom cron engine. Defaults to the built-in parser. */
+  readonly cronEngine?: CronEngine
 }
 
 export type Scheduler = {

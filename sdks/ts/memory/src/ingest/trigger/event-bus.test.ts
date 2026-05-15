@@ -238,6 +238,50 @@ describe('event-bus', () => {
     expect(() => bus.publish(validEvent('late'))).toThrow('closed')
   })
 
+  it('subscribe with filter only delivers matching events', async () => {
+    const bus = createEventBus()
+    const fileEvents: IngestTriggerEvent[] = []
+
+    bus.subscribe(
+      (event) => { fileEvents.push(event) },
+      { filter: (event) => event.payload.kind === 'file' },
+    )
+
+    const urlEvent: IngestTriggerEvent = {
+      id: 'url-1',
+      brainId: 'brain-1',
+      source: 'event-bus',
+      payload: { kind: 'url', url: 'https://example.com' },
+      timestamp: new Date(),
+    }
+    bus.publish(urlEvent)
+    bus.publish(validEvent('file-1'))
+    await bus.close()
+
+    expect(fileEvents).toHaveLength(1)
+    expect(fileEvents[0].id).toBe('file-1')
+  })
+
+  it('subscribe without filter receives all events (existing behaviour)', async () => {
+    const bus = createEventBus()
+    const allEvents: IngestTriggerEvent[] = []
+
+    bus.subscribe((event) => { allEvents.push(event) })
+
+    const urlEvent: IngestTriggerEvent = {
+      id: 'url-2',
+      brainId: 'brain-1',
+      source: 'event-bus',
+      payload: { kind: 'url', url: 'https://example.com' },
+      timestamp: new Date(),
+    }
+    bus.publish(urlEvent)
+    bus.publish(validEvent('file-2'))
+    await bus.close()
+
+    expect(allEvents).toHaveLength(2)
+  })
+
   it('handler error is logged but does not remove handler', async () => {
     const errorFn = vi.fn()
     const bus = createEventBus({

@@ -3,7 +3,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { createMemoryScheduleStore } from './memory-store.js'
 import { createScheduler } from './scheduler.js'
-import type { ScheduledJob } from './types.js'
+import type { CronEngine, ScheduledJob } from './types.js'
 
 describe('scheduler', () => {
   it('due job fires trigger event', async () => {
@@ -155,6 +155,70 @@ describe('scheduler', () => {
     await scheduler.stop()
 
     expect(dispatched).toBeGreaterThanOrEqual(1)
+  })
+
+  it('scheduler with custom CronEngine uses the provided engine', async () => {
+    const store = createMemoryScheduleStore()
+    const fixedNext = new Date('2099-01-01T00:00:00Z')
+    let engineCalled = 0
+
+    const customEngine: CronEngine = {
+      nextOccurrence: () => {
+        engineCalled++
+        return fixedNext
+      },
+      isValid: () => true,
+    }
+
+    const job = await store.create({
+      brainId: 'brain-1',
+      name: 'custom engine job',
+      cronExpression: '0 3 * * *',
+      target: { kind: 'file', path: '/data/custom.md' },
+    })
+
+    const past = new Date(Date.now() - 3600_000)
+    await store.markRun(job.id, new Date(Date.now() - 7200_000), past)
+
+    const scheduler = createScheduler({
+      scheduleStore: store,
+      cronEngine: customEngine,
+      dispatch: () => {},
+    })
+
+    const fired = await scheduler.runDueJobs()
+    expect(fired).toBe(1)
+    expect(engineCalled).toBeGreaterThan(0)
+
+    const updated = await store.get(job.id)
+    expect(updated).toBeDefined()
+    expect(updated!.nextRunAt.getTime()).toBe(fixedNext.getTime())
+  })
+
+  it('scheduler with default engine (no custom) computes future nextRunAt', async () => {
+    const store = createMemoryScheduleStore()
+
+    const job = await store.create({
+      brainId: 'brain-1',
+      name: 'default engine job',
+      cronExpression: '0 * * * *',
+      target: { kind: 'file', path: '/data/default.md' },
+    })
+
+    const past = new Date(Date.now() - 3600_000)
+    await store.markRun(job.id, new Date(Date.now() - 7200_000), past)
+
+    const scheduler = createScheduler({
+      scheduleStore: store,
+      dispatch: () => {},
+    })
+
+    const fired = await scheduler.runDueJobs()
+    expect(fired).toBe(1)
+
+    const updated = await store.get(job.id)
+    expect(updated).toBeDefined()
+    expect(updated!.nextRunAt.getTime()).toBeGreaterThan(Date.now())
   })
 
   it('per-brain scheduling isolation', async () => {

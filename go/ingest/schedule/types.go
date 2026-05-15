@@ -72,6 +72,20 @@ type Logger interface {
 	Error(msg string, ctx ...map[string]string)
 }
 
+// CronEngine abstracts cron expression parsing and next-occurrence
+// computation. The default implementation uses the built-in parser.
+// Callers can supply a custom engine to integrate third-party cron
+// libraries.
+type CronEngine interface {
+	// NextOccurrence returns the next time the expression fires after the
+	// given reference time. Returns an error if the expression is invalid.
+	NextOccurrence(expression string, after time.Time) (time.Time, error)
+
+	// IsValid reports whether expression is a syntactically valid cron
+	// expression understood by this engine.
+	IsValid(expression string) bool
+}
+
 // DispatchFunc is called when a due job should trigger ingestion.
 // The context allows callers to enforce per-job timeouts.
 type DispatchFunc func(ctx context.Context, job Job) error

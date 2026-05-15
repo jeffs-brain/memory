@@ -218,3 +218,24 @@ func toSet(vals []int) map[int]bool {
 	}
 	return s
 }
+
+// defaultCronEngine is the built-in CronEngine backed by ParseCron and
+// NextOccurrence. It is used when no custom engine is supplied.
+type defaultCronEngine struct{}
+
+func (defaultCronEngine) NextOccurrence(expression string, after time.Time) (time.Time, error) {
+	sched, err := ParseCron(expression)
+	if err != nil {
+		return time.Time{}, err
+	}
+	return NextOccurrence(sched, after), nil
+}
+
+func (defaultCronEngine) IsValid(expression string) bool {
+	return IsValid(expression)
+}
+
+// NewDefaultCronEngine returns the built-in CronEngine.
+func NewDefaultCronEngine() CronEngine {
+	return defaultCronEngine{}
+}

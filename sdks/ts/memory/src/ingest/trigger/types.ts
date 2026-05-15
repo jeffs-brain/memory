@@ -27,11 +27,17 @@ export type TriggerHandler = (event: IngestTriggerEvent) => Promise<void> | void
 
 export type Unsubscribe = () => void
 
+/** Options for subscribe. When filter is provided, only events for which
+ *  the filter returns true are delivered to the handler. */
+export type SubscribeOptions = {
+  readonly filter?: (event: IngestTriggerEvent) => boolean
+}
+
 export type TriggerBus = {
   /** Publish an event to all subscribers. Throws for malformed events. */
   publish(event: IngestTriggerEvent): void
-  /** Register a handler. Returns a function to unsubscribe. */
-  subscribe(handler: TriggerHandler): Unsubscribe
+  /** Register a handler. When opts.filter is provided, only matching events are delivered. */
+  subscribe(handler: TriggerHandler, opts?: SubscribeOptions): Unsubscribe
   /** Drain pending events and release resources. */
   close(): Promise<void>
 }

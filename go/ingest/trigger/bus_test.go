@@ -264,6 +264,87 @@ func TestHandlerErrorDoesNotRemoveSubscription(t *testing.T) {
 	}
 }
 
+func TestSubscribeWithFilterOnlyDeliversMatchingEvents(t *testing.T) {
+	bus := NewBus(nil)
+	defer bus.Close()
+
+	var fileEvents []IngestTriggerEvent
+	var wgFile sync.WaitGroup
+	wgFile.Add(1)
+
+	bus.SubscribeWithFilter(func(event IngestTriggerEvent) error {
+		fileEvents = append(fileEvents, event)
+		wgFile.Done()
+		return nil
+	}, SubscribeOptions{
+		Filter: func(event IngestTriggerEvent) bool {
+			return event.Payload.Kind == PayloadFile
+		},
+	})
+
+	urlEvent := IngestTriggerEvent{
+		ID:        "url-1",
+		BrainID:   "brain-1",
+		Source:    SourceEventBus,
+		Payload:   TriggerPayload{Kind: PayloadURL, URL: "https://example.com"},
+		Timestamp: time.Now(),
+	}
+	if err := bus.Publish(urlEvent); err != nil {
+		t.Fatalf("publish url event: %v", err)
+	}
+
+	fileEvent := validEvent("file-1")
+	if err := bus.Publish(fileEvent); err != nil {
+		t.Fatalf("publish file event: %v", err)
+	}
+
+	wgFile.Wait()
+
+	if len(fileEvents) != 1 {
+		t.Fatalf("expected 1 file event, got %d", len(fileEvents))
+	}
+	if fileEvents[0].ID != "file-1" {
+		t.Fatalf("expected event file-1, got %q", fileEvents[0].ID)
+	}
+}
+
+func TestSubscribeWithoutFilterReceivesAllEvents(t *testing.T) {
+	bus := NewBus(nil)
+	defer bus.Close()
+
+	var allEvents []IngestTriggerEvent
+	var wg sync.WaitGroup
+	wg.Add(2)
+
+	bus.SubscribeWithFilter(func(event IngestTriggerEvent) error {
+		allEvents = append(allEvents, event)
+		wg.Done()
+		return nil
+	}, SubscribeOptions{})
+
+	urlEvent := IngestTriggerEvent{
+		ID:        "url-2",
+		BrainID:   "brain-1",
+		Source:    SourceEventBus,
+		Payload:   TriggerPayload{Kind: PayloadURL, URL: "https://example.com"},
+		Timestamp: time.Now(),
+	}
+	if err := bus.Publish(urlEvent); err != nil {
+		t.Fatalf("publish url event: %v", err)
+	}
+
+	fileEvent := validEvent("file-2")
+	if err := bus.Publish(fileEvent); err != nil {
+		t.Fatalf("publish file event: %v", err)
+	}
+
+	wg.Wait()
+
+	if len(allEvents) != 2 {
+		t.Fatalf("expected 2 events, got %d", len(allEvents))
+	}
+}
+
 // testLogger is a minimal Logger implementation for tests.
 type testLogger struct {
 	onWarn func(string, ...map[string]string)
