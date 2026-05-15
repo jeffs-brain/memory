@@ -64,6 +64,10 @@ jobs:
         run: bash scripts/publish-if-needed.sh sdks/ts/memory
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - name: Publish @jeffs-brain/memory-pi
+        run: bash scripts/publish-if-needed.sh sdks/ts/memory-pi
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
       - name: Publish @jeffs-brain/memory-postgres
         run: bash scripts/publish-if-needed.sh sdks/ts/memory-postgres
         env:
