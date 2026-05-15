@@ -22,6 +22,9 @@ function makeWorkflow(): { workflow: ProposalWorkflow; registry: Registry } {
   const workflow = new ProposalWorkflow({
     registry,
     store: backingStore,
+    brainId: 'brain-1',
+    projectId: 'proj-1',
+    orgId: 'org-1',
     clock: fixedClock(new Date('2026-05-15T12:00:00.000Z')),
   })
   return { workflow, registry }
@@ -283,10 +286,10 @@ describe('ProposalWorkflow', () => {
       const reg = new Registry({ store: ontologyStore })
       const clock = fixedClock(new Date('2026-05-15T12:00:00.000Z'))
 
-      const wf1 = new ProposalWorkflow({ registry: reg, store: backingStore, clock })
+      const wf1 = new ProposalWorkflow({ registry: reg, store: backingStore, brainId: 'brain-1', projectId: 'proj-1', orgId: 'org-1', clock })
       const batch = await wf1.proposeFromExtraction(sampleExtraction(), 'test.pdf')
 
-      const wf2 = new ProposalWorkflow({ registry: reg, store: backingStore, clock })
+      const wf2 = new ProposalWorkflow({ registry: reg, store: backingStore, brainId: 'brain-1', projectId: 'proj-1', orgId: 'org-1', clock })
       const readBack = await wf2.getBatch(batch.id)
       expect(readBack.proposals).toHaveLength(batch.proposals.length)
     })

@@ -30,9 +30,12 @@ func newTestWorkflow(t *testing.T) (*ontology.ProposalWorkflow, *ontology.Regist
 	}
 	reg := ontology.NewRegistry(store)
 	wf := ontology.NewProposalWorkflow(ontology.ProposalWorkflowConfig{
-		Registry: reg,
-		Store:    ms,
-		Clock:    fixedClock(time.Date(2026, 5, 15, 12, 0, 0, 0, time.UTC)),
+		Registry:  reg,
+		Store:     ms,
+		BrainID:   "brain-1",
+		ProjectID: "proj-1",
+		OrgID:     "org-1",
+		Clock:     fixedClock(time.Date(2026, 5, 15, 12, 0, 0, 0, time.UTC)),
 	})
 	return wf, reg
 }
@@ -453,9 +456,12 @@ func TestStoragePersistence(t *testing.T) {
 	clock := fixedClock(time.Date(2026, 5, 15, 12, 0, 0, 0, time.UTC))
 
 	wf1 := ontology.NewProposalWorkflow(ontology.ProposalWorkflowConfig{
-		Registry: reg,
-		Store:    ms,
-		Clock:    clock,
+		Registry:  reg,
+		Store:     ms,
+		BrainID:   "brain-1",
+		ProjectID: "proj-1",
+		OrgID:     "org-1",
+		Clock:     clock,
 	})
 
 	batch, err := wf1.ProposeFromExtraction(ctx, sampleExtraction(), "test.pdf")
@@ -465,9 +471,12 @@ func TestStoragePersistence(t *testing.T) {
 
 	// Create a new workflow instance (simulating restart)
 	wf2 := ontology.NewProposalWorkflow(ontology.ProposalWorkflowConfig{
-		Registry: reg,
-		Store:    ms,
-		Clock:    clock,
+		Registry:  reg,
+		Store:     ms,
+		BrainID:   "brain-1",
+		ProjectID: "proj-1",
+		OrgID:     "org-1",
+		Clock:     clock,
 	})
 
 	// Should be able to read the batch from the second workflow

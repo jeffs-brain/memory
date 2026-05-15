@@ -56,6 +56,9 @@ export type ProposalFilter = {
 export type ProposalWorkflowConfig = {
   readonly registry: Registry
   readonly store: Store
+  readonly brainId: string
+  readonly projectId?: string
+  readonly orgId?: string
   readonly clock?: () => Date
 }
 
@@ -103,11 +106,17 @@ function computeBatchId(domain: string, sourceDocument: string, timestamp: strin
 export class ProposalWorkflow {
   private readonly registry: Registry
   private readonly store: Store
+  private readonly brainId: string
+  private readonly projectId: string
+  private readonly orgId: string
   private readonly clock: () => Date
 
   constructor(config: ProposalWorkflowConfig) {
     this.registry = config.registry
     this.store = config.store
+    this.brainId = config.brainId
+    this.projectId = config.projectId ?? ''
+    this.orgId = config.orgId ?? ''
     this.clock = config.clock ?? (() => new Date())
   }
 
@@ -119,7 +128,7 @@ export class ProposalWorkflow {
     result: ExtractionResult,
     sourceDocument: string,
   ): Promise<ProposalBatch> {
-    const resolved = await this.registry.resolve('', '', '')
+    const resolved = await this.registry.resolve(this.brainId, this.projectId, this.orgId)
     const existingTypes = resolvedToDefinitions(resolved)
     const extractedDefs = extractionToDefinitions(result, this.clock)
 

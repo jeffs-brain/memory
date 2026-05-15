@@ -60,9 +60,12 @@ type ProposalFilter struct {
 // already-known types, and provides accept/merge/reject operations
 // that transition types through the workflow.
 type ProposalWorkflow struct {
-	registry *Registry
-	store    brain.Store
-	clock    func() time.Time
+	registry  *Registry
+	store     brain.Store
+	brainID   string
+	projectID string
+	orgID     string
+	clock     func() time.Time
 }
 
 // ProposalWorkflowConfig configures the proposal workflow.
@@ -71,6 +74,12 @@ type ProposalWorkflowConfig struct {
 	Registry *Registry
 	// Store provides raw file access for reading/writing proposal batch JSON.
 	Store brain.Store
+	// BrainID is the brain to resolve the ontology for during proposal deduplication.
+	BrainID string
+	// ProjectID is the project to resolve the ontology for during proposal deduplication.
+	ProjectID string
+	// OrgID is the organisation to resolve the ontology for during proposal deduplication.
+	OrgID string
 	// Clock overrides time.Now for deterministic testing. Defaults to time.Now.
 	Clock func() time.Time
 }
@@ -83,9 +92,12 @@ func NewProposalWorkflow(cfg ProposalWorkflowConfig) *ProposalWorkflow {
 		clock = time.Now
 	}
 	return &ProposalWorkflow{
-		registry: cfg.Registry,
-		store:    cfg.Store,
-		clock:    clock,
+		registry:  cfg.Registry,
+		store:     cfg.Store,
+		brainID:   cfg.BrainID,
+		projectID: cfg.ProjectID,
+		orgID:     cfg.OrgID,
+		clock:     clock,
 	}
 }
 
@@ -113,7 +125,7 @@ func computeBatchID(domain, sourceDocument, timestamp string) string {
 // extraction result. Runs deduplication against the resolved ontology
 // first, so only genuinely new types become proposals.
 func (w *ProposalWorkflow) ProposeFromExtraction(ctx context.Context, result ExtractionResult, sourceDocument string) (*ProposalBatch, error) {
-	resolved, err := w.registry.Resolve(ctx, "", "", "")
+	resolved, err := w.registry.Resolve(ctx, w.brainID, w.projectID, w.orgID)
 	if err != nil {
 		return nil, fmt.Errorf("ontology: propose from extraction resolve: %w", err)
 	}
