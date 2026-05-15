@@ -6,13 +6,12 @@ import (
 	"encoding/hex"
 
 	"github.com/zeebo/blake3"
-	lukechampineblake3 "lukechampine.com/blake3"
 )
 
 // HashContent computes the BLAKE3 hash of data and returns the full
 // hex-encoded digest (64 characters).
 func HashContent(data []byte) string {
-	sum := lukechampineblake3.Sum256(data)
+	sum := blake3.Sum256(data)
 	return hex.EncodeToString(sum[:])
 }
 

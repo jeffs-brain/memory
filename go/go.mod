@@ -13,7 +13,6 @@ require (
 	golang.org/x/sync v0.20.0
 	golang.org/x/text v0.31.0
 	gopkg.in/yaml.v3 v3.0.1
-	lukechampine.com/blake3 v1.4.1
 	modernc.org/sqlite v1.48.0
 )
 

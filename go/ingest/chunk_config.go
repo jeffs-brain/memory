@@ -168,12 +168,14 @@ func NewChunkConfig(maxTokens, overlapTokens, minTokens int, opts ...ChunkConfig
 	if minTokens < 0 {
 		minTokens = DefaultMinTokens
 	}
+	seps := make([]string, len(DefaultSeparators))
+	copy(seps, DefaultSeparators)
 	cfg := ChunkConfig{
 		MaxTokens:     maxTokens,
 		OverlapTokens: overlapTokens,
 		MinTokens:     minTokens,
 		Strategy:      StrategyRecursive,
-		Separators:    DefaultSeparators,
+		Separators:    seps,
 	}
 	for _, opt := range opts {
 		opt(&cfg)
