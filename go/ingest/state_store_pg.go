@@ -38,6 +38,9 @@ type PostgresStateStoreConfig struct {
 // NewPostgresPipelineStateStore creates a PostgreSQL-backed state store.
 // Returns an error if the schema name is invalid.
 func NewPostgresPipelineStateStore(cfg PostgresStateStoreConfig) (*PostgresPipelineStateStore, error) {
+	if cfg.DB == nil {
+		return nil, fmt.Errorf("ingest: postgres DB is required")
+	}
 	schema := cfg.Schema
 	if schema == "" {
 		schema = "memory"

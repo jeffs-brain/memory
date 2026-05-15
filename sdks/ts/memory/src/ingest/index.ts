@@ -38,6 +38,7 @@ export {
 
 export {
   FilePipelineStateStore,
+  type FilePipelineStateStoreOptions,
   type PipelineStage,
   type PipelineStateEntry,
   type PipelineStateStore,

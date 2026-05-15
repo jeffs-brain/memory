@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"time"
 
 	"github.com/jeffs-brain/memory/go/brain"
@@ -63,27 +64,61 @@ type PipelineStateStore interface {
 	Delete(ctx context.Context, documentHash string) error
 }
 
-const statePrefix = "raw/.pipeline-state"
+const defaultStatePrefix = "raw/.pipeline-state"
 
-func statePath(documentHash string) brain.Path {
-	return brain.Path(fmt.Sprintf("%s/%s.json", statePrefix, documentHash))
+// documentHashPattern validates that a document hash is a 64-character
+// lowercase hex string (SHA-256). Rejects path traversal attempts.
+var documentHashPattern = regexp.MustCompile(`^[a-f0-9]{64}$`)
+
+func validateDocumentHash(documentHash string) error {
+	if !documentHashPattern.MatchString(documentHash) {
+		return fmt.Errorf("ingest: invalid document hash %q", documentHash)
+	}
+	return nil
+}
+
+func statePath(prefix, documentHash string) brain.Path {
+	return brain.Path(fmt.Sprintf("%s/%s.json", prefix, documentHash))
+}
+
+// FilePipelineStateStoreConfig configures the file-based state store.
+type FilePipelineStateStoreConfig struct {
+	// Store is the brain Store backend used for persistence.
+	Store brain.Store
+	// Prefix is the path prefix inside the store where state files are written.
+	// Defaults to "raw/.pipeline-state" when empty.
+	Prefix string
 }
 
 // FilePipelineStateStore implements PipelineStateStore by persisting each
-// document's state as a JSON file at raw/.pipeline-state/{hash}.json using
-// the brain.Store interface.
+// document's state as a JSON file at {prefix}/{hash}.json using the
+// brain.Store interface. The default prefix is "raw/.pipeline-state".
 type FilePipelineStateStore struct {
-	store brain.Store
+	store  brain.Store
+	prefix string
 }
 
 // NewFilePipelineStateStore creates a file-based state store backed by the
-// given brain.Store.
+// given brain.Store using the default prefix.
 func NewFilePipelineStateStore(store brain.Store) *FilePipelineStateStore {
-	return &FilePipelineStateStore{store: store}
+	return &FilePipelineStateStore{store: store, prefix: defaultStatePrefix}
+}
+
+// NewFilePipelineStateStoreWithConfig creates a file-based state store with
+// explicit configuration, including a custom path prefix.
+func NewFilePipelineStateStoreWithConfig(cfg FilePipelineStateStoreConfig) *FilePipelineStateStore {
+	prefix := cfg.Prefix
+	if prefix == "" {
+		prefix = defaultStatePrefix
+	}
+	return &FilePipelineStateStore{store: cfg.Store, prefix: prefix}
 }
 
 func (s *FilePipelineStateStore) Get(ctx context.Context, documentHash string) (*PipelineStateEntry, error) {
-	data, err := s.store.Read(ctx, statePath(documentHash))
+	if err := validateDocumentHash(documentHash); err != nil {
+		return nil, err
+	}
+	data, err := s.store.Read(ctx, statePath(s.prefix, documentHash))
 	if err != nil {
 		if errors.Is(err, brain.ErrNotFound) {
 			return nil, nil
@@ -98,18 +133,21 @@ func (s *FilePipelineStateStore) Get(ctx context.Context, documentHash string) (
 }
 
 func (s *FilePipelineStateStore) Set(ctx context.Context, entry PipelineStateEntry) error {
+	if err := validateDocumentHash(entry.DocumentHash); err != nil {
+		return err
+	}
 	data, err := json.MarshalIndent(entry, "", "  ")
 	if err != nil {
 		return fmt.Errorf("ingest: state encode %s: %w", entry.DocumentHash, err)
 	}
-	if err := s.store.Write(ctx, statePath(entry.DocumentHash), data); err != nil {
+	if err := s.store.Write(ctx, statePath(s.prefix, entry.DocumentHash), data); err != nil {
 		return fmt.Errorf("ingest: state set %s: %w", entry.DocumentHash, err)
 	}
 	return nil
 }
 
 func (s *FilePipelineStateStore) ListIncomplete(ctx context.Context, brainID string) ([]PipelineStateEntry, error) {
-	dir := brain.Path(statePrefix)
+	dir := brain.Path(s.prefix)
 	exists, err := s.store.Exists(ctx, dir)
 	if err != nil {
 		return nil, fmt.Errorf("ingest: state list check dir: %w", err)
@@ -148,7 +186,10 @@ func (s *FilePipelineStateStore) ListIncomplete(ctx context.Context, brainID str
 }
 
 func (s *FilePipelineStateStore) Delete(ctx context.Context, documentHash string) error {
-	err := s.store.Delete(ctx, statePath(documentHash))
+	if err := validateDocumentHash(documentHash); err != nil {
+		return err
+	}
+	err := s.store.Delete(ctx, statePath(s.prefix, documentHash))
 	if err != nil {
 		if errors.Is(err, brain.ErrNotFound) {
 			return nil

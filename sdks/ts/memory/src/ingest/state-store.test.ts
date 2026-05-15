@@ -19,8 +19,11 @@ import type { PgSql } from './state-store-pg.js'
 
 const BRAIN_ID = 'test-brain'
 
+/** Valid 64-character lowercase hex hash for tests. */
+const DEFAULT_HASH = 'abc123def4560000000000000000000000000000000000000000000000000000'
+
 const makeEntry = (overrides: Partial<PipelineStateEntry> = {}): PipelineStateEntry => ({
-  documentHash: 'abc123def456',
+  documentHash: DEFAULT_HASH,
   brainId: BRAIN_ID,
   stage: 'stored',
   retryCount: 0,
@@ -144,7 +147,7 @@ for (const factory of factories) {
     })
 
     it('returns undefined when no state exists', async () => {
-      const entry = await stateStore.get('nonexistent-hash')
+      const entry = await stateStore.get('0000000000000000000000000000000000000000000000000000000000000000')
       expect(entry).toBeUndefined()
     })
 
@@ -178,11 +181,11 @@ for (const factory of factories) {
     })
 
     it('lists only incomplete entries', async () => {
-      const received = makeEntry({ documentHash: 'hash-received', stage: 'received' })
-      const stored = makeEntry({ documentHash: 'hash-stored', stage: 'stored' })
-      const completed = makeEntry({ documentHash: 'hash-completed', stage: 'completed' })
-      const failed = makeEntry({ documentHash: 'hash-failed', stage: 'failed' })
-      const embedded = makeEntry({ documentHash: 'hash-embedded', stage: 'embedded' })
+      const received = makeEntry({ documentHash: '1111111111111111111111111111111111111111111111111111111111111111', stage: 'received' })
+      const stored = makeEntry({ documentHash: '2222222222222222222222222222222222222222222222222222222222222222', stage: 'stored' })
+      const completed = makeEntry({ documentHash: '3333333333333333333333333333333333333333333333333333333333333333', stage: 'completed' })
+      const failed = makeEntry({ documentHash: '4444444444444444444444444444444444444444444444444444444444444444', stage: 'failed' })
+      const embedded = makeEntry({ documentHash: '5555555555555555555555555555555555555555555555555555555555555555', stage: 'embedded' })
 
       await stateStore.set(received)
       await stateStore.set(stored)
@@ -193,18 +196,18 @@ for (const factory of factories) {
       const incomplete = await stateStore.listIncomplete(BRAIN_ID)
       const hashes = incomplete.map((e) => e.documentHash)
 
-      expect(hashes).toContain('hash-received')
-      expect(hashes).toContain('hash-stored')
-      expect(hashes).toContain('hash-embedded')
-      expect(hashes).not.toContain('hash-completed')
-      expect(hashes).not.toContain('hash-failed')
+      expect(hashes).toContain('1111111111111111111111111111111111111111111111111111111111111111')
+      expect(hashes).toContain('2222222222222222222222222222222222222222222222222222222222222222')
+      expect(hashes).toContain('5555555555555555555555555555555555555555555555555555555555555555')
+      expect(hashes).not.toContain('3333333333333333333333333333333333333333333333333333333333333333')
+      expect(hashes).not.toContain('4444444444444444444444444444444444444444444444444444444444444444')
       expect(incomplete).toHaveLength(3)
     })
 
     it('listIncomplete filters by brainId', async () => {
-      const ours = makeEntry({ documentHash: 'hash-ours', brainId: BRAIN_ID, stage: 'stored' })
+      const ours = makeEntry({ documentHash: 'aaaa000000000000000000000000000000000000000000000000000000000000', brainId: BRAIN_ID, stage: 'stored' })
       const theirs = makeEntry({
-        documentHash: 'hash-theirs',
+        documentHash: 'bbbb000000000000000000000000000000000000000000000000000000000000',
         brainId: 'other-brain',
         stage: 'stored',
       })
@@ -214,7 +217,7 @@ for (const factory of factories) {
 
       const incomplete = await stateStore.listIncomplete(BRAIN_ID)
       expect(incomplete).toHaveLength(1)
-      expect(incomplete[0]!.documentHash).toBe('hash-ours')
+      expect(incomplete[0]!.documentHash).toBe('aaaa000000000000000000000000000000000000000000000000000000000000')
     })
 
     it('deletes state by document hash', async () => {
@@ -227,7 +230,7 @@ for (const factory of factories) {
     })
 
     it('delete on non-existent hash does not throw', async () => {
-      await expect(stateStore.delete('nonexistent')).resolves.toBeUndefined()
+      await expect(stateStore.delete('0000000000000000000000000000000000000000000000000000000000000001')).resolves.toBeUndefined()
     })
 
     it('preserves lastError field', async () => {
@@ -256,3 +259,74 @@ for (const factory of factories) {
     })
   })
 }
+
+describe('FilePipelineStateStore prefix configuration', () => {
+  it('uses a custom prefix when provided via options', async () => {
+    const store: Store = createMemStore()
+    const customStore = new FilePipelineStateStore({ store, prefix: 'raw/.custom-state-dir' })
+    const defaultStore = new FilePipelineStateStore(store)
+
+    const entry = makeEntry()
+    await customStore.set(entry)
+
+    const fromCustom = await customStore.get(entry.documentHash)
+    expect(fromCustom).toBeDefined()
+    expect(fromCustom!.documentHash).toBe(entry.documentHash)
+
+    const fromDefault = await defaultStore.get(entry.documentHash)
+    expect(fromDefault).toBeUndefined()
+
+    await store.close()
+  })
+
+  it('uses the default prefix when prefix is omitted in options', async () => {
+    const store: Store = createMemStore()
+    const configStore = new FilePipelineStateStore({ store })
+    const defaultStore = new FilePipelineStateStore(store)
+
+    const entry = makeEntry()
+    await configStore.set(entry)
+
+    const fromDefault = await defaultStore.get(entry.documentHash)
+    expect(fromDefault).toBeDefined()
+
+    await store.close()
+  })
+})
+
+describe('FilePipelineStateStore document hash validation', () => {
+  let store: Store
+  let stateStore: PipelineStateStore
+
+  beforeEach(() => {
+    store = createMemStore()
+    stateStore = new FilePipelineStateStore(store)
+  })
+
+  afterEach(async () => {
+    await store.close()
+  })
+
+  const invalidHashes = [
+    '../../../etc/passwd',
+    'short',
+    'ABCD000000000000000000000000000000000000000000000000000000000000',
+    'abc123def456',
+    'abc/123/def/456',
+  ]
+
+  for (const hash of invalidHashes) {
+    it(`rejects invalid hash "${hash}" on get`, async () => {
+      await expect(stateStore.get(hash)).rejects.toThrow('Invalid document hash')
+    })
+
+    it(`rejects invalid hash "${hash}" on delete`, async () => {
+      await expect(stateStore.delete(hash)).rejects.toThrow('Invalid document hash')
+    })
+
+    it(`rejects invalid hash "${hash}" on set`, async () => {
+      const entry = makeEntry({ documentHash: hash })
+      await expect(stateStore.set(entry)).rejects.toThrow('Invalid document hash')
+    })
+  }
+})

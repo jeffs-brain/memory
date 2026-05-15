@@ -8,8 +8,10 @@
 CREATE TABLE IF NOT EXISTS memory.pipeline_state (
   document_hash  TEXT        PRIMARY KEY,
   brain_id       TEXT        NOT NULL,
-  stage          TEXT        NOT NULL DEFAULT 'received',
-  retry_count    INTEGER     NOT NULL DEFAULT 0,
+  stage          TEXT        NOT NULL DEFAULT 'received'
+                             CHECK (stage IN ('received','stored','chunked','embedded','indexed','completed','failed')),
+  retry_count    INTEGER     NOT NULL DEFAULT 0
+                             CHECK (retry_count >= 0),
   last_error     TEXT,
   created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at     TIMESTAMPTZ NOT NULL DEFAULT now(),

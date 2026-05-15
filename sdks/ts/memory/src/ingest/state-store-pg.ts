@@ -75,7 +75,7 @@ export class PostgresPipelineStateStore implements PipelineStateStore {
     this.table = `${schema}.pipeline_state`
   }
 
-  async get(documentHash: string): Promise<PipelineStateEntry | undefined> {
+  async get(documentHash: string, _signal?: AbortSignal): Promise<PipelineStateEntry | undefined> {
     const rows = await this.sql.unsafe<StateRow>(
       `SELECT document_hash, brain_id, stage, retry_count, last_error,
               created_at, updated_at, completed_at
@@ -89,7 +89,7 @@ export class PostgresPipelineStateStore implements PipelineStateStore {
     return rowToEntry(row)
   }
 
-  async set(entry: PipelineStateEntry): Promise<void> {
+  async set(entry: PipelineStateEntry, _signal?: AbortSignal): Promise<void> {
     await this.sql.unsafe(
       `INSERT INTO ${this.table}
          (document_hash, brain_id, stage, retry_count, last_error, created_at, updated_at, completed_at)
@@ -114,7 +114,7 @@ export class PostgresPipelineStateStore implements PipelineStateStore {
     )
   }
 
-  async listIncomplete(brainId: string): Promise<readonly PipelineStateEntry[]> {
+  async listIncomplete(brainId: string, _signal?: AbortSignal): Promise<readonly PipelineStateEntry[]> {
     const rows = await this.sql.unsafe<StateRow>(
       `SELECT document_hash, brain_id, stage, retry_count, last_error,
               created_at, updated_at, completed_at
@@ -127,7 +127,7 @@ export class PostgresPipelineStateStore implements PipelineStateStore {
     return rows.map(rowToEntry)
   }
 
-  async delete(documentHash: string): Promise<void> {
+  async delete(documentHash: string, _signal?: AbortSignal): Promise<void> {
     await this.sql.unsafe(
       `DELETE FROM ${this.table} WHERE document_hash = $1`,
       [documentHash],

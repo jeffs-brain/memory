@@ -57,9 +57,21 @@ export type PipelineStateStore = {
   delete(documentHash: string, signal?: AbortSignal): Promise<void>
 }
 
-const STATE_PREFIX = 'raw/.pipeline-state'
+const DEFAULT_STATE_PREFIX = 'raw/.pipeline-state'
 
-const statePath = (documentHash: string) => toPath(`${STATE_PREFIX}/${documentHash}.json`)
+/**
+ * Validates that a document hash contains only lowercase hex characters and is
+ * exactly 64 characters long (SHA-256 hex). Rejects path traversal attempts.
+ */
+const DOCUMENT_HASH_PATTERN = /^[a-f0-9]{64}$/
+
+const assertDocumentHash = (documentHash: string): void => {
+  if (!DOCUMENT_HASH_PATTERN.test(documentHash)) {
+    throw new Error(`Invalid document hash: "${documentHash}"`)
+  }
+}
+
+const statePath = (prefix: string, documentHash: string) => toPath(`${prefix}/${documentHash}.json`)
 
 /** JSON wire format for serialisation. Dates are stored as ISO strings. */
 type SerializedEntry = {
@@ -102,21 +114,42 @@ const deserialize = (buf: Buffer): PipelineStateEntry => {
   }
 }
 
+/** Options for constructing a FilePipelineStateStore. */
+export type FilePipelineStateStoreOptions = {
+  /** Brain Store backend used for persistence. */
+  readonly store: Store
+  /**
+   * Path prefix inside the store where state files are written.
+   * Defaults to `raw/.pipeline-state`.
+   */
+  readonly prefix?: string
+}
+
 /**
  * File-based pipeline state store. Persists each document's state as a JSON
- * file at `raw/.pipeline-state/{documentHash}.json` using the brain Store
- * interface.
+ * file at `{prefix}/{documentHash}.json` using the brain Store interface.
+ * The default prefix is `raw/.pipeline-state`.
  */
 export class FilePipelineStateStore implements PipelineStateStore {
   private readonly store: Store
+  private readonly prefix: string
 
-  constructor(store: Store) {
-    this.store = store
+  constructor(store: Store)
+  constructor(opts: FilePipelineStateStoreOptions)
+  constructor(storeOrOpts: Store | FilePipelineStateStoreOptions) {
+    if ('read' in storeOrOpts) {
+      this.store = storeOrOpts
+      this.prefix = DEFAULT_STATE_PREFIX
+    } else {
+      this.store = storeOrOpts.store
+      this.prefix = storeOrOpts.prefix ?? DEFAULT_STATE_PREFIX
+    }
   }
 
-  async get(documentHash: string): Promise<PipelineStateEntry | undefined> {
+  async get(documentHash: string, _signal?: AbortSignal): Promise<PipelineStateEntry | undefined> {
+    assertDocumentHash(documentHash)
     try {
-      const buf = await this.store.read(statePath(documentHash))
+      const buf = await this.store.read(statePath(this.prefix, documentHash))
       return deserialize(buf)
     } catch (err: unknown) {
       if (isNotFound(err)) return undefined
@@ -124,12 +157,13 @@ export class FilePipelineStateStore implements PipelineStateStore {
     }
   }
 
-  async set(entry: PipelineStateEntry): Promise<void> {
-    await this.store.write(statePath(entry.documentHash), serialize(entry))
+  async set(entry: PipelineStateEntry, _signal?: AbortSignal): Promise<void> {
+    assertDocumentHash(entry.documentHash)
+    await this.store.write(statePath(this.prefix, entry.documentHash), serialize(entry))
   }
 
-  async listIncomplete(brainId: string): Promise<readonly PipelineStateEntry[]> {
-    const dir = toPath(STATE_PREFIX)
+  async listIncomplete(brainId: string, _signal?: AbortSignal): Promise<readonly PipelineStateEntry[]> {
+    const dir = toPath(this.prefix)
     const exists = await this.store.exists(dir)
     if (!exists) return []
 
@@ -148,9 +182,10 @@ export class FilePipelineStateStore implements PipelineStateStore {
     return entries
   }
 
-  async delete(documentHash: string): Promise<void> {
+  async delete(documentHash: string, _signal?: AbortSignal): Promise<void> {
+    assertDocumentHash(documentHash)
     try {
-      await this.store.delete(statePath(documentHash))
+      await this.store.delete(statePath(this.prefix, documentHash))
     } catch (err: unknown) {
       if (isNotFound(err)) return
       throw err
