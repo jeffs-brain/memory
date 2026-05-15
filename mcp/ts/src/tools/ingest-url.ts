@@ -9,16 +9,35 @@ const schema = z.object({
   extract: z.boolean().optional().describe('Extract structured facts after ingestion.'),
 })
 
+/**
+ * Shape returned by MemoryClient.ingestUrl(). Both local and hosted
+ * implementations may include `_document_content` which is stripped
+ * before returning to the caller.
+ */
+type IngestUrlResponse = {
+  readonly _document_content?: string
+  readonly [key: string]: unknown
+}
+
+const isIngestUrlResponse = (value: unknown): value is IngestUrlResponse =>
+  typeof value === 'object' && value !== null
+
 export const ingestUrlTool: Tool<typeof schema> = {
   name: 'memory_ingest_url',
   description:
     'Fetch a URL and ingest its contents into the brain. Uses the server-side /ingest/url endpoint when available; otherwise fetches locally and creates a document.',
   inputSchema: schema,
   async handler(args, client, ctx) {
-    const ingestResult = await client.ingestUrl(
+    const raw = await client.ingestUrl(
       { url: args.url, brain: args.brain },
       ctx?.progress,
-    ) as Record<string, unknown>
+    )
+
+    if (!isIngestUrlResponse(raw)) {
+      return jsonContent(raw)
+    }
+
+    const ingestResult = raw
 
     if (args.extract !== true) {
       // Strip internal field before returning to caller.

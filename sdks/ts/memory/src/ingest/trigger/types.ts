@@ -94,13 +94,36 @@ const VALID_PAYLOAD_KINDS: ReadonlySet<string> = new Set(['file', 'url', 'raw'])
  * @param raw    JSON string from the transport layer
  * @param source Default source when the payload omits it
  */
+/**
+ * Shape expected from JSON.parse of a trigger event wire format.
+ * Uses optional unknown fields for safe narrowing without
+ * Record<string, unknown>.
+ */
+type RawTriggerEvent = {
+  id?: unknown
+  brainId?: unknown
+  source?: unknown
+  payload?: unknown
+  timestamp?: unknown
+  metadata?: unknown
+}
+
+type RawPayload = {
+  kind?: unknown
+  path?: unknown
+  url?: unknown
+  content?: unknown
+  title?: unknown
+  mime?: unknown
+}
+
 export const parseIngestTriggerEvent = (
   raw: string,
   source: IngestTriggerSource,
 ): ParseResult => {
-  let parsed: Record<string, unknown>
+  let parsed: unknown
   try {
-    parsed = JSON.parse(raw) as Record<string, unknown>
+    parsed = JSON.parse(raw)
   } catch (err) {
     return { ok: false, error: `invalid JSON: ${String(err)}` }
   }
@@ -109,46 +132,46 @@ export const parseIngestTriggerEvent = (
     return { ok: false, error: 'parsed value is not an object' }
   }
 
-  const id = parsed.id
-  if (typeof id !== 'string' || id === '') {
+  const obj = parsed as RawTriggerEvent
+
+  if (typeof obj.id !== 'string' || obj.id === '') {
     return { ok: false, error: 'missing or empty id' }
   }
 
-  const brainId = parsed.brainId
-  if (typeof brainId !== 'string' || brainId === '') {
+  if (typeof obj.brainId !== 'string' || obj.brainId === '') {
     return { ok: false, error: 'missing or empty brainId' }
   }
 
-  const rawPayload = parsed.payload
-  if (typeof rawPayload !== 'object' || rawPayload === null) {
+  if (typeof obj.payload !== 'object' || obj.payload === null) {
     return { ok: false, error: 'missing or invalid payload' }
   }
-  const payloadObj = rawPayload as Record<string, unknown>
-  const kind = payloadObj.kind
-  if (typeof kind !== 'string' || !VALID_PAYLOAD_KINDS.has(kind)) {
-    return { ok: false, error: `invalid payload kind: ${String(kind)}` }
+  const payloadObj = obj.payload as RawPayload
+  if (typeof payloadObj.kind !== 'string' || !VALID_PAYLOAD_KINDS.has(payloadObj.kind)) {
+    return { ok: false, error: `invalid payload kind: ${String(payloadObj.kind)}` }
   }
 
-  const payload = payloadObj as unknown as IngestTriggerPayload
+  const payload = obj.payload as IngestTriggerPayload
 
-  const rawTimestamp = parsed.timestamp
+  const rawTimestamp = obj.timestamp
   const timestamp = rawTimestamp instanceof Date
     ? rawTimestamp
     : typeof rawTimestamp === 'string'
       ? new Date(rawTimestamp)
       : new Date()
 
-  const eventSource = (typeof parsed.source === 'string' && parsed.source !== '')
-    ? parsed.source as IngestTriggerSource
+  const eventSource = (typeof obj.source === 'string' && obj.source !== '')
+    ? obj.source as IngestTriggerSource
     : source
 
-  const metadata = (typeof parsed.metadata === 'object' && parsed.metadata !== null)
-    ? parsed.metadata as Readonly<Record<string, unknown>>
+  // metadata is intentionally Readonly<Record<string, unknown>> -- user-provided
+  // key-value pairs with truly unknown keys at compile time.
+  const metadata = (typeof obj.metadata === 'object' && obj.metadata !== null)
+    ? obj.metadata as Readonly<Record<string, unknown>>
     : undefined
 
   const event: IngestTriggerEvent = {
-    id,
-    brainId,
+    id: obj.id,
+    brainId: obj.brainId,
     source: eventSource,
     payload,
     timestamp,

@@ -133,6 +133,36 @@ const matchDay = (
   return domSet.has(day) && dowSet.has(weekday)
 }
 
+type CronRange = { readonly start: number; readonly end: number }
+
+/**
+ * Parses a single range token from a cron field. Handles three forms:
+ * wildcard ('*'), explicit range ('1-5'), or single value ('3').
+ */
+const parseCronRange = (rangePart: string, min: number, max: number, name: string): CronRange => {
+  if (rangePart === '*') {
+    return { start: min, end: max }
+  }
+
+  if (rangePart.includes('-')) {
+    const rangeSplit = rangePart.split('-')
+    const s = rangeSplit[0] ?? ''
+    const e = rangeSplit[1] ?? ''
+    const start = Number.parseInt(s, 10)
+    const end = Number.parseInt(e, 10)
+    if (Number.isNaN(start) || Number.isNaN(end)) {
+      throw new Error(`cron: ${name} field: invalid range "${rangePart}"`)
+    }
+    return { start, end }
+  }
+
+  const val = Number.parseInt(rangePart, 10)
+  if (Number.isNaN(val)) {
+    throw new Error(`cron: ${name} field: invalid value "${rangePart}"`)
+  }
+  return { start: val, end: val }
+}
+
 const parseField = (field: string, min: number, max: number, name: string): number[] => {
   const result: number[] = []
 
@@ -150,29 +180,7 @@ const parseField = (field: string, min: number, max: number, name: string): numb
       }
     }
 
-    let rangeStart: number
-    let rangeEnd: number
-
-    if (rangePart === '*') {
-      rangeStart = min
-      rangeEnd = max
-    } else if (rangePart.includes('-')) {
-      const rangeSplit = rangePart.split('-')
-      const s = rangeSplit[0] ?? ''
-      const e = rangeSplit[1] ?? ''
-      rangeStart = Number.parseInt(s, 10)
-      rangeEnd = Number.parseInt(e, 10)
-      if (Number.isNaN(rangeStart) || Number.isNaN(rangeEnd)) {
-        throw new Error(`cron: ${name} field: invalid range "${rangePart}"`)
-      }
-    } else {
-      const val = Number.parseInt(rangePart, 10)
-      if (Number.isNaN(val)) {
-        throw new Error(`cron: ${name} field: invalid value "${rangePart}"`)
-      }
-      rangeStart = val
-      rangeEnd = val
-    }
+    const { start: rangeStart, end: rangeEnd } = parseCronRange(rangePart, min, max, name)
 
     if (rangeStart < min || rangeEnd > max || rangeStart > rangeEnd) {
       throw new Error(`cron: ${name} field: value out of range [${min}-${max}]: ${rangeStart}-${rangeEnd}`)
