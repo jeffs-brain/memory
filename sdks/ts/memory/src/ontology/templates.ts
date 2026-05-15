@@ -316,26 +316,81 @@ const orderProcessingTemplate: IndustryTemplate = {
   businessCategories: ['order_processing'],
 } as const
 
-export const INDUSTRY_TEMPLATES: Readonly<Record<TemplateName, IndustryTemplate>> = {
+/**
+ * Mutable registry of industry templates. Starts with the 6 built-in
+ * templates and can be extended at runtime via registerTemplate().
+ */
+const templateRegistry: Record<string, IndustryTemplate> = {
   server_hardware: serverHardwareTemplate,
   insurance: insuranceTemplate,
   logistics: logisticsTemplate,
   finance: financeTemplate,
   healthcare: healthcareTemplate,
   order_processing: orderProcessingTemplate,
-} as const
+}
 
 /**
- * Returns sorted template keys.
+ * Read-only reference to the built-in templates for type narrowing.
+ * Runtime lookups use templateRegistry which may include custom templates.
  */
-export function listTemplates(): TemplateName[] {
-  const keys = Object.keys(INDUSTRY_TEMPLATES) as TemplateName[]
-  return keys.sort()
+export const INDUSTRY_TEMPLATES: Readonly<Record<TemplateName, IndustryTemplate>> = templateRegistry as Record<TemplateName, IndustryTemplate>
+
+/**
+ * Returns sorted template keys (includes any custom-registered templates).
+ */
+export function listTemplates(): string[] {
+  return Object.keys(templateRegistry).sort()
 }
 
 /**
  * Returns a template by key, or undefined if not found.
  */
 export function getTemplate(key: string): IndustryTemplate | undefined {
-  return INDUSTRY_TEMPLATES[key as TemplateName]
+  return templateRegistry[key]
+}
+
+/**
+ * Registers a custom industry template at runtime. Throws if the key
+ * is empty, already registered, or the template contains invalid types.
+ */
+export function registerTemplate(key: string, template: IndustryTemplate): void {
+  if (key === '') {
+    throw new Error('ontology: template key must not be empty')
+  }
+  if (templateRegistry[key] !== undefined) {
+    throw new Error(`ontology: template "${key}" is already registered`)
+  }
+  for (const nt of template.nodeTypes) {
+    if (!isValidNodeType(nt.type)) {
+      throw new Error(`ontology: template "${key}" contains invalid node type "${nt.type}"`)
+    }
+    if (!nt.label || !nt.description) {
+      throw new Error(`ontology: template "${key}" node type "${nt.type}" has empty label or description`)
+    }
+  }
+  for (const et of template.edgeTypes) {
+    if (!isValidEdgeType(et.type)) {
+      throw new Error(`ontology: template "${key}" contains invalid edge type "${et.type}"`)
+    }
+    if (!et.label || !et.description) {
+      throw new Error(`ontology: template "${key}" edge type "${et.type}" has empty label or description`)
+    }
+  }
+  for (const cat of template.businessCategories) {
+    if (!isValidBusinessCategory(cat)) {
+      throw new Error(`ontology: template "${key}" contains invalid business category "${cat}"`)
+    }
+  }
+  templateRegistry[key] = template
+}
+
+/**
+ * Resets the template registry to the 6 built-in templates (for testing).
+ */
+export function _resetTemplates(): void {
+  for (const key of Object.keys(templateRegistry)) {
+    if (!['server_hardware', 'insurance', 'logistics', 'finance', 'healthcare', 'order_processing'].includes(key)) {
+      delete templateRegistry[key]
+    }
+  }
 }

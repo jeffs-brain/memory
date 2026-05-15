@@ -183,3 +183,62 @@ func TestTemplateNoDuplicateBusinessCategories(t *testing.T) {
 		})
 	}
 }
+
+func TestRegisterTemplate(t *testing.T) {
+	t.Cleanup(resetTemplates)
+
+	custom := IndustryTemplate{
+		Label:       "Education",
+		Description: "Schools, courses, and student management",
+		NodeTypes: []TypeEntry{
+			{Type: "entity.student", Label: "Student", Description: "A student enrolled in courses"},
+			{Type: "entity.course", Label: "Course", Description: "An academic course"},
+		},
+		EdgeTypes: []TypeEntry{
+			{Type: "enrolled_in", Label: "Enrolled In", Description: "A student is enrolled in a course"},
+		},
+		BusinessCategories: []string{"education"},
+	}
+	if err := RegisterTemplate("education", custom); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	keys := ListTemplates()
+	found := false
+	for _, k := range keys {
+		if k == "education" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("expected 'education' template to be registered")
+	}
+	if len(keys) != 7 {
+		t.Fatalf("expected 7 templates, got %d", len(keys))
+	}
+
+	tmpl, err := GetTemplate("education")
+	if err != nil {
+		t.Fatalf("GetTemplate(education) error: %v", err)
+	}
+	if tmpl.Label != "Education" {
+		t.Fatalf("expected label 'Education', got %q", tmpl.Label)
+	}
+}
+
+func TestRegisterTemplate_Errors(t *testing.T) {
+	t.Cleanup(resetTemplates)
+
+	if err := RegisterTemplate("", IndustryTemplate{}); err == nil {
+		t.Fatal("expected error for empty key")
+	}
+	if err := RegisterTemplate("server_hardware", IndustryTemplate{}); err == nil {
+		t.Fatal("expected error for duplicate key")
+	}
+	invalid := IndustryTemplate{
+		NodeTypes: []TypeEntry{{Type: "INVALID", Label: "Bad", Description: "Bad type"}},
+	}
+	if err := RegisterTemplate("bad_template", invalid); err == nil {
+		t.Fatal("expected error for invalid node type")
+	}
+}

@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 
+import type { IndustryTemplate } from './templates.js'
 import {
   INDUSTRY_TEMPLATES,
   getTemplate,
@@ -9,6 +10,8 @@ import {
   isValidEdgeType,
   isValidNodeType,
   listTemplates,
+  registerTemplate,
+  _resetTemplates,
 } from './templates.js'
 
 describe('listTemplates', () => {
@@ -141,5 +144,69 @@ describe('cross-SDK parity', () => {
       'server_hardware',
     ]
     expect(listTemplates()).toEqual(goTemplateNames)
+  })
+})
+
+describe('registerTemplate', () => {
+  afterEach(() => {
+    _resetTemplates()
+  })
+
+  const educationTemplate: IndustryTemplate = {
+    label: 'Education',
+    description: 'Schools, courses, and student management',
+    nodeTypes: [
+      { type: 'entity.student', label: 'Student', description: 'A student enrolled in courses' },
+      { type: 'entity.course', label: 'Course', description: 'An academic course' },
+    ],
+    edgeTypes: [
+      { type: 'enrolled_in', label: 'Enrolled In', description: 'A student is enrolled in a course' },
+    ],
+    businessCategories: ['education'],
+  }
+
+  it('registers a custom template', () => {
+    registerTemplate('education', educationTemplate)
+    const keys = listTemplates()
+    expect(keys).toContain('education')
+    expect(keys).toHaveLength(7)
+  })
+
+  it('makes the template retrievable', () => {
+    registerTemplate('education', educationTemplate)
+    const tmpl = getTemplate('education')
+    expect(tmpl).toBeDefined()
+    expect(tmpl!.label).toBe('Education')
+    expect(tmpl!.nodeTypes).toHaveLength(2)
+  })
+
+  it('rejects empty key', () => {
+    expect(() => registerTemplate('', educationTemplate)).toThrow('must not be empty')
+  })
+
+  it('rejects duplicate key', () => {
+    expect(() => registerTemplate('server_hardware', educationTemplate)).toThrow('already registered')
+  })
+
+  it('rejects invalid node type in template', () => {
+    const bad: IndustryTemplate = {
+      label: 'Bad',
+      description: 'Bad template',
+      nodeTypes: [{ type: 'INVALID', label: 'Bad', description: 'Bad' }],
+      edgeTypes: [],
+      businessCategories: [],
+    }
+    expect(() => registerTemplate('bad', bad)).toThrow('invalid node type')
+  })
+
+  it('rejects invalid edge type in template', () => {
+    const bad: IndustryTemplate = {
+      label: 'Bad',
+      description: 'Bad template',
+      nodeTypes: [],
+      edgeTypes: [{ type: 'INVALID TYPE', label: 'Bad', description: 'Bad' }],
+      businessCategories: [],
+    }
+    expect(() => registerTemplate('bad', bad)).toThrow('invalid edge type')
   })
 })

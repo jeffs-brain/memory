@@ -55,4 +55,5 @@ export {
   INDUSTRY_TEMPLATES,
   listTemplates,
   getTemplate,
+  registerTemplate,
 } from './templates.js'
