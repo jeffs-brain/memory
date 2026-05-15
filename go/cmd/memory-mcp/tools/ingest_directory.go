@@ -7,13 +7,19 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+	"sync"
+	"sync/atomic"
 
 	"github.com/google/jsonschema-go/jsonschema"
 	"github.com/jeffs-brain/memory/go/ingest"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"golang.org/x/sync/errgroup"
 )
 
-const maxDirectoryFiles = 500
+const (
+	maxDirectoryFiles       = 500
+	maxDirectoryConcurrency = 5
+)
 
 // IngestDirectoryArgs is the input shape for memory_ingest_directory.
 type IngestDirectoryArgs struct {
@@ -75,51 +81,65 @@ func registerIngestDirectory(server *mcp.Server, client MemoryClient) {
 
 		progress := progressFromRequest(ctx, req)
 		total := len(enumerated)
-		succeeded := 0
-		failed := 0
-		results := make([]map[string]any, 0, total)
+		var succeededCount atomic.Int64
+		var failedCount atomic.Int64
+		var completedCount atomic.Int64
+		results := make([]map[string]any, total)
+		var mu sync.Mutex
+
+		g, gctx := errgroup.WithContext(ctx)
+		g.SetLimit(maxDirectoryConcurrency)
 
 		for i, file := range enumerated {
-			ingestArgs := IngestFileArgs{
-				Path:  file.Path,
-				Brain: args.Brain,
-			}
+			g.Go(func() error {
+				ingestArgs := IngestFileArgs{
+					Path:  file.Path,
+					Brain: args.Brain,
+				}
 
-			result, ingestErr := client.IngestFile(ctx, ingestArgs, progress)
-			if ingestErr != nil {
-				results = append(results, map[string]any{
-					"path":   file.Path,
-					"status": "error",
-					"error":  ingestErr.Error(),
-				})
-				failed++
-			} else {
-				entry := map[string]any{
-					"path":   file.Path,
-					"status": "success",
+				result, ingestErr := client.IngestFile(gctx, ingestArgs, progress)
+				if ingestErr != nil {
+					results[i] = map[string]any{
+						"path":   file.Path,
+						"status": "error",
+						"error":  ingestErr.Error(),
+					}
+					failedCount.Add(1)
+				} else {
+					entry := map[string]any{
+						"path":   file.Path,
+						"status": "success",
+					}
+					if docID, ok := result["document_id"]; ok {
+						entry["documentId"] = docID
+					}
+					if hash, ok := result["hash"]; ok {
+						entry["hash"] = hash
+					}
+					if byteSize, ok := result["byte_size"]; ok {
+						entry["bytes"] = byteSize
+					}
+					results[i] = entry
+					succeededCount.Add(1)
 				}
-				if docID, ok := result["document_id"]; ok {
-					entry["documentId"] = docID
-				}
-				if hash, ok := result["hash"]; ok {
-					entry["hash"] = hash
-				}
-				if byteSize, ok := result["byte_size"]; ok {
-					entry["bytes"] = byteSize
-				}
-				results = append(results, entry)
-				succeeded++
-			}
 
-			if progress != nil {
-				progress(float64(i+1), fmt.Sprintf("%d/%d %s", i+1, total, file.Path))
-			}
+				done := completedCount.Add(1)
+				if progress != nil {
+					mu.Lock()
+					progress(float64(done), fmt.Sprintf("%d/%d %s", done, total, file.Path))
+					mu.Unlock()
+				}
+
+				return nil
+			})
 		}
+
+		_ = g.Wait()
 
 		payload := map[string]any{
 			"total":          total,
-			"succeeded":      succeeded,
-			"failed":         failed,
+			"succeeded":      succeededCount.Load(),
+			"failed":         failedCount.Load(),
 			"skipped":        len(skipped),
 			"skippedReasons": skipped,
 			"results":        results,

@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -119,10 +120,13 @@ func TestIngestDirectory_EnumeratesAndIngests(t *testing.T) {
 		}
 	}
 
-	calls := []string{}
+	var mu sync.Mutex
+	var callCount int
 	client := &mockDirMemoryClient{
 		ingestFileFn: func(_ context.Context, args IngestFileArgs, _ ProgressEmitter) (map[string]any, error) {
-			calls = append(calls, args.Path)
+			mu.Lock()
+			callCount++
+			mu.Unlock()
 			return map[string]any{
 				"status":      "completed",
 				"document_id": "doc-" + filepath.Base(args.Path),
@@ -146,9 +150,11 @@ func TestIngestDirectory_EnumeratesAndIngests(t *testing.T) {
 	if payload["failed"] != float64(0) {
 		t.Errorf("expected failed=0, got %v", payload["failed"])
 	}
-	if len(calls) != 3 {
-		t.Errorf("expected 3 ingest calls, got %d", len(calls))
+	mu.Lock()
+	if callCount != 3 {
+		t.Errorf("expected 3 ingest calls, got %d", callCount)
 	}
+	mu.Unlock()
 }
 
 func TestIngestDirectory_MaxFilesOver500Rejected(t *testing.T) {
