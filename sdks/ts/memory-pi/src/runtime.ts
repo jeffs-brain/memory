@@ -13,6 +13,7 @@
  */
 
 import { mkdir } from 'node:fs/promises'
+import { dirname } from 'node:path'
 import {
   AnthropicProvider,
   type Embedder,
@@ -26,16 +27,21 @@ import {
   type Provider,
   type RecallHit,
   type Scope,
+  type SearchHit,
+  type SearchIndex as MemorySearchIndex,
   type SqliteSearchIndex,
   type Store,
   autodetectStore,
   createMemory,
   createSearchIndex,
   createStoreBackedCursorStore,
+  scopePrefix,
+  toPath,
 } from '@jeffs-brain/memory'
 import type { Message } from '@jeffs-brain/memory'
 import type { Retrieval } from '@jeffs-brain/memory/retrieval'
 import { createRetrieval } from '@jeffs-brain/memory/retrieval'
+import { bootstrapFlatBrain } from './bootstrap-flat.js'
 import type { MemoryExtensionConfig } from './config.js'
 import {
   DEFAULT_BRAIN_ID,
@@ -45,18 +51,10 @@ import {
   detectProvider,
   resolveBrainPaths,
 } from './defaults.js'
+import { type RuntimeLogger, noopRuntimeLogger } from './runtime-logger.js'
 
-export type RuntimeLogger = {
-  info(message: string, ctx?: Record<string, unknown>): void
-  warn(message: string, ctx?: Record<string, unknown>): void
-  error(message: string, ctx?: Record<string, unknown>): void
-}
-
-export const noopRuntimeLogger: RuntimeLogger = {
-  info: () => {},
-  warn: () => {},
-  error: () => {},
-}
+export { noopRuntimeLogger } from './runtime-logger.js'
+export type { RuntimeLogger } from './runtime-logger.js'
 
 export type ExtractJob = {
   readonly messages: readonly Message[]
@@ -97,6 +95,9 @@ export type MemoryRuntime = {
 export type ResolvedRuntimeConfig = {
   readonly brainRoot: string
   readonly brainId: string
+  readonly flatLayout: boolean
+  readonly searchIndexPath: string | undefined
+  readonly bootstrapScanDirs: readonly string[] | undefined
   readonly scope: Scope
   readonly fallbackScopes: readonly Scope[]
   readonly actorId: string
@@ -111,6 +112,12 @@ export type ResolvedRuntimeConfig = {
   readonly exposedTools: readonly string[] | undefined
 }
 
+const truthyEnv = (value: string | undefined): boolean => {
+  if (value === undefined) return false
+  const v = value.trim().toLowerCase()
+  return v === '1' || v === 'true' || v === 'yes' || v === 'on'
+}
+
 /**
  * Resolve the user-supplied configuration into the dense runtime form.
  * Missing fields fall back to documented defaults so callers can pass
@@ -122,12 +129,18 @@ export const resolveRuntimeConfig = (
 ): ResolvedRuntimeConfig => {
   const brainRoot = config?.brainRoot ?? env.MEMORY_PI_BRAIN_ROOT ?? DEFAULT_BRAIN_ROOT
   const brainId = config?.brainId ?? env.MEMORY_PI_BRAIN_ID ?? DEFAULT_BRAIN_ID
+  const flatLayout = config?.flatLayout ?? truthyEnv(env.MEMORY_PI_FLAT_LAYOUT)
+  const searchIndexPath = config?.searchIndexPath ?? env.MEMORY_PI_SEARCH_INDEX_PATH
+  const bootstrapScanDirs = config?.bootstrapScanDirs
   const scope = (config?.recall?.scope as Scope | undefined) ?? 'global'
   const fallbackScopes = (config?.recall?.fallbackScopes as readonly Scope[] | undefined) ?? []
   const actorId = config?.acl?.actorId ?? env.MEMORY_PI_ACTOR_ID ?? 'pi-user'
   return {
     brainRoot,
     brainId,
+    flatLayout,
+    searchIndexPath,
+    bootstrapScanDirs,
     scope,
     fallbackScopes,
     actorId,
@@ -249,8 +262,19 @@ export const createMemoryRuntime = async (
 ): Promise<MemoryRuntime> => {
   const logger = options.logger ?? noopRuntimeLogger
   const resolved = resolveRuntimeConfig(config)
-  const paths = resolveBrainPaths(resolved.brainRoot, resolved.brainId)
+  const paths = resolveBrainPaths(resolved.brainRoot, resolved.brainId, {
+    flat: resolved.flatLayout,
+    ...(resolved.searchIndexPath !== undefined
+      ? { searchIndexPath: resolved.searchIndexPath }
+      : {}),
+  })
   await mkdir(paths.root, { recursive: true })
+  // When the search index is redirected outside the brain root (typical
+  // for hosts that keep the brain in a git working tree), make sure the
+  // target directory exists before sqlite tries to open it.
+  if (resolved.searchIndexPath !== undefined) {
+    await mkdir(dirname(paths.searchIndexPath), { recursive: true })
+  }
   const store = await buildStore(config, paths.root)
   const searchIndex = await createSearchIndex({ dbPath: paths.searchIndexPath })
   const embedder = await buildEmbedder(config)
@@ -265,11 +289,40 @@ export const createMemoryRuntime = async (
     logger.warn('memory-pi: no embedder detected; vector recall disabled')
   }
 
+  // Single-brain hosts: walk the existing on-disk content once on boot
+  // so memory_search / memory_recall query the same wiki + memory + raw
+  // files the host already manages, without writing copies back into
+  // the brain Store. Idempotent: re-entries hit the indexed-paths cache
+  // in `bootstrapFlatBrain` and become no-ops.
+  if (resolved.flatLayout) {
+    try {
+      await bootstrapFlatBrain({
+        brainRoot: paths.root,
+        brainId: paths.id,
+        searchIndex,
+        ...(resolved.bootstrapScanDirs !== undefined
+          ? { scanDirs: resolved.bootstrapScanDirs }
+          : {}),
+        logger,
+      })
+    } catch (err) {
+      logger.error('memory-pi: flat bootstrap failed', {
+        err: err instanceof Error ? err.message : String(err),
+        brainRoot: paths.root,
+      })
+    }
+  }
+
   const retrieval = createRetrieval({
     index: searchIndex,
     ...(embedder !== undefined ? { embedder } : {}),
   })
 
+  // Wire the SQLite SearchIndex into `createMemory` via a thin adapter
+  // so `Memory.recall` can use the FTS results instead of the fallback
+  // path that lists files under the scope prefix (which is empty in
+  // single-brain hosts that use a flat layout).
+  const memorySearchAdapter = buildMemorySearchAdapter(searchIndex, resolved.flatLayout)
   // The Memory pipeline requires a non-undefined Provider. When the
   // user has no chat provider we fall back to a "no-op" lazy provider
   // that throws on use; this keeps the runtime constructable so recall
@@ -279,6 +332,7 @@ export const createMemoryRuntime = async (
     store,
     provider: memoryProvider,
     ...(embedder !== undefined ? { embedder } : {}),
+    searchIndex: memorySearchAdapter,
     scope: resolved.scope,
     actorId: resolved.actorId,
     cursorStore: createStoreBackedCursorStore(store),
@@ -304,6 +358,41 @@ export const createMemoryRuntime = async (
   }
   return runtime
 }
+
+/**
+ * Bridge the SQLite SearchIndex into the lightweight `SearchIndex`
+ * contract that `Memory.recall` consumes. In scoped mode we mirror the
+ * package's recall fallback: filter BM25 hits to paths that live under
+ * the scope prefix. In flat mode (single-brain hosts) the scope is
+ * advisory only — every BM25 hit is returned so flat layouts where
+ * notes live at `memory/<slug>.md` rather than `memory/global/<slug>.md`
+ * still surface results.
+ */
+const buildMemorySearchAdapter = (
+  index: SqliteSearchIndex,
+  flatLayout: boolean,
+): MemorySearchIndex => ({
+  async search(query, _embedding, opts) {
+    const k = Math.max(1, opts.k)
+    const hits = index.searchBM25(query, k)
+    if (hits.length === 0) return []
+    const out: SearchHit[] = []
+    if (!flatLayout && opts.scope !== undefined) {
+      const prefix = scopePrefix(opts.scope, opts.actorId ?? '')
+      for (const hit of hits) {
+        const path = hit.chunk.path
+        if (path === prefix || path.startsWith(`${prefix}/`)) {
+          out.push({ path: toPath(path), score: hit.score })
+        }
+      }
+      return out
+    }
+    for (const hit of hits) {
+      out.push({ path: toPath(hit.chunk.path), score: hit.score })
+    }
+    return out
+  },
+})
 
 /**
  * Provider stub that throws when called. We install this so callers

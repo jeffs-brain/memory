@@ -73,6 +73,23 @@ export const MemoryExtensionConfigSchema = z
   .object({
     brainRoot: z.string().optional(),
     brainId: z.string().optional(),
+    // When true, `brainRoot` is treated as the brain itself and the
+    // `brainId` is NOT joined into a subdirectory. Wiki / memory / raw
+    // content is expected to live directly under `brainRoot`. Useful
+    // for single-brain hosts that already manage one brain per identity
+    // on disk and do not want memory-pi to nest its own subdirectory
+    // inside the git working tree.
+    flatLayout: z.boolean().optional(),
+    // Override the on-disk path for the search index. When unset the
+    // index lives at `<resolvedBrainRoot>/search.sqlite`. Hosts that
+    // keep the brain content git-backed typically point this at a
+    // machine-local state directory so the FTS sqlite never enters the
+    // working tree.
+    searchIndexPath: z.string().optional(),
+    // When the search index is empty on boot, walk these subdirectories
+    // of `brainRoot` and ingest every markdown file found. Only honoured
+    // when `flatLayout` is true. Defaults to ['wiki', 'memory', 'raw'].
+    bootstrapScanDirs: z.array(z.string()).optional(),
     store: StoreConfigSchema.optional(),
     embedder: EmbedderConfigSchema.optional(),
     provider: ProviderConfigSchema.optional(),

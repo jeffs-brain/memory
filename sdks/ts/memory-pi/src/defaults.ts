@@ -138,18 +138,45 @@ export type ResolvedBrainPaths = {
   readonly searchIndexPath: string
 }
 
+export type ResolveBrainPathsOptions = {
+  /**
+   * Treat `root` as the brain directly and skip the `brainId`
+   * subdirectory join. For single-brain hosts that already manage one
+   * brain per identity at a fixed path.
+   */
+  readonly flat?: boolean
+  /**
+   * Override the resolved search index path. When supplied the FTS
+   * sqlite lives at this absolute path regardless of `flat`. Lets hosts
+   * keep machine-local state out of git-backed brain working trees.
+   */
+  readonly searchIndexPath?: string
+}
+
 /**
  * Resolve the on-disk paths used for a single brain. Mirrors the layout
  * used by the MCP local client so the same brain can be opened by either
  * surface.
+ *
+ * When `opts.flat` is true the `brainId` is preserved as a logical label
+ * but the on-disk root is `root` itself, not `root/<brainId>`. The
+ * default `searchIndexPath` then lands at `<root>/search.sqlite`. Hosts
+ * that keep the brain inside a git working tree should pass an explicit
+ * `opts.searchIndexPath` pointing at a machine-local state directory so
+ * the sqlite never enters the tree.
  */
-export const resolveBrainPaths = (root: string, brainId: string): ResolvedBrainPaths => {
+export const resolveBrainPaths = (
+  root: string,
+  brainId: string,
+  opts: ResolveBrainPathsOptions = {},
+): ResolvedBrainPaths => {
   const cleaned = brainId.replace(/[^A-Za-z0-9._-]/g, '_')
   const safe = cleaned === '' || cleaned.startsWith('.') ? DEFAULT_BRAIN_ID : cleaned
-  const brainRoot = join(root, safe)
+  const brainRoot = opts.flat === true ? root : join(root, safe)
+  const searchIndexPath = opts.searchIndexPath ?? join(brainRoot, 'search.sqlite')
   return {
     root: brainRoot,
     id: safe,
-    searchIndexPath: join(brainRoot, 'search.sqlite'),
+    searchIndexPath,
   }
 }

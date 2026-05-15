@@ -1,6 +1,6 @@
 {
   "name": "@jeffs-brain/memory-pi",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Pi extension for the @jeffs-brain/memory pipeline. Recall, extract, reflect, consolidate on every pi session via four lifecycle hooks plus 11 memory_* tools.",
   "license": "Apache-2.0",
   "type": "module",
@@ -34,14 +34,18 @@
     "test": "vitest run --passWithNoTests",
     "prepublishOnly": "npm run build"
   },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "^0.74.0",
+    "typebox": "^1"
+  },
   "dependencies": {
     "@jeffs-brain/memory": "workspace:*",
-    "@earendil-works/pi-coding-agent": "^0.74.0",
-    "typebox": "^1.1.24",
     "zod": "^3"
   },
   "devDependencies": {
+    "@earendil-works/pi-coding-agent": "^0.74.0",
     "@types/node": "^22.10.5",
+    "typebox": "^1.1.24",
     "typescript": "^5.7.3",
     "vitest": "^2.1.8"
   },
