@@ -87,5 +87,6 @@ export type {
   DedupResultKind,
   DeduplicatorConfig,
   MergedPair,
+  SimilarityFn,
 } from './dedup.js'
 export { cosineSimilarity, jaroWinklerDistance } from './similarity.js'

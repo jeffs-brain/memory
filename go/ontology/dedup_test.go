@@ -392,3 +392,74 @@ func TestDeduplicateType_EmptyExisting_ReturnsNew(t *testing.T) {
 		t.Fatalf("expected New, got %s", result.Kind)
 	}
 }
+
+func TestDeduplicatorConfig_CustomThresholds(t *testing.T) {
+	t.Parallel()
+	// Use a very high fuzzy threshold so "Customer Record" vs "Customer Records"
+	// does NOT match (normally it would at 0.85).
+	dedup := NewDeduplicatorWithConfig(DeduplicatorConfig{
+		FuzzyThreshold: 0.99,
+	})
+	extracted := []TypeDefinition{
+		{Type: "entity.customer_record", Label: "Customer Record", Description: "A record"},
+	}
+	existing := []TypeDefinition{
+		{Type: "entity.customer_records", Label: "Customer Records", Description: "Records"},
+	}
+
+	result, err := dedup.Deduplicate(context.Background(), extracted, existing)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.AutoMerged) != 0 {
+		t.Fatalf("expected 0 auto-merged with threshold 0.99, got %d", len(result.AutoMerged))
+	}
+	if len(result.Unique) != 1 {
+		t.Fatalf("expected 1 unique, got %d", len(result.Unique))
+	}
+}
+
+func TestDeduplicatorConfig_PluggableSimilarity(t *testing.T) {
+	t.Parallel()
+	// Custom similarity function that always returns 1.0
+	alwaysMatch := func(a, b string) float64 { return 1.0 }
+
+	dedup := NewDeduplicatorWithConfig(DeduplicatorConfig{
+		Similarity: alwaysMatch,
+	})
+	extracted := []TypeDefinition{
+		{Type: "entity.completely_different", Label: "Completely Different", Description: "Something"},
+	}
+	existing := []TypeDefinition{
+		{Type: "entity.unrelated", Label: "Unrelated", Description: "Something else"},
+	}
+
+	result, err := dedup.Deduplicate(context.Background(), extracted, existing)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.AutoMerged) != 1 {
+		t.Fatalf("expected 1 auto-merged with always-match similarity, got %d", len(result.AutoMerged))
+	}
+	if result.AutoMerged[0].Similarity != 1.0 {
+		t.Fatalf("expected similarity 1.0, got %f", result.AutoMerged[0].Similarity)
+	}
+}
+
+func TestDeduplicatorConfig_Defaults(t *testing.T) {
+	t.Parallel()
+	// Zero-value config should use defaults
+	dedup := NewDeduplicatorWithConfig(DeduplicatorConfig{})
+	if dedup.fuzzyThreshold != FuzzyLabelThreshold {
+		t.Fatalf("expected default fuzzy threshold %f, got %f", FuzzyLabelThreshold, dedup.fuzzyThreshold)
+	}
+	if dedup.autoMerge != EmbeddingAutoMerge {
+		t.Fatalf("expected default auto-merge %f, got %f", EmbeddingAutoMerge, dedup.autoMerge)
+	}
+	if dedup.reviewThreshold != EmbeddingReviewThreshold {
+		t.Fatalf("expected default review threshold %f, got %f", EmbeddingReviewThreshold, dedup.reviewThreshold)
+	}
+	if dedup.similarity == nil {
+		t.Fatal("expected default similarity function to be set")
+	}
+}

@@ -42,22 +42,45 @@ export type DeduplicationResult = {
   readonly reviewCandidates: MergedPair[]
 }
 
+/**
+ * A pluggable string similarity function. Accepts two strings and
+ * returns a similarity value in [0, 1].
+ */
+export type SimilarityFn = (a: string, b: string) => number
+
 export type DeduplicatorConfig = {
   readonly embedder?: Embedder
+  /** Minimum string similarity for fuzzy label matching. Default: 0.85. */
+  readonly fuzzyThreshold?: number
+  /** Minimum cosine similarity for automatic semantic merging. Default: 0.9. */
+  readonly autoMergeThreshold?: number
+  /** Minimum cosine similarity to flag for human review. Default: 0.75. */
+  readonly reviewThreshold?: number
+  /** Custom string similarity function. Default: jaroWinklerDistance. */
+  readonly similarity?: SimilarityFn
 }
 
 /**
  * Deduplicator performs three-tier type deduplication against an
- * existing type registry.
+ * existing type registry. Thresholds and similarity algorithm are
+ * configurable via DeduplicatorConfig.
  *
  * Time: O(E*X) for exact+fuzzy tiers; semantic tier adds embedding
  * cost proportional to batch sizes.
  */
 export class Deduplicator {
   private readonly embedder: Embedder | undefined
+  private readonly fuzzyThreshold: number
+  private readonly autoMergeThreshold: number
+  private readonly reviewThreshold: number
+  private readonly similarityFn: SimilarityFn
 
   constructor(config: DeduplicatorConfig) {
     this.embedder = config.embedder
+    this.fuzzyThreshold = config.fuzzyThreshold ?? FUZZY_LABEL_THRESHOLD
+    this.autoMergeThreshold = config.autoMergeThreshold ?? EMBEDDING_AUTO_MERGE_THRESHOLD
+    this.reviewThreshold = config.reviewThreshold ?? EMBEDDING_REVIEW_THRESHOLD
+    this.similarityFn = config.similarity ?? jaroWinklerDistance
   }
 
   async deduplicate(
@@ -81,7 +104,7 @@ export class Deduplicator {
     const existingByPrefix = groupByPrefix(existing)
 
     const afterExact = deduplicateExact(extracted, existingByID, autoMerged)
-    const afterFuzzy = deduplicateFuzzy(afterExact, existingByPrefix, autoMerged)
+    const afterFuzzy = deduplicateFuzzy(afterExact, existingByPrefix, autoMerged, this.fuzzyThreshold, this.similarityFn)
 
     if (this.embedder === undefined || afterFuzzy.length === 0) {
       unique.push(...afterFuzzy)
@@ -129,14 +152,14 @@ export class Deduplicator {
         }
       }
 
-      if (bestMatch !== undefined && bestSimilarity >= EMBEDDING_AUTO_MERGE_THRESHOLD) {
+      if (bestMatch !== undefined && bestSimilarity >= this.autoMergeThreshold) {
         autoMerged.push({
           extracted: candidate,
           existingMatch: bestMatch,
           similarity: bestSimilarity,
           method: 'embedding',
         })
-      } else if (bestMatch !== undefined && bestSimilarity >= EMBEDDING_REVIEW_THRESHOLD) {
+      } else if (bestMatch !== undefined && bestSimilarity >= this.reviewThreshold) {
         reviewCandidates.push({
           extracted: candidate,
           existingMatch: bestMatch,
@@ -176,6 +199,8 @@ function deduplicateFuzzy(
   candidates: readonly TypeDefinition[],
   existingByPrefix: Map<string, TypeDefinition[]>,
   autoMerged: MergedPair[],
+  threshold: number = FUZZY_LABEL_THRESHOLD,
+  similarityFn: SimilarityFn = jaroWinklerDistance,
 ): TypeDefinition[] {
   const remaining: TypeDefinition[] = []
   for (const entry of candidates) {
@@ -188,8 +213,8 @@ function deduplicateFuzzy(
 
     let matched = false
     for (const existingEntry of samePrefix) {
-      const similarity = jaroWinklerDistance(entry.label, existingEntry.label)
-      if (similarity >= FUZZY_LABEL_THRESHOLD) {
+      const similarity = similarityFn(entry.label, existingEntry.label)
+      if (similarity >= threshold) {
         autoMerged.push({
           extracted: entry,
           existingMatch: existingEntry,

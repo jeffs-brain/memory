@@ -159,6 +159,43 @@ describe('Deduplicator', () => {
     expect(result.unique).toHaveLength(2)
     expect(result.autoMerged).toHaveLength(0)
   })
+
+  it('uses custom fuzzy threshold', async () => {
+    // With a very high threshold (0.99), "Customer Record" vs "Customer Records"
+    // should NOT match
+    const dedup = new Deduplicator({ fuzzyThreshold: 0.99 })
+    const extracted = [makeType('entity.customer_record', 'Customer Record', 'A record')]
+    const existing = [makeType('entity.customer_records', 'Customer Records', 'Records')]
+
+    const result = await dedup.deduplicate(extracted, existing)
+
+    expect(result.autoMerged).toHaveLength(0)
+    expect(result.unique).toHaveLength(1)
+  })
+
+  it('uses pluggable similarity function', async () => {
+    // Custom similarity that always returns 1.0
+    const alwaysMatch = () => 1.0
+    const dedup = new Deduplicator({ similarity: alwaysMatch })
+    const extracted = [makeType('entity.completely_different', 'Completely Different', 'Something')]
+    const existing = [makeType('entity.unrelated', 'Unrelated', 'Something else')]
+
+    const result = await dedup.deduplicate(extracted, existing)
+
+    expect(result.autoMerged).toHaveLength(1)
+    expect(result.autoMerged[0]!.similarity).toBe(1.0)
+  })
+
+  it('defaults to standard thresholds when not specified', async () => {
+    const dedup = new Deduplicator({})
+    // Smoke test: should work identically to default configuration
+    const extracted = [makeType('entity.customer', 'Customer', 'A customer')]
+    const existing = [makeType('entity.customer', 'Customer', 'A customer')]
+
+    const result = await dedup.deduplicate(extracted, existing)
+    expect(result.autoMerged).toHaveLength(1)
+    expect(result.autoMerged[0]!.method).toBe('exact')
+  })
 })
 
 describe('deduplicateType', () => {
