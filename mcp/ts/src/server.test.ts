@@ -70,6 +70,7 @@ describe('memory-mcp server', () => {
         'memory_create_brain',
         'memory_extract',
         'memory_ingest_batch',
+        'memory_ingest_directory',
         'memory_ingest_file',
         'memory_ingest_url',
         'memory_list_brains',
