@@ -184,7 +184,7 @@ const metaSchemaVersion = "schema_version"
 // currentSchemaVersion is the expected value of [metaSchemaVersion].
 // Incrementing it triggers an automatic drop + recreate on any
 // index whose persisted version is lower.
-const currentSchemaVersion = "5"
+const currentSchemaVersion = "6"
 
 // staleWikiRatio is the minimum ratio of indexed wiki rows to
 // on-disk wiki files below which [Index.RebuildIfStale] forces a
@@ -341,6 +341,10 @@ func newIndex(db *sql.DB, store brain.Store) (*Index, error) {
 	if _, err := db.Exec(ftsSchema); err != nil {
 		return nil, fmt.Errorf("creating FTS5 schema: %w", err)
 	}
+	idx := &Index{db: db, store: store}
+	if err := idx.createChunkMetadataTable(context.Background()); err != nil {
+		return nil, err
+	}
 	if err := recordSchemaVersion(db); err != nil {
 		return nil, fmt.Errorf("recording FTS schema version: %w", err)
 	}
@@ -359,7 +363,8 @@ func newIndex(db *sql.DB, store brain.Store) (*Index, error) {
 	if _, err := db.Exec(`INSERT INTO knowledge_fts(knowledge_fts, rank) VALUES('rank', ` + rankExpr + `)`); err != nil {
 		return nil, fmt.Errorf("configuring FTS5 rank weights: %w", err)
 	}
-	return &Index{db: db, store: store, lastRefresh: time.Now()}, nil
+	idx.lastRefresh = time.Now()
+	return idx, nil
 }
 
 // refreshIfStale triggers an incremental index update if the last
@@ -1250,6 +1255,7 @@ func dropSearchIndexTables(db *sql.DB) error {
 		`DROP TABLE IF EXISTS knowledge_fts`,
 		`DROP TABLE IF EXISTS knowledge_index_state`,
 		`DROP TABLE IF EXISTS knowledge_index_metadata`,
+		`DROP TABLE IF EXISTS knowledge_chunk_metadata`,
 	} {
 		if _, err := db.Exec(stmt); err != nil {
 			return err
