@@ -133,10 +133,11 @@ Respond with a JSON object containing:
 function buildClassificationPrompt(content: string, fileName: string): string {
   const parts: string[] = []
   if (fileName !== '') {
-    parts.push(`File: ${fileName}\n`)
+    parts.push(`File: ${fileName}\n\n`)
   }
-  parts.push('Document content:\n')
+  parts.push('Document content:\n<ingested-document>\n')
   parts.push(content)
+  parts.push('\n</ingested-document>')
   return parts.join('')
 }
 

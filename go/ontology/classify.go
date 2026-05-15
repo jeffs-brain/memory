@@ -203,8 +203,9 @@ func buildClassificationPrompt(content string, fileName string) string {
 		b.WriteString(fileName)
 		b.WriteString("\n\n")
 	}
-	b.WriteString("Document content:\n")
+	b.WriteString("Document content:\n<ingested-document>\n")
 	b.WriteString(content)
+	b.WriteString("\n</ingested-document>")
 	return b.String()
 }
 
