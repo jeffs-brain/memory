@@ -2,6 +2,7 @@
 package trigger
 
 import (
+	"strconv"
 	"sync"
 	"sync/atomic"
 )
@@ -10,16 +11,20 @@ const defaultMaxQueueDepth = 1000
 
 // subscriber wraps a handler with an ID for removal.
 type subscriber struct {
-	id      uint64
+	id      string
 	handler TriggerHandler
 }
 
 // inProcessBus is a channels-based event bus that dispatches events to
 // registered handlers in-process. It is the default implementation and
 // has zero external dependencies.
+//
+// Subscriber storage uses a map for O(1) unsubscribe and a copy-on-write
+// snapshot slice for lock-free iteration during delivery.
 type inProcessBus struct {
-	mu            sync.RWMutex
-	subscribers   []subscriber
+	mu            sync.Mutex
+	subscribers   map[string]subscriber
+	snapshot      []subscriber // copy-on-write: rebuilt on subscribe/unsubscribe
 	nextID        uint64
 	maxQueueDepth int
 	logger        Logger
@@ -44,6 +49,7 @@ func NewBus(opts *BusOptions) Bus {
 	}
 
 	b := &inProcessBus{
+		subscribers:   make(map[string]subscriber),
 		maxQueueDepth: maxQ,
 		logger:        log,
 		eventCh:       make(chan IngestTriggerEvent, maxQ),
@@ -74,7 +80,7 @@ func (b *inProcessBus) Publish(event IngestTriggerEvent) error {
 		case <-b.eventCh:
 			if b.logger != nil {
 				b.logger.Warn("trigger: queue full, dropping oldest event", map[string]string{
-					"maxQueueDepth": intToStr(b.maxQueueDepth),
+					"maxQueueDepth": strconv.Itoa(b.maxQueueDepth),
 				})
 			}
 		default:
@@ -94,18 +100,15 @@ func (b *inProcessBus) Subscribe(handler TriggerHandler) (unsubscribe func()) {
 	defer b.mu.Unlock()
 
 	b.nextID++
-	id := b.nextID
-	b.subscribers = append(b.subscribers, subscriber{id: id, handler: handler})
+	id := strconv.FormatUint(b.nextID, 10)
+	b.subscribers[id] = subscriber{id: id, handler: handler}
+	b.rebuildSnapshot()
 
 	return func() {
 		b.mu.Lock()
 		defer b.mu.Unlock()
-		for i, s := range b.subscribers {
-			if s.id == id {
-				b.subscribers = append(b.subscribers[:i], b.subscribers[i+1:]...)
-				return
-			}
-		}
+		delete(b.subscribers, id)
+		b.rebuildSnapshot()
 	}
 }
 
@@ -141,12 +144,12 @@ func (b *inProcessBus) dispatch() {
 }
 
 // deliverToAll calls every registered handler with the event. Errors
-// are logged but do not remove the handler.
+// are logged but do not remove the handler. Uses the copy-on-write
+// snapshot so no lock is held during delivery.
 func (b *inProcessBus) deliverToAll(event IngestTriggerEvent) {
-	b.mu.RLock()
-	subs := make([]subscriber, len(b.subscribers))
-	copy(subs, b.subscribers)
-	b.mu.RUnlock()
+	b.mu.Lock()
+	subs := b.snapshot
+	b.mu.Unlock()
 
 	for _, s := range subs {
 		if err := s.handler(event); err != nil {
@@ -160,26 +163,12 @@ func (b *inProcessBus) deliverToAll(event IngestTriggerEvent) {
 	}
 }
 
-// intToStr converts an int to string without importing strconv at call site.
-func intToStr(n int) string {
-	if n == 0 {
-		return "0"
+// rebuildSnapshot creates a fresh subscriber slice from the map.
+// Must be called while b.mu is held.
+func (b *inProcessBus) rebuildSnapshot() {
+	snap := make([]subscriber, 0, len(b.subscribers))
+	for _, s := range b.subscribers {
+		snap = append(snap, s)
 	}
-	buf := make([]byte, 0, 10)
-	neg := n < 0
-	if neg {
-		n = -n
-	}
-	for n > 0 {
-		buf = append(buf, byte('0'+n%10))
-		n /= 10
-	}
-	if neg {
-		buf = append(buf, '-')
-	}
-	// reverse
-	for i, j := 0, len(buf)-1; i < j; i, j = i+1, j-1 {
-		buf[i], buf[j] = buf[j], buf[i]
-	}
-	return string(buf)
+	b.snapshot = snap
 }

@@ -72,3 +72,82 @@ export const validateTriggerEvent = (event: IngestTriggerEvent): void => {
       throw new Error(`trigger: invalid payload kind: ${(payload as { kind: string }).kind}`)
   }
 }
+
+/** Result of parsing a raw JSON string into an IngestTriggerEvent. */
+export type ParseResult =
+  | { readonly ok: true; readonly event: IngestTriggerEvent }
+  | { readonly ok: false; readonly error: string }
+
+const VALID_PAYLOAD_KINDS: ReadonlySet<string> = new Set(['file', 'url', 'raw'])
+
+/**
+ * Parse a raw JSON string into an IngestTriggerEvent with validation.
+ * Returns a discriminated union instead of throwing so callers can handle
+ * failures without try/catch.
+ *
+ * @param raw    JSON string from the transport layer
+ * @param source Default source when the payload omits it
+ */
+export const parseIngestTriggerEvent = (
+  raw: string,
+  source: IngestTriggerSource,
+): ParseResult => {
+  let parsed: Record<string, unknown>
+  try {
+    parsed = JSON.parse(raw) as Record<string, unknown>
+  } catch (err) {
+    return { ok: false, error: `invalid JSON: ${String(err)}` }
+  }
+
+  if (typeof parsed !== 'object' || parsed === null) {
+    return { ok: false, error: 'parsed value is not an object' }
+  }
+
+  const id = parsed.id
+  if (typeof id !== 'string' || id === '') {
+    return { ok: false, error: 'missing or empty id' }
+  }
+
+  const brainId = parsed.brainId
+  if (typeof brainId !== 'string' || brainId === '') {
+    return { ok: false, error: 'missing or empty brainId' }
+  }
+
+  const rawPayload = parsed.payload
+  if (typeof rawPayload !== 'object' || rawPayload === null) {
+    return { ok: false, error: 'missing or invalid payload' }
+  }
+  const payloadObj = rawPayload as Record<string, unknown>
+  const kind = payloadObj.kind
+  if (typeof kind !== 'string' || !VALID_PAYLOAD_KINDS.has(kind)) {
+    return { ok: false, error: `invalid payload kind: ${String(kind)}` }
+  }
+
+  const payload = payloadObj as unknown as IngestTriggerPayload
+
+  const rawTimestamp = parsed.timestamp
+  const timestamp = rawTimestamp instanceof Date
+    ? rawTimestamp
+    : typeof rawTimestamp === 'string'
+      ? new Date(rawTimestamp)
+      : new Date()
+
+  const eventSource = (typeof parsed.source === 'string' && parsed.source !== '')
+    ? parsed.source as IngestTriggerSource
+    : source
+
+  const metadata = (typeof parsed.metadata === 'object' && parsed.metadata !== null)
+    ? parsed.metadata as Readonly<Record<string, unknown>>
+    : undefined
+
+  const event: IngestTriggerEvent = {
+    id,
+    brainId,
+    source: eventSource,
+    payload,
+    timestamp,
+    ...(metadata !== undefined ? { metadata } : {}),
+  }
+
+  return { ok: true, event }
+}

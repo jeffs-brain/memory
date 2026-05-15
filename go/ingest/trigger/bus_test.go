@@ -3,6 +3,7 @@ package trigger
 
 import (
 	"errors"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -77,13 +78,27 @@ func TestUnsubscribeStopsDelivery(t *testing.T) {
 	var firstCount atomic.Int32
 	var secondCount atomic.Int32
 
+	// WaitGroup tracks when both handlers have processed the first event.
+	var wg1 sync.WaitGroup
+	wg1.Add(2)
+
 	unsub := bus.Subscribe(func(_ IngestTriggerEvent) error {
 		firstCount.Add(1)
+		wg1.Done()
 		return nil
 	})
 
+	// WaitGroup for second event (only second handler receives).
+	var wg2 sync.WaitGroup
+	wg2.Add(1)
+
 	bus.Subscribe(func(_ IngestTriggerEvent) error {
-		secondCount.Add(1)
+		cur := secondCount.Add(1)
+		if cur == 1 {
+			wg1.Done()
+		} else {
+			wg2.Done()
+		}
 		return nil
 	})
 
@@ -91,8 +106,7 @@ func TestUnsubscribeStopsDelivery(t *testing.T) {
 	if err := bus.Publish(validEvent("e3")); err != nil {
 		t.Fatalf("publish: %v", err)
 	}
-	// Give dispatch goroutine time to deliver.
-	time.Sleep(50 * time.Millisecond)
+	wg1.Wait()
 
 	unsub()
 
@@ -100,7 +114,7 @@ func TestUnsubscribeStopsDelivery(t *testing.T) {
 	if err := bus.Publish(validEvent("e4")); err != nil {
 		t.Fatalf("publish: %v", err)
 	}
-	time.Sleep(50 * time.Millisecond)
+	wg2.Wait()
 
 	if got := firstCount.Load(); got != 1 {
 		t.Fatalf("first handler: expected 1 delivery, got %d", got)
@@ -203,7 +217,7 @@ func TestCloseDrainsPending(t *testing.T) {
 	})
 
 	for i := range 5 {
-		if err := bus.Publish(validEvent("drain-" + intToStr(i))); err != nil {
+		if err := bus.Publish(validEvent("drain-" + strconv.Itoa(i))); err != nil {
 			t.Fatalf("publish: %v", err)
 		}
 	}
@@ -230,8 +244,11 @@ func TestHandlerErrorDoesNotRemoveSubscription(t *testing.T) {
 	defer bus.Close()
 
 	var count atomic.Int32
+	var wg sync.WaitGroup
+	wg.Add(3)
 	bus.Subscribe(func(_ IngestTriggerEvent) error {
 		count.Add(1)
+		wg.Done()
 		return errors.New("handler fail")
 	})
 
@@ -240,7 +257,7 @@ func TestHandlerErrorDoesNotRemoveSubscription(t *testing.T) {
 			t.Fatalf("publish: %v", err)
 		}
 	}
-	time.Sleep(100 * time.Millisecond)
+	wg.Wait()
 
 	if got := count.Load(); got != 3 {
 		t.Fatalf("handler should still receive despite errors; got %d calls", got)

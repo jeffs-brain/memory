@@ -14,7 +14,7 @@ type IngestTriggerEvent struct {
 	BrainID   string            `json:"brainId"`
 	Source    TriggerSource     `json:"source"`
 	Payload   TriggerPayload    `json:"payload"`
-	Metadata  map[string]string `json:"metadata,omitempty"`
+	Metadata  map[string]any    `json:"metadata,omitempty"`
 	Timestamp time.Time         `json:"timestamp"`
 }
 

@@ -38,12 +38,12 @@ describe('postgres-bridge', () => {
     const event = validEvent('pg-1')
     const listener = mockPgListener([JSON.stringify(event)])
 
-    await createPostgresBridge({ listener, bus })
-    await delay(50)
+    const bridge = await createPostgresBridge({ listener, bus })
+    await bus.close()
 
     expect(received).toHaveLength(1)
     expect(received[0].id).toBe('pg-1')
-    await bus.close()
+    await bridge.close()
   })
 
   it('invalid JSON payload -> logged and discarded', async () => {
@@ -54,17 +54,15 @@ describe('postgres-bridge', () => {
     const warn = vi.fn()
     const listener = mockPgListener(['{broken'])
 
-    await createPostgresBridge({
+    const bridge = await createPostgresBridge({
       listener,
       bus,
       logger: { debug: vi.fn(), info: vi.fn(), warn, error: vi.fn() },
     })
-    await delay(50)
+    await bus.close()
 
     expect(received).toHaveLength(0)
     expect(warn).toHaveBeenCalled()
-    await bus.close()
+    await bridge.close()
   })
 })
-
-const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))

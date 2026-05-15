@@ -7,7 +7,6 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
-	"time"
 )
 
 // mockRedisSubscriber simulates a Redis pub/sub client for testing.
@@ -67,8 +66,12 @@ func TestRedisBridgeInvalidJSON(t *testing.T) {
 	defer bus.Close()
 
 	var warnings atomic.Int32
+	var wg sync.WaitGroup
+	wg.Add(1)
 	logger := &testLogger{onWarn: func(_ string, _ ...map[string]string) {
-		warnings.Add(1)
+		if warnings.Add(1) == 1 {
+			wg.Done()
+		}
 	}}
 
 	mock := &mockRedisSubscriber{messages: []string{"not-json"}}
@@ -79,7 +82,7 @@ func TestRedisBridgeInvalidJSON(t *testing.T) {
 		Logger:     logger,
 	})
 
-	time.Sleep(100 * time.Millisecond)
+	wg.Wait()
 	bridge.Close()
 
 	if got := warnings.Load(); got < 1 {
