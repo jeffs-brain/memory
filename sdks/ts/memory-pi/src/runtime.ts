@@ -32,6 +32,8 @@ import {
   type SqliteSearchIndex,
   type Store,
   autodetectStore,
+  createFsStore,
+  createGitStore,
   createMemory,
   createSearchIndex,
   createStoreBackedCursorStore,
@@ -167,8 +169,17 @@ const buildStore = async (
   const storeConfig = config?.store
   const kind = storeConfig?.kind ?? 'auto'
   await mkdir(brainRoot, { recursive: true })
-  if (kind === 'auto' || kind === 'fs' || kind === 'git') {
+  if (kind === 'auto') {
     return autodetectStore({ root: brainRoot })
+  }
+  if (kind === 'fs') {
+    return createFsStore({ root: brainRoot })
+  }
+  if (kind === 'git') {
+    return createGitStore({
+      dir: brainRoot,
+      ...(storeConfig?.remote !== undefined ? { remoteUrl: storeConfig.remote } : {}),
+    })
   }
   if (kind === 'http') {
     // The http store lives behind the same Store interface but the

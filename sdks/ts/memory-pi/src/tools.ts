@@ -21,6 +21,7 @@ import type { Static, TSchema } from 'typebox'
 import { Type } from 'typebox'
 import { MEMORY_TOOL_NAMES, type MemoryToolName } from './config.js'
 import type { MemoryRuntime } from './runtime.js'
+import { UnsafeUrlError, fetchSignalWithTimeout, validateExternalUrl } from './safe-fetch.js'
 
 const FILE_LIMIT_BYTES = 25 * 1024 * 1024
 const URL_FETCH_LIMIT_BYTES = 5 * 1024 * 1024
@@ -511,8 +512,17 @@ export const buildTools = (
       description: 'Fetch a URL and ingest its contents into the brain.',
       parameters: ingestUrlSchema,
       async execute(_id, params, signal) {
-        const init: RequestInit = signal !== undefined ? { signal } : {}
-        const resp = await fetch(params.url, init)
+        let safeUrl: URL
+        try {
+          safeUrl = await validateExternalUrl(params.url)
+        } catch (err) {
+          if (err instanceof UnsafeUrlError) {
+            throw new Error(`memory_ingest_url: ${err.message}`)
+          }
+          throw err
+        }
+        const init: RequestInit = { signal: fetchSignalWithTimeout(signal) }
+        const resp = await fetch(safeUrl, init)
         if (!resp.ok) {
           throw new Error(`memory_ingest_url: fetch failed ${resp.status} ${resp.statusText}`)
         }

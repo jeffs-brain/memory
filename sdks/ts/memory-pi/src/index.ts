@@ -92,9 +92,18 @@ export const createMemoryExtension = (
  * configuration from the `MEMORY_PI_CONFIG` env var (JSON-encoded) so
  * `pi -e ./dist/index.js` works without recompiling the extension.
  */
+const parseEnvConfig = (raw: string | undefined): MemoryExtensionConfig => {
+  if (raw === undefined || raw === '') return {}
+  try {
+    return JSON.parse(raw) as MemoryExtensionConfig
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err)
+    throw new Error(`memory-pi: MEMORY_PI_CONFIG is not valid JSON: ${detail}`)
+  }
+}
+
 const defaultExport = async (pi: ExtensionAPI): Promise<void> => {
-  const raw = process.env.MEMORY_PI_CONFIG
-  const config: MemoryExtensionConfig = raw !== undefined && raw !== '' ? JSON.parse(raw) : {}
+  const config = parseEnvConfig(process.env.MEMORY_PI_CONFIG)
   const ext = createMemoryExtension(pi, config)
   await ext.ready
 }
