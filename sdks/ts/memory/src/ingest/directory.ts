@@ -129,9 +129,9 @@ export const enumerateFiles = async (opts: EnumerateOptions): Promise<EnumerateR
   const walk = async (dir: string): Promise<void> => {
     if (files.length >= maxFiles) return
 
-    let entries: Awaited<ReturnType<typeof readdir>>
+    let entries: import('node:fs').Dirent<string>[]
     try {
-      entries = await readdir(dir, { withFileTypes: true })
+      entries = await readdir(dir, { withFileTypes: true, encoding: 'utf8' }) as import('node:fs').Dirent<string>[]
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err)
       skipped.push(`${dir}: ${message}`)
