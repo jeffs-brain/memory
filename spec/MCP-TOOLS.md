@@ -176,6 +176,49 @@ Local fallback caps the fetched body at 5 MiB and records `path: 'fallback'` in 
 
 ---
 
+## `memory_ingest_batch`
+
+Ingest up to 50 local files in a single call with per-file error isolation. Returns a structured result array with individual outcomes.
+
+**Description**: "Ingest up to 50 local files in a single call. Returns per-file results."
+
+**Input schema**
+
+```
+{
+  files: Array<{
+    path:   string   # absolute or relative local path (min 1 char)
+    as?:    'markdown' | 'text' | 'pdf' | 'json'
+    title?: string
+  }>  # min 1, max 50 items
+  brain?: string
+}
+```
+
+Each file entry is processed sequentially. A failure in file N does not prevent file N+1 from processing. Files over 25 MiB are rejected per-file with `file_too_large`.
+
+**Output shape**
+
+```
+{
+  total:      number,
+  succeeded:  number,
+  failed:     number,
+  results: Array<{
+    path:        string,
+    status:      'success' | 'error',
+    documentId?: string,
+    hash?:       string,
+    bytes?:      number,
+    error?:      string,
+  }>
+}
+```
+
+**Progress**: When `progressToken` is present, emits one `notifications/progress` per file processed. Counter increments from 0 to `total - 1`. Message format: `"{completed}/{total} {currentFile}"`.
+
+---
+
 ## `memory_extract`
 
 Submit a transcript so the server can asynchronously derive memorable facts. When `session_id` is supplied, messages are appended to that session with `skip_extract` set on all but the final message; otherwise, a transcript document is created.
@@ -556,6 +599,7 @@ Long-running tools emit MCP progress notifications using the standard `notificat
 | `memory_ask` | Yes, when `progressToken` present. | Number of `answer_delta` SSE frames received. | The delta text for that frame. |
 | `memory_ingest_file` | **Reserved.** The v1.0 TS implementation does not emit `notifications/progress` frames; the tool runs synchronously end-to-end and the final response carries a `status` of `queued` or `completed`. | n/a | n/a |
 | `memory_ingest_url` | **Reserved.** Same as `memory_ingest_file`. | n/a | n/a |
+| `memory_ingest_batch` | Yes, when `progressToken` present. | Number of files processed so far (0-indexed). | `"{completed}/{total} {currentFile}"` — completed count, total count, and current file path. |
 | `memory_consolidate` | **Reserved.** Fire-and-forget; the tool returns whatever `brains.consolidate`/`brains.compile` resolves with. | n/a | n/a |
 | `memory_reflect` | No. Synchronous close + reflect; no progress stream. | n/a | n/a |
 | All other tools | No. | n/a | n/a |
