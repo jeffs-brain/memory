@@ -120,3 +120,19 @@ export type {
   ProposalWorkflowConfig,
 } from './proposal.js'
 export { ProposalWorkflow } from './proposal.js'
+
+export type {
+  ClassificationResult,
+  ClassifierOptions,
+  DocumentClass,
+} from './classify.js'
+export {
+  Classifier,
+  isJsonDocument,
+  isTabularDocument,
+  determineCategory,
+  CATEGORY_WINNER_THRESHOLD,
+} from './classify.js'
+
+export type { ChunkTag } from './tag.js'
+export { tagChunk, tagChunks } from './tag.js'
