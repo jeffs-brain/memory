@@ -26,7 +26,7 @@ describe('createChunkConfig', () => {
     const cfg = createChunkConfig()
     expect(cfg.maxTokens).toBe(512)
     expect(cfg.overlapTokens).toBe(64)
-    expect(cfg.minTokens).toBe(64)
+    expect(cfg.minTokens).toBe(30)
   })
 
   it('rejects minTokens >= maxTokens', () => {

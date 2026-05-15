@@ -134,3 +134,9 @@ export {
   type EnumeratedFile,
   type EnumerateResult,
 } from './directory.js'
+
+export {
+  createFileMigrationStateBackend,
+  type MigrationState,
+  type MigrationStateBackend,
+} from './migrate-hash.js'

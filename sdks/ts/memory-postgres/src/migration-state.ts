@@ -26,7 +26,7 @@ type Blake3MigrationRow = {
  */
 export const createPostgresMigrationStateBackend = (sql: PgSql): MigrationStateBackend => ({
   load: async (): Promise<MigrationState> => {
-    const rows = await sql<Blake3MigrationRow[]>`
+    const rows = await sql<Blake3MigrationRow>`
       SELECT cursor, migrated, total
       FROM memory.blake3_migration_state
       WHERE id = 1
