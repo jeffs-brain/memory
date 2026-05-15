@@ -71,7 +71,7 @@ func registerIngestBatch(server *mcp.Server, client MemoryClient) {
 		var succeededCount atomic.Int64
 		var failedCount atomic.Int64
 		var completedCount atomic.Int64
-		results := make([]map[string]any, total)
+		results := make([]batchFileResult, total)
 		var mu sync.Mutex
 
 		g, gctx := errgroup.WithContext(ctx)
@@ -87,27 +87,19 @@ func registerIngestBatch(server *mcp.Server, client MemoryClient) {
 
 				result, ingestErr := client.IngestFile(gctx, ingestArgs, progress)
 				if ingestErr != nil {
-					results[i] = map[string]any{
-						"path":   file.Path,
-						"status": "error",
-						"error":  ingestErr.Error(),
+					results[i] = batchFileResult{
+						Path:   file.Path,
+						Status: "error",
+						Error:  ingestErr.Error(),
 					}
 					failedCount.Add(1)
 				} else {
-					entry := map[string]any{
-						"path":   file.Path,
-						"status": "success",
+					results[i] = batchFileResult{
+						Path:       file.Path,
+						Status:     "success",
+						DocumentID: result.DocumentID,
+						Hash:       result.Hash,
 					}
-					if docID, ok := result["document_id"]; ok {
-						entry["documentId"] = docID
-					}
-					if hash, ok := result["hash"]; ok {
-						entry["hash"] = hash
-					}
-					if byteSize, ok := result["byte_size"]; ok {
-						entry["bytes"] = byteSize
-					}
-					results[i] = entry
 					succeededCount.Add(1)
 				}
 
@@ -124,11 +116,11 @@ func registerIngestBatch(server *mcp.Server, client MemoryClient) {
 
 		_ = g.Wait()
 
-		payload := map[string]any{
-			"total":     total,
-			"succeeded": succeededCount.Load(),
-			"failed":    failedCount.Load(),
-			"results":   results,
+		payload := batchResult{
+			Total:     total,
+			Succeeded: succeededCount.Load(),
+			Failed:    failedCount.Load(),
+			Results:   results,
 		}
 		return structuredResult(payload)
 	})

@@ -17,51 +17,52 @@ import (
 
 // mockDirMemoryClient is a minimal MemoryClient for testing directory ingest.
 type mockDirMemoryClient struct {
-	ingestFileFn func(ctx context.Context, args IngestFileArgs, progress ProgressEmitter) (map[string]any, error)
+	ingestFileFn func(ctx context.Context, args IngestFileArgs, progress ProgressEmitter) (*IngestResult, error)
 }
 
-func (m *mockDirMemoryClient) Remember(context.Context, RememberArgs) (map[string]any, error) {
+func (m *mockDirMemoryClient) Remember(context.Context, RememberArgs) (*RememberResult, error) {
 	return nil, nil
 }
-func (m *mockDirMemoryClient) Search(context.Context, SearchArgs) (map[string]any, error) {
+func (m *mockDirMemoryClient) Search(context.Context, SearchArgs) (*SearchResult, error) {
 	return nil, nil
 }
-func (m *mockDirMemoryClient) Recall(context.Context, RecallArgs) (map[string]any, error) {
+func (m *mockDirMemoryClient) Recall(context.Context, RecallArgs) (*RecallResult, error) {
 	return nil, nil
 }
-func (m *mockDirMemoryClient) Ask(context.Context, AskArgs, ProgressEmitter) (map[string]any, error) {
+func (m *mockDirMemoryClient) Ask(context.Context, AskArgs, ProgressEmitter) (*AskResult, error) {
 	return nil, nil
 }
-func (m *mockDirMemoryClient) IngestFile(ctx context.Context, args IngestFileArgs, progress ProgressEmitter) (map[string]any, error) {
+func (m *mockDirMemoryClient) IngestFile(ctx context.Context, args IngestFileArgs, progress ProgressEmitter) (*IngestResult, error) {
 	if m.ingestFileFn != nil {
 		return m.ingestFileFn(ctx, args, progress)
 	}
-	return map[string]any{
-		"status":      "completed",
-		"document_id": "doc-" + filepath.Base(args.Path),
-		"hash":        "hash-" + filepath.Base(args.Path),
-		"byte_size":   100,
+	return &IngestResult{
+		Status:     "completed",
+		DocumentID: "doc-" + filepath.Base(args.Path),
+		Hash:       "hash-" + filepath.Base(args.Path),
 	}, nil
 }
-func (m *mockDirMemoryClient) IngestURL(context.Context, IngestURLArgs, ProgressEmitter) (map[string]any, error) {
+func (m *mockDirMemoryClient) IngestURL(context.Context, IngestURLArgs, ProgressEmitter) (*IngestURLResult, error) {
 	return nil, nil
 }
-func (m *mockDirMemoryClient) ExtractAfterIngest(context.Context, ExtractAfterIngestArgs) (map[string]any, error) {
+func (m *mockDirMemoryClient) ExtractAfterIngest(context.Context, ExtractAfterIngestArgs) (*ExtractAfterIngestResult, error) {
 	return nil, nil
 }
-func (m *mockDirMemoryClient) Extract(context.Context, ExtractArgs, ProgressEmitter) (map[string]any, error) {
+func (m *mockDirMemoryClient) Extract(context.Context, ExtractArgs, ProgressEmitter) (*ExtractResult, error) {
 	return nil, nil
 }
-func (m *mockDirMemoryClient) Reflect(context.Context, ReflectArgs, ProgressEmitter) (map[string]any, error) {
+func (m *mockDirMemoryClient) Reflect(context.Context, ReflectArgs, ProgressEmitter) (*ReflectResult, error) {
 	return nil, nil
 }
-func (m *mockDirMemoryClient) Consolidate(context.Context, ConsolidateArgs, ProgressEmitter) (map[string]any, error) {
+func (m *mockDirMemoryClient) Consolidate(context.Context, ConsolidateArgs, ProgressEmitter) (*ConsolidateResult, error) {
 	return nil, nil
 }
-func (m *mockDirMemoryClient) CreateBrain(context.Context, CreateBrainArgs) (map[string]any, error) {
+func (m *mockDirMemoryClient) CreateBrain(context.Context, CreateBrainArgs) (*CreateBrainResult, error) {
 	return nil, nil
 }
-func (m *mockDirMemoryClient) ListBrains(context.Context) (map[string]any, error) { return nil, nil }
+func (m *mockDirMemoryClient) ListBrains(context.Context) (*ListBrainsResult, error) {
+	return nil, nil
+}
 
 func setupDirTestServer(t *testing.T, client MemoryClient) *mcp.ClientSession {
 	t.Helper()
@@ -148,15 +149,14 @@ func TestIngestDirectory_EnumeratesAndIngests(t *testing.T) {
 	var mu sync.Mutex
 	var callCount int
 	client := &mockDirMemoryClient{
-		ingestFileFn: func(_ context.Context, args IngestFileArgs, _ ProgressEmitter) (map[string]any, error) {
+		ingestFileFn: func(_ context.Context, args IngestFileArgs, _ ProgressEmitter) (*IngestResult, error) {
 			mu.Lock()
 			callCount++
 			mu.Unlock()
-			return map[string]any{
-				"status":      "completed",
-				"document_id": "doc-" + filepath.Base(args.Path),
-				"hash":        "hash-" + filepath.Base(args.Path),
-				"byte_size":   100,
+			return &IngestResult{
+				Status:     "completed",
+				DocumentID: "doc-" + filepath.Base(args.Path),
+				Hash:       "hash-" + filepath.Base(args.Path),
 			}, nil
 		},
 	}

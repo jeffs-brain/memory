@@ -65,7 +65,7 @@ type toolAdapter struct {
 	client MemoryClient
 }
 
-func (a toolAdapter) Remember(ctx context.Context, args tools.RememberArgs) (map[string]any, error) {
+func (a toolAdapter) Remember(ctx context.Context, args tools.RememberArgs) (*tools.RememberResult, error) {
 	return a.client.Remember(ctx, RememberArgs{
 		Content: args.Content,
 		Title:   args.Title,
@@ -75,7 +75,7 @@ func (a toolAdapter) Remember(ctx context.Context, args tools.RememberArgs) (map
 	})
 }
 
-func (a toolAdapter) Search(ctx context.Context, args tools.SearchArgs) (map[string]any, error) {
+func (a toolAdapter) Search(ctx context.Context, args tools.SearchArgs) (*tools.SearchResult, error) {
 	return a.client.Search(ctx, SearchArgs{
 		Query: args.Query,
 		Brain: args.Brain,
@@ -85,7 +85,7 @@ func (a toolAdapter) Search(ctx context.Context, args tools.SearchArgs) (map[str
 	})
 }
 
-func (a toolAdapter) Recall(ctx context.Context, args tools.RecallArgs) (map[string]any, error) {
+func (a toolAdapter) Recall(ctx context.Context, args tools.RecallArgs) (*tools.RecallResult, error) {
 	return a.client.Recall(ctx, RecallArgs{
 		Query:     args.Query,
 		Brain:     args.Brain,
@@ -95,7 +95,7 @@ func (a toolAdapter) Recall(ctx context.Context, args tools.RecallArgs) (map[str
 	})
 }
 
-func (a toolAdapter) Ask(ctx context.Context, args tools.AskArgs, progress tools.ProgressEmitter) (map[string]any, error) {
+func (a toolAdapter) Ask(ctx context.Context, args tools.AskArgs, progress tools.ProgressEmitter) (*tools.AskResult, error) {
 	return a.client.Ask(ctx, AskArgs{
 		Query: args.Query,
 		Brain: args.Brain,
@@ -103,7 +103,7 @@ func (a toolAdapter) Ask(ctx context.Context, args tools.AskArgs, progress tools
 	}, ProgressEmitter(progress))
 }
 
-func (a toolAdapter) IngestFile(ctx context.Context, args tools.IngestFileArgs, progress tools.ProgressEmitter) (map[string]any, error) {
+func (a toolAdapter) IngestFile(ctx context.Context, args tools.IngestFileArgs, progress tools.ProgressEmitter) (*tools.IngestResult, error) {
 	return a.client.IngestFile(ctx, IngestFileArgs{
 		Path:  args.Path,
 		Brain: args.Brain,
@@ -111,14 +111,14 @@ func (a toolAdapter) IngestFile(ctx context.Context, args tools.IngestFileArgs, 
 	}, ProgressEmitter(progress))
 }
 
-func (a toolAdapter) IngestURL(ctx context.Context, args tools.IngestURLArgs, progress tools.ProgressEmitter) (map[string]any, error) {
+func (a toolAdapter) IngestURL(ctx context.Context, args tools.IngestURLArgs, progress tools.ProgressEmitter) (*tools.IngestURLResult, error) {
 	return a.client.IngestURL(ctx, IngestURLArgs{
 		URL:   args.URL,
 		Brain: args.Brain,
 	}, ProgressEmitter(progress))
 }
 
-func (a toolAdapter) ExtractAfterIngest(ctx context.Context, args tools.ExtractAfterIngestArgs) (map[string]any, error) {
+func (a toolAdapter) ExtractAfterIngest(ctx context.Context, args tools.ExtractAfterIngestArgs) (*tools.ExtractAfterIngestResult, error) {
 	return a.client.ExtractAfterIngest(ctx, ExtractAfterIngestArgs{
 		Content:        args.Content,
 		DocumentSource: args.DocumentSource,
@@ -128,7 +128,7 @@ func (a toolAdapter) ExtractAfterIngest(ctx context.Context, args tools.ExtractA
 	})
 }
 
-func (a toolAdapter) Extract(ctx context.Context, args tools.ExtractArgs, progress tools.ProgressEmitter) (map[string]any, error) {
+func (a toolAdapter) Extract(ctx context.Context, args tools.ExtractArgs, progress tools.ProgressEmitter) (*tools.ExtractResult, error) {
 	messages := make([]ExtractMessage, 0, len(args.Messages))
 	for _, m := range args.Messages {
 		messages = append(messages, ExtractMessage{Role: m.Role, Content: m.Content})
@@ -141,18 +141,18 @@ func (a toolAdapter) Extract(ctx context.Context, args tools.ExtractArgs, progre
 	}, ProgressEmitter(progress))
 }
 
-func (a toolAdapter) Reflect(ctx context.Context, args tools.ReflectArgs, progress tools.ProgressEmitter) (map[string]any, error) {
+func (a toolAdapter) Reflect(ctx context.Context, args tools.ReflectArgs, progress tools.ProgressEmitter) (*tools.ReflectResult, error) {
 	return a.client.Reflect(ctx, ReflectArgs{
 		SessionID: args.SessionID,
 		Brain:     args.Brain,
 	}, ProgressEmitter(progress))
 }
 
-func (a toolAdapter) Consolidate(ctx context.Context, args tools.ConsolidateArgs, progress tools.ProgressEmitter) (map[string]any, error) {
+func (a toolAdapter) Consolidate(ctx context.Context, args tools.ConsolidateArgs, progress tools.ProgressEmitter) (*tools.ConsolidateResult, error) {
 	return a.client.Consolidate(ctx, ConsolidateArgs{Brain: args.Brain}, ProgressEmitter(progress))
 }
 
-func (a toolAdapter) CreateBrain(ctx context.Context, args tools.CreateBrainArgs) (map[string]any, error) {
+func (a toolAdapter) CreateBrain(ctx context.Context, args tools.CreateBrainArgs) (*tools.CreateBrainResult, error) {
 	return a.client.CreateBrain(ctx, CreateBrainArgs{
 		Name:       args.Name,
 		Slug:       args.Slug,
@@ -160,6 +160,6 @@ func (a toolAdapter) CreateBrain(ctx context.Context, args tools.CreateBrainArgs
 	})
 }
 
-func (a toolAdapter) ListBrains(ctx context.Context) (map[string]any, error) {
+func (a toolAdapter) ListBrains(ctx context.Context) (*tools.ListBrainsResult, error) {
 	return a.client.ListBrains(ctx)
 }
