@@ -39,9 +39,9 @@ func TestGetTemplate_Exists(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			tmpl, err := GetTemplate(tc.key)
-			if err != nil {
-				t.Fatalf("GetTemplate(%q) returned error: %v", tc.key, err)
+			tmpl, ok := GetTemplate(tc.key)
+			if !ok {
+				t.Fatalf("GetTemplate(%q) returned false", tc.key)
 			}
 			if tmpl.Label == "" {
 				t.Errorf("GetTemplate(%q).Label is empty", tc.key)
@@ -54,9 +54,9 @@ func TestGetTemplate_Exists(t *testing.T) {
 }
 
 func TestGetTemplate_NotFound(t *testing.T) {
-	_, err := GetTemplate("nonexistent_template")
-	if err == nil {
-		t.Fatal("GetTemplate(\"nonexistent_template\") returned nil error, want error")
+	_, ok := GetTemplate("nonexistent_template")
+	if ok {
+		t.Fatal("GetTemplate(\"nonexistent_template\") returned true, want false")
 	}
 }
 
@@ -77,9 +77,9 @@ func TestTemplateCounts(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			tmpl, err := GetTemplate(tc.key)
-			if err != nil {
-				t.Fatalf("GetTemplate(%q) error: %v", tc.key, err)
+			tmpl, ok := GetTemplate(tc.key)
+			if !ok {
+				t.Fatalf("GetTemplate(%q) returned false", tc.key)
 			}
 			if len(tmpl.NodeTypes) != tc.nodeCount {
 				t.Errorf("template %q has %d node types, want %d", tc.key, len(tmpl.NodeTypes), tc.nodeCount)
@@ -217,9 +217,9 @@ func TestRegisterTemplate(t *testing.T) {
 		t.Fatalf("expected 7 templates, got %d", len(keys))
 	}
 
-	tmpl, err := GetTemplate("education")
-	if err != nil {
-		t.Fatalf("GetTemplate(education) error: %v", err)
+	tmpl, ok := GetTemplate("education")
+	if !ok {
+		t.Fatalf("GetTemplate(education) returned false")
 	}
 	if tmpl.Label != "Education" {
 		t.Fatalf("expected label 'Education', got %q", tmpl.Label)
