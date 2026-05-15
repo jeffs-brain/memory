@@ -72,7 +72,7 @@ func (tc *TabularChunker) Chunk(_ context.Context, content string, cfg ChunkConf
 // defaultRowsPerChunk.
 func computeRowsPerChunk(header string, dataLines []string, cfg ChunkConfig) int {
 	headerTokens := estimateTokens(header)
-	budgetForRows := cfg.MaxTokens() - headerTokens - 1
+	budgetForRows := cfg.MaxTokens - headerTokens - 1
 
 	if budgetForRows <= 0 || len(dataLines) == 0 {
 		return defaultRowsPerChunk

@@ -9,22 +9,8 @@ import (
 	"time"
 )
 
-// PipelineStage represents the processing stage a document has reached
-// within the ingestion pipeline.
-type PipelineStage string
-
-const (
-	StageReceived  PipelineStage = "received"
-	StageStored    PipelineStage = "stored"
-	StageChunked   PipelineStage = "chunked"
-	StageEmbedded  PipelineStage = "embedded"
-	StageIndexed   PipelineStage = "indexed"
-	StageCompleted PipelineStage = "completed"
-	StageDeadLetter    PipelineStage = "dead_letter"
-)
-
 // stageOrder defines the ordinal position of each stage for comparison.
-// Failed is excluded from the forward-progress chain.
+// Terminal stages (dead_letter, failed) are excluded from forward progress.
 var stageOrder = map[PipelineStage]int{
 	StageReceived:  0,
 	StageStored:    1,
@@ -60,21 +46,10 @@ const maxDefaultRetries = 3
 // not permitted by the state machine rules.
 var ErrInvalidTransition = errors.New("ingest: invalid state transition")
 
-// PipelineStateEntry tracks the processing state of a single document
-// through the ingestion pipeline.
-type PipelineStateEntry struct {
-	DocumentHash string
-	Stage        PipelineStage
-	RetryCount   int
-	LastError    string
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
-}
-
-// PipelineStateStore is the persistence layer for pipeline state entries.
-// Implementations may back this with a database, file system, or in-memory
-// map. P1-1 provides the production implementation.
-type PipelineStateStore interface {
+// StateMachineStore is the persistence layer used by PipelineStateMachine
+// for loading and saving pipeline state entries. It uses a simpler contract
+// than PipelineStateStore (which adds brainID filtering and Delete).
+type StateMachineStore interface {
 	// Load retrieves the state entry for a document hash. Returns nil if
 	// no entry exists.
 	Load(ctx context.Context, documentHash string) (*PipelineStateEntry, error)
@@ -83,7 +58,7 @@ type PipelineStateStore interface {
 	Save(ctx context.Context, entry *PipelineStateEntry) error
 
 	// ListIncomplete returns all entries not in a terminal stage
-	// (completed or failed).
+	// (completed, failed, or dead_letter).
 	ListIncomplete(ctx context.Context) ([]*PipelineStateEntry, error)
 }
 
@@ -93,9 +68,9 @@ type TransitionCallback func(documentHash string, from, to PipelineStage, event 
 
 // PipelineStateMachine manages stage transitions for documents flowing
 // through the ingestion pipeline. It validates transitions, tracks retry
-// counts, and persists state via a PipelineStateStore.
+// counts, and persists state via a StateMachineStore.
 type PipelineStateMachine struct {
-	store      PipelineStateStore
+	store      StateMachineStore
 	maxRetries int
 	callback   TransitionCallback
 	mu         sync.Mutex
@@ -103,8 +78,8 @@ type PipelineStateMachine struct {
 
 // StateMachineConfig holds construction parameters for a PipelineStateMachine.
 type StateMachineConfig struct {
-	Store      PipelineStateStore
-	MaxRetries int
+	Store        StateMachineStore
+	MaxRetries   int
 	OnTransition TransitionCallback
 }
 
@@ -259,8 +234,8 @@ func (sm *PipelineStateMachine) MarkDeadLetter(ctx context.Context, documentHash
 }
 
 // ListIncomplete returns all pipeline state entries that are not in a
-// terminal stage (indexed/completed or dead_letter). Delegates to the
-// underlying PipelineStateStore.
+// terminal stage (completed, failed, or dead_letter). Delegates to the
+// underlying StateMachineStore.
 func (sm *PipelineStateMachine) ListIncomplete(ctx context.Context) ([]*PipelineStateEntry, error) {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()

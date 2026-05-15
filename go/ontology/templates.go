@@ -3,7 +3,6 @@ package ontology
 
 import (
 	"fmt"
-	"regexp"
 	"sort"
 	"sync"
 )
@@ -23,33 +22,6 @@ type IndustryTemplate struct {
 	NodeTypes          []TypeEntry `json:"nodeTypes"`
 	EdgeTypes          []TypeEntry `json:"edgeTypes"`
 	BusinessCategories []string    `json:"businessCategories,omitempty"`
-}
-
-// nodeTypePattern validates node types: category.name where both parts are
-// lowercase alphanumeric with underscores.
-var nodeTypePattern = regexp.MustCompile(`^[a-z][a-z0-9]*\.[a-z][a-z0-9_]*$`)
-
-// edgeTypePattern validates edge types: lowercase alphanumeric with underscores.
-var edgeTypePattern = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
-
-// businessCategoryPattern validates business categories: lowercase alphanumeric
-// with underscores.
-var businessCategoryPattern = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
-
-// IsValidNodeType reports whether s matches the node type format (category.name).
-func IsValidNodeType(s string) bool {
-	return nodeTypePattern.MatchString(s)
-}
-
-// IsValidEdgeType reports whether s matches the edge type format (snake_case).
-func IsValidEdgeType(s string) bool {
-	return edgeTypePattern.MatchString(s)
-}
-
-// IsValidBusinessCategory reports whether s matches the business category
-// format (snake_case).
-func IsValidBusinessCategory(s string) bool {
-	return businessCategoryPattern.MatchString(s)
 }
 
 // templates is the mutable registry of industry templates. Starts with

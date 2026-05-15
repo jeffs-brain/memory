@@ -31,7 +31,7 @@ func (rc *RecursiveChunker) Chunk(ctx context.Context, content string, cfg Chunk
 	if strings.TrimSpace(content) == "" {
 		return nil, nil
 	}
-	pieces := recursiveSplit(content, cfg.MaxTokens(), 0)
+	pieces := recursiveSplit(content, cfg.MaxTokens, 0)
 	chunks := applyOverlapAndBuild(pieces, cfg)
 	return chunks, nil
 }
@@ -120,22 +120,22 @@ func applyOverlapAndBuild(pieces []string, cfg ChunkConfig) []Chunk {
 			continue
 		}
 		chunkContent := trimmed
-		if i > 0 && cfg.OverlapTokens() > 0 && prevTail != "" {
+		if i > 0 && cfg.OverlapTokens > 0 && prevTail != "" {
 			chunkContent = prevTail + "\n" + trimmed
 		}
 		// Merge undersized chunks into the previous one.
-		if estimateTokens(trimmed) < cfg.MinTokens() && len(chunks) > 0 {
+		if estimateTokens(trimmed) < cfg.MinTokens && len(chunks) > 0 {
 			prev := chunks[len(chunks)-1]
 			prev.Content = prev.Content + "\n" + trimmed
 			chunks[len(chunks)-1] = prev
-			prevTail = extractTail(prev.Content, cfg.OverlapTokens())
+			prevTail = extractTail(prev.Content, cfg.OverlapTokens)
 			continue
 		}
 		chunks = append(chunks, Chunk{
 			Content:  chunkContent,
 			Metadata: map[string]string{"chunker": "recursive"},
 		})
-		prevTail = extractTail(trimmed, cfg.OverlapTokens())
+		prevTail = extractTail(trimmed, cfg.OverlapTokens)
 	}
 	return chunks
 }

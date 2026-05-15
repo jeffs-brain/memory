@@ -71,7 +71,7 @@ func (cc *CodeChunker) Chunk(_ context.Context, content string, cfg ChunkConfig)
 			full = header + "\n\n" + text
 		}
 
-		if estimateTokens(full) <= cfg.MaxTokens() {
+		if estimateTokens(full) <= cfg.MaxTokens {
 			chunks = append(chunks, Chunk{
 				Content:  full,
 				Metadata: map[string]string{"chunker": "code"},
@@ -79,7 +79,7 @@ func (cc *CodeChunker) Chunk(_ context.Context, content string, cfg ChunkConfig)
 			continue
 		}
 		// Section too large: fall back to recursive splitting.
-		subPieces := recursiveSplit(full, cfg.MaxTokens(), 0)
+		subPieces := recursiveSplit(full, cfg.MaxTokens, 0)
 		for _, piece := range subPieces {
 			t := strings.TrimSpace(piece)
 			if t == "" {
@@ -170,7 +170,7 @@ func mergeUndersized(chunks []Chunk, cfg ChunkConfig) []Chunk {
 	}
 	merged := make([]Chunk, 0, len(chunks))
 	for _, c := range chunks {
-		if estimateTokens(c.Content) < cfg.MinTokens() && len(merged) > 0 {
+		if estimateTokens(c.Content) < cfg.MinTokens && len(merged) > 0 {
 			prev := merged[len(merged)-1]
 			prev.Content = prev.Content + "\n" + c.Content
 			merged[len(merged)-1] = prev

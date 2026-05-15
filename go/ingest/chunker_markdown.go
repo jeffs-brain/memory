@@ -41,7 +41,7 @@ func (mc *MarkdownChunker) Chunk(ctx context.Context, content string, cfg ChunkC
 		}
 		headingPath := strings.Join(sec.headingPath, " > ")
 		tokens := estimateTokens(trimmed)
-		if tokens <= cfg.MaxTokens() {
+		if tokens <= cfg.MaxTokens {
 			chunks = append(chunks, Chunk{
 				Content: trimmed,
 				Metadata: map[string]string{
@@ -177,7 +177,7 @@ func isSetextUnderline(line string) bool {
 // pieces using the separator hierarchy. Overlap is applied from the tail
 // of the previous piece to the start of the next.
 func splitSectionWithOverlap(text string, cfg ChunkConfig) []string {
-	pieces := recursiveSplit(text, cfg.MaxTokens(), 0)
+	pieces := recursiveSplit(text, cfg.MaxTokens, 0)
 	if len(pieces) <= 1 {
 		return pieces
 	}
@@ -187,9 +187,9 @@ func splitSectionWithOverlap(text string, cfg ChunkConfig) []string {
 		if trimmed == "" {
 			continue
 		}
-		if i > 0 && cfg.OverlapTokens() > 0 {
+		if i > 0 && cfg.OverlapTokens > 0 {
 			prevTrimmed := strings.TrimSpace(pieces[i-1])
-			tail := extractTail(prevTrimmed, cfg.OverlapTokens())
+			tail := extractTail(prevTrimmed, cfg.OverlapTokens)
 			trimmed = tail + "\n" + trimmed
 		}
 		result = append(result, trimmed)

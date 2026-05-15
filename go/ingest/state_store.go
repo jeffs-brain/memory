@@ -17,19 +17,20 @@ import (
 type PipelineStage string
 
 const (
-	StageReceived  PipelineStage = "received"
-	StageStored    PipelineStage = "stored"
-	StageChunked   PipelineStage = "chunked"
-	StageEmbedded  PipelineStage = "embedded"
-	StageIndexed   PipelineStage = "indexed"
-	StageCompleted PipelineStage = "completed"
-	StageFailed    PipelineStage = "failed"
+	StageReceived   PipelineStage = "received"
+	StageStored     PipelineStage = "stored"
+	StageChunked    PipelineStage = "chunked"
+	StageEmbedded   PipelineStage = "embedded"
+	StageIndexed    PipelineStage = "indexed"
+	StageCompleted  PipelineStage = "completed"
+	StageFailed     PipelineStage = "failed"
+	StageDeadLetter PipelineStage = "dead_letter"
 )
 
 // IsTerminal reports whether the stage represents a final state that
 // should not appear in ListIncomplete results.
 func (s PipelineStage) IsTerminal() bool {
-	return s == StageCompleted || s == StageFailed
+	return s == StageCompleted || s == StageFailed || s == StageDeadLetter
 }
 
 // PipelineStateEntry tracks a single document's progress through the
