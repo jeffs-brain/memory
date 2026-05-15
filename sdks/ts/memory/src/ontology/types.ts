@@ -167,3 +167,10 @@ export type OntologyTypeDefinition = {
   readonly createdAt: string
   readonly status: TypeStatus
 }
+
+/**
+ * TypeDefinition is an alias for OntologyTypeDefinition used by the
+ * deduplication system. Kept as a named export for clarity at dedup
+ * call sites.
+ */
+export type TypeDefinition = OntologyTypeDefinition
