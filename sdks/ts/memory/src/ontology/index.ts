@@ -111,3 +111,12 @@ export {
   TEMPLATE_MATCH_SEMANTIC_THRESHOLD,
   TEMPLATE_MATCH_COMBINED_MINIMUM,
 } from './template-match.js'
+
+export type {
+  Proposal,
+  ProposalBatch,
+  ProposalFilter,
+  ProposalStatus,
+  ProposalWorkflowConfig,
+} from './proposal.js'
+export { ProposalWorkflow } from './proposal.js'
