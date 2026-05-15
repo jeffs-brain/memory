@@ -288,9 +288,10 @@ func extractJSONFromText(text string) (string, error) {
 			continue
 		}
 		if inString {
-			if ch == '\\' {
+			switch ch {
+			case '\\':
 				escaping = true
-			} else if ch == '"' {
+			case '"':
 				inString = false
 			}
 			continue
@@ -382,22 +383,10 @@ func mergeOntologyExtractions(results []ExtractionResult) ExtractionResult {
 
 	for _, r := range results {
 		for _, nt := range r.NodeTypes {
-			if existing, ok := nodeMap[nt.Type]; ok {
-				if len(nt.Description) > len(existing.Description) {
-					nodeMap[nt.Type] = nt
-				}
-			} else {
-				nodeMap[nt.Type] = nt
-			}
+			nodeMap[nt.Type] = longerDescription(nodeMap[nt.Type], nt)
 		}
 		for _, et := range r.EdgeTypes {
-			if existing, ok := edgeMap[et.Type]; ok {
-				if len(et.Description) > len(existing.Description) {
-					edgeMap[et.Type] = et
-				}
-			} else {
-				edgeMap[et.Type] = et
-			}
+			edgeMap[et.Type] = longerDescription(edgeMap[et.Type], et)
 		}
 		for _, cat := range r.BusinessCategories {
 			catSet[cat] = struct{}{}
@@ -467,11 +456,8 @@ func fuzzyDedupByPrefix(nodeMap map[string]TypeEntry) map[string]TypeEntry {
 				}
 				sim := JaroWinklerDistance(entryI.Label, entryJ.Label)
 				if sim >= FuzzyLabelMerge {
-					if len(entryJ.Description) > len(entryI.Description) {
-						delete(nodeMap, keys[i])
-					} else {
-						delete(nodeMap, keys[j])
-					}
+					loser := shorterDescriptionKey(keys[i], entryI, keys[j], entryJ)
+					delete(nodeMap, loser)
 				}
 			}
 		}
@@ -496,15 +482,32 @@ func fuzzyDedupEdges(edgeMap map[string]TypeEntry) map[string]TypeEntry {
 			}
 			sim := JaroWinklerDistance(entryI.Label, entryJ.Label)
 			if sim >= FuzzyLabelMerge {
-				if len(entryJ.Description) > len(entryI.Description) {
-					delete(edgeMap, keys[i])
-				} else {
-					delete(edgeMap, keys[j])
-				}
+				loser := shorterDescriptionKey(keys[i], entryI, keys[j], entryJ)
+				delete(edgeMap, loser)
 			}
 		}
 	}
 	return edgeMap
+}
+
+// longerDescription returns the TypeEntry with the longer description.
+// When existing has an empty Type (zero value from map miss), candidate
+// is returned unconditionally.
+func longerDescription(existing, candidate TypeEntry) TypeEntry {
+	if existing.Type == "" || len(candidate.Description) > len(existing.Description) {
+		return candidate
+	}
+	return existing
+}
+
+// shorterDescriptionKey returns the map key of the entry with the
+// shorter description, i.e. the one that should be removed during
+// deduplication.
+func shorterDescriptionKey(keyA string, a TypeEntry, keyB string, b TypeEntry) string {
+	if len(b.Description) > len(a.Description) {
+		return keyA
+	}
+	return keyB
 }
 
 func filterExistingTypes(result ExtractionResult, existing *ResolvedOntology) ExtractionResult {

@@ -24,6 +24,7 @@ import (
 	"unicode"
 
 	"github.com/jeffs-brain/memory/go/brain"
+	"github.com/jeffs-brain/memory/go/cmd/memory-mcp/tools"
 	storefs "github.com/jeffs-brain/memory/go/store/fs"
 
 	"github.com/jeffs-brain/memory/go/knowledge"
@@ -45,18 +46,18 @@ type ProgressEmitter func(progress float64, message string)
 type MemoryClient interface {
 	Mode() Mode
 
-	Remember(ctx context.Context, args RememberArgs) (map[string]any, error)
-	Search(ctx context.Context, args SearchArgs) (map[string]any, error)
-	Recall(ctx context.Context, args RecallArgs) (map[string]any, error)
-	Ask(ctx context.Context, args AskArgs, progress ProgressEmitter) (map[string]any, error)
-	IngestFile(ctx context.Context, args IngestFileArgs, progress ProgressEmitter) (map[string]any, error)
-	IngestURL(ctx context.Context, args IngestURLArgs, progress ProgressEmitter) (map[string]any, error)
-	Extract(ctx context.Context, args ExtractArgs, progress ProgressEmitter) (map[string]any, error)
-	ExtractAfterIngest(ctx context.Context, args ExtractAfterIngestArgs) (map[string]any, error)
-	Reflect(ctx context.Context, args ReflectArgs, progress ProgressEmitter) (map[string]any, error)
-	Consolidate(ctx context.Context, args ConsolidateArgs, progress ProgressEmitter) (map[string]any, error)
-	CreateBrain(ctx context.Context, args CreateBrainArgs) (map[string]any, error)
-	ListBrains(ctx context.Context) (map[string]any, error)
+	Remember(ctx context.Context, args RememberArgs) (*tools.RememberResult, error)
+	Search(ctx context.Context, args SearchArgs) (*tools.SearchResult, error)
+	Recall(ctx context.Context, args RecallArgs) (*tools.RecallResult, error)
+	Ask(ctx context.Context, args AskArgs, progress ProgressEmitter) (*tools.AskResult, error)
+	IngestFile(ctx context.Context, args IngestFileArgs, progress ProgressEmitter) (*tools.IngestResult, error)
+	IngestURL(ctx context.Context, args IngestURLArgs, progress ProgressEmitter) (*tools.IngestURLResult, error)
+	Extract(ctx context.Context, args ExtractArgs, progress ProgressEmitter) (*tools.ExtractResult, error)
+	ExtractAfterIngest(ctx context.Context, args ExtractAfterIngestArgs) (*tools.ExtractAfterIngestResult, error)
+	Reflect(ctx context.Context, args ReflectArgs, progress ProgressEmitter) (*tools.ReflectResult, error)
+	Consolidate(ctx context.Context, args ConsolidateArgs, progress ProgressEmitter) (*tools.ConsolidateResult, error)
+	CreateBrain(ctx context.Context, args CreateBrainArgs) (*tools.CreateBrainResult, error)
+	ListBrains(ctx context.Context) (*tools.ListBrainsResult, error)
 
 	Close() error
 }
@@ -351,7 +352,7 @@ func (c *localClient) openBrain(ctx context.Context, id string) (*localBrain, er
 }
 
 // Remember implements [MemoryClient].
-func (c *localClient) Remember(ctx context.Context, args RememberArgs) (map[string]any, error) {
+func (c *localClient) Remember(ctx context.Context, args RememberArgs) (*tools.RememberResult, error) {
 	brainID := c.resolveBrainID(args.Brain)
 	br, err := c.openBrain(ctx, brainID)
 	if err != nil {
@@ -370,22 +371,23 @@ func (c *localClient) Remember(ctx context.Context, args RememberArgs) (map[stri
 	if err != nil {
 		return nil, fmt.Errorf("memory_remember: ingest: %w", err)
 	}
-	out := map[string]any{
-		"id":          resp.DocumentID,
-		"path":        string(resp.Path),
-		"byte_size":   resp.Bytes,
-		"chunk_count": resp.ChunkCount,
-		"took_ms":     resp.TookMs,
-		"brain_id":    brainID,
-	}
+	var tags []string
 	if len(args.Tags) > 0 {
-		out["tags"] = args.Tags
+		tags = args.Tags
 	}
-	return out, nil
+	return &tools.RememberResult{
+		ID:         resp.DocumentID,
+		Path:       string(resp.Path),
+		ByteSize:   resp.Bytes,
+		ChunkCount: resp.ChunkCount,
+		TookMs:     resp.TookMs,
+		BrainID:    brainID,
+		Tags:       tags,
+	}, nil
 }
 
 // Search implements [MemoryClient].
-func (c *localClient) Search(ctx context.Context, args SearchArgs) (map[string]any, error) {
+func (c *localClient) Search(ctx context.Context, args SearchArgs) (*tools.SearchResult, error) {
 	brainID := c.resolveBrainID(args.Brain)
 	br, err := c.openBrain(ctx, brainID)
 	if err != nil {
@@ -407,28 +409,28 @@ func (c *localClient) Search(ctx context.Context, args SearchArgs) (map[string]a
 	if err != nil {
 		return nil, fmt.Errorf("memory_search: %w", err)
 	}
-	hits := make([]map[string]any, 0, len(results))
+	hits := make([]tools.SearchHit, 0, len(results))
 	for _, r := range results {
-		hits = append(hits, map[string]any{
-			"score":    r.Score,
-			"path":     r.Path,
-			"title":    r.Title,
-			"summary":  r.Summary,
-			"content":  r.Snippet,
-			"chunk_id": r.Path,
-			"scope":    r.Scope,
+		hits = append(hits, tools.SearchHit{
+			Score:   r.Score,
+			Path:    r.Path,
+			Title:   r.Title,
+			Summary: r.Summary,
+			Content: r.Snippet,
+			ChunkID: r.Path,
+			Scope:   r.Scope,
 		})
 	}
-	return map[string]any{
-		"query":    args.Query,
-		"brain_id": brainID,
-		"hits":     hits,
-		"took_ms":  time.Since(started).Milliseconds(),
+	return &tools.SearchResult{
+		Query:   args.Query,
+		BrainID: brainID,
+		Hits:    hits,
+		TookMs:  time.Since(started).Milliseconds(),
 	}, nil
 }
 
 // Recall implements [MemoryClient].
-func (c *localClient) Recall(ctx context.Context, args RecallArgs) (map[string]any, error) {
+func (c *localClient) Recall(ctx context.Context, args RecallArgs) (*tools.RecallResult, error) {
 	brainID := c.resolveBrainID(args.Brain)
 	br, err := c.openBrain(ctx, brainID)
 	if err != nil {
@@ -447,41 +449,60 @@ func (c *localClient) Recall(ctx context.Context, args RecallArgs) (map[string]a
 			Filters: retrieval.Filters{Scope: mapScopeToSearch(args.Scope)},
 		})
 		if rerr == nil {
-			chunks := make([]map[string]any, 0, len(resp.Chunks))
+			chunks := make([]tools.RecallChunk, 0, len(resp.Chunks))
 			for _, hit := range resp.Chunks {
-				chunks = append(chunks, map[string]any{
-					"chunk_id":   hit.ChunkID,
-					"document_id": hit.DocumentID,
-					"score":      hit.Score,
-					"path":       hit.Path,
-					"content":    hit.Text,
-					"title":      hit.Title,
-					"summary":    hit.Summary,
+				chunks = append(chunks, tools.RecallChunk{
+					ChunkID:    hit.ChunkID,
+					DocumentID: hit.DocumentID,
+					Score:      hit.Score,
+					Path:       hit.Path,
+					Content:    hit.Text,
+					Title:      hit.Title,
+					Summary:    hit.Summary,
 				})
 			}
-			out := map[string]any{
-				"query":      args.Query,
-				"brain_id":   brainID,
-				"session_id": args.SessionID,
-				"chunks":     chunks,
-			}
-			return out, nil
+			return &tools.RecallResult{
+				Query:     args.Query,
+				BrainID:   brainID,
+				SessionID: args.SessionID,
+				Chunks:    chunks,
+			}, nil
 		}
 		c.log.Debug("memory_recall: retriever failed, falling back to search", "err", rerr)
 	}
-	// Fallback: mirror memory_search.
-	return c.Search(ctx, SearchArgs{
+	// Fallback: mirror memory_search and convert to RecallResult.
+	searchResult, serr := c.Search(ctx, SearchArgs{
 		Query: args.Query,
 		Brain: args.Brain,
 		TopK:  topK,
 		Scope: args.Scope,
 	})
+	if serr != nil {
+		return nil, serr
+	}
+	chunks := make([]tools.RecallChunk, 0, len(searchResult.Hits))
+	for _, hit := range searchResult.Hits {
+		chunks = append(chunks, tools.RecallChunk{
+			ChunkID: hit.ChunkID,
+			Path:    hit.Path,
+			Score:   hit.Score,
+			Content: hit.Content,
+			Title:   hit.Title,
+			Summary: hit.Summary,
+		})
+	}
+	return &tools.RecallResult{
+		Query:     args.Query,
+		BrainID:   searchResult.BrainID,
+		SessionID: args.SessionID,
+		Chunks:    chunks,
+	}, nil
 }
 
 // Ask implements [MemoryClient]. Runs retrieval then a single blocking
 // LLM completion. Progress notifications are coarse (retrieved +
 // answered) until the SDK exposes a streaming `ask` surface.
-func (c *localClient) Ask(ctx context.Context, args AskArgs, progress ProgressEmitter) (map[string]any, error) {
+func (c *localClient) Ask(ctx context.Context, args AskArgs, progress ProgressEmitter) (*tools.AskResult, error) {
 	brainID := c.resolveBrainID(args.Brain)
 	br, err := c.openBrain(ctx, brainID)
 	if err != nil {
@@ -551,38 +572,38 @@ func (c *localClient) Ask(ctx context.Context, args AskArgs, progress ProgressEm
 	if progress != nil {
 		progress(1, "answered")
 	}
-	citations := make([]map[string]any, 0, len(chunks))
+	citations := make([]tools.AskCitation, 0, len(chunks))
 	for i, hit := range chunks {
 		if i >= 5 {
 			break
 		}
-		citations = append(citations, map[string]any{
-			"type":         "citation",
-			"chunk_id":     hit.ChunkID,
-			"document_id":  hit.DocumentID,
-			"answer_start": 0,
-			"answer_end":   0,
-			"quote":        truncate(hit.Text, 200),
+		citations = append(citations, tools.AskCitation{
+			Type:        "citation",
+			ChunkID:     hit.ChunkID,
+			DocumentID:  hit.DocumentID,
+			AnswerStart: 0,
+			AnswerEnd:   0,
+			Quote:       truncate(hit.Text, 200),
 		})
 	}
-	retrievedChunks := make([]map[string]any, 0, len(chunks))
+	retrieved := make([]tools.AskRetrievedChunk, 0, len(chunks))
 	for _, hit := range chunks {
-		retrievedChunks = append(retrievedChunks, map[string]any{
-			"chunk_id":    hit.ChunkID,
-			"document_id": hit.DocumentID,
-			"score":       hit.Score,
-			"preview":     truncate(hit.Text, 512),
+		retrieved = append(retrieved, tools.AskRetrievedChunk{
+			ChunkID:    hit.ChunkID,
+			DocumentID: hit.DocumentID,
+			Score:      hit.Score,
+			Preview:    truncate(hit.Text, 512),
 		})
 	}
-	return map[string]any{
-		"answer":    resp.Text,
-		"citations": citations,
-		"retrieved": retrievedChunks,
+	return &tools.AskResult{
+		Answer:    resp.Text,
+		Citations: citations,
+		Retrieved: retrieved,
 	}, nil
 }
 
 // IngestFile implements [MemoryClient].
-func (c *localClient) IngestFile(ctx context.Context, args IngestFileArgs, progress ProgressEmitter) (map[string]any, error) {
+func (c *localClient) IngestFile(ctx context.Context, args IngestFileArgs, progress ProgressEmitter) (*tools.IngestResult, error) {
 	brainID := c.resolveBrainID(args.Brain)
 	br, err := c.openBrain(ctx, brainID)
 	if err != nil {
@@ -621,20 +642,20 @@ func (c *localClient) IngestFile(ctx context.Context, args IngestFileArgs, progr
 	if progress != nil {
 		progress(1, "indexed")
 	}
-	return map[string]any{
-		"status":         "completed",
-		"document_id":    resp.DocumentID,
-		"path":           string(resp.Path),
-		"hash":           hashString([]byte(resp.DocumentID)),
-		"chunk_count":    resp.ChunkCount,
-		"embedded_count": resp.ChunkCount,
-		"duration_ms":    resp.TookMs,
-		"reused":         false,
+	return &tools.IngestResult{
+		Status:        "completed",
+		DocumentID:    resp.DocumentID,
+		Path:          string(resp.Path),
+		Hash:          hashString([]byte(resp.DocumentID)),
+		ChunkCount:    resp.ChunkCount,
+		EmbeddedCount: resp.ChunkCount,
+		DurationMs:    resp.TookMs,
+		Reused:        false,
 	}, nil
 }
 
 // IngestURL implements [MemoryClient].
-func (c *localClient) IngestURL(ctx context.Context, args IngestURLArgs, progress ProgressEmitter) (map[string]any, error) {
+func (c *localClient) IngestURL(ctx context.Context, args IngestURLArgs, progress ProgressEmitter) (*tools.IngestURLResult, error) {
 	brainID := c.resolveBrainID(args.Brain)
 	br, err := c.openBrain(ctx, brainID)
 	if err != nil {
@@ -659,18 +680,18 @@ func (c *localClient) IngestURL(ctx context.Context, args IngestURLArgs, progres
 		storedContent = string(raw)
 	}
 
-	return map[string]any{
-		"path": "server",
-		"result": map[string]any{
-			"status":         "completed",
-			"document_id":    resp.DocumentID,
-			"path":           string(resp.Path),
-			"chunk_count":    resp.ChunkCount,
-			"embedded_count": resp.ChunkCount,
-			"duration_ms":    resp.TookMs,
-			"reused":         false,
+	return &tools.IngestURLResult{
+		Path: "server",
+		Result: tools.IngestResult{
+			Status:        "completed",
+			DocumentID:    resp.DocumentID,
+			Path:          string(resp.Path),
+			ChunkCount:    resp.ChunkCount,
+			EmbeddedCount: resp.ChunkCount,
+			DurationMs:    resp.TookMs,
+			Reused:        false,
 		},
-		"_document_content": storedContent,
+		DocumentContent: storedContent,
 	}, nil
 }
 
@@ -680,7 +701,7 @@ func (c *localClient) IngestURL(ctx context.Context, args IngestURLArgs, progres
 // for the richer case. The Go SDK port for the bare transcript path
 // records the conversation as a document so downstream consolidation
 // can pick it up.
-func (c *localClient) Extract(ctx context.Context, args ExtractArgs, progress ProgressEmitter) (map[string]any, error) {
+func (c *localClient) Extract(ctx context.Context, args ExtractArgs, progress ProgressEmitter) (*tools.ExtractResult, error) {
 	brainID := c.resolveBrainID(args.Brain)
 	br, err := c.openBrain(ctx, brainID)
 	if err != nil {
@@ -701,20 +722,21 @@ func (c *localClient) Extract(ctx context.Context, args ExtractArgs, progress Pr
 		if xerr != nil {
 			return nil, fmt.Errorf("memory_extract: %w", xerr)
 		}
-		out := make([]map[string]any, 0, len(extracted))
+		out := make([]tools.ExtractedMessage, 0, len(extracted))
+		now := time.Now().UTC().Format(time.RFC3339)
 		for i, e := range extracted {
-			out = append(out, map[string]any{
-				"id":         fmt.Sprintf("%s:%d", args.SessionID, i),
-				"session_id": args.SessionID,
-				"role":       "assistant",
-				"content":    e.Content,
-				"created_at": time.Now().UTC().Format(time.RFC3339),
+			out = append(out, tools.ExtractedMessage{
+				ID:        fmt.Sprintf("%s:%d", args.SessionID, i),
+				SessionID: args.SessionID,
+				Role:      "assistant",
+				Content:   e.Content,
+				CreatedAt: now,
 			})
 		}
 		if progress != nil {
 			progress(1, fmt.Sprintf("%d memories", len(out)))
 		}
-		return map[string]any{"mode": "session", "messages": out}, nil
+		return &tools.ExtractResult{Mode: "session", Messages: out}, nil
 	}
 	// Transcript mode: persist a markdown transcript so downstream
 	// consolidation can pick it up.
@@ -735,21 +757,22 @@ func (c *localClient) Extract(ctx context.Context, args ExtractArgs, progress Pr
 	if progress != nil {
 		progress(1, "recorded")
 	}
-	return map[string]any{
-		"mode": "transcript",
-		"document": map[string]any{
-			"id":              resp.DocumentID,
-			"brain_id":        brainID,
-			"title":           req.Title,
-			"path":            string(resp.Path),
-			"source":          "extract",
-			"content_type":    "text/markdown",
-			"byte_size":       resp.Bytes,
-			"checksum_sha256": hashString([]byte(resp.DocumentID)),
-			"metadata":        map[string]any{"message_count": len(args.Messages)},
-			"created_at":      time.Now().UTC().Format(time.RFC3339),
-			"updated_at":      time.Now().UTC().Format(time.RFC3339),
-			"deleted_at":      nil,
+	now := time.Now().UTC().Format(time.RFC3339)
+	return &tools.ExtractResult{
+		Mode: "transcript",
+		Document: &tools.ExtractDocument{
+			ID:             resp.DocumentID,
+			BrainID:        brainID,
+			Title:          req.Title,
+			Path:           string(resp.Path),
+			Source:         "extract",
+			ContentType:    "text/markdown",
+			ByteSize:       resp.Bytes,
+			ChecksumSHA256: hashString([]byte(resp.DocumentID)),
+			Metadata:       map[string]int{"message_count": len(args.Messages)},
+			CreatedAt:      now,
+			UpdatedAt:      now,
+			DeletedAt:      nil,
 		},
 	}, nil
 }
@@ -759,23 +782,23 @@ func (c *localClient) Extract(ctx context.Context, args ExtractArgs, progress Pr
 // Content must be supplied directly (read from brain store or file);
 // no re-fetching of URLs occurs here.
 // Extraction failure is non-fatal: returns empty result.
-func (c *localClient) ExtractAfterIngest(ctx context.Context, args ExtractAfterIngestArgs) (map[string]any, error) {
-	emptyResult := map[string]any{"factsExtracted": 0, "memories": []any{}}
+func (c *localClient) ExtractAfterIngest(ctx context.Context, args ExtractAfterIngestArgs) (*tools.ExtractAfterIngestResult, error) {
+	empty := &tools.ExtractAfterIngestResult{Memories: []tools.ExtractedMemory{}}
 
 	if c.provider == nil {
-		return emptyResult, nil
+		return empty, nil
 	}
 
 	content := args.Content
 	if strings.TrimSpace(content) == "" {
-		return emptyResult, nil
+		return empty, nil
 	}
 
 	brainID := c.resolveBrainID(args.Brain)
 	br, err := c.openBrain(ctx, brainID)
 	if err != nil {
 		c.log.Warn("extract-after-ingest: failed to open brain", "brain", brainID, "error", err)
-		return emptyResult, nil
+		return empty, nil
 	}
 
 	// Truncate by rune count to avoid splitting multi-byte characters.
@@ -802,26 +825,26 @@ func (c *localClient) ExtractAfterIngest(ctx context.Context, args ExtractAfterI
 	extracted, xerr := memory.ExtractFromMessages(ctx, c.provider, "", br.memory, "", messages)
 	if xerr != nil {
 		c.log.Warn("extract-after-ingest: extraction failed", "document", source, "error", xerr)
-		return emptyResult, nil
+		return empty, nil
 	}
 
-	memories := make([]map[string]any, 0, len(extracted))
+	memories := make([]tools.ExtractedMemory, 0, len(extracted))
 	for _, e := range extracted {
-		memories = append(memories, map[string]any{
-			"filename": e.Filename,
-			"content":  e.Content,
+		memories = append(memories, tools.ExtractedMemory{
+			Filename: e.Filename,
+			Content:  e.Content,
 		})
 	}
-	return map[string]any{
-		"factsExtracted": len(extracted),
-		"memories":       memories,
+	return &tools.ExtractAfterIngestResult{
+		FactsExtracted: len(extracted),
+		Memories:       memories,
 	}, nil
 }
 
 // Reflect implements [MemoryClient]. Local mode runs
 // [memory.Reflector.ForceReflect] so callers can exercise the surface
 // end-to-end without a dedicated session backend.
-func (c *localClient) Reflect(ctx context.Context, args ReflectArgs, progress ProgressEmitter) (map[string]any, error) {
+func (c *localClient) Reflect(ctx context.Context, args ReflectArgs, progress ProgressEmitter) (*tools.ReflectResult, error) {
 	brainID := c.resolveBrainID(args.Brain)
 	br, err := c.openBrain(ctx, brainID)
 	if err != nil {
@@ -835,30 +858,31 @@ func (c *localClient) Reflect(ctx context.Context, args ReflectArgs, progress Pr
 	if progress != nil {
 		progress(1, "done")
 	}
+	now := time.Now().UTC().Format(time.RFC3339)
 	if result == nil {
-		return map[string]any{
-			"reflection_status":    "no_result",
-			"reflection_attempted": true,
-			"ended_at":             time.Now().UTC().Format(time.RFC3339),
+		return &tools.ReflectResult{
+			ReflectionStatus:    "no_result",
+			ReflectionAttempted: true,
+			EndedAt:             now,
 		}, nil
 	}
-	return map[string]any{
-		"reflection_status": "completed",
-		"reflection": map[string]any{
-			"outcome":               result.Outcome,
-			"should_record_episode": result.ShouldRecordEpisode,
-			"path":                  "",
-			"retry_feedback":        result.RetryFeedback,
+	return &tools.ReflectResult{
+		ReflectionStatus: "completed",
+		Reflection: &tools.ReflectionDetail{
+			Outcome:             result.Outcome,
+			ShouldRecordEpisode: result.ShouldRecordEpisode,
+			Path:                "",
+			RetryFeedback:       result.RetryFeedback,
 		},
-		"reflection_attempted": true,
-		"ended_at":             time.Now().UTC().Format(time.RFC3339),
+		ReflectionAttempted: true,
+		EndedAt:             now,
 	}, nil
 }
 
 // Consolidate implements [MemoryClient]. Local mode falls back to
 // [knowledge.Base.Compile] which re-chunks and re-indexes every
 // persisted document in the brain.
-func (c *localClient) Consolidate(ctx context.Context, args ConsolidateArgs, progress ProgressEmitter) (map[string]any, error) {
+func (c *localClient) Consolidate(ctx context.Context, args ConsolidateArgs, progress ProgressEmitter) (*tools.ConsolidateResult, error) {
 	brainID := c.resolveBrainID(args.Brain)
 	br, err := c.openBrain(ctx, brainID)
 	if err != nil {
@@ -874,13 +898,13 @@ func (c *localClient) Consolidate(ctx context.Context, args ConsolidateArgs, pro
 	if progress != nil {
 		progress(1, "done")
 	}
-	return map[string]any{
-		"result": map[string]any{
-			"compiled": result.Compiled,
-			"chunks":   result.Chunks,
-			"skipped":  result.Skipped,
-			"errors":   result.Errors,
-			"elapsed_ms": result.Elapsed.Milliseconds(),
+	return &tools.ConsolidateResult{
+		Result: tools.CompileDetail{
+			Compiled:  result.Compiled,
+			Chunks:    result.Chunks,
+			Skipped:   result.Skipped,
+			Errors:    result.Errors,
+			ElapsedMs: result.Elapsed.Milliseconds(),
 		},
 	}, nil
 }
@@ -888,7 +912,7 @@ func (c *localClient) Consolidate(ctx context.Context, args ConsolidateArgs, pro
 // CreateBrain implements [MemoryClient]. Local mode writes a
 // config.json alongside the brain root so [ListBrains] can surface
 // structured metadata.
-func (c *localClient) CreateBrain(ctx context.Context, args CreateBrainArgs) (map[string]any, error) {
+func (c *localClient) CreateBrain(ctx context.Context, args CreateBrainArgs) (*tools.CreateBrainResult, error) {
 	slug := strings.TrimSpace(args.Slug)
 	if slug == "" {
 		slug = slugify(args.Name)
@@ -904,56 +928,85 @@ func (c *localClient) CreateBrain(ctx context.Context, args CreateBrainArgs) (ma
 	if visibility == "" {
 		visibility = "private"
 	}
-	cfg := map[string]any{
-		"version":    1,
-		"name":       args.Name,
-		"slug":       slug,
-		"visibility": visibility,
-		"createdAt":  time.Now().UTC().Format(time.RFC3339),
+	createdAt := time.Now().UTC().Format(time.RFC3339)
+
+	// brainConfig is the on-disk config shape.
+	type brainConfig struct {
+		Version    int    `json:"version"`
+		Name       string `json:"name"`
+		Slug       string `json:"slug"`
+		Visibility string `json:"visibility"`
+		CreatedAt  string `json:"createdAt"`
+	}
+	cfg := brainConfig{
+		Version:    1,
+		Name:       args.Name,
+		Slug:       slug,
+		Visibility: visibility,
+		CreatedAt:  createdAt,
 	}
 	body, _ := json.MarshalIndent(cfg, "", "  ")
 	if err := os.WriteFile(filepath.Join(root, "config.json"), append(body, '\n'), 0o644); err != nil {
 		return nil, fmt.Errorf("memory_create_brain: write config: %w", err)
 	}
-	return map[string]any{
-		"id":         slug,
-		"slug":       slug,
-		"name":       args.Name,
-		"visibility": visibility,
-		"created_at": cfg["createdAt"],
+	return &tools.CreateBrainResult{
+		ID:         slug,
+		Slug:       slug,
+		Name:       args.Name,
+		Visibility: visibility,
+		CreatedAt:  createdAt,
 	}, nil
 }
 
+// brainDiskConfig is the JSON shape persisted in each brain's config.json.
+type brainDiskConfig struct {
+	Slug       string `json:"slug"`
+	Name       string `json:"name"`
+	Visibility string `json:"visibility"`
+	CreatedAt  string `json:"createdAt"`
+}
+
 // ListBrains implements [MemoryClient].
-func (c *localClient) ListBrains(ctx context.Context) (map[string]any, error) {
+func (c *localClient) ListBrains(ctx context.Context) (*tools.ListBrainsResult, error) {
 	dir := filepath.Join(c.cfg.BrainRoot, "brains")
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return map[string]any{"items": []any{}}, nil
+			return &tools.ListBrainsResult{Items: []tools.BrainInfo{}}, nil
 		}
 		return nil, fmt.Errorf("memory_list_brains: %w", err)
 	}
-	items := make([]map[string]any, 0, len(entries))
+	items := make([]tools.BrainInfo, 0, len(entries))
 	for _, e := range entries {
 		if !e.IsDir() {
 			continue
 		}
 		cfgPath := filepath.Join(dir, e.Name(), "config.json")
-		parsed := map[string]any{}
+		var parsed brainDiskConfig
 		if raw, rerr := os.ReadFile(cfgPath); rerr == nil {
 			_ = json.Unmarshal(raw, &parsed)
 		}
-		slug := stringOrDefault(parsed, "slug", e.Name())
-		items = append(items, map[string]any{
-			"id":         slug,
-			"slug":       slug,
-			"name":       stringOrDefault(parsed, "name", e.Name()),
-			"visibility": stringOrDefault(parsed, "visibility", "private"),
-			"created_at": parsed["createdAt"],
+		slug := parsed.Slug
+		if slug == "" {
+			slug = e.Name()
+		}
+		name := parsed.Name
+		if name == "" {
+			name = e.Name()
+		}
+		visibility := parsed.Visibility
+		if visibility == "" {
+			visibility = "private"
+		}
+		items = append(items, tools.BrainInfo{
+			ID:         slug,
+			Slug:       slug,
+			Name:       name,
+			Visibility: visibility,
+			CreatedAt:  parsed.CreatedAt,
 		})
 	}
-	return map[string]any{"items": items}, nil
+	return &tools.ListBrainsResult{Items: items}, nil
 }
 
 // ---------------------------------------------------------------------
@@ -993,8 +1046,8 @@ func (c *hostedClient) resolveBrainID(override string) (string, error) {
 	return "", errors.New("memory-mcp: brain id required in hosted mode; set JB_BRAIN or pass `brain`")
 }
 
-// doJSON performs a JSON request and returns the decoded body as a map.
-func (c *hostedClient) doJSON(ctx context.Context, method, path string, body any) (map[string]any, error) {
+// doJSONRaw performs a JSON request and returns the raw response bytes.
+func (c *hostedClient) doJSONRaw(ctx context.Context, method, path string, body any) ([]byte, error) {
 	var buf io.Reader
 	if body != nil {
 		raw, err := json.Marshal(body)
@@ -1021,37 +1074,52 @@ func (c *hostedClient) doJSON(ctx context.Context, method, path string, body any
 	if resp.StatusCode >= 300 {
 		return nil, fmt.Errorf("memory-mcp: %s %s: HTTP %d: %s", method, path, resp.StatusCode, truncate(string(raw), 256))
 	}
+	return raw, nil
+}
+
+// doJSONInto performs a JSON request and decodes the response into dst.
+func (c *hostedClient) doJSONInto(ctx context.Context, method, path string, body, dst any) error {
+	raw, err := c.doJSONRaw(ctx, method, path, body)
+	if err != nil {
+		return err
+	}
 	if len(raw) == 0 {
-		return map[string]any{}, nil
+		return nil
 	}
-	var out map[string]any
-	if err := json.Unmarshal(raw, &out); err != nil {
-		return nil, fmt.Errorf("memory-mcp: decoding %s %s: %w", method, path, err)
+	if err := json.Unmarshal(raw, dst); err != nil {
+		return fmt.Errorf("memory-mcp: decoding %s %s: %w", method, path, err)
 	}
-	return out, nil
+	return nil
 }
 
 // Remember implements [MemoryClient].
-func (c *hostedClient) Remember(ctx context.Context, args RememberArgs) (map[string]any, error) {
+func (c *hostedClient) Remember(ctx context.Context, args RememberArgs) (*tools.RememberResult, error) {
 	brainID, err := c.resolveBrainID(args.Brain)
 	if err != nil {
 		return nil, err
 	}
-	body := map[string]any{
-		"title":   args.Title,
-		"content": args.Content,
+	type tagMeta struct {
+		Tags string `json:"tags"`
 	}
-	if args.Path != "" {
-		body["path"] = args.Path
+	type rememberBody struct {
+		Title    string   `json:"title"`
+		Content  string   `json:"content"`
+		Path     string   `json:"path,omitempty"`
+		Metadata *tagMeta `json:"metadata,omitempty"`
 	}
+	req := rememberBody{Title: args.Title, Content: args.Content, Path: args.Path}
 	if len(args.Tags) > 0 {
-		body["metadata"] = map[string]any{"tags": strings.Join(args.Tags, ",")}
+		req.Metadata = &tagMeta{Tags: strings.Join(args.Tags, ",")}
 	}
-	return c.doJSON(ctx, http.MethodPost, brainPath(brainID, "/documents"), body)
+	var result tools.RememberResult
+	if err := c.doJSONInto(ctx, http.MethodPost, brainPath(brainID, "/documents"), req, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
 }
 
 // Search implements [MemoryClient].
-func (c *hostedClient) Search(ctx context.Context, args SearchArgs) (map[string]any, error) {
+func (c *hostedClient) Search(ctx context.Context, args SearchArgs) (*tools.SearchResult, error) {
 	brainID, err := c.resolveBrainID(args.Brain)
 	if err != nil {
 		return nil, err
@@ -1067,54 +1135,65 @@ func (c *hostedClient) Search(ctx context.Context, args SearchArgs) (map[string]
 	if args.Sort != "" {
 		qs.Set("sort", args.Sort)
 	}
-	return c.doJSON(ctx, http.MethodGet, brainPath(brainID, "/search?"+qs.Encode()), nil)
+	var result tools.SearchResult
+	if err := c.doJSONInto(ctx, http.MethodGet, brainPath(brainID, "/search?"+qs.Encode()), nil, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
 }
 
 // Recall implements [MemoryClient].
-func (c *hostedClient) Recall(ctx context.Context, args RecallArgs) (map[string]any, error) {
+func (c *hostedClient) Recall(ctx context.Context, args RecallArgs) (*tools.RecallResult, error) {
 	brainID, err := c.resolveBrainID(args.Brain)
 	if err != nil {
 		return nil, err
 	}
-	body := map[string]any{"query": args.Query}
-	if args.Scope != "" {
-		body["scope"] = args.Scope
+	type recallBody struct {
+		Query     string `json:"query"`
+		Scope     string `json:"scope,omitempty"`
+		SessionID string `json:"session_id,omitempty"`
+		TopK      int    `json:"top_k,omitempty"`
 	}
-	if args.SessionID != "" {
-		body["session_id"] = args.SessionID
+	body := recallBody{
+		Query:     args.Query,
+		Scope:     args.Scope,
+		SessionID: args.SessionID,
+		TopK:      args.TopK,
 	}
-	if args.TopK > 0 {
-		body["top_k"] = args.TopK
+	var result tools.RecallResult
+	if err := c.doJSONInto(ctx, http.MethodPost, brainPath(brainID, "/recall"), body, &result); err != nil {
+		return nil, err
 	}
-	return c.doJSON(ctx, http.MethodPost, brainPath(brainID, "/recall"), body)
+	return &result, nil
 }
 
 // Ask implements [MemoryClient]. Hosted mode returns the final answer
 // without streaming until the SDK supports incremental responses.
-func (c *hostedClient) Ask(ctx context.Context, args AskArgs, progress ProgressEmitter) (map[string]any, error) {
+func (c *hostedClient) Ask(ctx context.Context, args AskArgs, progress ProgressEmitter) (*tools.AskResult, error) {
 	brainID, err := c.resolveBrainID(args.Brain)
 	if err != nil {
 		return nil, err
 	}
-	body := map[string]any{"query": args.Query}
-	if args.TopK > 0 {
-		body["top_k"] = args.TopK
+	type askBody struct {
+		Query string `json:"query"`
+		TopK  int    `json:"top_k,omitempty"`
 	}
+	body := askBody{Query: args.Query, TopK: args.TopK}
 	if progress != nil {
 		progress(0, "requesting")
 	}
-	resp, err := c.doJSON(ctx, http.MethodPost, brainPath(brainID, "/ask"), body)
-	if err != nil {
+	var result tools.AskResult
+	if err := c.doJSONInto(ctx, http.MethodPost, brainPath(brainID, "/ask"), body, &result); err != nil {
 		return nil, err
 	}
 	if progress != nil {
 		progress(1, "answered")
 	}
-	return resp, nil
+	return &result, nil
 }
 
 // IngestFile implements [MemoryClient].
-func (c *hostedClient) IngestFile(ctx context.Context, args IngestFileArgs, progress ProgressEmitter) (map[string]any, error) {
+func (c *hostedClient) IngestFile(ctx context.Context, args IngestFileArgs, progress ProgressEmitter) (*tools.IngestResult, error) {
 	brainID, err := c.resolveBrainID(args.Brain)
 	if err != nil {
 		return nil, err
@@ -1173,18 +1252,18 @@ func (c *hostedClient) IngestFile(ctx context.Context, args IngestFileArgs, prog
 	if resp.StatusCode >= 300 {
 		return nil, fmt.Errorf("memory_ingest_file: HTTP %d: %s", resp.StatusCode, truncate(string(rawResp), 256))
 	}
-	var out map[string]any
-	if err := json.Unmarshal(rawResp, &out); err != nil {
+	var result tools.IngestResult
+	if err := json.Unmarshal(rawResp, &result); err != nil {
 		return nil, fmt.Errorf("memory_ingest_file: decode: %w", err)
 	}
 	if progress != nil {
 		progress(1, "ingested")
 	}
-	return out, nil
+	return &result, nil
 }
 
 // IngestURL implements [MemoryClient].
-func (c *hostedClient) IngestURL(ctx context.Context, args IngestURLArgs, progress ProgressEmitter) (map[string]any, error) {
+func (c *hostedClient) IngestURL(ctx context.Context, args IngestURLArgs, progress ProgressEmitter) (*tools.IngestURLResult, error) {
 	brainID, err := c.resolveBrainID(args.Brain)
 	if err != nil {
 		return nil, err
@@ -1192,105 +1271,139 @@ func (c *hostedClient) IngestURL(ctx context.Context, args IngestURLArgs, progre
 	if progress != nil {
 		progress(0, "fetching")
 	}
-	resp, err := c.doJSON(ctx, http.MethodPost, brainPath(brainID, "/documents/ingest/url"), map[string]any{"url": args.URL})
-	if err != nil {
+	type ingestURLBody struct {
+		URL string `json:"url"`
+	}
+	var result tools.IngestURLResult
+	if err := c.doJSONInto(ctx, http.MethodPost, brainPath(brainID, "/documents/ingest/url"), ingestURLBody{URL: args.URL}, &result); err != nil {
 		return nil, err
 	}
 	if progress != nil {
 		progress(1, "ingested")
 	}
-	return resp, nil
+	return &result, nil
 }
 
 // Extract implements [MemoryClient].
-func (c *hostedClient) Extract(ctx context.Context, args ExtractArgs, progress ProgressEmitter) (map[string]any, error) {
+func (c *hostedClient) Extract(ctx context.Context, args ExtractArgs, progress ProgressEmitter) (*tools.ExtractResult, error) {
 	brainID, err := c.resolveBrainID(args.Brain)
 	if err != nil {
 		return nil, err
 	}
 	if args.SessionID != "" {
-		out := make([]any, 0, len(args.Messages))
+		out := make([]tools.ExtractedMessage, 0, len(args.Messages))
 		for i, msg := range args.Messages {
 			isLast := i == len(args.Messages)-1
-			meta := map[string]any{"skip_extract": !isLast}
-			if args.ActorID != "" {
-				meta["actor_id"] = args.ActorID
+			type msgMeta struct {
+				SkipExtract bool   `json:"skip_extract"`
+				ActorID     string `json:"actor_id,omitempty"`
 			}
-			payload := map[string]any{
-				"role":     msg.Role,
-				"content":  msg.Content,
-				"metadata": meta,
+			type msgPayload struct {
+				Role     string  `json:"role"`
+				Content  string  `json:"content"`
+				Metadata msgMeta `json:"metadata"`
+			}
+			payload := msgPayload{
+				Role:    msg.Role,
+				Content: msg.Content,
+				Metadata: msgMeta{
+					SkipExtract: !isLast,
+					ActorID:     args.ActorID,
+				},
 			}
 			path := brainPath(brainID, "/sessions/"+url.PathEscape(args.SessionID)+"/messages")
-			result, ierr := c.doJSON(ctx, http.MethodPost, path, payload)
-			if ierr != nil {
+			var extracted tools.ExtractedMessage
+			if ierr := c.doJSONInto(ctx, http.MethodPost, path, payload, &extracted); ierr != nil {
 				return nil, ierr
 			}
-			out = append(out, result)
+			out = append(out, extracted)
 			if progress != nil {
 				progress(float64(i+1), fmt.Sprintf("%d/%d", i+1, len(args.Messages)))
 			}
 		}
-		return map[string]any{"mode": "session", "messages": out}, nil
+		return &tools.ExtractResult{Mode: "session", Messages: out}, nil
 	}
 	var transcript strings.Builder
 	for _, m := range args.Messages {
 		fmt.Fprintf(&transcript, "[%s] %s\n\n", m.Role, m.Content)
 	}
-	doc, err := c.doJSON(ctx, http.MethodPost, brainPath(brainID, "/documents"), map[string]any{
-		"title":   fmt.Sprintf("Transcript %s", time.Now().UTC().Format(time.RFC3339)),
-		"content": transcript.String(),
-		"source":  "extract",
-	})
-	if err != nil {
+	type transcriptBody struct {
+		Title   string `json:"title"`
+		Content string `json:"content"`
+		Source  string `json:"source"`
+	}
+	body := transcriptBody{
+		Title:   fmt.Sprintf("Transcript %s", time.Now().UTC().Format(time.RFC3339)),
+		Content: transcript.String(),
+		Source:  "extract",
+	}
+	var doc tools.ExtractDocument
+	if err := c.doJSONInto(ctx, http.MethodPost, brainPath(brainID, "/documents"), body, &doc); err != nil {
 		return nil, err
 	}
-	return map[string]any{"mode": "transcript", "document": doc}, nil
+	return &tools.ExtractResult{Mode: "transcript", Document: &doc}, nil
 }
 
 // ExtractAfterIngest implements [MemoryClient] for hosted mode.
-func (c *hostedClient) ExtractAfterIngest(_ context.Context, _ ExtractAfterIngestArgs) (map[string]any, error) {
+func (c *hostedClient) ExtractAfterIngest(_ context.Context, _ ExtractAfterIngestArgs) (*tools.ExtractAfterIngestResult, error) {
 	// Hosted mode does not support extract-after-ingest yet.
-	// Return empty result — non-fatal.
-	return map[string]any{"factsExtracted": 0, "memories": []any{}}, nil
+	// Return empty result -- non-fatal.
+	return &tools.ExtractAfterIngestResult{Memories: []tools.ExtractedMemory{}}, nil
 }
 
 // Reflect implements [MemoryClient].
-func (c *hostedClient) Reflect(ctx context.Context, args ReflectArgs, progress ProgressEmitter) (map[string]any, error) {
+func (c *hostedClient) Reflect(ctx context.Context, args ReflectArgs, _ ProgressEmitter) (*tools.ReflectResult, error) {
 	brainID, err := c.resolveBrainID(args.Brain)
 	if err != nil {
 		return nil, err
 	}
 	path := brainPath(brainID, "/sessions/"+url.PathEscape(args.SessionID)+"/close")
-	return c.doJSON(ctx, http.MethodPost, path, map[string]any{})
+	var result tools.ReflectResult
+	if err := c.doJSONInto(ctx, http.MethodPost, path, struct{}{}, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
 }
 
 // Consolidate implements [MemoryClient].
-func (c *hostedClient) Consolidate(ctx context.Context, args ConsolidateArgs, progress ProgressEmitter) (map[string]any, error) {
+func (c *hostedClient) Consolidate(ctx context.Context, args ConsolidateArgs, _ ProgressEmitter) (*tools.ConsolidateResult, error) {
 	brainID, err := c.resolveBrainID(args.Brain)
 	if err != nil {
 		return nil, err
 	}
-	return c.doJSON(ctx, http.MethodPost, brainPath(brainID, "/consolidate"), map[string]any{})
+	var result tools.ConsolidateResult
+	if err := c.doJSONInto(ctx, http.MethodPost, brainPath(brainID, "/consolidate"), struct{}{}, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
 }
 
 // CreateBrain implements [MemoryClient].
-func (c *hostedClient) CreateBrain(ctx context.Context, args CreateBrainArgs) (map[string]any, error) {
-	body := map[string]any{"name": args.Name}
-	if args.Slug != "" {
-		body["slug"] = args.Slug
+func (c *hostedClient) CreateBrain(ctx context.Context, args CreateBrainArgs) (*tools.CreateBrainResult, error) {
+	type createBody struct {
+		Name       string `json:"name"`
+		Slug       string `json:"slug,omitempty"`
+		Visibility string `json:"visibility"`
 	}
-	if args.Visibility != "" {
-		body["visibility"] = args.Visibility
-	} else {
-		body["visibility"] = "private"
+	visibility := args.Visibility
+	if visibility == "" {
+		visibility = "private"
 	}
-	return c.doJSON(ctx, http.MethodPost, "/v1/brains", body)
+	body := createBody{Name: args.Name, Slug: args.Slug, Visibility: visibility}
+	var result tools.CreateBrainResult
+	if err := c.doJSONInto(ctx, http.MethodPost, "/v1/brains", body, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
 }
 
 // ListBrains implements [MemoryClient].
-func (c *hostedClient) ListBrains(ctx context.Context) (map[string]any, error) {
-	return c.doJSON(ctx, http.MethodGet, "/v1/brains", nil)
+func (c *hostedClient) ListBrains(ctx context.Context) (*tools.ListBrainsResult, error) {
+	var result tools.ListBrainsResult
+	if err := c.doJSONInto(ctx, http.MethodGet, "/v1/brains", nil, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
 }
 
 // ---------------------------------------------------------------------
@@ -1323,16 +1436,6 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
-}
-
-// stringOrDefault fetches key from m as a string, returning def on miss.
-func stringOrDefault(m map[string]any, key, def string) string {
-	if raw, ok := m[key]; ok {
-		if s, ok := raw.(string); ok && s != "" {
-			return s
-		}
-	}
-	return def
 }
 
 // deriveTitle extracts a title heuristically from the markdown body.

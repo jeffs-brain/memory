@@ -43,24 +43,24 @@ func registerIngestFile(server *mcp.Server, client MemoryClient) {
 			absPath, _ = filepath.Abs(absPath)
 		}
 		raw, readErr := os.ReadFile(absPath)
-		extractionResult := map[string]any{
-			"factsExtracted": 0,
-			"memories":       []any{},
+		extraction := &ExtractAfterIngestResult{
+			FactsExtracted: 0,
+			Memories:       []ExtractedMemory{},
 		}
 		if readErr == nil && len(raw) > 0 {
-			extraction, extractErr := client.ExtractAfterIngest(ctx, ExtractAfterIngestArgs{
+			extracted, extractErr := client.ExtractAfterIngest(ctx, ExtractAfterIngestArgs{
 				Content:        string(raw),
 				DocumentSource: args.Path,
 				Brain:          args.Brain,
 			})
 			if extractErr == nil {
-				extractionResult = extraction
+				extraction = extracted
 			}
 		}
 
-		combined := map[string]any{
-			"ingest":     result,
-			"extraction": extractionResult,
+		combined := ingestWithExtractionResult{
+			Ingest:     result,
+			Extraction: extraction,
 		}
 		return structuredResult(combined)
 	})

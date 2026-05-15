@@ -18,18 +18,18 @@ import (
 // main package without a cycle; the real client implementation lives
 // in the parent package.
 type MemoryClient interface {
-	Remember(ctx context.Context, args RememberArgs) (map[string]any, error)
-	Search(ctx context.Context, args SearchArgs) (map[string]any, error)
-	Recall(ctx context.Context, args RecallArgs) (map[string]any, error)
-	Ask(ctx context.Context, args AskArgs, progress ProgressEmitter) (map[string]any, error)
-	IngestFile(ctx context.Context, args IngestFileArgs, progress ProgressEmitter) (map[string]any, error)
-	IngestURL(ctx context.Context, args IngestURLArgs, progress ProgressEmitter) (map[string]any, error)
-	Extract(ctx context.Context, args ExtractArgs, progress ProgressEmitter) (map[string]any, error)
-	ExtractAfterIngest(ctx context.Context, args ExtractAfterIngestArgs) (map[string]any, error)
-	Reflect(ctx context.Context, args ReflectArgs, progress ProgressEmitter) (map[string]any, error)
-	Consolidate(ctx context.Context, args ConsolidateArgs, progress ProgressEmitter) (map[string]any, error)
-	CreateBrain(ctx context.Context, args CreateBrainArgs) (map[string]any, error)
-	ListBrains(ctx context.Context) (map[string]any, error)
+	Remember(ctx context.Context, args RememberArgs) (*RememberResult, error)
+	Search(ctx context.Context, args SearchArgs) (*SearchResult, error)
+	Recall(ctx context.Context, args RecallArgs) (*RecallResult, error)
+	Ask(ctx context.Context, args AskArgs, progress ProgressEmitter) (*AskResult, error)
+	IngestFile(ctx context.Context, args IngestFileArgs, progress ProgressEmitter) (*IngestResult, error)
+	IngestURL(ctx context.Context, args IngestURLArgs, progress ProgressEmitter) (*IngestURLResult, error)
+	Extract(ctx context.Context, args ExtractArgs, progress ProgressEmitter) (*ExtractResult, error)
+	ExtractAfterIngest(ctx context.Context, args ExtractAfterIngestArgs) (*ExtractAfterIngestResult, error)
+	Reflect(ctx context.Context, args ReflectArgs, progress ProgressEmitter) (*ReflectResult, error)
+	Consolidate(ctx context.Context, args ConsolidateArgs, progress ProgressEmitter) (*ConsolidateResult, error)
+	CreateBrain(ctx context.Context, args CreateBrainArgs) (*CreateBrainResult, error)
+	ListBrains(ctx context.Context) (*ListBrainsResult, error)
 }
 
 // ProgressEmitter mirrors the MemoryClient-side helper signature so
@@ -149,11 +149,11 @@ func Register(server *mcp.Server, client MemoryClient) {
 	registerListBrains(server, client)
 }
 
-// structuredResult wraps a map payload in the [mcp.CallToolResult]
-// expected by the SDK. The JSON rendering of the same payload is
-// surfaced as text content so MCP clients that do not parse
-// structured content still see the raw data.
-func structuredResult(payload map[string]any) (*mcp.CallToolResult, any, error) {
+// structuredResult wraps a typed result struct in the [mcp.CallToolResult]
+// expected by the SDK. The JSON rendering of the payload is surfaced as
+// text content so MCP clients that do not parse structured content still
+// see the raw data.
+func structuredResult(payload any) (*mcp.CallToolResult, any, error) {
 	body, err := json.MarshalIndent(payload, "", "  ")
 	if err != nil {
 		return nil, nil, fmt.Errorf("memory-mcp: marshalling result: %w", err)

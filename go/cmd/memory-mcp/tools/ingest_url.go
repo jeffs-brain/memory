@@ -31,34 +31,31 @@ func registerIngestURL(server *mcp.Server, client MemoryClient) {
 		}
 
 		if !args.Extract {
-			// Strip internal field before returning to the caller.
-			delete(result, "_document_content")
 			return structuredResult(result)
 		}
 
 		// Read the stored content from the ingest result (populated by
 		// the local client from the brain store). No URL re-fetch needed.
-		content, _ := result["_document_content"].(string)
-		delete(result, "_document_content")
+		content := result.DocumentContent
 
-		extractionResult := map[string]any{
-			"factsExtracted": 0,
-			"memories":       []any{},
+		extraction := &ExtractAfterIngestResult{
+			FactsExtracted: 0,
+			Memories:       []ExtractedMemory{},
 		}
 		if content != "" {
-			extraction, extractErr := client.ExtractAfterIngest(ctx, ExtractAfterIngestArgs{
+			extracted, extractErr := client.ExtractAfterIngest(ctx, ExtractAfterIngestArgs{
 				Content:        content,
 				DocumentSource: args.URL,
 				Brain:          args.Brain,
 			})
 			if extractErr == nil {
-				extractionResult = extraction
+				extraction = extracted
 			}
 		}
 
-		combined := map[string]any{
-			"ingest":     result,
-			"extraction": extractionResult,
+		combined := ingestURLWithExtractionResult{
+			Ingest:     result,
+			Extraction: extraction,
 		}
 		return structuredResult(combined)
 	})

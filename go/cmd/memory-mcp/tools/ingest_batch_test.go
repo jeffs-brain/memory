@@ -15,51 +15,50 @@ import (
 
 // mockMemoryClient is a minimal MemoryClient for testing batch ingest.
 type mockMemoryClient struct {
-	ingestFileFn func(ctx context.Context, args IngestFileArgs, progress ProgressEmitter) (map[string]any, error)
+	ingestFileFn func(ctx context.Context, args IngestFileArgs, progress ProgressEmitter) (*IngestResult, error)
 }
 
-func (m *mockMemoryClient) Remember(context.Context, RememberArgs) (map[string]any, error) {
+func (m *mockMemoryClient) Remember(context.Context, RememberArgs) (*RememberResult, error) {
 	return nil, nil
 }
-func (m *mockMemoryClient) Search(context.Context, SearchArgs) (map[string]any, error) {
+func (m *mockMemoryClient) Search(context.Context, SearchArgs) (*SearchResult, error) {
 	return nil, nil
 }
-func (m *mockMemoryClient) Recall(context.Context, RecallArgs) (map[string]any, error) {
+func (m *mockMemoryClient) Recall(context.Context, RecallArgs) (*RecallResult, error) {
 	return nil, nil
 }
-func (m *mockMemoryClient) Ask(context.Context, AskArgs, ProgressEmitter) (map[string]any, error) {
+func (m *mockMemoryClient) Ask(context.Context, AskArgs, ProgressEmitter) (*AskResult, error) {
 	return nil, nil
 }
-func (m *mockMemoryClient) IngestFile(ctx context.Context, args IngestFileArgs, progress ProgressEmitter) (map[string]any, error) {
+func (m *mockMemoryClient) IngestFile(ctx context.Context, args IngestFileArgs, progress ProgressEmitter) (*IngestResult, error) {
 	if m.ingestFileFn != nil {
 		return m.ingestFileFn(ctx, args, progress)
 	}
-	return map[string]any{
-		"status":      "completed",
-		"document_id": "doc-" + args.Path,
-		"hash":        "hash-" + args.Path,
-		"byte_size":   100,
+	return &IngestResult{
+		Status:     "completed",
+		DocumentID: "doc-" + args.Path,
+		Hash:       "hash-" + args.Path,
 	}, nil
 }
-func (m *mockMemoryClient) IngestURL(context.Context, IngestURLArgs, ProgressEmitter) (map[string]any, error) {
+func (m *mockMemoryClient) IngestURL(context.Context, IngestURLArgs, ProgressEmitter) (*IngestURLResult, error) {
 	return nil, nil
 }
-func (m *mockMemoryClient) ExtractAfterIngest(context.Context, ExtractAfterIngestArgs) (map[string]any, error) {
+func (m *mockMemoryClient) ExtractAfterIngest(context.Context, ExtractAfterIngestArgs) (*ExtractAfterIngestResult, error) {
 	return nil, nil
 }
-func (m *mockMemoryClient) Extract(context.Context, ExtractArgs, ProgressEmitter) (map[string]any, error) {
+func (m *mockMemoryClient) Extract(context.Context, ExtractArgs, ProgressEmitter) (*ExtractResult, error) {
 	return nil, nil
 }
-func (m *mockMemoryClient) Reflect(context.Context, ReflectArgs, ProgressEmitter) (map[string]any, error) {
+func (m *mockMemoryClient) Reflect(context.Context, ReflectArgs, ProgressEmitter) (*ReflectResult, error) {
 	return nil, nil
 }
-func (m *mockMemoryClient) Consolidate(context.Context, ConsolidateArgs, ProgressEmitter) (map[string]any, error) {
+func (m *mockMemoryClient) Consolidate(context.Context, ConsolidateArgs, ProgressEmitter) (*ConsolidateResult, error) {
 	return nil, nil
 }
-func (m *mockMemoryClient) CreateBrain(context.Context, CreateBrainArgs) (map[string]any, error) {
+func (m *mockMemoryClient) CreateBrain(context.Context, CreateBrainArgs) (*CreateBrainResult, error) {
 	return nil, nil
 }
-func (m *mockMemoryClient) ListBrains(context.Context) (map[string]any, error) { return nil, nil }
+func (m *mockMemoryClient) ListBrains(context.Context) (*ListBrainsResult, error) { return nil, nil }
 
 func setupBatchTestServer(t *testing.T, client MemoryClient) *mcp.ClientSession {
 	t.Helper()
@@ -150,15 +149,14 @@ func TestIngestBatch_AllSucceed(t *testing.T) {
 
 func TestIngestBatch_PerFileErrorIsolation(t *testing.T) {
 	client := &mockMemoryClient{
-		ingestFileFn: func(_ context.Context, args IngestFileArgs, _ ProgressEmitter) (map[string]any, error) {
+		ingestFileFn: func(_ context.Context, args IngestFileArgs, _ ProgressEmitter) (*IngestResult, error) {
 			if args.Path == "/missing.md" {
 				return nil, fmt.Errorf("file not found")
 			}
-			return map[string]any{
-				"status":      "completed",
-				"document_id": "doc-" + args.Path,
-				"hash":        "hash-" + args.Path,
-				"byte_size":   50,
+			return &IngestResult{
+				Status:     "completed",
+				DocumentID: "doc-" + args.Path,
+				Hash:       "hash-" + args.Path,
 			}, nil
 		},
 	}
@@ -197,16 +195,15 @@ func TestIngestBatch_DuplicateFiles(t *testing.T) {
 	var mu sync.Mutex
 	var callCount int
 	client := &mockMemoryClient{
-		ingestFileFn: func(_ context.Context, args IngestFileArgs, _ ProgressEmitter) (map[string]any, error) {
+		ingestFileFn: func(_ context.Context, args IngestFileArgs, _ ProgressEmitter) (*IngestResult, error) {
 			mu.Lock()
 			callCount++
 			n := callCount
 			mu.Unlock()
-			return map[string]any{
-				"status":      "completed",
-				"document_id": fmt.Sprintf("doc-%d", n),
-				"hash":        fmt.Sprintf("hash-%d", n),
-				"byte_size":   42,
+			return &IngestResult{
+				Status:     "completed",
+				DocumentID: fmt.Sprintf("doc-%d", n),
+				Hash:       fmt.Sprintf("hash-%d", n),
 			}, nil
 		},
 	}
@@ -239,11 +236,11 @@ func TestIngestBatch_BrainAppliedToAll(t *testing.T) {
 	var mu sync.Mutex
 	brainsSeen := []string{}
 	client := &mockMemoryClient{
-		ingestFileFn: func(_ context.Context, args IngestFileArgs, _ ProgressEmitter) (map[string]any, error) {
+		ingestFileFn: func(_ context.Context, args IngestFileArgs, _ ProgressEmitter) (*IngestResult, error) {
 			mu.Lock()
 			brainsSeen = append(brainsSeen, args.Brain)
 			mu.Unlock()
-			return map[string]any{"status": "completed", "document_id": "d", "hash": "h", "byte_size": 1}, nil
+			return &IngestResult{Status: "completed", DocumentID: "d", Hash: "h"}, nil
 		},
 	}
 	session := setupBatchTestServer(t, client)
