@@ -11,8 +11,9 @@
  * package.
  */
 
+import { Buffer } from 'node:buffer'
 import type { Provider } from '../llm/types.js'
-import type { TypeEntry } from './templates.js'
+import { isValidNodeType, isValidEdgeType, type TypeEntry } from './templates.js'
 import type { ResolvedOntology, ResolvedType } from './store.js'
 
 import { jaroWinklerDistance } from './similarity.js'
@@ -117,12 +118,13 @@ export class Extractor {
   ): Promise<ExtractionResult> {
     const sections = splitContent(content, SINGLE_SECTION_THRESHOLD)
     const allResults: ExtractionResult[] = []
-    const discoveredTypes: TypeEntry[] = []
+    const discoveredNodeTypes: TypeEntry[] = []
+    const discoveredEdgeTypes: TypeEntry[] = []
 
     for (let i = 0; i < sections.length; i++) {
       let systemPrompt = buildOntologyExtractionPrompt(params.existingTypes)
-      if (discoveredTypes.length > 0) {
-        systemPrompt += buildContextPrefix(discoveredTypes)
+      if (discoveredNodeTypes.length > 0 || discoveredEdgeTypes.length > 0) {
+        systemPrompt += buildContextPrefix(discoveredNodeTypes, discoveredEdgeTypes)
       }
 
       let userMsg = buildUserMessage(sections[i]!, params.fileName)
@@ -132,8 +134,8 @@ export class Extractor {
 
       const result = await this.callLLMWithRetry(systemPrompt, userMsg, signal)
       allResults.push(result)
-      discoveredTypes.push(...result.nodeTypes)
-      discoveredTypes.push(...result.edgeTypes)
+      discoveredNodeTypes.push(...result.nodeTypes)
+      discoveredEdgeTypes.push(...result.edgeTypes)
     }
 
     if (allResults.length === 0) {
@@ -230,7 +232,8 @@ function parseExtractionResponse(text: string): ExtractionResult | undefined {
         typeof nt.description === 'string' &&
         nt.type !== '' &&
         nt.label !== '' &&
-        nt.description !== ''
+        nt.description !== '' &&
+        isValidNodeType(nt.type)
       ) {
         nodeTypes.push({ type: nt.type, label: nt.label, description: nt.description })
       }
@@ -248,7 +251,8 @@ function parseExtractionResponse(text: string): ExtractionResult | undefined {
         typeof et.description === 'string' &&
         et.type !== '' &&
         et.label !== '' &&
-        et.description !== ''
+        et.description !== '' &&
+        isValidEdgeType(et.type)
       ) {
         edgeTypes.push({ type: et.type, label: et.label, description: et.description })
       }
@@ -534,18 +538,40 @@ function buildExistingTypesSection(existing: ResolvedOntology): string {
 }
 
 function buildUserMessage(content: string, fileName: string): string {
-  if (fileName !== '') {
-    return `Document: ${fileName}\n\n${content}`
+  const sanitised = sanitiseFileName(fileName)
+  if (sanitised !== '') {
+    return `Document: ${sanitised}\n\n<ingested-document>\n${content}\n</ingested-document>`
   }
-  return content
+  return `<ingested-document>\n${content}\n</ingested-document>`
 }
 
-function buildContextPrefix(discoveredTypes: readonly TypeEntry[]): string {
+/**
+ * Strip newlines, control characters, and trim the filename to
+ * prevent prompt injection via crafted file names.
+ */
+function sanitiseFileName(name: string): string {
+  const cleaned = name.replace(/[\x00-\x1f\x7f-\x9f]/g, '').trim()
+  return cleaned.length > 256 ? cleaned.slice(0, 256) : cleaned
+}
+
+function buildContextPrefix(
+  nodeTypes: readonly TypeEntry[],
+  edgeTypes: readonly TypeEntry[],
+): string {
   const lines = [
     '\n\nTypes discovered from earlier sections of this document (avoid duplicating these):',
   ]
-  for (const t of discoveredTypes) {
-    lines.push(`- ${t.type}: ${t.label}`)
+  if (nodeTypes.length > 0) {
+    lines.push('\nDiscovered node types:')
+    for (const t of nodeTypes) {
+      lines.push(`- ${t.type}: ${t.label}`)
+    }
+  }
+  if (edgeTypes.length > 0) {
+    lines.push('\nDiscovered edge types:')
+    for (const t of edgeTypes) {
+      lines.push(`- ${t.type}: ${t.label}`)
+    }
   }
   return lines.join('\n') + '\n'
 }
@@ -556,7 +582,7 @@ function buildContextPrefix(discoveredTypes: readonly TypeEntry[]): string {
  * Otherwise splits on markdown headings or at byte boundaries.
  */
 export function splitContent(content: string, maxBytes: number): string[] {
-  if (content.length <= maxBytes) {
+  if (Buffer.byteLength(content, 'utf8') <= maxBytes) {
     return [content]
   }
 
@@ -589,7 +615,7 @@ export function isTabularContent(content: string): boolean {
   return tabularLines >= 3
 }
 
-function splitTabularContent(content: string, _maxBytes: number): string[] {
+function splitTabularContent(content: string, maxBytes: number): string[] {
   const lines = content.split('\n')
   if (lines.length === 0) return [content]
 
@@ -597,13 +623,24 @@ function splitTabularContent(content: string, _maxBytes: number): string[] {
   const dataLines = lines.slice(1)
   if (dataLines.length === 0) return [content]
 
-  const samplesPerSection = 3
+  const headerBytes = Buffer.byteLength(header, 'utf8') + 1 // +1 for newline
   const sections: string[] = []
+  let sectionLines: string[] = []
+  let currentBytes = headerBytes
 
-  for (let i = 0; i < dataLines.length; i += samplesPerSection) {
-    const end = Math.min(i + samplesPerSection, dataLines.length)
-    const section = header + '\n' + dataLines.slice(i, end).join('\n')
-    sections.push(section)
+  for (const line of dataLines) {
+    const lineBytes = Buffer.byteLength(line, 'utf8') + 1
+    if (currentBytes + lineBytes > maxBytes && sectionLines.length > 0) {
+      sections.push(header + '\n' + sectionLines.join('\n'))
+      sectionLines = []
+      currentBytes = headerBytes
+    }
+    sectionLines.push(line)
+    currentBytes += lineBytes
+  }
+
+  if (sectionLines.length > 0) {
+    sections.push(header + '\n' + sectionLines.join('\n'))
   }
 
   return sections
@@ -616,7 +653,7 @@ function splitByHeadingsOrBytes(content: string, maxBytes: number): string[] {
   let currentBytes = 0
 
   for (const line of lines) {
-    const lineBytes = line.length + 1
+    const lineBytes = Buffer.byteLength(line, 'utf8') + 1
 
     const isHeading = line.startsWith('# ') || line.startsWith('## ') || line.startsWith('### ')
 
@@ -637,7 +674,7 @@ function splitByHeadingsOrBytes(content: string, maxBytes: number): string[] {
       currentBytes++
     }
     currentSection += line
-    currentBytes += line.length
+    currentBytes += Buffer.byteLength(line, 'utf8')
   }
 
   if (currentBytes > 0) {

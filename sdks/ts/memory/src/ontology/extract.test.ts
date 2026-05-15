@@ -246,6 +246,10 @@ describe('noisyOr', () => {
     expect(result).toBeCloseTo(0.94, 2)
   })
 
+  it('returns 0 for single value below floor', () => {
+    expect(noisyOr([0.2])).toBe(0)
+  })
+
   it('filters values below floor', () => {
     expect(noisyOr([0.1, 0.2, 0.15])).toBe(0)
   })

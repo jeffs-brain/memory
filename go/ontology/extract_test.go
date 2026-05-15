@@ -290,6 +290,14 @@ func TestNoisyOr_MultipleValues(t *testing.T) {
 	}
 }
 
+func TestNoisyOr_SingleValueBelowFloor(t *testing.T) {
+	t.Parallel()
+	result := NoisyOr([]float64{0.2})
+	if result != 0 {
+		t.Fatalf("expected 0 for single value below floor, got %f", result)
+	}
+}
+
 func TestNoisyOr_BelowFloor(t *testing.T) {
 	t.Parallel()
 	// All values below ConfidenceFloor should be filtered out

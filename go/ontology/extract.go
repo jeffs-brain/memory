@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"unicode"
 
 	"github.com/jeffs-brain/memory/go/llm"
 )
@@ -136,12 +137,13 @@ func (e *Extractor) extractMultiSection(ctx context.Context, content string, par
 	sections := splitContent(content, SingleSectionThreshold)
 
 	var allResults []ExtractionResult
-	var discoveredTypes []TypeEntry
+	var discoveredNodeTypes []TypeEntry
+	var discoveredEdgeTypes []TypeEntry
 
 	for i, section := range sections {
 		prompt := buildOntologyExtractionPrompt(params.ExistingTypes)
-		if len(discoveredTypes) > 0 {
-			prompt += buildContextPrefix(discoveredTypes)
+		if len(discoveredNodeTypes) > 0 || len(discoveredEdgeTypes) > 0 {
+			prompt += buildContextPrefix(discoveredNodeTypes, discoveredEdgeTypes)
 		}
 
 		userMsg := buildUserMessage(section, params.FileName)
@@ -155,8 +157,8 @@ func (e *Extractor) extractMultiSection(ctx context.Context, content string, par
 		}
 
 		allResults = append(allResults, result)
-		discoveredTypes = append(discoveredTypes, result.NodeTypes...)
-		discoveredTypes = append(discoveredTypes, result.EdgeTypes...)
+		discoveredNodeTypes = append(discoveredNodeTypes, result.NodeTypes...)
+		discoveredEdgeTypes = append(discoveredEdgeTypes, result.EdgeTypes...)
 	}
 
 	if len(allResults) == 0 {
@@ -236,12 +238,12 @@ func parseExtractionResponse(text string) (ExtractionResult, error) {
 	}
 
 	for _, nt := range raw.NodeTypes {
-		if nt.Type != "" && nt.Label != "" && nt.Description != "" {
+		if nt.Type != "" && nt.Label != "" && nt.Description != "" && IsValidNodeType(nt.Type) {
 			result.NodeTypes = append(result.NodeTypes, nt)
 		}
 	}
 	for _, et := range raw.EdgeTypes {
-		if et.Type != "" && et.Label != "" && et.Description != "" {
+		if et.Type != "" && et.Label != "" && et.Description != "" && IsValidEdgeType(et.Type) {
 			result.EdgeTypes = append(result.EdgeTypes, et)
 		}
 	}
@@ -458,11 +460,13 @@ func fuzzyDedupByPrefix(nodeMap map[string]TypeEntry) map[string]TypeEntry {
 	for _, keys := range byPrefix {
 		for i := 0; i < len(keys); i++ {
 			for j := i + 1; j < len(keys); j++ {
-				entryI := nodeMap[keys[i]]
-				entryJ := nodeMap[keys[j]]
+				entryI, okI := nodeMap[keys[i]]
+				entryJ, okJ := nodeMap[keys[j]]
+				if !okI || !okJ {
+					continue
+				}
 				sim := JaroWinklerDistance(entryI.Label, entryJ.Label)
 				if sim >= FuzzyLabelMerge {
-					// Keep the one with the longer description
 					if len(entryJ.Description) > len(entryI.Description) {
 						delete(nodeMap, keys[i])
 					} else {
@@ -617,21 +621,52 @@ func buildExistingTypesSection(existing *ResolvedOntology) string {
 }
 
 func buildUserMessage(content, fileName string) string {
-	if fileName != "" {
-		return fmt.Sprintf("Document: %s\n\n%s", fileName, content)
+	sanitised := sanitiseFileName(fileName)
+	if sanitised != "" {
+		return fmt.Sprintf("Document: %s\n\n<ingested-document>\n%s\n</ingested-document>", sanitised, content)
 	}
-	return content
+	return fmt.Sprintf("<ingested-document>\n%s\n</ingested-document>", content)
 }
 
-func buildContextPrefix(discoveredTypes []TypeEntry) string {
+// sanitiseFileName strips newlines, control characters, and trims the
+// filename to prevent prompt injection via crafted file names.
+func sanitiseFileName(name string) string {
+	var b strings.Builder
+	for _, r := range name {
+		if unicode.IsControl(r) {
+			continue
+		}
+		b.WriteRune(r)
+	}
+	result := strings.TrimSpace(b.String())
+	if len(result) > 256 {
+		result = result[:256]
+	}
+	return result
+}
+
+func buildContextPrefix(nodeTypes, edgeTypes []TypeEntry) string {
 	var b strings.Builder
 	b.WriteString("\n\nTypes discovered from earlier sections of this document (avoid duplicating these):\n")
-	for _, t := range discoveredTypes {
-		b.WriteString("- ")
-		b.WriteString(t.Type)
-		b.WriteString(": ")
-		b.WriteString(t.Label)
-		b.WriteByte('\n')
+	if len(nodeTypes) > 0 {
+		b.WriteString("\nDiscovered node types:\n")
+		for _, t := range nodeTypes {
+			b.WriteString("- ")
+			b.WriteString(t.Type)
+			b.WriteString(": ")
+			b.WriteString(t.Label)
+			b.WriteByte('\n')
+		}
+	}
+	if len(edgeTypes) > 0 {
+		b.WriteString("\nDiscovered edge types:\n")
+		for _, t := range edgeTypes {
+			b.WriteString("- ")
+			b.WriteString(t.Type)
+			b.WriteString(": ")
+			b.WriteString(t.Label)
+			b.WriteByte('\n')
+		}
 	}
 	return b.String()
 }
@@ -691,16 +726,24 @@ func splitTabularContent(content string, maxBytes int) []string {
 		return []string{content}
 	}
 
-	samplesPerSection := 3
+	headerBytes := len(header) + 1 // +1 for the newline after header
 	var sections []string
+	var sectionLines []string
+	currentBytes := headerBytes
 
-	for i := 0; i < len(dataLines); i += samplesPerSection {
-		end := i + samplesPerSection
-		if end > len(dataLines) {
-			end = len(dataLines)
+	for _, line := range dataLines {
+		lineBytes := len(line) + 1 // +1 for newline
+		if currentBytes+lineBytes > maxBytes && len(sectionLines) > 0 {
+			sections = append(sections, header+"\n"+strings.Join(sectionLines, "\n"))
+			sectionLines = sectionLines[:0]
+			currentBytes = headerBytes
 		}
-		section := header + "\n" + strings.Join(dataLines[i:end], "\n")
-		sections = append(sections, section)
+		sectionLines = append(sectionLines, line)
+		currentBytes += lineBytes
+	}
+
+	if len(sectionLines) > 0 {
+		sections = append(sections, header+"\n"+strings.Join(sectionLines, "\n"))
 	}
 
 	return sections
