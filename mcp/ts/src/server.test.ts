@@ -58,17 +58,18 @@ describe('memory-mcp server', () => {
     await rm(tmp, { recursive: true, force: true })
   })
 
-  it('lists all 11 tools', async () => {
+  it('lists all 12 tools', async () => {
     const { client, shutdown } = await bootServer(tmp)
     try {
       const list = await client.listTools()
-      expect(list.tools.length).toBe(11)
+      expect(list.tools.length).toBe(12)
       const names = list.tools.map((t) => t.name).sort()
       expect(names).toEqual([
         'memory_ask',
         'memory_consolidate',
         'memory_create_brain',
         'memory_extract',
+        'memory_ingest_batch',
         'memory_ingest_file',
         'memory_ingest_url',
         'memory_list_brains',
