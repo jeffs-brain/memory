@@ -26,7 +26,7 @@ func TestBusinessCategoryCount(t *testing.T) {
 
 func TestNodeTypePrefixCount(t *testing.T) {
 	t.Parallel()
-	if got := len(NodeTypePrefixes); got != 5 {
+	if got := len(NodeTypePrefixesList()); got != 5 {
 		t.Fatalf("expected 5 node type prefixes, got %d", got)
 	}
 }
@@ -102,10 +102,50 @@ func TestAllNodeTypesHaveValidPrefix(t *testing.T) {
 
 func TestNodeTypePrefixesEndWithDot(t *testing.T) {
 	t.Parallel()
-	for _, prefix := range NodeTypePrefixes {
+	for _, prefix := range NodeTypePrefixesList() {
 		if prefix[len(prefix)-1] != '.' {
 			t.Fatalf("prefix %q does not end with dot", prefix)
 		}
+	}
+}
+
+func TestRegisterPrefix(t *testing.T) {
+	t.Cleanup(resetPrefixes)
+
+	if err := RegisterPrefix("metric."); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	prefixes := NodeTypePrefixesList()
+	found := false
+	for _, p := range prefixes {
+		if p == "metric." {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("expected 'metric.' prefix to be registered")
+	}
+	if len(prefixes) != 6 {
+		t.Fatalf("expected 6 prefixes after registration, got %d", len(prefixes))
+	}
+
+	if !IsValidNodeType("metric.cpu_usage") {
+		t.Fatal("expected metric.cpu_usage to be valid after registering metric. prefix")
+	}
+}
+
+func TestRegisterPrefix_Errors(t *testing.T) {
+	t.Cleanup(resetPrefixes)
+
+	if err := RegisterPrefix(""); err == nil {
+		t.Fatal("expected error for empty prefix")
+	}
+	if err := RegisterPrefix("noDot"); err == nil {
+		t.Fatal("expected error for prefix without trailing dot")
+	}
+	if err := RegisterPrefix("entity."); err == nil {
+		t.Fatal("expected error for already-registered prefix")
 	}
 }
 

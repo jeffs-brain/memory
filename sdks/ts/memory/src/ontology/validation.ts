@@ -8,7 +8,7 @@
  */
 
 import type { OntologyTypeDefinition, TypeStatus } from './types.js'
-import { BUILT_IN_EDGE_TYPES, BUILT_IN_NODE_TYPES, BUSINESS_CATEGORIES, NODE_TYPE_PREFIXES } from './types.js'
+import { BUILT_IN_EDGE_TYPES, BUILT_IN_NODE_TYPES, BUSINESS_CATEGORIES, _nodeTypePrefixesRef } from './types.js'
 
 const SNAKE_CASE_NAME_RE = /^[a-z][a-z0-9]*(_[a-z0-9]+)*$/
 
@@ -48,7 +48,7 @@ export function isValidNodeType(value: string): boolean {
   if (builtInNodeTypeSet.has(value)) {
     return true
   }
-  for (const prefix of NODE_TYPE_PREFIXES) {
+  for (const prefix of _nodeTypePrefixesRef()) {
     if (value.startsWith(prefix)) {
       const name = value.slice(prefix.length)
       if (name.length === 0) {
@@ -83,7 +83,7 @@ export function isValidBusinessCategory(value: string): boolean {
  * Returns the matching prefix for a node type, or undefined if none matches.
  */
 export function hasPrefix(nodeType: string): string | undefined {
-  for (const prefix of NODE_TYPE_PREFIXES) {
+  for (const prefix of _nodeTypePrefixesRef()) {
     if (nodeType.startsWith(prefix)) {
       return prefix
     }

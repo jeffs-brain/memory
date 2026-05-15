@@ -25,7 +25,10 @@ func IsValidNodeType(value string) bool {
 	if IsBuiltInNodeType(value) {
 		return true
 	}
-	for _, prefix := range NodeTypePrefixes {
+	prefixMu.RLock()
+	prefixes := nodeTypePrefixes
+	prefixMu.RUnlock()
+	for _, prefix := range prefixes {
 		if strings.HasPrefix(value, prefix) {
 			name := value[len(prefix):]
 			if len(name) == 0 {
@@ -56,7 +59,10 @@ func IsValidBusinessCategory(value string) bool {
 // HasPrefix reports whether the given node type starts with one of the
 // known prefixes and returns the prefix. Returns empty string if no prefix matches.
 func HasPrefix(nodeType string) string {
-	for _, prefix := range NodeTypePrefixes {
+	prefixMu.RLock()
+	prefixes := nodeTypePrefixes
+	prefixMu.RUnlock()
+	for _, prefix := range prefixes {
 		if strings.HasPrefix(nodeType, prefix) {
 			return prefix
 		}

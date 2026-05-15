@@ -1,9 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0
 
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 import { getBuiltInEdgeTypeDescription, getBuiltInNodeTypeDescription } from './descriptions.js'
-import { BUILT_IN_EDGE_TYPES, BUILT_IN_NODE_TYPES, BUSINESS_CATEGORIES, NODE_TYPE_PREFIXES } from './types.js'
-import { hasPrefix } from './validation.js'
+import {
+  BUILT_IN_EDGE_TYPES,
+  BUILT_IN_NODE_TYPES,
+  BUSINESS_CATEGORIES,
+  NODE_TYPE_PREFIXES,
+  getNodeTypePrefixes,
+  registerPrefix,
+  _resetPrefixes,
+} from './types.js'
+import { hasPrefix, isValidNodeType } from './validation.js'
 
 describe('BUILT_IN_NODE_TYPES', () => {
   it('has exactly 31 entries', () => {
@@ -157,5 +165,35 @@ describe('cross-SDK parity with Go constants', () => {
   it('prefixes match expected Go values', () => {
     const expectedPrefixes = ['entity.', 'rule.', 'exception.', 'decision.', 'process.']
     expect([...NODE_TYPE_PREFIXES]).toEqual(expectedPrefixes)
+  })
+})
+
+describe('registerPrefix', () => {
+  afterEach(() => {
+    _resetPrefixes()
+  })
+
+  it('adds a custom prefix', () => {
+    registerPrefix('metric.')
+    const prefixes = getNodeTypePrefixes()
+    expect(prefixes).toContain('metric.')
+    expect(prefixes).toHaveLength(6)
+  })
+
+  it('enables validation of types with the new prefix', () => {
+    registerPrefix('metric.')
+    expect(isValidNodeType('metric.cpu_usage')).toBe(true)
+  })
+
+  it('rejects empty prefix', () => {
+    expect(() => registerPrefix('')).toThrow('must not be empty')
+  })
+
+  it('rejects prefix without trailing dot', () => {
+    expect(() => registerPrefix('noDot')).toThrow('must end with a dot')
+  })
+
+  it('rejects duplicate prefix', () => {
+    expect(() => registerPrefix('entity.')).toThrow('already registered')
   })
 })

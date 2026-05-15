@@ -17,6 +17,8 @@ export {
   BUILT_IN_NODE_TYPES,
   BUSINESS_CATEGORIES,
   NODE_TYPE_PREFIXES,
+  getNodeTypePrefixes,
+  registerPrefix,
 } from './types.js'
 
 export {

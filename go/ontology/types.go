@@ -1,6 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 package ontology
 
+import (
+	"fmt"
+	"sync"
+)
+
 // BuiltInNodeTypes is the authoritative list of 31 built-in node types.
 var BuiltInNodeTypes = [31]string{
 	"entity.customer",
@@ -71,13 +76,62 @@ var BusinessCategories = [8]string{
 	"general",
 }
 
-// NodeTypePrefixes are the 5 valid prefixes for node type identifiers.
-var NodeTypePrefixes = [5]string{
+// nodeTypePrefixes is the mutable backing list of valid prefixes.
+// Protected by prefixMu. Starts with the 5 built-in prefixes.
+var nodeTypePrefixes = []string{
 	"entity.",
 	"rule.",
 	"exception.",
 	"decision.",
 	"process.",
+}
+
+// prefixMu protects concurrent access to nodeTypePrefixes.
+var prefixMu sync.RWMutex
+
+// NodeTypePrefixes returns a copy of the current valid prefixes.
+// The returned slice is safe to iterate without holding any lock.
+func NodeTypePrefixesList() []string {
+	prefixMu.RLock()
+	defer prefixMu.RUnlock()
+	out := make([]string, len(nodeTypePrefixes))
+	copy(out, nodeTypePrefixes)
+	return out
+}
+
+// RegisterPrefix adds a custom node type prefix to the valid set.
+// The prefix must end with a dot (e.g., "metric."). Returns an error
+// if the prefix is empty, does not end with a dot, or is already
+// registered. This is safe for concurrent use.
+func RegisterPrefix(prefix string) error {
+	if prefix == "" {
+		return fmt.Errorf("ontology: prefix must not be empty")
+	}
+	if prefix[len(prefix)-1] != '.' {
+		return fmt.Errorf("ontology: prefix %q must end with a dot", prefix)
+	}
+	prefixMu.Lock()
+	defer prefixMu.Unlock()
+	for _, existing := range nodeTypePrefixes {
+		if existing == prefix {
+			return fmt.Errorf("ontology: prefix %q is already registered", prefix)
+		}
+	}
+	nodeTypePrefixes = append(nodeTypePrefixes, prefix)
+	return nil
+}
+
+// resetPrefixes restores the built-in prefixes only (for testing).
+func resetPrefixes() {
+	prefixMu.Lock()
+	defer prefixMu.Unlock()
+	nodeTypePrefixes = []string{
+		"entity.",
+		"rule.",
+		"exception.",
+		"decision.",
+		"process.",
+	}
 }
 
 // Scope determines where a type definition lives in the resolution hierarchy.
