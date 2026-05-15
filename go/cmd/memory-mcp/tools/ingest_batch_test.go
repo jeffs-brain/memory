@@ -44,6 +44,9 @@ func (m *mockMemoryClient) IngestFile(ctx context.Context, args IngestFileArgs, 
 func (m *mockMemoryClient) IngestURL(context.Context, IngestURLArgs, ProgressEmitter) (map[string]any, error) {
 	return nil, nil
 }
+func (m *mockMemoryClient) ExtractAfterIngest(context.Context, ExtractAfterIngestArgs) (map[string]any, error) {
+	return nil, nil
+}
 func (m *mockMemoryClient) Extract(context.Context, ExtractArgs, ProgressEmitter) (map[string]any, error) {
 	return nil, nil
 }

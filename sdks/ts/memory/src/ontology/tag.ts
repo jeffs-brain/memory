@@ -50,7 +50,7 @@ export function tagChunk(
   }
 
   return {
-    entityTypes,
+    entityTypes: entityTypes ?? [],
     businessCategory,
     confidence: classification.confidence,
     documentClass: classification.class,

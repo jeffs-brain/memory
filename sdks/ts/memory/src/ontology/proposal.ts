@@ -16,13 +16,13 @@ import type { OntologyTypeDefinition, TypeStatus } from './types.js'
 import type { ResolvedOntology } from './store.js'
 import type { Registry } from './registry.js'
 import type { TypeEntry } from './templates.js'
-import type { ExtractionResult } from './types-extraction.js'
+import type { ExtractionResult } from './extract.js'
 import { hashString } from '../ingest/hash.js'
 import { Deduplicator } from './dedup.js'
 import { formatEdgeTypeLabel, formatNodeTypeLabel } from './format.js'
 import { hasPrefix } from './validation.js'
 
-export type { ExtractionResult } from './types-extraction.js'
+export type { ExtractionResult } from './extract.js'
 
 export type ProposalStatus = 'proposed' | 'accepted' | 'merged' | 'rejected'
 

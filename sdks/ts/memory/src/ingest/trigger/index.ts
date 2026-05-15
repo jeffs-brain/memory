@@ -7,7 +7,6 @@ export type {
   TriggerBus,
   TriggerBusOptions,
   TriggerHandler,
-  Unsubscribe,
   EventTransport,
   ParseResult,
 } from './types.js'

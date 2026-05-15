@@ -13,12 +13,12 @@
 
 import type { Embedder } from '../llm/types.js'
 import type { TypeEntry, IndustryTemplate } from './templates.js'
-import type { ExtractionResult } from './types-extraction.js'
+import type { ExtractionResult } from './extract.js'
 
 import { listTemplates, getTemplate } from './templates.js'
 import { cosineSimilarity } from './similarity.js'
 
-export type { ExtractionResult } from './types-extraction.js'
+export type { ExtractionResult } from './extract.js'
 
 /** Minimum cosine similarity for a semantic embedding pair to count as a match. */
 export const TEMPLATE_MATCH_SEMANTIC_THRESHOLD = 0.8

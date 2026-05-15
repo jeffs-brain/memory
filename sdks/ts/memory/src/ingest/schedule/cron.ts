@@ -25,14 +25,16 @@ export const parseCron = (expression: string): CronSchedule => {
     throw new Error(`cron: expected 5 fields, got ${fields.length} in "${expression}"`)
   }
 
+  const [minuteField, hourField, domField, monthField, dowField] = fields as [string, string, string, string, string]
+
   return {
-    minute: parseField(fields[0], 0, 59, 'minute'),
-    hour: parseField(fields[1], 0, 23, 'hour'),
-    dayOfMonth: parseField(fields[2], 1, 31, 'day-of-month'),
-    month: parseField(fields[3], 1, 12, 'month'),
-    dayOfWeek: parseField(fields[4], 0, 6, 'day-of-week'),
-    dayOfMonthIsWild: isWildcard(fields[2]),
-    dayOfWeekIsWild: isWildcard(fields[4]),
+    minute: parseField(minuteField, 0, 59, 'minute'),
+    hour: parseField(hourField, 0, 23, 'hour'),
+    dayOfMonth: parseField(domField, 1, 31, 'day-of-month'),
+    month: parseField(monthField, 1, 12, 'month'),
+    dayOfWeek: parseField(dowField, 0, 6, 'day-of-week'),
+    dayOfMonthIsWild: isWildcard(domField),
+    dayOfWeekIsWild: isWildcard(dowField),
   }
 }
 
@@ -137,13 +139,14 @@ const parseField = (field: string, min: number, max: number, name: string): numb
   for (const part of field.split(',')) {
     const trimmed = part.trim()
     const stepParts = trimmed.split('/')
-    const rangePart = stepParts[0]
+    const rangePart = stepParts[0] ?? ''
     let step = 1
 
     if (stepParts.length === 2) {
-      step = Number.parseInt(stepParts[1], 10)
+      const stepStr = stepParts[1] ?? ''
+      step = Number.parseInt(stepStr, 10)
       if (Number.isNaN(step) || step < 1) {
-        throw new Error(`cron: ${name} field: invalid step "${stepParts[1]}"`)
+        throw new Error(`cron: ${name} field: invalid step "${stepStr}"`)
       }
     }
 
@@ -154,7 +157,9 @@ const parseField = (field: string, min: number, max: number, name: string): numb
       rangeStart = min
       rangeEnd = max
     } else if (rangePart.includes('-')) {
-      const [s, e] = rangePart.split('-')
+      const rangeSplit = rangePart.split('-')
+      const s = rangeSplit[0] ?? ''
+      const e = rangeSplit[1] ?? ''
       rangeStart = Number.parseInt(s, 10)
       rangeEnd = Number.parseInt(e, 10)
       if (Number.isNaN(rangeStart) || Number.isNaN(rangeEnd)) {

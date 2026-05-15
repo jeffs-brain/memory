@@ -45,7 +45,7 @@ export const createMemoryScheduleStore = (): ScheduleStore => {
       nextRunAt: nextOccurrence(sched, now),
       createdAt: now,
       updatedAt: now,
-      metadata: input.metadata,
+      ...(input.metadata !== undefined ? { metadata: input.metadata } : {}),
     }
     jobs.set(id, job)
     return job
@@ -65,13 +65,14 @@ export const createMemoryScheduleStore = (): ScheduleStore => {
       throw new Error(`schedule: invalid cron expression: "${patch.cronExpression}"`)
     }
 
+    const resolvedMetadata = patch.metadata ?? existing.metadata
     const updated: ScheduledJob = {
       ...existing,
       name: patch.name ?? existing.name,
       cronExpression: cronExpr,
       target: (patch.target ?? existing.target) as ScheduleTarget,
       enabled: patch.enabled ?? existing.enabled,
-      metadata: patch.metadata ?? existing.metadata,
+      ...(resolvedMetadata !== undefined ? { metadata: resolvedMetadata } : {}),
       nextRunAt: patch.cronExpression
         ? nextOccurrence(parseCron(cronExpr), new Date())
         : existing.nextRunAt,
