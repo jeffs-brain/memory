@@ -3,6 +3,7 @@ module github.com/jeffs-brain/memory/go
 go 1.25.0
 
 require (
+	github.com/blevesearch/snowballstem v0.9.0
 	github.com/go-git/go-git/v5 v5.17.2
 	github.com/google/jsonschema-go v0.4.2
 	github.com/ledongthuc/pdf v0.0.0-20250511090121-5959a4027728
