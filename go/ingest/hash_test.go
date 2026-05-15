@@ -97,6 +97,94 @@ func TestHashDocument_CrossSDKConformance(t *testing.T) {
 	}
 }
 
+func TestHashSlug_Returns12HexChars(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name  string
+		input []byte
+	}{
+		{"empty", []byte{}},
+		{"short", []byte("hello")},
+		{"long", []byte(strings.Repeat("a", 4096))},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			slug := HashSlug(tc.input)
+			if len(slug) != 12 {
+				t.Fatalf("expected 12 chars, got %d: %q", len(slug), slug)
+			}
+			if _, err := hex.DecodeString(slug + "0000"); err != nil {
+				// Validate it's valid hex by padding to even length check.
+				for _, c := range slug {
+					if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')) {
+						t.Fatalf("slug contains non-hex char: %q", slug)
+					}
+				}
+			}
+		})
+	}
+}
+
+func TestHashSlug_IsPrefixOfHashDocument(t *testing.T) {
+	t.Parallel()
+	input := []byte("consistency check between HashSlug and HashDocument")
+	full := HashDocument(input)
+	slug := HashSlug(input)
+	if full[:12] != slug {
+		t.Fatalf("HashSlug is not a prefix of HashDocument: %q vs %q", slug, full[:12])
+	}
+}
+
+func TestHashDocumentID_Returns16HexChars(t *testing.T) {
+	t.Parallel()
+	id := HashDocumentID("brain-1", "abc123")
+	if len(id) != 16 {
+		t.Fatalf("expected 16 chars, got %d: %q", len(id), id)
+	}
+	if _, err := hex.DecodeString(id); err != nil {
+		t.Fatalf("output is not valid hex: %q, err: %v", id, err)
+	}
+}
+
+func TestHashDocumentID_IsBrainScoped(t *testing.T) {
+	t.Parallel()
+	contentHash := "deadbeefcafebabe"
+	idA := HashDocumentID("brain-alpha", contentHash)
+	idB := HashDocumentID("brain-beta", contentHash)
+	if idA == idB {
+		t.Fatalf("different brains produced identical document IDs: %q", idA)
+	}
+}
+
+func TestHashDocumentID_DifferentBrainsDifferentIDs(t *testing.T) {
+	t.Parallel()
+	contentHash := HashDocument([]byte("shared document content"))
+	ids := make(map[string]string, 5)
+	brains := []string{"brain-a", "brain-b", "brain-c", "brain-d", "brain-e"}
+	for _, b := range brains {
+		id := HashDocumentID(b, contentHash)
+		if existing, ok := ids[id]; ok {
+			t.Fatalf("collision: brain %q and %q both produced ID %q", existing, b, id)
+		}
+		ids[id] = b
+	}
+}
+
+func TestHasher_BLAKE3HasherConformance(t *testing.T) {
+	t.Parallel()
+	var h Hasher = BLAKE3Hasher{}
+	if h.Name() != "blake3" {
+		t.Fatalf("expected name 'blake3', got %q", h.Name())
+	}
+	input := []byte("hasher interface test")
+	got := h.Hash(input)
+	want := HashDocument(input)
+	if got != want {
+		t.Fatalf("BLAKE3Hasher.Hash differs from HashDocument: %q vs %q", got, want)
+	}
+}
+
 func BenchmarkBLAKE3_1KB(b *testing.B) {
 	data := []byte(strings.Repeat("x", 1024))
 	b.SetBytes(1024)

@@ -448,12 +448,51 @@ BLAKE3-256:    e311e54b56b26bfef4e5c8501f04c708f1e02233106022f58a7e94b728b7265c
 
 SDK conformance tests MUST assert this exact output. Any implementation that diverges from this value is non-conformant.
 
+### Derived hash functions
+
+Two derived functions produce truncated BLAKE3 digests for specific use cases:
+
+| Function | Output | Purpose |
+| --- | --- | --- |
+| `HashSlug` / `hashSlug` | 12 hex chars | Deterministic fallback slug when a human-readable slug is unavailable |
+| `HashDocumentID` / `hashDocumentId` | 16 hex chars | Stable, brain-scoped document identifier from `BLAKE3(brainID + ":" + contentHash)` |
+
+`HashDocumentID` is brain-scoped: different brain IDs with the same content hash produce different document identifiers. This ensures document IDs are unique per brain even when two brains ingest identical content.
+
+### Hasher interface
+
+The hash algorithm is pluggable via a `Hasher` interface. BLAKE3 is the default implementation; callers can swap to SHA-256 or a custom algorithm without changing call sites.
+
+**Go:**
+
+```go
+type Hasher interface {
+    Hash(content []byte) string
+    Name() string
+}
+
+// Default: BLAKE3Hasher{}
+var DefaultHasher Hasher = BLAKE3Hasher{}
+```
+
+**TypeScript:**
+
+```typescript
+type Hasher = {
+    hash(content: Buffer): string
+    name: string
+}
+
+// Default: blake3Hasher
+export const blake3Hasher: Hasher = { ... }
+```
+
 ### Implementation references
 
 | SDK | Package | Function |
 | --- | --- | --- |
-| Go | `github.com/zeebo/blake3` | `ingest.HashDocument`, `ingest.HashChunk`, `ingest.HashString` |
-| TypeScript | `@noble/hashes/blake3` | `hashDocument`, `hashChunk`, `hashString` |
+| Go | `github.com/zeebo/blake3` | `ingest.HashDocument`, `ingest.HashChunk`, `ingest.HashString`, `ingest.HashSlug`, `ingest.HashDocumentID` |
+| TypeScript | `@noble/hashes/blake3` | `hashDocument`, `hashChunk`, `hashString`, `hashSlug`, `hashDocumentId` |
 
 ### Performance notes
 

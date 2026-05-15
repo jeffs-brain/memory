@@ -5,8 +5,6 @@ package knowledge
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
 	"io"
 	"net/http"
@@ -468,11 +466,11 @@ func deriveTitle(body, fallback string) string {
 	return base
 }
 
-// hashSlug is a deterministic fallback slug built from a SHA-256 sum
+// hashSlug is a deterministic fallback slug built from a BLAKE3 sum
 // truncated to 12 hex characters. Used when slugify collapses to empty.
+// Delegates to ingest.HashSlug for the BLAKE3 implementation.
 func hashSlug(data []byte) string {
-	sum := sha256.Sum256(data)
-	return hex.EncodeToString(sum[:])[:12]
+	return ingest.HashSlug(data)
 }
 
 // slugify mirrors jeff's helper: lowercase, hyphen-separated, capped at

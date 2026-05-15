@@ -14,7 +14,15 @@ export {
   type ChunkOptions,
 } from './chunker.js'
 
-export { hashChunk, hashDocument, hashString } from './hash.js'
+export {
+  hashChunk,
+  hashDocument,
+  hashDocumentId,
+  hashSlug,
+  hashString,
+  blake3Hasher,
+  type Hasher,
+} from './hash.js'
 
 export {
   DEFAULT_CHUNK_CONFIG,

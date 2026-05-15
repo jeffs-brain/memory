@@ -1,7 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from 'vitest'
-import { hashChunk, hashDocument, hashString } from './hash.js'
+import {
+  blake3Hasher,
+  hashChunk,
+  hashDocument,
+  hashDocumentId,
+  hashSlug,
+  hashString,
+  type Hasher,
+} from './hash.js'
 
 describe('hashDocument', () => {
   it('produces deterministic 64-char hex output', () => {
@@ -64,6 +72,62 @@ describe('hashString', () => {
     const hash = hashString('')
     expect(hash).toHaveLength(64)
     expect(hash).toMatch(/^[0-9a-f]{64}$/)
+  })
+})
+
+describe('hashSlug', () => {
+  it('produces 12-char hex output', () => {
+    const hash = hashSlug(Buffer.from('some content for slug'))
+    expect(hash).toHaveLength(12)
+    expect(hash).toMatch(/^[0-9a-f]{12}$/)
+  })
+
+  it('is a prefix of hashDocument', () => {
+    const input = Buffer.from('consistency check')
+    const full = hashDocument(input)
+    const slug = hashSlug(input)
+    expect(full.slice(0, 12)).toBe(slug)
+  })
+
+  it('handles empty input', () => {
+    const hash = hashSlug(Buffer.alloc(0))
+    expect(hash).toHaveLength(12)
+    expect(hash).toMatch(/^[0-9a-f]{12}$/)
+  })
+})
+
+describe('hashDocumentId', () => {
+  it('produces 16-char hex output', () => {
+    const id = hashDocumentId('brain-1', 'abc123')
+    expect(id).toHaveLength(16)
+    expect(id).toMatch(/^[0-9a-f]{16}$/)
+  })
+
+  it('is brain-scoped: different brainIds yield different IDs', () => {
+    const contentHash = 'deadbeefcafebabe'
+    const idA = hashDocumentId('brain-alpha', contentHash)
+    const idB = hashDocumentId('brain-beta', contentHash)
+    expect(idA).not.toBe(idB)
+  })
+
+  it('different brains with same content produce different IDs', () => {
+    const contentHash = hashDocument(Buffer.from('shared document content'))
+    const brains = ['brain-a', 'brain-b', 'brain-c', 'brain-d', 'brain-e']
+    const ids = brains.map((b) => hashDocumentId(b, contentHash))
+    const unique = new Set(ids)
+    expect(unique.size).toBe(brains.length)
+  })
+})
+
+describe('Hasher interface', () => {
+  it('blake3Hasher satisfies Hasher type', () => {
+    const h: Hasher = blake3Hasher
+    expect(h.name).toBe('blake3')
+  })
+
+  it('blake3Hasher.hash matches hashDocument', () => {
+    const input = Buffer.from('hasher interface test')
+    expect(blake3Hasher.hash(input)).toBe(hashDocument(input))
   })
 })
 
