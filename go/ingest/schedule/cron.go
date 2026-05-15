@@ -15,6 +15,10 @@ type CronSchedule struct {
 	DayOfMonth []int // 1-31
 	Month      []int // 1-12
 	DayOfWeek  []int // 0-6 (Sunday=0)
+	// DayOfMonthIsWild is true when the original day-of-month token was a wildcard (* or */N).
+	DayOfMonthIsWild bool
+	// DayOfWeekIsWild is true when the original day-of-week token was a wildcard (* or */N).
+	DayOfWeekIsWild bool
 }
 
 // ParseCron parses a standard 5-field cron expression.
@@ -47,12 +51,21 @@ func ParseCron(expression string) (CronSchedule, error) {
 	}
 
 	return CronSchedule{
-		Minute:     minute,
-		Hour:       hour,
-		DayOfMonth: dom,
-		Month:      month,
-		DayOfWeek:  dow,
+		Minute:           minute,
+		Hour:             hour,
+		DayOfMonth:       dom,
+		Month:            month,
+		DayOfWeek:        dow,
+		DayOfMonthIsWild: isWildcard(fields[2]),
+		DayOfWeekIsWild:  isWildcard(fields[4]),
 	}, nil
+}
+
+// isWildcard returns true when the raw cron field token represents a wildcard.
+// Matches bare "*" and step-only forms like "*/N".
+func isWildcard(token string) bool {
+	trimmed := strings.TrimSpace(token)
+	return trimmed == "*" || strings.HasPrefix(trimmed, "*/")
 }
 
 // IsValid reports whether expression is a valid 5-field cron expression.
@@ -79,8 +92,8 @@ func NextOccurrence(sched CronSchedule, after time.Time) time.Time {
 	monthSet := toSet(sched.Month)
 	dowSet := toSet(sched.DayOfWeek)
 
-	domIsWild := len(sched.DayOfMonth) == 31
-	dowIsWild := len(sched.DayOfWeek) == 7
+	domIsWild := sched.DayOfMonthIsWild
+	dowIsWild := sched.DayOfWeekIsWild
 
 	// Search up to 4 years (≈2.1M minutes) to find a match.
 	limit := after.Add(4 * 365 * 24 * time.Hour)

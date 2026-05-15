@@ -18,6 +18,7 @@ export const createScheduler = (opts: SchedulerOptions): Scheduler => {
   let timer: ReturnType<typeof setInterval> | undefined
   let stopped = false
   let runningPromise: Promise<void> | undefined
+  let pollInFlight = false
 
   const runDueJobs = async (): Promise<number> => {
     const currentTime = now()
@@ -61,12 +62,22 @@ export const createScheduler = (opts: SchedulerOptions): Scheduler => {
     }
   }
 
+  const guardedPoll = async (): Promise<void> => {
+    if (pollInFlight) return
+    pollInFlight = true
+    try {
+      await poll()
+    } finally {
+      pollInFlight = false
+    }
+  }
+
   const start = (): void => {
     if (stopped) return
     // Run immediately on start.
-    runningPromise = poll()
+    runningPromise = guardedPoll()
     timer = setInterval(() => {
-      runningPromise = poll()
+      runningPromise = guardedPoll()
     }, pollIntervalMs)
   }
 

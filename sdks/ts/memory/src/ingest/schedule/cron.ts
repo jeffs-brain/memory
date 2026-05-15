@@ -13,6 +13,10 @@ export type CronSchedule = {
   readonly dayOfMonth: readonly number[]
   readonly month: readonly number[]
   readonly dayOfWeek: readonly number[]
+  /** True when the original day-of-month token was '*' (wildcard). */
+  readonly dayOfMonthIsWild: boolean
+  /** True when the original day-of-week token was '*' (wildcard). */
+  readonly dayOfWeekIsWild: boolean
 }
 
 export const parseCron = (expression: string): CronSchedule => {
@@ -27,7 +31,18 @@ export const parseCron = (expression: string): CronSchedule => {
     dayOfMonth: parseField(fields[2], 1, 31, 'day-of-month'),
     month: parseField(fields[3], 1, 12, 'month'),
     dayOfWeek: parseField(fields[4], 0, 6, 'day-of-week'),
+    dayOfMonthIsWild: isWildcard(fields[2]),
+    dayOfWeekIsWild: isWildcard(fields[4]),
   }
+}
+
+/**
+ * Returns true when the raw cron field token represents a wildcard.
+ * Matches bare '*' and step-only forms like '* /N' (without space).
+ */
+const isWildcard = (token: string): boolean => {
+  const trimmed = token.trim()
+  return trimmed === '*' || trimmed.startsWith('*/')
 }
 
 export const isValid = (expression: string): boolean => {
@@ -60,8 +75,8 @@ export const nextOccurrence = (sched: CronSchedule, after: Date): Date => {
   const monthSet = toSet(sched.month)
   const dowSet = toSet(sched.dayOfWeek)
 
-  const domIsWild = sched.dayOfMonth.length === 31
-  const dowIsWild = sched.dayOfWeek.length === 7
+  const domIsWild = sched.dayOfMonthIsWild
+  const dowIsWild = sched.dayOfWeekIsWild
 
   const limit = new Date(after)
   limit.setFullYear(limit.getFullYear() + 4)
