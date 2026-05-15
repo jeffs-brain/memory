@@ -68,3 +68,6 @@ export type {
 } from './store.js'
 
 export { createFileOntologyStore } from './store.js'
+
+export type { RegistryOptions } from './registry.js'
+export { Registry, PROPOSE_DEDUP_THRESHOLD } from './registry.js'
