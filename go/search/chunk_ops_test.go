@@ -371,6 +371,69 @@ func TestUpsertChunks_CoexistsWithFileLevel(t *testing.T) {
 	}
 }
 
+func TestUpsertChunks_ClearsStaleMetadata(t *testing.T) {
+	t.Parallel()
+	_, idx := newIndexEmpty(t)
+	ctx := context.Background()
+
+	chunk := Chunk{
+		ID:      "doc_abc_0",
+		Path:    "raw/documents/test.md",
+		Ordinal: 0,
+		Content: "Original content about cats.",
+		Title:   "Animals",
+		Tags:    []string{"cats"},
+	}
+	if err := idx.UpsertChunks(ctx, []Chunk{chunk}); err != nil {
+		t.Fatalf("UpsertChunks first: %v", err)
+	}
+
+	// Attach metadata with two keys.
+	if err := idx.SetChunkMetadata(ctx, "doc_abc_0", map[string]string{
+		"ontology_type": "factual",
+		"confidence":    "0.9",
+	}); err != nil {
+		t.Fatalf("SetChunkMetadata: %v", err)
+	}
+
+	// Re-upsert the same chunk with different content.
+	chunk.Content = "Updated content about dogs."
+	if err := idx.UpsertChunks(ctx, []Chunk{chunk}); err != nil {
+		t.Fatalf("UpsertChunks second: %v", err)
+	}
+
+	// Stale metadata from the first upsert must be gone.
+	meta, err := idx.GetChunkMetadata(ctx, "doc_abc_0")
+	if err != nil {
+		t.Fatalf("GetChunkMetadata: %v", err)
+	}
+	if len(meta) != 0 {
+		t.Errorf("expected stale metadata to be cleared after re-upsert, got %d entries: %v", len(meta), meta)
+	}
+
+	// Setting new metadata after re-upsert should work and only contain the new keys.
+	if err := idx.SetChunkMetadata(ctx, "doc_abc_0", map[string]string{
+		"ontology_type": "procedural",
+	}); err != nil {
+		t.Fatalf("SetChunkMetadata after re-upsert: %v", err)
+	}
+
+	meta, err = idx.GetChunkMetadata(ctx, "doc_abc_0")
+	if err != nil {
+		t.Fatalf("GetChunkMetadata after new set: %v", err)
+	}
+	if len(meta) != 1 {
+		t.Fatalf("expected 1 metadata entry after re-set, got %d: %v", len(meta), meta)
+	}
+	if meta["ontology_type"] != "procedural" {
+		t.Errorf("ontology_type = %q, want %q", meta["ontology_type"], "procedural")
+	}
+	// The old "confidence" key must not persist.
+	if _, exists := meta["confidence"]; exists {
+		t.Errorf("stale 'confidence' key should not persist after re-upsert, but found value %q", meta["confidence"])
+	}
+}
+
 func TestDeleteChunks_EmptySlice(t *testing.T) {
 	t.Parallel()
 	_, idx := newIndexEmpty(t)

@@ -56,6 +56,15 @@ func (idx *Index) UpsertChunks(ctx context.Context, chunks []Chunk) error {
 				return fmt.Errorf("search: deleting old chunk FTS entry %s: %w", c.ID, err)
 			}
 
+			// Clear stale metadata so a re-upsert with different metadata
+			// keys does not retain leftover entries from the previous version.
+			if _, err := tx.ExecContext(ctx,
+				"DELETE FROM knowledge_chunk_metadata WHERE chunk_id = ?", c.ID,
+			); err != nil {
+				_ = tx.Rollback()
+				return fmt.Errorf("search: deleting stale chunk metadata %s: %w", c.ID, err)
+			}
+
 			if _, err := tx.ExecContext(ctx,
 				`INSERT INTO knowledge_fts (path, title, summary, tags, content, scope, project_slug, session_date)
 				 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -81,6 +90,8 @@ func (idx *Index) UpsertChunks(ctx context.Context, chunks []Chunk) error {
 }
 
 // DeleteChunks removes specific chunks from the FTS index by their IDs.
+// Both the FTS rows and associated metadata are deleted in a single
+// transaction so a crash cannot leave orphaned metadata.
 func (idx *Index) DeleteChunks(ctx context.Context, chunkIDs []string) error {
 	if len(chunkIDs) == 0 {
 		return nil
@@ -91,21 +102,32 @@ func (idx *Index) DeleteChunks(ctx context.Context, chunkIDs []string) error {
 		return fmt.Errorf("search: beginning chunk delete transaction: %w", err)
 	}
 
-	stmt, err := tx.PrepareContext(ctx, "DELETE FROM knowledge_fts WHERE path = ? AND scope = 'chunk'")
+	ftsStmt, err := tx.PrepareContext(ctx, "DELETE FROM knowledge_fts WHERE path = ? AND scope = 'chunk'")
 	if err != nil {
 		_ = tx.Rollback()
 		return fmt.Errorf("search: preparing chunk delete: %w", err)
 	}
-	defer stmt.Close()
+	defer ftsStmt.Close()
+
+	metaStmt, err := tx.PrepareContext(ctx, "DELETE FROM knowledge_chunk_metadata WHERE chunk_id = ?")
+	if err != nil {
+		_ = tx.Rollback()
+		return fmt.Errorf("search: preparing chunk metadata delete: %w", err)
+	}
+	defer metaStmt.Close()
 
 	for _, id := range chunkIDs {
 		if id == "" {
 			_ = tx.Rollback()
 			return fmt.Errorf("search: empty chunk ID in delete list")
 		}
-		if _, err := stmt.ExecContext(ctx, id); err != nil {
+		if _, err := ftsStmt.ExecContext(ctx, id); err != nil {
 			_ = tx.Rollback()
 			return fmt.Errorf("search: deleting chunk %s: %w", id, err)
+		}
+		if _, err := metaStmt.ExecContext(ctx, id); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("search: deleting metadata for chunk %s: %w", id, err)
 		}
 	}
 
@@ -113,8 +135,7 @@ func (idx *Index) DeleteChunks(ctx context.Context, chunkIDs []string) error {
 		return fmt.Errorf("search: committing chunk delete: %w", err)
 	}
 
-	// Also clean up metadata for deleted chunks.
-	return idx.deleteChunkMetadataBatch(ctx, chunkIDs)
+	return nil
 }
 
 // DeleteByDocPath removes all chunks whose parent document path matches
