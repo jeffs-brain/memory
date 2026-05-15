@@ -104,3 +104,10 @@ export {
   CONFIDENCE_FLOOR,
   CONFIDENCE_CAP,
 } from './extract.js'
+
+export type { TemplateSuggestion, TemplateMatcherOptions } from './template-match.js'
+export {
+  TemplateMatcher,
+  TEMPLATE_MATCH_SEMANTIC_THRESHOLD,
+  TEMPLATE_MATCH_COMBINED_MINIMUM,
+} from './template-match.js'
