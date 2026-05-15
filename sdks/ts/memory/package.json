@@ -115,8 +115,7 @@
     "@stackone/defender": "^0.6.3",
     "citty": "^0.1.6",
     "isomorphic-git": "^1.37.5",
-    "sqlite-vec": "^0.1.9",
-    "xstate": "^5.31.1"
+    "sqlite-vec": "^0.1.9"
   },
   "optionalDependencies": {
     "@huggingface/transformers": "^4.2.0",

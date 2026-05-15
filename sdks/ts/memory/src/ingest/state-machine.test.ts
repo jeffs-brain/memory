@@ -2,20 +2,21 @@
 
 /**
  * Tests for the pipeline state machine. Validates all stage transitions,
- * retry logic, dead letter behaviour, and persistence integration.
+ * retry logic, dead letter behaviour, migration from V1, and listIncomplete.
  */
 
 import { describe, expect, it } from 'vitest'
-import { createActor } from 'xstate'
-import type { PipelineMachineEvent, PipelineStage } from './state-machine.js'
+import type {
+  PipelineStage,
+  PipelineStateEntry,
+  PipelineStateStore,
+  TransitionCallback,
+  V1PipelineStateEntry,
+} from './state-machine.js'
 import {
-  type PipelineMachineContext,
-  type PipelineStateEntry,
-  type PipelineStateStore,
-  type TransitionCallback,
   createPipelineStateMachine,
   isValidTransition,
-  pipelineMachine,
+  migrateFromV1,
 } from './state-machine.js'
 
 /** In-memory test store for pipeline state entries. */
@@ -29,7 +30,7 @@ const createMemStore = (): PipelineStateStore => {
     listIncomplete: async () => {
       const result: PipelineStateEntry[] = []
       for (const entry of entries.values()) {
-        if (entry.stage !== 'completed' && entry.stage !== 'failed') {
+        if (entry.stage !== 'indexed' && entry.stage !== 'dead_letter') {
           result.push(entry)
         }
       }
@@ -61,7 +62,6 @@ describe('isValidTransition', () => {
     expect(isValidTransition('stored', 'chunked')).toBe(true)
     expect(isValidTransition('chunked', 'embedded')).toBe(true)
     expect(isValidTransition('embedded', 'indexed')).toBe(true)
-    expect(isValidTransition('indexed', 'completed')).toBe(true)
   })
 
   it('rejects backward transitions', () => {
@@ -74,114 +74,11 @@ describe('isValidTransition', () => {
     expect(isValidTransition('received', 'chunked')).toBe(false)
     expect(isValidTransition('received', 'embedded')).toBe(false)
     expect(isValidTransition('stored', 'indexed')).toBe(false)
-    expect(isValidTransition('chunked', 'completed')).toBe(false)
   })
 
   it('rejects transitions from terminal states', () => {
-    expect(isValidTransition('completed', 'received')).toBe(false)
-    expect(isValidTransition('failed', 'received')).toBe(false)
-  })
-})
-
-describe('pipelineMachine (XState)', () => {
-  const makeActor = (
-    initialStage: PipelineStage = 'received',
-    retryCount = 0,
-  ) => {
-    const context: PipelineMachineContext = {
-      documentHash: 'test-hash',
-      retryCount,
-      maxRetries: 3,
-      lastError: '',
-    }
-
-    if (initialStage === 'received') {
-      return createActor(pipelineMachine, { input: context })
-    }
-
-    const resolved = pipelineMachine.resolveState({
-      value: initialStage,
-      context,
-    })
-
-    return createActor(pipelineMachine, {
-      input: context,
-      snapshot: resolved,
-    })
-  }
-
-  it('transitions through all stages in order', () => {
-    const actor = makeActor('received')
-    actor.start()
-
-    expect(actor.getSnapshot().value).toBe('received')
-
-    actor.send({ type: 'STORE_COMPLETE' })
-    expect(actor.getSnapshot().value).toBe('stored')
-
-    actor.send({ type: 'CHUNK_COMPLETE' })
-    expect(actor.getSnapshot().value).toBe('chunked')
-
-    actor.send({ type: 'EMBED_COMPLETE' })
-    expect(actor.getSnapshot().value).toBe('embedded')
-
-    actor.send({ type: 'INDEX_COMPLETE' })
-    expect(actor.getSnapshot().value).toBe('indexed')
-
-    actor.send({ type: 'COMPLETE' })
-    expect(actor.getSnapshot().value).toBe('completed')
-
-    actor.stop()
-  })
-
-  it('rejects invalid events for the current state', () => {
-    const actor = makeActor('received')
-    actor.start()
-
-    // CHUNK_COMPLETE is not valid in received state
-    actor.send({ type: 'CHUNK_COMPLETE' })
-    expect(actor.getSnapshot().value).toBe('received')
-
-    actor.stop()
-  })
-
-  it('stays in current state on FAIL when retries remain', () => {
-    const actor = makeActor('chunked', 0)
-    actor.start()
-
-    actor.send({ type: 'FAIL', error: 'transient error' })
-    expect(actor.getSnapshot().value).toBe('chunked')
-    expect(actor.getSnapshot().context.retryCount).toBe(1)
-    expect(actor.getSnapshot().context.lastError).toBe('transient error')
-
-    actor.stop()
-  })
-
-  it('transitions to failed when retries exhausted via FAIL', () => {
-    const actor = makeActor('embedded', 2)
-    actor.start()
-
-    // retryCount=2, maxRetries=3, so canRetry guard fails (2 < 3 is true, one more)
-    actor.send({ type: 'FAIL', error: 'third failure' })
-    expect(actor.getSnapshot().value).toBe('embedded')
-    expect(actor.getSnapshot().context.retryCount).toBe(3)
-
-    // Now retryCount=3, guard fails
-    actor.send({ type: 'FAIL', error: 'fourth failure' })
-    expect(actor.getSnapshot().value).toBe('failed')
-
-    actor.stop()
-  })
-
-  it('transitions to failed on RETRY_EXHAUSTED from any stage', () => {
-    const actor = makeActor('stored')
-    actor.start()
-
-    actor.send({ type: 'RETRY_EXHAUSTED', error: 'gave up' })
-    expect(actor.getSnapshot().value).toBe('failed')
-    expect(actor.getSnapshot().context.lastError).toBe('gave up')
-
-    actor.stop()
+    expect(isValidTransition('dead_letter', 'received')).toBe(false)
+    expect(isValidTransition('indexed', 'received')).toBe(false)
   })
 })
 
@@ -191,7 +88,7 @@ describe('createPipelineStateMachine', () => {
     await seedEntry(store, 'doc-1', 'received')
     const sm = createPipelineStateMachine({ stateStore: store })
 
-    const entry = await sm.advanceStage('doc-1', { type: 'STORE_COMPLETE' })
+    const entry = await sm.advance('doc-1', 'stored')
     expect(entry.stage).toBe('stored')
 
     const loaded = await store.load('doc-1')
@@ -203,22 +100,21 @@ describe('createPipelineStateMachine', () => {
     await seedEntry(store, 'full-doc', 'received')
     const sm = createPipelineStateMachine({ stateStore: store })
 
-    const events: PipelineMachineEvent[] = [
-      { type: 'STORE_COMPLETE' },
-      { type: 'CHUNK_COMPLETE' },
-      { type: 'EMBED_COMPLETE' },
-      { type: 'INDEX_COMPLETE' },
-      { type: 'COMPLETE' },
-    ]
-    const expectedStages: PipelineStage[] = ['stored', 'chunked', 'embedded', 'indexed', 'completed']
-
-    for (let i = 0; i < events.length; i++) {
-      const event = events[i]
-      const expected = expectedStages[i]
-      if (event === undefined || expected === undefined) break
-      const entry = await sm.advanceStage('full-doc', event)
-      expect(entry.stage).toBe(expected)
+    const stages: PipelineStage[] = ['stored', 'chunked', 'embedded', 'indexed']
+    for (const target of stages) {
+      const entry = await sm.advance('full-doc', target)
+      expect(entry.stage).toBe(target)
     }
+  })
+
+  it('is idempotent for same-stage advance', async () => {
+    const store = createMemStore()
+    await seedEntry(store, 'idem-doc', 'chunked')
+    const sm = createPipelineStateMachine({ stateStore: store })
+
+    // Trying to advance to chunked when already at chunked is a no-op.
+    const entry = await sm.advance('idem-doc', 'chunked')
+    expect(entry.stage).toBe('chunked')
   })
 
   it('records failure and increments retry count', async () => {
@@ -226,34 +122,29 @@ describe('createPipelineStateMachine', () => {
     await seedEntry(store, 'retry-doc', 'chunked')
     const sm = createPipelineStateMachine({ stateStore: store })
 
-    const entry = await sm.advanceStage('retry-doc', { type: 'FAIL', error: 'timeout' })
+    const entry = await sm.recordFailure('retry-doc', 'timeout')
     expect(entry.stage).toBe('chunked')
     expect(entry.retryCount).toBe(1)
     expect(entry.lastError).toBe('timeout')
   })
 
-  it('moves to failed after max retries exhausted', async () => {
+  it('moves to dead_letter after max retries exhausted', async () => {
     const store = createMemStore()
     await seedEntry(store, 'exhaust-doc', 'embedded', 2)
     const sm = createPipelineStateMachine({ stateStore: store, maxRetries: 3 })
 
-    // retryCount=2, one more allowed
-    const first = await sm.advanceStage('exhaust-doc', { type: 'FAIL', error: 'err-3' })
-    expect(first.stage).toBe('embedded')
-    expect(first.retryCount).toBe(3)
-
-    // Now at max, next FAIL moves to failed
-    const second = await sm.advanceStage('exhaust-doc', { type: 'FAIL', error: 'err-4' })
-    expect(second.stage).toBe('failed')
+    const entry = await sm.recordFailure('exhaust-doc', 'permanent error')
+    expect(entry.stage).toBe('dead_letter')
+    expect(entry.retryCount).toBe(3)
   })
 
-  it('markFailed transitions immediately to failed', async () => {
+  it('markDeadLetter transitions immediately to dead_letter', async () => {
     const store = createMemStore()
     await seedEntry(store, 'mark-doc', 'stored')
     const sm = createPipelineStateMachine({ stateStore: store })
 
-    const entry = await sm.markFailed('mark-doc', 'fatal error')
-    expect(entry.stage).toBe('failed')
+    const entry = await sm.markDeadLetter('mark-doc', 'fatal error')
+    expect(entry.stage).toBe('dead_letter')
     expect(entry.lastError).toBe('fatal error')
   })
 
@@ -295,8 +186,8 @@ describe('createPipelineStateMachine', () => {
     }
 
     const sm = createPipelineStateMachine({ stateStore: store, onTransition })
-    await sm.advanceStage('cb-doc', { type: 'STORE_COMPLETE' })
-    await sm.advanceStage('cb-doc', { type: 'CHUNK_COMPLETE' })
+    await sm.advance('cb-doc', 'stored')
+    await sm.advance('cb-doc', 'chunked')
 
     expect(transitions).toEqual([
       { from: 'received', to: 'stored' },
@@ -314,12 +205,12 @@ describe('createPipelineStateMachine', () => {
       onTransition: () => { callCount++ },
     })
 
-    // CHUNK_COMPLETE is invalid in received state, no transition
-    await sm.advanceStage('nocb-doc', { type: 'CHUNK_COMPLETE' })
+    // Trying to advance to 'chunked' from 'received' is invalid (skip), no transition.
+    await sm.advance('nocb-doc', 'chunked')
     expect(callCount).toBe(0)
   })
 
-  it('failed documents queryable via listIncomplete exclusion', async () => {
+  it('listIncomplete returns only non-terminal entries', async () => {
     const store = createMemStore()
     await seedEntry(store, 'active-1', 'chunked')
     await seedEntry(store, 'active-2', 'received')
@@ -327,7 +218,7 @@ describe('createPipelineStateMachine', () => {
     const now = new Date().toISOString()
     await store.save({
       documentHash: 'done-1',
-      stage: 'completed',
+      stage: 'indexed',
       retryCount: 0,
       lastError: '',
       createdAt: now,
@@ -335,14 +226,15 @@ describe('createPipelineStateMachine', () => {
     })
     await store.save({
       documentHash: 'dead-1',
-      stage: 'failed',
+      stage: 'dead_letter',
       retryCount: 3,
       lastError: 'permanent',
       createdAt: now,
       updatedAt: now,
     })
 
-    const incomplete = await store.listIncomplete()
+    const sm = createPipelineStateMachine({ stateStore: store })
+    const incomplete = await sm.listIncomplete()
     const hashes = incomplete.map((e) => e.documentHash)
     expect(hashes).toHaveLength(2)
     expect(hashes).toContain('active-1')
@@ -355,8 +247,40 @@ describe('createPipelineStateMachine', () => {
     const store = createMemStore()
     const sm = createPipelineStateMachine({ stateStore: store })
 
-    const entry = await sm.advanceStage('new-doc', { type: 'STORE_COMPLETE' })
+    const entry = await sm.advance('new-doc', 'stored')
     expect(entry.stage).toBe('stored')
     expect(entry.retryCount).toBe(0)
+  })
+})
+
+describe('migrateFromV1', () => {
+  it('converts a V1 entry to V2 format', () => {
+    const v1: V1PipelineStateEntry = {
+      documentId: 'brain-1:abc123',
+      hash: 'abc123',
+      stage: 'embedded',
+      updatedAt: '2026-05-09T12:00:00.000Z',
+      chunkCount: 5,
+    }
+    const v2 = migrateFromV1(v1)
+    expect(v2.documentHash).toBe('abc123')
+    expect(v2.stage).toBe('embedded')
+    expect(v2.retryCount).toBe(0)
+    expect(v2.lastError).toBe('')
+    expect(v2.createdAt).toBe('2026-05-09T12:00:00.000Z')
+  })
+
+  it('maps all V1 stages correctly', () => {
+    const stages: Array<V1PipelineStateEntry['stage']> = ['stored', 'chunked', 'embedded', 'indexed']
+    for (const stage of stages) {
+      const v1: V1PipelineStateEntry = {
+        documentId: 'brain-1:test',
+        hash: 'test-hash',
+        stage,
+        updatedAt: '2026-05-09T12:00:00.000Z',
+      }
+      const v2 = migrateFromV1(v1)
+      expect(v2.stage).toBe(stage)
+    }
   })
 })

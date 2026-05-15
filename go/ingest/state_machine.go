@@ -20,7 +20,7 @@ const (
 	StageEmbedded  PipelineStage = "embedded"
 	StageIndexed   PipelineStage = "indexed"
 	StageCompleted PipelineStage = "completed"
-	StageFailed    PipelineStage = "failed"
+	StageDeadLetter    PipelineStage = "dead_letter"
 )
 
 // stageOrder defines the ordinal position of each stage for comparison.
@@ -53,7 +53,7 @@ const (
 )
 
 // maxDefaultRetries is the default number of retries before a document
-// moves to the failed stage.
+// moves to the dead_letter stage.
 const maxDefaultRetries = 3
 
 // ErrInvalidTransition signals that a requested stage transition is
@@ -136,7 +136,7 @@ func Transition(current PipelineStage, event TransitionEvent) (PipelineStage, er
 	case EventStageFailed:
 		return current, nil
 	case EventRetryExhausted:
-		return StageFailed, nil
+		return StageDeadLetter, nil
 	}
 	return current, fmt.Errorf("%w: unknown event %s", ErrInvalidTransition, event)
 }
@@ -211,12 +211,12 @@ func (sm *PipelineStateMachine) RecordFailure(ctx context.Context, documentHash 
 	entry.UpdatedAt = time.Now().UTC()
 
 	if entry.RetryCount >= sm.maxRetries {
-		entry.Stage = StageFailed
+		entry.Stage = StageDeadLetter
 		if err := sm.store.Save(ctx, entry); err != nil {
 			return fmt.Errorf("ingest: saving state for %s: %w", documentHash, err)
 		}
 		if sm.callback != nil {
-			sm.callback(documentHash, from, StageFailed, EventRetryExhausted)
+			sm.callback(documentHash, from, StageDeadLetter, EventRetryExhausted)
 		}
 		return nil
 	}
@@ -230,9 +230,9 @@ func (sm *PipelineStateMachine) RecordFailure(ctx context.Context, documentHash 
 	return nil
 }
 
-// MarkFailed unconditionally moves the document to the failed stage,
-// recording the error regardless of retry count.
-func (sm *PipelineStateMachine) MarkFailed(ctx context.Context, documentHash string, failErr error) error {
+// MarkDeadLetter unconditionally moves the document to the dead_letter
+// stage, recording the error regardless of retry count.
+func (sm *PipelineStateMachine) MarkDeadLetter(ctx context.Context, documentHash string, failErr error) error {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 
@@ -245,15 +245,59 @@ func (sm *PipelineStateMachine) MarkFailed(ctx context.Context, documentHash str
 	}
 
 	from := entry.Stage
-	entry.Stage = StageFailed
+	entry.Stage = StageDeadLetter
 	entry.LastError = failErr.Error()
 	entry.UpdatedAt = time.Now().UTC()
 
 	if err := sm.store.Save(ctx, entry); err != nil {
 		return fmt.Errorf("ingest: saving state for %s: %w", documentHash, err)
 	}
-	if sm.callback != nil && from != StageFailed {
-		sm.callback(documentHash, from, StageFailed, EventRetryExhausted)
+	if sm.callback != nil && from != StageDeadLetter {
+		sm.callback(documentHash, from, StageDeadLetter, EventRetryExhausted)
 	}
 	return nil
+}
+
+// ListIncomplete returns all pipeline state entries that are not in a
+// terminal stage (indexed/completed or dead_letter). Delegates to the
+// underlying PipelineStateStore.
+func (sm *PipelineStateMachine) ListIncomplete(ctx context.Context) ([]*PipelineStateEntry, error) {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+	return sm.store.ListIncomplete(ctx)
+}
+
+// V1PipelineStateEntry represents the pipeline state format from P0-1.
+// It lacks retry tracking and uses a different field layout.
+type V1PipelineStateEntry struct {
+	DocumentID string
+	Hash       string
+	Stage      string // "stored", "chunked", "embedded", "indexed"
+	UpdatedAt  time.Time
+	ChunkCount int
+}
+
+// v1StageMap maps V1 stage strings to the V2 PipelineStage type.
+var v1StageMap = map[string]PipelineStage{
+	"stored":   StageStored,
+	"chunked":  StageChunked,
+	"embedded": StageEmbedded,
+	"indexed":  StageIndexed,
+}
+
+// MigrateFromV1 converts a V1 pipeline state entry to the V2 format
+// used by the state machine. V1 entries from P0-1 lack retry tracking.
+func MigrateFromV1(v1 V1PipelineStateEntry) PipelineStateEntry {
+	stage, ok := v1StageMap[v1.Stage]
+	if !ok {
+		stage = StageReceived
+	}
+	return PipelineStateEntry{
+		DocumentHash: v1.Hash,
+		Stage:        stage,
+		RetryCount:   0,
+		LastError:    "",
+		CreatedAt:    v1.UpdatedAt,
+		UpdatedAt:    v1.UpdatedAt,
+	}
 }

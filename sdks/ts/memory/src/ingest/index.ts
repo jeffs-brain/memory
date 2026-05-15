@@ -26,16 +26,14 @@ export {
 export {
   createPipelineStateMachine,
   isValidTransition,
-  pipelineMachine,
+  migrateFromV1,
   STAGE_ORDER,
-  type PipelineMachineContext,
-  type PipelineMachineEvent,
-  type PipelineMachineInput,
   type PipelineStage,
   type PipelineStateEntry,
   type PipelineStateStore,
   type PipelineStateMachineConfig,
   type TransitionCallback,
+  type V1PipelineStateEntry,
 } from './state-machine.js'
 
 export * from './sources/index.js'

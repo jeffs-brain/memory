@@ -43,7 +43,7 @@ func (m *memStateStore) ListIncomplete(_ context.Context) ([]*PipelineStateEntry
 	defer m.mu.Unlock()
 	var result []*PipelineStateEntry
 	for _, entry := range m.entries {
-		if entry.Stage != StageCompleted && entry.Stage != StageFailed {
+		if entry.Stage != StageCompleted && entry.Stage != StageDeadLetter {
 			cp := *entry
 			result = append(result, &cp)
 		}
@@ -99,7 +99,7 @@ func TestTransition_InvalidSkipTransitions(t *testing.T) {
 		t.Fatalf("expected ErrInvalidTransition, got: %v", err)
 	}
 	// failed has no forward transition
-	_, err = Transition(StageFailed, EventStageCompleted)
+	_, err = Transition(StageDeadLetter, EventStageCompleted)
 	if err == nil {
 		t.Fatal("expected error for transition from failed")
 	}
@@ -289,18 +289,18 @@ func TestRecordFailure_ExhaustsRetries(t *testing.T) {
 	}
 
 	entry, _ := store.Load(ctx, "exhaust-doc")
-	if entry.Stage != StageFailed {
+	if entry.Stage != StageDeadLetter {
 		t.Fatalf("expected stage failed after exhaustion, got %s", entry.Stage)
 	}
 	if entry.RetryCount != 3 {
 		t.Fatalf("expected retryCount=3, got %d", entry.RetryCount)
 	}
-	if callbackStage != StageFailed {
+	if callbackStage != StageDeadLetter {
 		t.Fatalf("expected callback with failed stage, got %s", callbackStage)
 	}
 }
 
-func TestMarkFailed_MovesToFailed(t *testing.T) {
+func TestMarkDeadLetter_MovesToDeadLetter(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	store := newMemStateStore()
@@ -308,12 +308,12 @@ func TestMarkFailed_MovesToFailed(t *testing.T) {
 
 	sm := NewPipelineStateMachine(StateMachineConfig{Store: store})
 
-	if err := sm.MarkFailed(ctx, "mark-doc", errors.New("unrecoverable")); err != nil {
+	if err := sm.MarkDeadLetter(ctx, "mark-doc", errors.New("unrecoverable")); err != nil {
 		t.Fatalf("MarkFailed: %v", err)
 	}
 
 	entry, _ := store.Load(ctx, "mark-doc")
-	if entry.Stage != StageFailed {
+	if entry.Stage != StageDeadLetter {
 		t.Fatalf("expected stage failed, got %s", entry.Stage)
 	}
 	if entry.LastError != "unrecoverable" {
@@ -330,7 +330,7 @@ func TestListIncomplete_ReturnsFailed(t *testing.T) {
 	seedEntry(store, "done", StageCompleted)
 	store.entries["dead"] = &PipelineStateEntry{
 		DocumentHash: "dead",
-		Stage:        StageFailed,
+		Stage:        StageDeadLetter,
 		CreatedAt:    time.Now().UTC(),
 		UpdatedAt:    time.Now().UTC(),
 	}
@@ -357,18 +357,109 @@ func TestTransition_RetryExhaustedMovesToFailed(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Transition with RetryExhausted: %v", err)
 	}
-	if got != StageFailed {
+	if got != StageDeadLetter {
 		t.Fatalf("expected failed, got %s", got)
 	}
 }
 
-func TestTransition_StageFailed_KeepsCurrent(t *testing.T) {
+func TestTransition_StageDeadLetter_KeepsCurrent(t *testing.T) {
 	t.Parallel()
 	got, err := Transition(StageEmbedded, EventStageFailed)
 	if err != nil {
-		t.Fatalf("Transition with StageFailed: %v", err)
+		t.Fatalf("Transition with StageDeadLetter: %v", err)
 	}
 	if got != StageEmbedded {
 		t.Fatalf("expected stage to remain embedded, got %s", got)
+	}
+}
+
+func TestPipelineStateMachine_ListIncomplete(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store := newMemStateStore()
+	seedEntry(store, "active-1", StageChunked)
+	seedEntry(store, "active-2", StageReceived)
+	seedEntry(store, "done", StageCompleted)
+	store.entries["dead"] = &PipelineStateEntry{
+		DocumentHash: "dead",
+		Stage:        StageDeadLetter,
+		CreatedAt:    time.Now().UTC(),
+		UpdatedAt:    time.Now().UTC(),
+	}
+
+	sm := NewPipelineStateMachine(StateMachineConfig{Store: store})
+	incomplete, err := sm.ListIncomplete(ctx)
+	if err != nil {
+		t.Fatalf("ListIncomplete: %v", err)
+	}
+	if len(incomplete) != 2 {
+		t.Fatalf("expected 2 incomplete entries, got %d", len(incomplete))
+	}
+	hashes := make(map[string]bool, len(incomplete))
+	for _, e := range incomplete {
+		hashes[e.DocumentHash] = true
+	}
+	if !hashes["active-1"] || !hashes["active-2"] {
+		t.Fatalf("expected active-1 and active-2, got %v", hashes)
+	}
+}
+
+func TestMigrateFromV1(t *testing.T) {
+	t.Parallel()
+	v1 := V1PipelineStateEntry{
+		DocumentID: "brain-1:abc123",
+		Hash:       "abc123",
+		Stage:      "embedded",
+		UpdatedAt:  time.Date(2026, 5, 9, 12, 0, 0, 0, time.UTC),
+		ChunkCount: 5,
+	}
+	v2 := MigrateFromV1(v1)
+	if v2.DocumentHash != "abc123" {
+		t.Fatalf("expected DocumentHash=abc123, got %s", v2.DocumentHash)
+	}
+	if v2.Stage != StageEmbedded {
+		t.Fatalf("expected Stage=embedded, got %s", v2.Stage)
+	}
+	if v2.RetryCount != 0 {
+		t.Fatalf("expected RetryCount=0, got %d", v2.RetryCount)
+	}
+	if v2.LastError != "" {
+		t.Fatalf("expected empty LastError, got %s", v2.LastError)
+	}
+}
+
+func TestMigrateFromV1_AllStages(t *testing.T) {
+	t.Parallel()
+	stages := map[string]PipelineStage{
+		"stored":   StageStored,
+		"chunked":  StageChunked,
+		"embedded": StageEmbedded,
+		"indexed":  StageIndexed,
+	}
+	for v1Stage, expected := range stages {
+		v1 := V1PipelineStateEntry{
+			DocumentID: "brain-1:test",
+			Hash:       "test-hash",
+			Stage:      v1Stage,
+			UpdatedAt:  time.Now().UTC(),
+		}
+		v2 := MigrateFromV1(v1)
+		if v2.Stage != expected {
+			t.Errorf("stage %s: expected %s, got %s", v1Stage, expected, v2.Stage)
+		}
+	}
+}
+
+func TestMigrateFromV1_UnknownStage(t *testing.T) {
+	t.Parallel()
+	v1 := V1PipelineStateEntry{
+		DocumentID: "brain-1:test",
+		Hash:       "test-hash",
+		Stage:      "unknown",
+		UpdatedAt:  time.Now().UTC(),
+	}
+	v2 := MigrateFromV1(v1)
+	if v2.Stage != StageReceived {
+		t.Fatalf("expected received for unknown stage, got %s", v2.Stage)
 	}
 }
