@@ -375,6 +375,43 @@ func TestList_FilterByStatus(t *testing.T) {
 	}
 }
 
+func TestList_CategoryFilter(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	wf, _ := newTestWorkflow(t)
+
+	_, err := wf.ProposeFromExtraction(ctx, sampleExtraction(), "test.pdf")
+	if err != nil {
+		t.Fatalf("ProposeFromExtraction: %v", err)
+	}
+
+	// Filter by nodeType category -- sampleExtraction has 2 node + 1 edge
+	nodeOnly, err := wf.List(ctx, ontology.ProposalFilter{Category: "nodeType"})
+	if err != nil {
+		t.Fatalf("List nodeType: %v", err)
+	}
+	totalNodeType := 0
+	for _, b := range nodeOnly {
+		totalNodeType += len(b.Proposals)
+	}
+	if totalNodeType != 2 {
+		t.Fatalf("expected 2 nodeType proposals, got %d", totalNodeType)
+	}
+
+	// Filter by edgeType category
+	edgeOnly, err := wf.List(ctx, ontology.ProposalFilter{Category: "edgeType"})
+	if err != nil {
+		t.Fatalf("List edgeType: %v", err)
+	}
+	totalEdgeType := 0
+	for _, b := range edgeOnly {
+		totalEdgeType += len(b.Proposals)
+	}
+	if totalEdgeType != 1 {
+		t.Fatalf("expected 1 edgeType proposal, got %d", totalEdgeType)
+	}
+}
+
 func TestList_NoFilter(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

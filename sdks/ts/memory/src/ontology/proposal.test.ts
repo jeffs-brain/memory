@@ -231,6 +231,25 @@ describe('ProposalWorkflow', () => {
       expect(all[0].proposals).toHaveLength(3)
     })
 
+    it('filters by category', async () => {
+      await workflow.proposeFromExtraction(sampleExtraction(), 'test.pdf')
+
+      // sampleExtraction has 2 nodeType and 1 edgeType
+      const nodeOnly = await workflow.list({ category: 'nodeType' })
+      let totalNodeType = 0
+      for (const b of nodeOnly) {
+        totalNodeType += b.proposals.length
+      }
+      expect(totalNodeType).toBe(2)
+
+      const edgeOnly = await workflow.list({ category: 'edgeType' })
+      let totalEdgeType = 0
+      for (const b of edgeOnly) {
+        totalEdgeType += b.proposals.length
+      }
+      expect(totalEdgeType).toBe(1)
+    })
+
     it('filters by status', async () => {
       const batch = await workflow.proposeFromExtraction(sampleExtraction(), 'test.pdf')
 

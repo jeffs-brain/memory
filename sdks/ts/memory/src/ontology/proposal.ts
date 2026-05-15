@@ -9,8 +9,6 @@
  * Port of go/ontology/proposal.go.
  */
 
-import { createHash } from 'node:crypto'
-
 import type { Store } from '../store/index.js'
 import { isNotFound } from '../store/errors.js'
 import { type Path, toPath } from '../store/path.js'
@@ -18,24 +16,15 @@ import type { OntologyTypeDefinition, TypeStatus } from './types.js'
 import type { ResolvedOntology } from './store.js'
 import type { Registry } from './registry.js'
 import type { TypeEntry } from './templates.js'
+import type { ExtractionResult } from './types-extraction.js'
+import { hashString } from '../ingest/hash.js'
 import { Deduplicator } from './dedup.js'
 import { formatEdgeTypeLabel, formatNodeTypeLabel } from './format.js'
 import { hasPrefix } from './validation.js'
 
-export type ProposalStatus = 'proposed' | 'accepted' | 'merged' | 'rejected'
+export type { ExtractionResult } from './types-extraction.js'
 
-/**
- * ExtractionResult holds extracted ontology types from a document.
- * Defined here so that the proposal workflow can accept extraction
- * outputs without depending on the extraction module (P6-4).
- */
-export type ExtractionResult = {
-  readonly nodeTypes: readonly TypeEntry[]
-  readonly edgeTypes: readonly TypeEntry[]
-  readonly businessCategories: readonly string[]
-  readonly domain: string
-  readonly confidence: number
-}
+export type ProposalStatus = 'proposed' | 'accepted' | 'merged' | 'rejected'
 
 export type Proposal = {
   readonly id: string
@@ -99,13 +88,11 @@ function proposalBatchPath(batchId: string): Path {
 const PROPOSALS_DIR: Path = toPath('ontology/proposals')
 
 function computeProposalId(typeName: string, batchId: string): string {
-  const hash = createHash('sha256').update(`${typeName}:${batchId}`).digest('hex')
-  return hash.slice(0, 16)
+  return hashString(`${typeName}:${batchId}`).slice(0, 16)
 }
 
 function computeBatchId(domain: string, sourceDocument: string, timestamp: string): string {
-  const hash = createHash('sha256').update(`${domain}:${sourceDocument}:${timestamp}`).digest('hex')
-  return hash.slice(0, 16)
+  return hashString(`${domain}:${sourceDocument}:${timestamp}`).slice(0, 16)
 }
 
 /**
@@ -134,7 +121,7 @@ export class ProposalWorkflow {
   ): Promise<ProposalBatch> {
     const resolved = await this.registry.resolve('', '', '')
     const existingTypes = resolvedToDefinitions(resolved)
-    const extractedDefs = extractionToDefinitions(result)
+    const extractedDefs = extractionToDefinitions(result, this.clock)
 
     const dedup = new Deduplicator({})
     const dedupResult = await dedup.deduplicate(extractedDefs, existingTypes)
@@ -262,12 +249,16 @@ export class ProposalWorkflow {
   }
 
   /**
-   * Bulk-accepts all pending proposals in a batch.
+   * Bulk-accepts all pending proposals in a batch. Individual
+   * registration failures are collected rather than short-circuiting,
+   * and the batch is written atomically at the end regardless of
+   * partial failures so that successfully accepted proposals persist.
    */
   async acceptAll(batchId: string, reviewedBy: string): Promise<void> {
     const batch = await this.readBatch(batchId)
     const mutable = toMutableBatch(batch)
     const now = this.clock().toISOString()
+    const failures: string[] = []
 
     for (const p of mutable.proposals) {
       if (p.status !== 'proposed') continue
@@ -286,14 +277,22 @@ export class ProposalWorkflow {
         status: 'active' as TypeStatus,
       }
 
-      await this.registry.registerType('brain', def)
-
-      p.status = 'accepted'
-      p.reviewedBy = reviewedBy
-      p.reviewedAt = now
+      try {
+        await this.registry.registerType('brain', def)
+        p.status = 'accepted'
+        p.reviewedBy = reviewedBy
+        p.reviewedAt = now
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err)
+        failures.push(`register "${p.type}": ${msg}`)
+      }
     }
 
     await this.writeBatch(mutable)
+
+    if (failures.length > 0) {
+      throw new Error(`ontology: accept all batch "${batchId}": ${failures.join('; ')}`)
+    }
   }
 
   /**
@@ -329,12 +328,14 @@ export class ProposalWorkflow {
   }
 
   private async readBatch(id: string): Promise<ProposalBatch> {
+    validateBatchId(id)
     const data = await this.store.read(proposalBatchPath(id))
     const parsed: unknown = JSON.parse(data.toString('utf-8'))
-    return parsed as ProposalBatch
+    return validateProposalBatch(parsed)
   }
 
   private async writeBatch(batch: ProposalBatch | MutableProposalBatch): Promise<void> {
+    validateBatchId(batch.id)
     const data = Buffer.from(JSON.stringify(batch), 'utf-8')
     await this.store.write(proposalBatchPath(batch.id), data)
   }
@@ -354,8 +355,11 @@ export class ProposalWorkflow {
       try {
         const data = await this.store.read(entry.path)
         const parsed: unknown = JSON.parse(data.toString('utf-8'))
-        batches.push(parsed as ProposalBatch)
-      } catch {
+        const validated = validateProposalBatch(parsed)
+        batches.push(validated)
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err)
+        console.warn(`ontology: skipping corrupt proposal batch at ${String(entry.path)}: ${msg}`)
         continue
       }
     }
@@ -421,8 +425,51 @@ function resolvedToDefinitions(resolved: ResolvedOntology): OntologyTypeDefiniti
   return defs
 }
 
-function extractionToDefinitions(result: ExtractionResult): OntologyTypeDefinition[] {
-  const now = new Date().toISOString()
+const VALID_BATCH_ID_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9_-]*$/
+
+/**
+ * Validates that a batch ID is safe for path interpolation. Prevents
+ * path traversal attacks via ".." or "/" in IDs.
+ */
+function validateBatchId(id: string): void {
+  if (id === '') {
+    throw new Error('ontology: batch ID must not be empty')
+  }
+  if (!VALID_BATCH_ID_PATTERN.test(id)) {
+    throw new Error(`ontology: invalid batch ID "${id}": must match ^[a-zA-Z0-9][a-zA-Z0-9_-]*$`)
+  }
+}
+
+/**
+ * Runtime validation for parsed ProposalBatch JSON. Ensures the
+ * parsed value has the required shape rather than relying on a bare
+ * `as` cast.
+ */
+function validateProposalBatch(parsed: unknown): ProposalBatch {
+  if (typeof parsed !== 'object' || parsed === null) {
+    throw new Error('ontology: proposal batch must be an object')
+  }
+  const obj = parsed as Record<string, unknown>
+  if (typeof obj['id'] !== 'string' || obj['id'] === '') {
+    throw new Error('ontology: proposal batch missing or empty "id"')
+  }
+  if (!Array.isArray(obj['proposals'])) {
+    throw new Error('ontology: proposal batch missing "proposals" array')
+  }
+  if (typeof obj['domain'] !== 'string') {
+    throw new Error('ontology: proposal batch missing "domain"')
+  }
+  if (typeof obj['sourceDocument'] !== 'string') {
+    throw new Error('ontology: proposal batch missing "sourceDocument"')
+  }
+  if (typeof obj['createdAt'] !== 'string') {
+    throw new Error('ontology: proposal batch missing "createdAt"')
+  }
+  return obj as unknown as ProposalBatch
+}
+
+function extractionToDefinitions(result: ExtractionResult, clock: () => Date): OntologyTypeDefinition[] {
+  const now = clock().toISOString()
   const defs: OntologyTypeDefinition[] = []
   for (const nt of result.nodeTypes) {
     defs.push({

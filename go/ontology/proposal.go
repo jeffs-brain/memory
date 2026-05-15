@@ -3,16 +3,16 @@ package ontology
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"sort"
 	"strings"
 	"time"
 
 	"github.com/jeffs-brain/memory/go/brain"
+	"github.com/jeffs-brain/memory/go/ingest"
 )
 
 // ProposalStatus is the lifecycle state of a type proposal.
@@ -24,18 +24,6 @@ const (
 	ProposalStatusMerged   ProposalStatus = "merged"
 	ProposalStatusRejected ProposalStatus = "rejected"
 )
-
-// ExtractionResult holds extracted ontology types from a document.
-// Defined here so that the proposal workflow can accept extraction
-// outputs without depending on the extraction package (P6-4). When
-// P6-4 is implemented, it will produce values of this type.
-type ExtractionResult struct {
-	NodeTypes          []TypeEntry `json:"nodeTypes"`
-	EdgeTypes          []TypeEntry `json:"edgeTypes"`
-	BusinessCategories []string    `json:"businessCategories"`
-	Domain             string      `json:"domain"`
-	Confidence         float64     `json:"confidence"`
-}
 
 // Proposal is a candidate type awaiting review.
 type Proposal struct {
@@ -110,19 +98,15 @@ func proposalBatchPath(batchID string) brain.Path {
 const proposalDirPath = brain.Path("ontology/proposals/")
 
 // proposalIDFromInputs computes a deterministic proposal ID from the
-// type name and batch ID using SHA-256 (first 16 hex characters).
+// type name and batch ID using BLAKE3 (first 16 hex characters).
 func proposalIDFromInputs(typeName, batchID string) string {
-	input := []byte(typeName + ":" + batchID)
-	sum := sha256.Sum256(input)
-	return hex.EncodeToString(sum[:8])
+	return ingest.HashString(typeName + ":" + batchID)[:16]
 }
 
 // computeBatchID computes a deterministic batch ID from the domain,
-// source document, and timestamp using SHA-256 (first 16 hex characters).
+// source document, and timestamp using BLAKE3 (first 16 hex characters).
 func computeBatchID(domain, sourceDocument, timestamp string) string {
-	input := []byte(domain + ":" + sourceDocument + ":" + timestamp)
-	sum := sha256.Sum256(input)
-	return hex.EncodeToString(sum[:8])
+	return ingest.HashString(domain + ":" + sourceDocument + ":" + timestamp)[:16]
 }
 
 // ProposeFromExtraction creates proposals for unique types from an
@@ -136,7 +120,7 @@ func (w *ProposalWorkflow) ProposeFromExtraction(ctx context.Context, result Ext
 
 	existingTypes := resolvedToDefinitions(resolved)
 	dedup := NewDeduplicator(nil)
-	extractedDefs := extractionToDefinitions(result)
+	extractedDefs := extractionToDefinitions(result, w.clock)
 
 	dedupResult, err := dedup.Deduplicate(ctx, extractedDefs, existingTypes)
 	if err != nil {
@@ -289,7 +273,10 @@ func (w *ProposalWorkflow) Reject(ctx context.Context, batchID, proposalID, revi
 	return w.writeBatch(ctx, batch)
 }
 
-// AcceptAll bulk-accepts all pending proposals in a batch.
+// AcceptAll bulk-accepts all pending proposals in a batch. Individual
+// registration failures are collected rather than short-circuiting, and
+// the batch is written atomically at the end regardless of partial
+// failures so that successfully accepted proposals are persisted.
 func (w *ProposalWorkflow) AcceptAll(ctx context.Context, batchID, reviewedBy string) error {
 	batch, err := w.readBatch(ctx, batchID)
 	if err != nil {
@@ -297,6 +284,7 @@ func (w *ProposalWorkflow) AcceptAll(ctx context.Context, batchID, reviewedBy st
 	}
 
 	now := w.clock().UTC().Format(time.RFC3339)
+	var errs []error
 
 	for i := range batch.Proposals {
 		if batch.Proposals[i].Status != ProposalStatusPending {
@@ -321,8 +309,9 @@ func (w *ProposalWorkflow) AcceptAll(ctx context.Context, batchID, reviewedBy st
 			Status:         TypeStatusActive,
 		}
 
-		if err := w.registry.RegisterType(ctx, ScopeBrain, def); err != nil {
-			return fmt.Errorf("ontology: accept all register %q: %w", batch.Proposals[i].Type, err)
+		if regErr := w.registry.RegisterType(ctx, ScopeBrain, def); regErr != nil {
+			errs = append(errs, fmt.Errorf("register %q: %w", batch.Proposals[i].Type, regErr))
+			continue
 		}
 
 		batch.Proposals[i].Status = ProposalStatusAccepted
@@ -330,7 +319,15 @@ func (w *ProposalWorkflow) AcceptAll(ctx context.Context, batchID, reviewedBy st
 		batch.Proposals[i].ReviewedAt = now
 	}
 
-	return w.writeBatch(ctx, batch)
+	// Always write the batch so successfully accepted proposals are persisted.
+	if writeErr := w.writeBatch(ctx, batch); writeErr != nil {
+		errs = append(errs, fmt.Errorf("write batch: %w", writeErr))
+	}
+
+	if len(errs) > 0 {
+		return fmt.Errorf("ontology: accept all batch %q: %w", batchID, errors.Join(errs...))
+	}
+	return nil
 }
 
 // List returns proposal batches matching the filter. All batches are
@@ -372,8 +369,12 @@ func (w *ProposalWorkflow) GetBatch(ctx context.Context, batchID string) (*Propo
 	return w.readBatch(ctx, batchID)
 }
 
-// readBatch reads a proposal batch from the store.
+// readBatch reads a proposal batch from the store. The batch ID is
+// validated to prevent path traversal.
 func (w *ProposalWorkflow) readBatch(ctx context.Context, id string) (*ProposalBatch, error) {
+	if err := validateID(id); err != nil {
+		return nil, fmt.Errorf("read batch: %w", err)
+	}
 	data, err := w.store.Read(ctx, proposalBatchPath(id))
 	if err != nil {
 		return nil, fmt.Errorf("read batch %q: %w", id, err)
@@ -385,8 +386,12 @@ func (w *ProposalWorkflow) readBatch(ctx context.Context, id string) (*ProposalB
 	return &batch, nil
 }
 
-// writeBatch writes a proposal batch to the store.
+// writeBatch writes a proposal batch to the store. The batch ID is
+// validated to prevent path traversal.
 func (w *ProposalWorkflow) writeBatch(ctx context.Context, batch *ProposalBatch) error {
+	if err := validateID(batch.ID); err != nil {
+		return fmt.Errorf("write batch: %w", err)
+	}
 	data, err := json.Marshal(batch)
 	if err != nil {
 		return fmt.Errorf("marshal batch %q: %w", batch.ID, err)
@@ -410,12 +415,14 @@ func (w *ProposalWorkflow) listBatches(ctx context.Context) ([]ProposalBatch, er
 		if entry.IsDir || !strings.HasSuffix(string(entry.Path), ".json") {
 			continue
 		}
-		data, err := w.store.Read(ctx, entry.Path)
-		if err != nil {
+		data, readErr := w.store.Read(ctx, entry.Path)
+		if readErr != nil {
+			slog.Warn("ontology: skipping unreadable proposal batch", "path", string(entry.Path), "error", readErr)
 			continue
 		}
 		var batch ProposalBatch
-		if err := json.Unmarshal(data, &batch); err != nil {
+		if unmarshalErr := json.Unmarshal(data, &batch); unmarshalErr != nil {
+			slog.Warn("ontology: skipping corrupt proposal batch", "path", string(entry.Path), "error", unmarshalErr)
 			continue
 		}
 		batches = append(batches, batch)
@@ -452,9 +459,10 @@ func resolvedToDefinitions(resolved *ResolvedOntology) []TypeDefinition {
 }
 
 // extractionToDefinitions converts extraction result entries to
-// TypeDefinitions for deduplication comparison.
-func extractionToDefinitions(result ExtractionResult) []TypeDefinition {
-	now := time.Now().UTC().Format(time.RFC3339)
+// TypeDefinitions for deduplication comparison. Uses the injected
+// clock instead of time.Now for deterministic testing.
+func extractionToDefinitions(result ExtractionResult, clock func() time.Time) []TypeDefinition {
+	now := clock().UTC().Format(time.RFC3339)
 	defs := make([]TypeDefinition, 0, len(result.NodeTypes)+len(result.EdgeTypes))
 	for _, nt := range result.NodeTypes {
 		defs = append(defs, TypeDefinition{
