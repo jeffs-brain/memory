@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
+import { randomUUID } from 'node:crypto'
 import { isAbsolute, normalize, resolve } from 'node:path'
 import { z } from 'zod'
 import { enumerateFiles } from '@jeffs-brain/memory/ingest'
@@ -36,18 +37,22 @@ export type DirectoryIngestFileResult = {
 }
 
 export type DirectoryIngestResult = {
-  readonly total: number
-  readonly succeeded: number
-  readonly failed: number
-  readonly skipped: number
+  readonly jobGroupId: string
+  readonly filesQueued: number
+  readonly filesSkipped: number
   readonly skippedReasons: readonly string[]
-  readonly results: readonly DirectoryIngestFileResult[]
+  readonly async: boolean
+  readonly total?: number
+  readonly succeeded?: number
+  readonly failed?: number
+  readonly skipped?: number
+  readonly results?: readonly DirectoryIngestFileResult[]
 }
 
 export const ingestDirectoryTool: Tool<typeof schema> = {
   name: 'memory_ingest_directory',
   description:
-    'Ingest files from a directory. Walks recursively, respects .gitignore, and supports glob filtering.',
+    'Ingest files from a directory. Walks recursively, respects .gitignore, and supports glob filtering. Returns a jobGroupId for async tracking when an event bus is configured.',
   inputSchema: schema,
   async handler(args, client, ctx) {
     const cleanedDir = resolve(normalize(args.directory))
@@ -65,7 +70,35 @@ export const ingestDirectoryTool: Tool<typeof schema> = {
       maxFiles: args.maxFiles,
     })
 
+    const jobGroupId = randomUUID()
     const total = enumerated.files.length
+
+    // Async mode: when a trigger bus is available, publish events and return immediately.
+    if (ctx?.triggerBus) {
+      const bus = ctx.triggerBus
+      for (const file of enumerated.files) {
+        bus.publish({
+          id: randomUUID(),
+          brainId: args.brain ?? 'default',
+          source: 'event-bus',
+          payload: { kind: 'file', path: file.path },
+          metadata: { jobGroupId },
+          timestamp: new Date(),
+        })
+      }
+
+      const asyncResult: DirectoryIngestResult = {
+        jobGroupId,
+        filesQueued: total,
+        filesSkipped: enumerated.skipped.length,
+        skippedReasons: enumerated.skipped,
+        async: true,
+      }
+
+      return jsonContent(asyncResult)
+    }
+
+    // Sync fallback: process files directly when no event bus is configured.
     const results: DirectoryIngestFileResult[] = new Array(total)
     let succeeded = 0
     let failed = 0
@@ -121,15 +154,19 @@ export const ingestDirectoryTool: Tool<typeof schema> = {
     }
     await Promise.all(executing)
 
-    const directoryResult: DirectoryIngestResult = {
+    const syncResult: DirectoryIngestResult = {
+      jobGroupId,
+      filesQueued: total,
+      filesSkipped: enumerated.skipped.length,
+      skippedReasons: enumerated.skipped,
+      async: false,
       total,
       succeeded,
       failed,
       skipped: enumerated.skipped.length,
-      skippedReasons: enumerated.skipped,
       results: results.filter((r): r is DirectoryIngestFileResult => r !== undefined),
     }
 
-    return jsonContent(directoryResult)
+    return jsonContent(syncResult)
   },
 }

@@ -7,3 +7,4 @@ export {
   globPathMatcher,
   prefixPathMatcher,
 } from './mutation-hook.js'
+export { fireDocumentDetected, fireIngestStart, fireIngestEnd } from './lifecycle.js'

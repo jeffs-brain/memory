@@ -250,6 +250,30 @@ export type ConsolidationPayload = {
   readonly report?: ConsolidationReport
 }
 
+/** Payload for onDocumentDetected — fired when references are found. */
+export type DocumentDetectedEvent = {
+  readonly brainId: string
+  readonly references: readonly DetectedReference[]
+  readonly sessionId?: string
+  readonly actorId?: string
+}
+
+/** A single detected reference (URL or file path). */
+export type DetectedReference = {
+  readonly kind: 'url' | 'file'
+  readonly value: string
+  readonly confidence: number
+}
+
+/** Payload for onIngestStart / onIngestEnd hooks. */
+export type IngestHookEvent = {
+  readonly brainId: string
+  readonly path: string
+  readonly source: string
+  readonly contentType?: string
+  readonly bytes: number
+}
+
 /**
  * Plugin hooks — a fresh list passed at construction time. Plugins fire in
  * registration order for "Start" events, in reverse order for "End" events.
@@ -264,6 +288,12 @@ export type Plugin = {
   onReflectionEnd?: (ctx: ReflectionPayload) => Promise<void> | void
   onConsolidationStart?: (ctx: ConsolidationPayload) => Promise<void> | void
   onConsolidationEnd?: (ctx: ConsolidationPayload) => Promise<void> | void
+  /** Fires when the pipeline detects a URL or file reference worth ingesting. Return false to cancel. */
+  onDocumentDetected?: (event: DocumentDetectedEvent) => Promise<boolean> | boolean
+  /** Fires before ingest pipeline processing. Return false to cancel. */
+  onIngestStart?: (event: IngestHookEvent) => Promise<boolean> | boolean
+  /** Fires after ingest pipeline processing completes. */
+  onIngestEnd?: (event: IngestHookEvent) => Promise<void> | void
 }
 
 /** Context object for injecting recalled memories into a prompt. */

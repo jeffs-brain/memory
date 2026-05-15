@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import type { z } from 'zod'
+import type { TriggerBus } from '@jeffs-brain/memory/ingest'
 import type { MemoryClient, ProgressEmitter } from '../memory-client.js'
 
 export type ToolContent = {
@@ -17,9 +18,14 @@ export type ToolResult = {
  * Context passed to each tool handler. `progress` is present only when
  * the MCP client supplied a `_meta.progressToken`. Handlers that emit
  * MCP `notifications/progress` events go through this hook.
+ *
+ * `triggerBus` is optionally provided when the server is wired with an
+ * event bus. Tools that support async dispatch (e.g. directory ingest)
+ * will publish events to the bus and return immediately.
  */
 export type ToolContext = {
   readonly progress?: ProgressEmitter
+  readonly triggerBus?: TriggerBus
 }
 
 export type Tool<TSchema extends z.ZodTypeAny = z.ZodTypeAny> = {
