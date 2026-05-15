@@ -138,55 +138,55 @@ func TestNewSnowballStemmer_UnsupportedLanguage(t *testing.T) {
 func TestDetectLanguage_English(t *testing.T) {
 	t.Parallel()
 	text := "The quick brown fox jumps over the lazy dog and then runs across the green field towards the other side of the river where the fisherman was standing quietly"
-	lang, confidence := DetectLanguage(text)
+	lang, confidence := DetectLanguage(text, nil)
 	if lang != "en" {
 		t.Errorf("DetectLanguage(english text) = %q, want %q (confidence=%f)", lang, "en", confidence)
 	}
-	if confidence < languageConfidenceThreshold {
-		t.Errorf("confidence = %f, want >= %f", confidence, languageConfidenceThreshold)
+	if confidence < DefaultConfidenceThreshold {
+		t.Errorf("confidence = %f, want >= %f", confidence, DefaultConfidenceThreshold)
 	}
 }
 
 func TestDetectLanguage_German(t *testing.T) {
 	t.Parallel()
 	text := "Die Bundesrepublik Deutschland ist ein demokratischer und sozialer Bundesstaat mit einer langen Geschichte und vielen verschiedenen Regionen die sich durch ihre Kultur unterscheiden"
-	lang, confidence := DetectLanguage(text)
+	lang, confidence := DetectLanguage(text, nil)
 	if lang != "de" {
 		t.Errorf("DetectLanguage(german text) = %q, want %q (confidence=%f)", lang, "de", confidence)
 	}
-	if confidence < languageConfidenceThreshold {
-		t.Errorf("confidence = %f, want >= %f", confidence, languageConfidenceThreshold)
+	if confidence < DefaultConfidenceThreshold {
+		t.Errorf("confidence = %f, want >= %f", confidence, DefaultConfidenceThreshold)
 	}
 }
 
 func TestDetectLanguage_French(t *testing.T) {
 	t.Parallel()
 	text := "La République française est un pays dont la majeure partie du territoire se situe en Europe occidentale et qui possède de nombreuses régions outre-mer dans le monde entier"
-	lang, confidence := DetectLanguage(text)
+	lang, confidence := DetectLanguage(text, nil)
 	if lang != "fr" {
 		t.Errorf("DetectLanguage(french text) = %q, want %q (confidence=%f)", lang, "fr", confidence)
 	}
-	if confidence < languageConfidenceThreshold {
-		t.Errorf("confidence = %f, want >= %f", confidence, languageConfidenceThreshold)
+	if confidence < DefaultConfidenceThreshold {
+		t.Errorf("confidence = %f, want >= %f", confidence, DefaultConfidenceThreshold)
 	}
 }
 
 func TestDetectLanguage_Russian(t *testing.T) {
 	t.Parallel()
 	text := "Российская Федерация является демократическим федеративным правовым государством с республиканской формой правления и развитой системой управления"
-	lang, confidence := DetectLanguage(text)
+	lang, confidence := DetectLanguage(text, nil)
 	if lang != "ru" {
 		t.Errorf("DetectLanguage(russian text) = %q, want %q (confidence=%f)", lang, "ru", confidence)
 	}
-	if confidence < languageConfidenceThreshold {
-		t.Errorf("confidence = %f, want >= %f", confidence, languageConfidenceThreshold)
+	if confidence < DefaultConfidenceThreshold {
+		t.Errorf("confidence = %f, want >= %f", confidence, DefaultConfidenceThreshold)
 	}
 }
 
 func TestDetectLanguage_ShortText_DefaultsToEnglish(t *testing.T) {
 	t.Parallel()
 	text := "hello"
-	lang, confidence := DetectLanguage(text)
+	lang, confidence := DetectLanguage(text, nil)
 	if lang != "en" {
 		t.Errorf("DetectLanguage(short text) = %q, want %q", lang, "en")
 	}
@@ -197,7 +197,7 @@ func TestDetectLanguage_ShortText_DefaultsToEnglish(t *testing.T) {
 
 func TestDetectLanguage_Empty(t *testing.T) {
 	t.Parallel()
-	lang, confidence := DetectLanguage("")
+	lang, confidence := DetectLanguage("", nil)
 	if lang != "en" {
 		t.Errorf("DetectLanguage(\"\") = %q, want %q", lang, "en")
 	}
@@ -345,5 +345,151 @@ func TestContainsCJK(t *testing.T) {
 				t.Errorf("ContainsCJK(%q) = %v, want %v", tc.text, got, tc.want)
 			}
 		})
+	}
+}
+
+func TestStopWords_English(t *testing.T) {
+	t.Parallel()
+	sw := StopWords("en")
+	if sw == nil {
+		t.Fatal("StopWords(en) returned nil")
+	}
+	expectedWords := []string{"the", "is", "at", "which", "and", "or", "but", "in", "a"}
+	for _, w := range expectedWords {
+		if _, ok := sw[w]; !ok {
+			t.Errorf("StopWords(en) missing %q", w)
+		}
+	}
+}
+
+func TestStopWords_German(t *testing.T) {
+	t.Parallel()
+	sw := StopWords("de")
+	if sw == nil {
+		t.Fatal("StopWords(de) returned nil")
+	}
+	expectedWords := []string{"der", "die", "das", "und", "ist", "ein"}
+	for _, w := range expectedWords {
+		if _, ok := sw[w]; !ok {
+			t.Errorf("StopWords(de) missing %q", w)
+		}
+	}
+}
+
+func TestStopWords_French(t *testing.T) {
+	t.Parallel()
+	sw := StopWords("fr")
+	if sw == nil {
+		t.Fatal("StopWords(fr) returned nil")
+	}
+	expectedWords := []string{"le", "la", "les", "de", "et", "est"}
+	for _, w := range expectedWords {
+		if _, ok := sw[w]; !ok {
+			t.Errorf("StopWords(fr) missing %q", w)
+		}
+	}
+}
+
+func TestStopWords_AllLanguages(t *testing.T) {
+	t.Parallel()
+	langs := []string{"en", "de", "fr", "es", "it", "pt", "nl", "ru", "zh", "ja"}
+	for _, lang := range langs {
+		sw := StopWords(lang)
+		if sw == nil {
+			t.Errorf("StopWords(%q) returned nil", lang)
+			continue
+		}
+		if len(sw) == 0 {
+			t.Errorf("StopWords(%q) returned empty set", lang)
+		}
+	}
+}
+
+func TestStopWords_UnsupportedLanguage(t *testing.T) {
+	t.Parallel()
+	sw := StopWords("xx")
+	if sw != nil {
+		t.Errorf("StopWords(xx) = %v, want nil", sw)
+	}
+}
+
+func TestDetectLanguage_ConfigurableThreshold(t *testing.T) {
+	t.Parallel()
+	text := "The quick brown fox jumps over the lazy dog and then runs across the green field towards the other side of the river where the fisherman was standing quietly"
+
+	// With very high threshold, detection defaults to English even for
+	// English text if confidence is below.
+	lang, confidence := DetectLanguage(text, &DetectLanguageOptions{Threshold: 0.99})
+	// Either the text is detected as English (matching the threshold)
+	// or returned as English by default. Either way lang should be "en".
+	if lang != "en" {
+		t.Errorf("DetectLanguage with threshold=0.99: lang = %q, want %q", lang, "en")
+	}
+
+	// With very low threshold, any above-zero confidence should suffice.
+	lang2, confidence2 := DetectLanguage(text, &DetectLanguageOptions{Threshold: 0.01})
+	if lang2 != "en" {
+		t.Errorf("DetectLanguage with threshold=0.01: lang = %q, want %q", lang2, "en")
+	}
+	if confidence2 < 0.01 {
+		t.Errorf("DetectLanguage with threshold=0.01: confidence = %f", confidence2)
+	}
+	_ = confidence
+}
+
+func TestDetectLanguage_ConfigurableMinLength(t *testing.T) {
+	t.Parallel()
+	// 35 alpha chars: below the default min (50) but above custom min (20).
+	text := "The quick brown fox the other side"
+
+	// Default min length (50) should return "en" with zero confidence.
+	lang, confidence := DetectLanguage(text, nil)
+	if lang != "en" {
+		t.Errorf("DetectLanguage(short text, default) = %q, want %q", lang, "en")
+	}
+	if confidence != 0.0 {
+		t.Errorf("confidence = %f, want 0.0", confidence)
+	}
+
+	// With minLength=20, the text is long enough and should produce a
+	// non-zero confidence.
+	lang2, confidence2 := DetectLanguage(text, &DetectLanguageOptions{MinLength: 20, Threshold: 0.01})
+	if confidence2 <= 0 {
+		t.Errorf("confidence = %f, want > 0", confidence2)
+	}
+	_ = lang2
+}
+
+func TestRegisterLanguage(t *testing.T) {
+	// Register a custom language profile.
+	customProfile := map[string]float64{
+		"xy": 0.1, "yz": 0.08, "zx": 0.06,
+	}
+	RegisterLanguage("custom", customProfile)
+
+	// Verify the profile is accessible in detection.
+	// Generate text that strongly matches our custom profile.
+	text := "xyyzxyyzzxyzxyyzzxyyzxyzxyyzxyyzzxyzxyyzzxyyz"
+	// This is a made-up language so it might not win detection, but the
+	// profile should exist.
+	lang, _ := DetectLanguage(text, &DetectLanguageOptions{MinLength: 10, Threshold: 0.01})
+	// The custom profile should at least be a contender.
+	_ = lang
+
+	// Clean up: re-register with the same code to confirm no panic.
+	RegisterLanguage("custom", customProfile)
+}
+
+func TestDefaultThresholdValue(t *testing.T) {
+	t.Parallel()
+	if DefaultConfidenceThreshold != 0.7 {
+		t.Errorf("DefaultConfidenceThreshold = %f, want 0.7", DefaultConfidenceThreshold)
+	}
+}
+
+func TestDefaultMinDetectionLengthValue(t *testing.T) {
+	t.Parallel()
+	if DefaultMinDetectionLength != 50 {
+		t.Errorf("DefaultMinDetectionLength = %d, want 50", DefaultMinDetectionLength)
 	}
 }

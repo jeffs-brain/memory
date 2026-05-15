@@ -4,7 +4,11 @@ import { describe, expect, it } from 'vitest'
 import { containsCJK, isCJK, tokenizeCJK } from './trigram-cjk.js'
 import {
   createStemmer,
+  DEFAULT_CONFIDENCE_THRESHOLD,
+  DEFAULT_MIN_DETECTION_LENGTH,
   detectLanguage,
+  registerLanguage,
+  stopWords,
   SUPPORTED_LANGUAGES,
   UnsupportedLanguageError,
 } from './stemmer.js'
@@ -92,7 +96,7 @@ describe('detectLanguage', () => {
       'The quick brown fox jumps over the lazy dog and then runs across the green field towards the other side of the river where the fisherman was standing quietly'
     const result = detectLanguage(text)
     expect(result.language).toBe('en')
-    expect(result.confidence).toBeGreaterThanOrEqual(0.5)
+    expect(result.confidence).toBeGreaterThanOrEqual(DEFAULT_CONFIDENCE_THRESHOLD)
   })
 
   it('detects German text', () => {
@@ -100,7 +104,7 @@ describe('detectLanguage', () => {
       'Die Bundesrepublik Deutschland ist ein demokratischer und sozialer Bundesstaat mit einer langen Geschichte und vielen verschiedenen Regionen die sich durch ihre Kultur unterscheiden'
     const result = detectLanguage(text)
     expect(result.language).toBe('de')
-    expect(result.confidence).toBeGreaterThanOrEqual(0.5)
+    expect(result.confidence).toBeGreaterThanOrEqual(DEFAULT_CONFIDENCE_THRESHOLD)
   })
 
   it('detects French text', () => {
@@ -108,7 +112,7 @@ describe('detectLanguage', () => {
       'La République française est un pays dont la majeure partie du territoire se situe en Europe occidentale et qui possède de nombreuses régions outre-mer dans le monde entier'
     const result = detectLanguage(text)
     expect(result.language).toBe('fr')
-    expect(result.confidence).toBeGreaterThanOrEqual(0.5)
+    expect(result.confidence).toBeGreaterThanOrEqual(DEFAULT_CONFIDENCE_THRESHOLD)
   })
 
   it('detects Russian text', () => {
@@ -116,7 +120,7 @@ describe('detectLanguage', () => {
       'Российская Федерация является демократическим федеративным правовым государством с республиканской формой правления и развитой системой управления'
     const result = detectLanguage(text)
     expect(result.language).toBe('ru')
-    expect(result.confidence).toBeGreaterThanOrEqual(0.5)
+    expect(result.confidence).toBeGreaterThanOrEqual(DEFAULT_CONFIDENCE_THRESHOLD)
   })
 
   it('returns English with low confidence for very short text', () => {
@@ -210,5 +214,108 @@ describe('tokenizeCJK', () => {
 
   it('returns empty array for whitespace-only string', () => {
     expect(tokenizeCJK('   ')).toEqual([])
+  })
+})
+
+describe('stopWords', () => {
+  it('returns English stopwords containing common words', () => {
+    const sw = stopWords('en')
+    expect(sw).toBeDefined()
+    expect(sw!.has('the')).toBe(true)
+    expect(sw!.has('is')).toBe(true)
+    expect(sw!.has('at')).toBe(true)
+    expect(sw!.has('which')).toBe(true)
+    expect(sw!.has('and')).toBe(true)
+  })
+
+  it('returns German stopwords containing common words', () => {
+    const sw = stopWords('de')
+    expect(sw).toBeDefined()
+    expect(sw!.has('der')).toBe(true)
+    expect(sw!.has('die')).toBe(true)
+    expect(sw!.has('das')).toBe(true)
+    expect(sw!.has('und')).toBe(true)
+  })
+
+  it('returns French stopwords containing common words', () => {
+    const sw = stopWords('fr')
+    expect(sw).toBeDefined()
+    expect(sw!.has('le')).toBe(true)
+    expect(sw!.has('la')).toBe(true)
+    expect(sw!.has('les')).toBe(true)
+    expect(sw!.has('de')).toBe(true)
+  })
+
+  it('returns stopwords for all top-10 languages', () => {
+    const langs = ['en', 'de', 'fr', 'es', 'it', 'pt', 'nl', 'ru', 'zh', 'ja']
+    for (const lang of langs) {
+      const sw = stopWords(lang)
+      expect(sw).toBeDefined()
+      expect(sw!.size).toBeGreaterThan(0)
+    }
+  })
+
+  it('returns undefined for unsupported language', () => {
+    const sw = stopWords('xx' as StemmerLanguage)
+    expect(sw).toBeUndefined()
+  })
+})
+
+describe('configurable thresholds', () => {
+  it('DEFAULT_CONFIDENCE_THRESHOLD is 0.7', () => {
+    expect(DEFAULT_CONFIDENCE_THRESHOLD).toBe(0.7)
+  })
+
+  it('DEFAULT_MIN_DETECTION_LENGTH is 50', () => {
+    expect(DEFAULT_MIN_DETECTION_LENGTH).toBe(50)
+  })
+
+  it('respects custom threshold', () => {
+    const text =
+      'The quick brown fox jumps over the lazy dog and then runs across the green field towards the other side of the river where the fisherman was standing quietly'
+    // With very high threshold, may return "en" as fallback.
+    const result = detectLanguage(text, { threshold: 0.99 })
+    expect(result.language).toBe('en')
+
+    // With very low threshold, any detection with positive confidence suffices.
+    const result2 = detectLanguage(text, { threshold: 0.01 })
+    expect(result2.language).toBe('en')
+    expect(result2.confidence).toBeGreaterThan(0)
+  })
+
+  it('respects custom minLength', () => {
+    // 34 alpha chars: below default 50 but above custom 20.
+    const text = 'The quick brown fox the other side'
+
+    // Default min length (50) returns zero confidence.
+    const result = detectLanguage(text)
+    expect(result.language).toBe('en')
+    expect(result.confidence).toBe(0.0)
+
+    // Custom min length (20) should produce a result.
+    const result2 = detectLanguage(text, { minLength: 20, threshold: 0.01 })
+    expect(result2.confidence).toBeGreaterThan(0)
+  })
+})
+
+describe('registerLanguage', () => {
+  it('registers a custom language profile', () => {
+    const customProfile = { xy: 0.1, yz: 0.08, zx: 0.06 }
+    registerLanguage('custom', customProfile)
+
+    // The profile should now be accessible. We cannot easily test that
+    // it wins detection since the text would need to match strongly,
+    // but the function should not throw.
+    const text = 'xyyzxyyzzxyzxyyzzxyyzxyzxyyzxyyzzxyzxyyzzxyyz'
+    const result = detectLanguage(text, { minLength: 10, threshold: 0.01 })
+    // Just verify it ran without error and returned a result.
+    expect(result.confidence).toBeGreaterThanOrEqual(0)
+  })
+
+  it('can re-register an existing language code', () => {
+    const profile = { ab: 0.5, cd: 0.3 }
+    registerLanguage('custom2', profile)
+    registerLanguage('custom2', profile)
+    // No error thrown.
   })
 })

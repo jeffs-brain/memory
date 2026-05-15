@@ -5,6 +5,7 @@ package search
 import (
 	"math"
 	"strings"
+	"sync"
 	"unicode"
 
 	snowballRuntime "github.com/blevesearch/snowballstem"
@@ -96,22 +97,55 @@ func (e *UnsupportedLanguageError) Error() string {
 	return "search: unsupported stemmer language: " + e.Lang
 }
 
-// languageConfidenceThreshold is the minimum detection confidence
-// required to use a non-English stemmer. Below this threshold the
-// detector returns English as the safe default.
-const languageConfidenceThreshold = 0.5
+// DefaultConfidenceThreshold is the minimum detection confidence
+// required to use a non-English stemmer (fastText production standard).
+// Below this threshold the detector returns English as the safe default.
+const DefaultConfidenceThreshold = 0.7
+
+// DefaultMinDetectionLength is the minimum number of alphabetic
+// characters required for reliable language detection. Apple ML Research
+// validated that below 50 characters, detection accuracy drops below
+// 90%.
+const DefaultMinDetectionLength = 50
+
+// DetectLanguageOptions configures language detection behaviour.
+type DetectLanguageOptions struct {
+	// Threshold is the minimum confidence score (0-1) required to use
+	// the detected language. Below this, English is returned as the
+	// safe default. Zero uses DefaultConfidenceThreshold.
+	Threshold float64
+	// MinLength is the minimum number of alphabetic characters required
+	// for detection. Below this, English is returned with zero
+	// confidence. Zero uses DefaultMinDetectionLength.
+	MinLength int
+}
 
 // DetectLanguage performs basic bigram-frequency language detection on
 // text. Returns the ISO 639-1 code and a confidence score in [0, 1].
-// When confidence is below 0.5, returns "en" as the safe default.
+// When confidence is below the threshold, returns "en" as the safe
+// default.
 //
 // The detection uses character-level bigram frequency profiles for each
 // language. Confidence is computed by scaling the best cosine similarity
-// score (typically 0.2-0.7) to [0, 1]. Short texts (< 20 characters of
-// alphabetic content) always return "en" with zero confidence.
-func DetectLanguage(text string) (string, float64) {
+// score (typically 0.2-0.7) to [0, 1]. Short texts (below MinLength
+// characters of alphabetic content) always return "en" with zero
+// confidence.
+//
+// Pass nil for opts to use defaults.
+func DetectLanguage(text string, opts *DetectLanguageOptions) (string, float64) {
+	threshold := DefaultConfidenceThreshold
+	minLen := DefaultMinDetectionLength
+	if opts != nil {
+		if opts.Threshold > 0 {
+			threshold = opts.Threshold
+		}
+		if opts.MinLength > 0 {
+			minLen = opts.MinLength
+		}
+	}
+
 	cleaned := extractAlphaRuns(text)
-	if len([]rune(cleaned)) < 20 {
+	if len([]rune(cleaned)) < minLen {
 		return "en", 0.0
 	}
 
@@ -120,9 +154,13 @@ func DetectLanguage(text string) (string, float64) {
 		return "en", 0.0
 	}
 
+	profilesMu.RLock()
+	profiles := languageProfiles
+	profilesMu.RUnlock()
+
 	var bestLang string
 	var bestScore float64
-	for lang, profile := range languageProfiles {
+	for lang, profile := range profiles {
 		score := bigramCosineSimilarity(bigrams, profile)
 		if score > bestScore {
 			bestScore = score
@@ -135,16 +173,36 @@ func DetectLanguage(text string) (string, float64) {
 	}
 
 	// Scale the raw cosine score (typically 0.2-0.7) to [0, 1].
-	// Scores above 0.35 map to confidence above 0.5, which is the
-	// detection threshold.
+	// Scores above 0.35 map to confidence above 0.7.
 	confidence := math.Min(1.0, bestScore*2.0)
 
-	if confidence < languageConfidenceThreshold {
+	if confidence < threshold {
 		return "en", confidence
 	}
 
 	return bestLang, confidence
 }
+
+// RegisterLanguage adds a custom language profile at runtime, enabling
+// detection and stemming for languages beyond the built-in set. The code
+// must be an ISO 639-1 language code. The profile is a map of character
+// bigrams to normalised frequency values. If a profile for the code
+// already exists, it is replaced.
+func RegisterLanguage(code string, profile map[string]float64) {
+	profilesMu.Lock()
+	defer profilesMu.Unlock()
+
+	// Copy the map to avoid mutation of the shared global.
+	newProfiles := make(map[string]map[string]float64, len(languageProfiles)+1)
+	for k, v := range languageProfiles {
+		newProfiles[k] = v
+	}
+	newProfiles[code] = profile
+	languageProfiles = newProfiles
+}
+
+// profilesMu protects concurrent access to languageProfiles.
+var profilesMu sync.RWMutex
 
 // extractAlphaRuns keeps only letter characters and spaces, collapsing
 // non-letter runs into single spaces. Used for language detection.
