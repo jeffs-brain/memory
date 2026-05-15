@@ -13,23 +13,18 @@
 
 import type { Embedder } from '../llm/types.js'
 import type { TypeEntry, IndustryTemplate } from './templates.js'
+import type { ExtractionResult } from './types-extraction.js'
 
 import { listTemplates, getTemplate } from './templates.js'
 import { cosineSimilarity } from './similarity.js'
+
+export type { ExtractionResult } from './types-extraction.js'
 
 /** Minimum cosine similarity for a semantic embedding pair to count as a match. */
 export const TEMPLATE_MATCH_SEMANTIC_THRESHOLD = 0.8
 
 /** Minimum combined score (overlap + coverage) / 2 for a suggestion. */
 export const TEMPLATE_MATCH_COMBINED_MINIMUM = 0.3
-
-export type ExtractionResult = {
-  readonly nodeTypes: readonly TypeEntry[]
-  readonly edgeTypes: readonly TypeEntry[]
-  readonly businessCategories: readonly string[]
-  readonly domain: string
-  readonly confidence: number
-}
 
 export type TemplateSuggestion = {
   readonly templateKey: string
@@ -57,6 +52,7 @@ export class TemplateMatcher {
   private readonly embedder: Embedder | undefined
   private readonly semanticThreshold: number
   private readonly combinedMinimum: number
+  private readonly embeddingCache = new Map<string, readonly (readonly number[])[]>()
 
   constructor(options: TemplateMatcherOptions) {
     this.embedder = options.embedder
@@ -176,8 +172,12 @@ export class TemplateMatcher {
       const templateTypes = combineTypes(tmpl.nodeTypes, tmpl.edgeTypes)
       if (templateTypes.length === 0) continue
 
-      const templateTexts = templateTypes.map((t) => `${t.label}: ${t.description}`)
-      const templateEmbeddings = await this.embedder!.embed(templateTexts, signal)
+      let templateEmbeddings = this.embeddingCache.get(key)
+      if (templateEmbeddings === undefined) {
+        const templateTexts = templateTypes.map((t) => `${t.label}: ${t.description}`)
+        templateEmbeddings = await this.embedder!.embed(templateTexts, signal)
+        this.embeddingCache.set(key, templateEmbeddings)
+      }
 
       const matchCount = greedyBipartiteMatch(
         extractedEmbeddings,

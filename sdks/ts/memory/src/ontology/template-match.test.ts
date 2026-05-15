@@ -185,24 +185,68 @@ describe('TemplateMatcher.match', () => {
     expect(suggestion).toBeUndefined()
   })
 
-  it('uses semantic matching when embedder is provided', async () => {
-    const embedder = createFakeEmbedder(16)
-    const matcher = new TemplateMatcher({ embedder })
+  it('semantic match above threshold returns a suggestion', async () => {
+    const tmpl = getTemplate('healthcare')!
+    const extractedTypes = tmpl.nodeTypes.slice(0, 3)
+
+    // Build a set of texts that will be requested for both extracted and
+    // healthcare template embeddings, so we can return matching vectors
+    // only for those.
+    const healthcareTexts = new Set<string>()
+    for (const nt of tmpl.nodeTypes) {
+      healthcareTexts.add(`${nt.label}: ${nt.description}`)
+    }
+    for (const et of tmpl.edgeTypes) {
+      healthcareTexts.add(`${et.label}: ${et.description}`)
+    }
+
+    const fakeEmbedder: Embedder = {
+      name: () => 'fake-selective',
+      model: () => 'fake-model',
+      dimension: () => 3,
+      embed: async (texts: readonly string[]): Promise<number[][]> =>
+        texts.map((text) =>
+          healthcareTexts.has(text) ? [1, 0, 0] : [0, 0, 0],
+        ),
+    }
+
+    const matcher = new TemplateMatcher({
+      embedder: fakeEmbedder,
+      semanticThreshold: 0.8,
+      combinedMinimum: 0.01, // low so that even 3/45 matches qualify
+    })
+
+    const extracted = makeExtraction([...extractedTypes], [])
+
+    const suggestion = await matcher.match(extracted)
+    expect(suggestion).not.toBeUndefined()
+    expect(suggestion!.templateKey).toBe('healthcare')
+    expect(suggestion!.overlapScore).toBeCloseTo(1.0, 2)
+  })
+
+  it('semantic match below threshold returns undefined', async () => {
+    // Zero-vector embedder: cosine similarity is 0 (or NaN) -- no matches.
+    const fakeEmbedder: Embedder = {
+      name: () => 'fake-zero',
+      model: () => 'fake-model',
+      dimension: () => 3,
+      embed: async (texts: readonly string[]): Promise<number[][]> =>
+        texts.map(() => [0, 0, 0]),
+    }
+
+    const matcher = new TemplateMatcher({
+      embedder: fakeEmbedder,
+      semanticThreshold: 0.8,
+      combinedMinimum: 0.3,
+    })
 
     const extracted = makeExtraction(
-      [
-        { type: 'entity.patient', label: 'Patient', description: 'An individual receiving healthcare' },
-        { type: 'entity.practitioner', label: 'Practitioner', description: 'A healthcare professional' },
-      ],
-      [
-        { type: 'treats', label: 'Treats', description: 'Treatment relationship' },
-      ],
+      [{ type: 'entity.alien_species', label: 'Alien Species', description: 'Extraterrestrial' }],
+      [{ type: 'orbits', label: 'Orbits', description: 'Orbital relationship' }],
     )
 
-    // Should not throw, whether or not it finds a match depends on hash-based vectors
-    await matcher.match(extracted)
-    // Just verify it ran without error
-    expect(true).toBe(true)
+    const suggestion = await matcher.match(extracted)
+    expect(suggestion).toBeUndefined()
   })
 })
 

@@ -11,9 +11,9 @@ func TestMatchExact_PerfectOverlap(t *testing.T) {
 	matcher := NewTemplateMatcher(nil)
 
 	// Use types from the server_hardware template for a perfect overlap
-	tmpl, err := GetTemplate("server_hardware")
-	if err != nil {
-		t.Fatalf("failed to get template: %v", err)
+	tmpl, ok := GetTemplate("server_hardware")
+	if !ok {
+		t.Fatal("failed to get template")
 	}
 
 	extracted := ExtractionResult{
@@ -44,9 +44,9 @@ func TestMatchExact_PartialOverlap(t *testing.T) {
 	matcher := NewTemplateMatcher(nil)
 
 	// Use a subset of the healthcare template
-	tmpl, err := GetTemplate("healthcare")
-	if err != nil {
-		t.Fatalf("failed to get template: %v", err)
+	tmpl, ok := GetTemplate("healthcare")
+	if !ok {
+		t.Fatal("failed to get template")
 	}
 
 	extracted := ExtractionResult{
@@ -125,9 +125,9 @@ func TestMatchExact_AdditionalTypes(t *testing.T) {
 	t.Parallel()
 	matcher := NewTemplateMatcher(nil)
 
-	tmpl, err := GetTemplate("order_processing")
-	if err != nil {
-		t.Fatalf("failed to get template: %v", err)
+	tmpl, ok := GetTemplate("order_processing")
+	if !ok {
+		t.Fatal("failed to get template")
 	}
 
 	// Start with template types and add extra ones
@@ -160,9 +160,9 @@ func TestMatchExact_MissingTypes(t *testing.T) {
 	t.Parallel()
 	matcher := NewTemplateMatcher(nil)
 
-	tmpl, err := GetTemplate("order_processing")
-	if err != nil {
-		t.Fatalf("failed to get template: %v", err)
+	tmpl, ok := GetTemplate("order_processing")
+	if !ok {
+		t.Fatal("failed to get template")
 	}
 
 	// Use only first 3 node types from template
@@ -207,9 +207,9 @@ func TestMatch_FallbackToExact(t *testing.T) {
 	// No embedder: should fall back to exact matching
 	matcher := NewTemplateMatcher(nil)
 
-	tmpl, err := GetTemplate("server_hardware")
-	if err != nil {
-		t.Fatalf("failed to get template: %v", err)
+	tmpl, ok := GetTemplate("server_hardware")
+	if !ok {
+		t.Fatal("failed to get template")
 	}
 
 	extracted := ExtractionResult{
@@ -229,21 +229,70 @@ func TestMatch_FallbackToExact(t *testing.T) {
 	}
 }
 
-func TestMatchSemantic_WithEmbedder(t *testing.T) {
+func TestMatchSemantic_AboveThreshold(t *testing.T) {
 	t.Parallel()
-	embedder := newFakeEmbedderForTemplateMatch(16)
-	matcher := NewTemplateMatcher(embedder)
 
-	// Use healthcare types that the fake embedder will match semantically
+	// Build a fake embedder where extracted and healthcare template types
+	// map to the SAME vector, guaranteeing cosine similarity = 1.0.
+	tmpl, ok := GetTemplate("healthcare")
+	if !ok {
+		t.Fatal("healthcare template not found")
+	}
+
+	sharedVec := []float32{1.0, 0.0, 0.0}
+	vectors := make(map[string][]float32)
+
+	// Use the same 3 types that will appear in the extracted set and
+	// the template. Because the fake embedder returns the same vector
+	// for both, greedy bipartite matching will produce 3 matches.
+	for _, nt := range tmpl.NodeTypes[:3] {
+		key := nt.Label + ": " + nt.Description
+		vectors[key] = sharedVec
+	}
+
+	embedder := newFakeEmbedder(3, vectors)
+	matcher := NewTemplateMatcherWithConfig(TemplateMatcherConfig{
+		Embedder:          embedder,
+		SemanticThreshold: 0.8,
+		CombinedMinimum:   0.01, // low threshold so even 3/45 matches qualify
+	})
+
+	extracted := ExtractionResult{
+		NodeTypes: tmpl.NodeTypes[:3],
+	}
+
+	suggestion, err := matcher.Match(context.Background(), extracted)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if suggestion == nil {
+		t.Fatal("expected a suggestion above threshold")
+	}
+	if suggestion.TemplateKey != "healthcare" {
+		t.Fatalf("expected healthcare, got %s", suggestion.TemplateKey)
+	}
+	if suggestion.OverlapScore < 0.99 {
+		t.Fatalf("expected overlap ~1.0, got %f", suggestion.OverlapScore)
+	}
+}
+
+func TestMatchSemantic_BelowThreshold(t *testing.T) {
+	t.Parallel()
+
+	// All vectors are zero, so cosine similarity is 0 (or NaN) -- no matches.
+	embedder := newFakeEmbedder(3, map[string][]float32{})
+	matcher := NewTemplateMatcherWithConfig(TemplateMatcherConfig{
+		Embedder:          embedder,
+		SemanticThreshold: 0.8,
+		CombinedMinimum:   0.3,
+	})
+
 	extracted := ExtractionResult{
 		NodeTypes: []TypeEntry{
-			{Type: "entity.patient", Label: "Patient", Description: "An individual receiving healthcare"},
-			{Type: "entity.practitioner", Label: "Practitioner", Description: "A healthcare professional"},
-			{Type: "entity.condition", Label: "Condition", Description: "A clinical condition or diagnosis"},
+			{Type: "entity.alien_species", Label: "Alien Species", Description: "An extraterrestrial species"},
 		},
 		EdgeTypes: []TypeEntry{
-			{Type: "treats", Label: "Treats", Description: "A procedure or medication treats a condition"},
-			{Type: "diagnoses", Label: "Diagnoses", Description: "A practitioner diagnoses a patient"},
+			{Type: "orbits", Label: "Orbits", Description: "One body orbits another"},
 		},
 	}
 
@@ -251,9 +300,10 @@ func TestMatchSemantic_WithEmbedder(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	// With a fake embedder, results depend on the hash-based vectors.
-	// The main thing is it runs without error.
-	_ = suggestion
+	if suggestion != nil {
+		t.Fatalf("expected nil for zero-vector embeddings, got %s with score %f",
+			suggestion.TemplateKey, (suggestion.OverlapScore+suggestion.CoverageScore)/2)
+	}
 }
 
 func TestMatch_EmptyExtraction(t *testing.T) {

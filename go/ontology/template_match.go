@@ -9,18 +9,6 @@ import (
 	"github.com/jeffs-brain/memory/go/llm"
 )
 
-// ExtractionResult holds extracted ontology types from a document.
-// Defined here so template matching can be built independently of the
-// extraction package (P6-4). When both are merged into develop, the
-// duplicate will be removed and this file will import from extract.go.
-type ExtractionResult struct {
-	NodeTypes          []TypeEntry `json:"nodeTypes"`
-	EdgeTypes          []TypeEntry `json:"edgeTypes"`
-	BusinessCategories []string    `json:"businessCategories"`
-	Domain             string      `json:"domain"`
-	Confidence         float64     `json:"confidence"`
-}
-
 // Template matching constants ported from the intelligence service.
 const (
 	// TemplateMatchSemanticThreshold is the minimum cosine similarity for
@@ -63,6 +51,7 @@ type TemplateMatcher struct {
 	embedder          llm.Embedder
 	semanticThreshold float64
 	combinedMinimum   float64
+	embeddingCache    map[string][][]float32
 }
 
 // NewTemplateMatcher creates a matcher. Embedder may be nil for exact-only matching.
@@ -84,6 +73,7 @@ func NewTemplateMatcherWithConfig(cfg TemplateMatcherConfig) *TemplateMatcher {
 		embedder:          cfg.Embedder,
 		semanticThreshold: semThresh,
 		combinedMinimum:   combMin,
+		embeddingCache:    make(map[string][][]float32),
 	}
 }
 
@@ -125,8 +115,8 @@ func (m *TemplateMatcher) MatchExact(extracted ExtractionResult) *TemplateSugges
 
 	keys := ListTemplates()
 	for _, key := range keys {
-		tmpl, err := GetTemplate(key)
-		if err != nil {
+		tmpl, ok := GetTemplate(key)
+		if !ok {
 			continue
 		}
 
@@ -203,8 +193,8 @@ func (m *TemplateMatcher) matchSemantic(ctx context.Context, extracted Extractio
 
 	keys := ListTemplates()
 	for _, key := range keys {
-		tmpl, getErr := GetTemplate(key)
-		if getErr != nil {
+		tmpl, ok := GetTemplate(key)
+		if !ok {
 			continue
 		}
 
@@ -213,14 +203,21 @@ func (m *TemplateMatcher) matchSemantic(ctx context.Context, extracted Extractio
 			continue
 		}
 
-		templateTexts := make([]string, len(templateTypes))
-		for i, t := range templateTypes {
-			templateTexts[i] = t.Label + ": " + t.Description
-		}
+		var templateEmbeddings [][]float32
+		if cached, ok := m.embeddingCache[key]; ok {
+			templateEmbeddings = cached
+		} else {
+			templateTexts := make([]string, len(templateTypes))
+			for i, t := range templateTypes {
+				templateTexts[i] = t.Label + ": " + t.Description
+			}
 
-		templateEmbeddings, embedErr := m.embedder.Embed(ctx, templateTexts)
-		if embedErr != nil {
-			return nil, fmt.Errorf("ontology: embed template %q types: %w", key, embedErr)
+			var embedErr error
+			templateEmbeddings, embedErr = m.embedder.Embed(ctx, templateTexts)
+			if embedErr != nil {
+				return nil, fmt.Errorf("ontology: embed template %q types: %w", key, embedErr)
+			}
+			m.embeddingCache[key] = templateEmbeddings
 		}
 
 		matchCount := greedyBipartiteMatch(extractedEmbeddings, templateEmbeddings, m.semanticThreshold)

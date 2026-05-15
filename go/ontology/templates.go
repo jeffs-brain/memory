@@ -55,15 +55,13 @@ func ListTemplates() []string {
 	return keys
 }
 
-// GetTemplate returns a template by key, or an error if not found.
-func GetTemplate(key string) (IndustryTemplate, error) {
+// GetTemplate returns a template by key. The second return value is
+// false when the key is not registered.
+func GetTemplate(key string) (IndustryTemplate, bool) {
 	templateMu.RLock()
 	defer templateMu.RUnlock()
 	t, ok := templates[key]
-	if !ok {
-		return IndustryTemplate{}, fmt.Errorf("ontology: template not found: %s", key)
-	}
-	return t, nil
+	return t, ok
 }
 
 // RegisterTemplate adds a custom industry template to the registry at
