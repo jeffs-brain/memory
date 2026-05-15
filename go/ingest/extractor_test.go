@@ -453,6 +453,14 @@ func (s *stubExtractor) Name() string {
 	return s.name
 }
 
+func (s *stubExtractor) Available(_ context.Context) (bool, error) {
+	return true, nil
+}
+
+func (s *stubExtractor) Capability() ExtractorCapability {
+	return ExtractorCapability{MIMETypes: s.contentTypes}
+}
+
 func TestExtractorRegistry_ExtractStreamWithMaxBytes(t *testing.T) {
 	t.Parallel()
 	registry := NewExtractorRegistry()
@@ -470,5 +478,227 @@ func TestExtractorRegistry_ExtractStreamWithMaxBytes(t *testing.T) {
 	}
 	if len(result.Text) != 10 {
 		t.Fatalf("expected text length 10, got %d", len(result.Text))
+	}
+}
+
+func TestPlainTextExtractor_Available(t *testing.T) {
+	t.Parallel()
+	ext := &PlainTextExtractor{}
+	avail, err := ext.Available(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !avail {
+		t.Fatal("expected plain text extractor to be available")
+	}
+}
+
+func TestPlainTextExtractor_Capability(t *testing.T) {
+	t.Parallel()
+	ext := &PlainTextExtractor{}
+	cap := ext.Capability()
+	if len(cap.Extensions) == 0 {
+		t.Fatal("expected non-empty extensions")
+	}
+	if len(cap.MIMETypes) == 0 {
+		t.Fatal("expected non-empty MIME types")
+	}
+	if cap.RequiresBinary {
+		t.Fatal("plain text extractor should not require binary")
+	}
+	foundTxt := false
+	for _, ext := range cap.Extensions {
+		if ext == ".txt" {
+			foundTxt = true
+			break
+		}
+	}
+	if !foundTxt {
+		t.Fatal("expected .txt in extensions")
+	}
+}
+
+func TestDetectEncoding_UTF8(t *testing.T) {
+	t.Parallel()
+	raw := []byte("Hello, world! This is valid UTF-8 text.")
+	enc := DetectEncoding(raw)
+	if enc != "UTF-8" {
+		t.Fatalf("DetectEncoding(utf8) = %q, want %q", enc, "UTF-8")
+	}
+}
+
+func TestDetectEncoding_UTF8WithBOM(t *testing.T) {
+	t.Parallel()
+	raw := append([]byte{0xEF, 0xBB, 0xBF}, []byte("Hello BOM")...)
+	enc := DetectEncoding(raw)
+	if enc != "UTF-8" {
+		t.Fatalf("DetectEncoding(utf8+bom) = %q, want %q", enc, "UTF-8")
+	}
+}
+
+func TestDetectEncoding_UTF16BE(t *testing.T) {
+	t.Parallel()
+	raw := []byte{0xFE, 0xFF, 0x00, 0x48, 0x00, 0x65}
+	enc := DetectEncoding(raw)
+	if enc != "UTF-16BE" {
+		t.Fatalf("DetectEncoding(utf16be) = %q, want %q", enc, "UTF-16BE")
+	}
+}
+
+func TestDetectEncoding_UTF16LE(t *testing.T) {
+	t.Parallel()
+	raw := []byte{0xFF, 0xFE, 0x48, 0x00, 0x65, 0x00}
+	enc := DetectEncoding(raw)
+	if enc != "UTF-16LE" {
+		t.Fatalf("DetectEncoding(utf16le) = %q, want %q", enc, "UTF-16LE")
+	}
+}
+
+func TestDetectEncoding_Latin1(t *testing.T) {
+	t.Parallel()
+	// ISO-8859-1 encoded string with accented characters in the 0xA0-0xFF range.
+	raw := []byte("Caf\xe9 cr\xe8me") // "Cafe creme" with accents
+	enc := DetectEncoding(raw)
+	if enc != "ISO-8859-1" {
+		t.Fatalf("DetectEncoding(latin1) = %q, want %q", enc, "ISO-8859-1")
+	}
+}
+
+func TestDetectEncoding_Windows1252(t *testing.T) {
+	t.Parallel()
+	// Windows-1252 uses 0x80-0x9F for printable characters like smart quotes.
+	// 0x93 = left double quotation mark, 0x94 = right double quotation mark.
+	raw := []byte("Hello \x93world\x94")
+	enc := DetectEncoding(raw)
+	if enc != "Windows-1252" {
+		t.Fatalf("DetectEncoding(win1252) = %q, want %q", enc, "Windows-1252")
+	}
+}
+
+func TestDetectEncoding_ShiftJIS(t *testing.T) {
+	t.Parallel()
+	// Shift_JIS encoded Japanese: "nihongo" (日本語)
+	// 0x93FA = 日, 0x967B = 本, 0x8CEA = 語 (approximate, exact values
+	// depend on character mapping).
+	raw := []byte{0x93, 0xFA, 0x96, 0x7B, 0x8C, 0xEA}
+	enc := DetectEncoding(raw)
+	if enc != "Shift_JIS" {
+		t.Fatalf("DetectEncoding(shift_jis) = %q, want %q", enc, "Shift_JIS")
+	}
+}
+
+func TestDetectEncoding_Empty(t *testing.T) {
+	t.Parallel()
+	enc := DetectEncoding(nil)
+	if enc != "UTF-8" {
+		t.Fatalf("DetectEncoding(empty) = %q, want %q", enc, "UTF-8")
+	}
+}
+
+func TestTranscodeToUTF8_Latin1(t *testing.T) {
+	t.Parallel()
+	// ISO-8859-1 "Cafe creme" with accents.
+	raw := []byte("Caf\xe9 cr\xe8me")
+	decoded, err := TranscodeToUTF8(raw, "ISO-8859-1")
+	if err != nil {
+		t.Fatalf("TranscodeToUTF8 error: %v", err)
+	}
+	expected := "Cafe creme"
+	// e-acute in UTF-8 is 0xC3 0xA9.
+	expectedUTF8 := "Caf\xc3\xa9 cr\xc3\xa8me"
+	if string(decoded) != expectedUTF8 {
+		t.Fatalf("TranscodeToUTF8(latin1) = %q, want %q (or %q)", string(decoded), expectedUTF8, expected)
+	}
+}
+
+func TestTranscodeToUTF8_ShiftJIS(t *testing.T) {
+	t.Parallel()
+	// Shift_JIS "日本語"
+	raw := []byte{0x93, 0xFA, 0x96, 0x7B, 0x8C, 0xEA}
+	decoded, err := TranscodeToUTF8(raw, "Shift_JIS")
+	if err != nil {
+		t.Fatalf("TranscodeToUTF8 error: %v", err)
+	}
+	expected := "日本語"
+	if string(decoded) != expected {
+		t.Fatalf("TranscodeToUTF8(shift_jis) = %q, want %q", string(decoded), expected)
+	}
+}
+
+func TestTranscodeToUTF8_PassthroughUTF8(t *testing.T) {
+	t.Parallel()
+	raw := []byte("Already UTF-8")
+	decoded, err := TranscodeToUTF8(raw, "UTF-8")
+	if err != nil {
+		t.Fatalf("TranscodeToUTF8 error: %v", err)
+	}
+	if string(decoded) != "Already UTF-8" {
+		t.Fatalf("TranscodeToUTF8(utf8) = %q, want %q", string(decoded), "Already UTF-8")
+	}
+}
+
+func TestTranscodeToUTF8_EmptyEncoding(t *testing.T) {
+	t.Parallel()
+	raw := []byte("No encoding specified")
+	decoded, err := TranscodeToUTF8(raw, "")
+	if err != nil {
+		t.Fatalf("TranscodeToUTF8 error: %v", err)
+	}
+	if string(decoded) != "No encoding specified" {
+		t.Fatalf("TranscodeToUTF8(empty) = %q", string(decoded))
+	}
+}
+
+func TestTranscodeToUTF8_UnsupportedEncoding(t *testing.T) {
+	t.Parallel()
+	_, err := TranscodeToUTF8([]byte("data"), "EBCDIC-37")
+	if err == nil {
+		t.Fatal("expected error for unsupported encoding")
+	}
+	if !strings.Contains(err.Error(), "unsupported encoding") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestTranscodeToUTF8_Windows1252(t *testing.T) {
+	t.Parallel()
+	// Windows-1252 smart quotes.
+	raw := []byte("Hello \x93world\x94")
+	decoded, err := TranscodeToUTF8(raw, "Windows-1252")
+	if err != nil {
+		t.Fatalf("TranscodeToUTF8 error: %v", err)
+	}
+	// 0x93 = U+201C (left double quotation mark), 0x94 = U+201D (right double quotation mark)
+	expected := "Hello \xe2\x80\x9cworld\xe2\x80\x9d"
+	if string(decoded) != expected {
+		t.Fatalf("TranscodeToUTF8(win1252) = %q, want %q", string(decoded), expected)
+	}
+}
+
+func TestExtractResult_ExpandedFields(t *testing.T) {
+	t.Parallel()
+	result := ExtractResult{
+		Text:        "extracted text",
+		ContentType: "application/pdf",
+		Encoding:    "UTF-8",
+		Metadata:    map[string]string{"author": "test"},
+		Pages:       5,
+		Language:    "en",
+		Confidence:  0.95,
+	}
+	if result.Pages != 5 {
+		t.Fatalf("Pages = %d, want 5", result.Pages)
+	}
+	if result.Language != "en" {
+		t.Fatalf("Language = %q, want %q", result.Language, "en")
+	}
+	if result.Confidence != 0.95 {
+		t.Fatalf("Confidence = %f, want 0.95", result.Confidence)
+	}
+	if result.Encoding != "UTF-8" {
+		t.Fatalf("Encoding = %q, want %q", result.Encoding, "UTF-8")
+	}
+	if result.ContentType != "application/pdf" {
+		t.Fatalf("ContentType = %q, want %q", result.ContentType, "application/pdf")
 	}
 }

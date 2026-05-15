@@ -6,11 +6,14 @@ import {
   type ExtractOptions,
   type ExtractResult,
   type Extractor,
+  type ExtractorCapability,
   MAX_DECOMPRESSION_RATIO,
   MAX_EXTRACTED_FILES,
   createExtractorRegistry,
   createPlainTextExtractor,
+  detectEncoding,
   sanitizeArgs,
+  transcodeToUTF8,
 } from './extractor.js'
 
 const toReadable = (content: string): Readable => {
@@ -124,7 +127,12 @@ describe('createExtractorRegistry', () => {
       async extract(raw: Buffer): Promise<ExtractResult> {
         return {
           text: `CUSTOM:${raw.toString('utf8')}`,
+          contentType: 'text/plain',
+          encoding: 'UTF-8',
           metadata: { extractor: 'custom' },
+          pages: 0,
+          language: '',
+          confidence: 0,
           skipped: false,
         }
       },
@@ -134,6 +142,12 @@ describe('createExtractorRegistry', () => {
           chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as Uint8Array))
         }
         return this.extract(Buffer.concat(chunks), opts)
+      },
+      async available(): Promise<boolean> {
+        return true
+      },
+      capability(): ExtractorCapability {
+        return { extensions: ['.txt'], mimeTypes: ['text/plain'], magicBytes: [], requiresBinary: false }
       },
     }
     registry.register(custom)
@@ -168,7 +182,16 @@ describe('createExtractorRegistry', () => {
       contentTypes: ['application/x-test'],
       async extract(raw: Buffer): Promise<ExtractResult> {
         extractCalled = true
-        return { text: raw.toString('utf8'), metadata: {}, skipped: false }
+        return {
+          text: raw.toString('utf8'),
+          contentType: 'application/x-test',
+          encoding: 'UTF-8',
+          metadata: {},
+          pages: 0,
+          language: '',
+          confidence: 0,
+          skipped: false,
+        }
       },
       async extractStream(source: Readable, opts: ExtractOptions): Promise<ExtractResult> {
         const chunks: Buffer[] = []
@@ -176,6 +199,12 @@ describe('createExtractorRegistry', () => {
           chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as Uint8Array))
         }
         return this.extract(Buffer.concat(chunks), opts)
+      },
+      async available(): Promise<boolean> {
+        return true
+      },
+      capability(): ExtractorCapability {
+        return { extensions: [], mimeTypes: ['application/x-test'], magicBytes: [], requiresBinary: false }
       },
     }
     registry.register(custom)
@@ -229,5 +258,103 @@ describe('security constants', () => {
 
   it('defines MAX_EXTRACTED_FILES as 1000', () => {
     expect(MAX_EXTRACTED_FILES).toBe(1000)
+  })
+})
+
+describe('createPlainTextExtractor available and capability', () => {
+  const ext = createPlainTextExtractor()
+
+  it('reports as available', async () => {
+    expect(await ext.available()).toBe(true)
+  })
+
+  it('returns capability with extensions and MIME types', () => {
+    const cap = ext.capability()
+    expect(cap.extensions).toContain('.txt')
+    expect(cap.extensions).toContain('.md')
+    expect(cap.mimeTypes).toContain('text/plain')
+    expect(cap.mimeTypes).toContain('text/markdown')
+    expect(cap.requiresBinary).toBe(false)
+  })
+})
+
+describe('detectEncoding', () => {
+  it('detects UTF-8 for valid UTF-8 content', () => {
+    const raw = Buffer.from('Hello, world!', 'utf8')
+    expect(detectEncoding(raw)).toBe('UTF-8')
+  })
+
+  it('detects UTF-8 BOM', () => {
+    const raw = Buffer.from([0xef, 0xbb, 0xbf, 0x48, 0x65, 0x6c, 0x6c, 0x6f])
+    expect(detectEncoding(raw)).toBe('UTF-8')
+  })
+
+  it('detects UTF-16BE BOM', () => {
+    const raw = Buffer.from([0xfe, 0xff, 0x00, 0x48, 0x00, 0x65])
+    expect(detectEncoding(raw)).toBe('UTF-16BE')
+  })
+
+  it('detects UTF-16LE BOM', () => {
+    const raw = Buffer.from([0xff, 0xfe, 0x48, 0x00, 0x65, 0x00])
+    expect(detectEncoding(raw)).toBe('UTF-16LE')
+  })
+
+  it('detects ISO-8859-1 for Latin-1 content', () => {
+    const raw = Buffer.from([0x43, 0x61, 0x66, 0xe9, 0x20, 0x63, 0x72, 0xe8, 0x6d, 0x65])
+    expect(detectEncoding(raw)).toBe('ISO-8859-1')
+  })
+
+  it('detects Windows-1252 for content with C1 controls', () => {
+    // 0x93 and 0x94 are smart quotes in Windows-1252
+    const raw = Buffer.from([0x48, 0x65, 0x6c, 0x6c, 0x6f, 0x20, 0x93, 0x77, 0x6f, 0x72, 0x6c, 0x64, 0x94])
+    expect(detectEncoding(raw)).toBe('Windows-1252')
+  })
+
+  it('detects Shift_JIS for Japanese content', () => {
+    // Shift_JIS: 日本語
+    const raw = Buffer.from([0x93, 0xfa, 0x96, 0x7b, 0x8c, 0xea])
+    expect(detectEncoding(raw)).toBe('Shift_JIS')
+  })
+
+  it('returns UTF-8 for empty input', () => {
+    expect(detectEncoding(Buffer.alloc(0))).toBe('UTF-8')
+  })
+})
+
+describe('transcodeToUTF8', () => {
+  it('transcodes Latin-1 to UTF-8', () => {
+    const raw = Buffer.from([0x43, 0x61, 0x66, 0xe9]) // "Cafe" with accent
+    const result = transcodeToUTF8(raw, 'ISO-8859-1')
+    expect(result.toString('utf8')).toBe('Café')
+  })
+
+  it('passes through UTF-8 unchanged', () => {
+    const raw = Buffer.from('Already UTF-8', 'utf8')
+    const result = transcodeToUTF8(raw, 'UTF-8')
+    expect(result.toString('utf8')).toBe('Already UTF-8')
+  })
+
+  it('passes through when encoding is empty', () => {
+    const raw = Buffer.from('No encoding', 'utf8')
+    const result = transcodeToUTF8(raw, '')
+    expect(result.toString('utf8')).toBe('No encoding')
+  })
+
+  it('transcodes Windows-1252 smart quotes', () => {
+    const raw = Buffer.from([0x48, 0x65, 0x6c, 0x6c, 0x6f, 0x20, 0x93, 0x77, 0x6f, 0x72, 0x6c, 0x64, 0x94])
+    const result = transcodeToUTF8(raw, 'Windows-1252')
+    expect(result.toString('utf8')).toContain('Hello')
+    expect(result.toString('utf8')).toContain('world')
+  })
+
+  it('transcodes Shift_JIS to UTF-8', () => {
+    // Shift_JIS: 日本語
+    const raw = Buffer.from([0x93, 0xfa, 0x96, 0x7b, 0x8c, 0xea])
+    const result = transcodeToUTF8(raw, 'Shift_JIS')
+    expect(result.toString('utf8')).toBe('日本語')
+  })
+
+  it('throws for unsupported encoding', () => {
+    expect(() => transcodeToUTF8(Buffer.from('data'), 'EBCDIC-37')).toThrow()
   })
 })
