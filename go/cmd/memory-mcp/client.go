@@ -52,6 +52,7 @@ type MemoryClient interface {
 	IngestFile(ctx context.Context, args IngestFileArgs, progress ProgressEmitter) (map[string]any, error)
 	IngestURL(ctx context.Context, args IngestURLArgs, progress ProgressEmitter) (map[string]any, error)
 	Extract(ctx context.Context, args ExtractArgs, progress ProgressEmitter) (map[string]any, error)
+	ExtractAfterIngest(ctx context.Context, args ExtractAfterIngestArgs) (map[string]any, error)
 	Reflect(ctx context.Context, args ReflectArgs, progress ProgressEmitter) (map[string]any, error)
 	Consolidate(ctx context.Context, args ConsolidateArgs, progress ProgressEmitter) (map[string]any, error)
 	CreateBrain(ctx context.Context, args CreateBrainArgs) (map[string]any, error)
@@ -105,6 +106,17 @@ type IngestFileArgs struct {
 type IngestURLArgs struct {
 	URL   string
 	Brain string
+}
+
+// ExtractAfterIngestArgs captures input for post-ingest extraction.
+// Content should be provided directly to avoid re-fetching.
+// When Content is empty, the DocumentSource label is used for logging.
+type ExtractAfterIngestArgs struct {
+	Content        string
+	DocumentSource string
+	Brain          string
+	ActorID        string
+	SessionID      string
 }
 
 // ExtractMessage is one turn supplied to memory_extract.
@@ -638,6 +650,15 @@ func (c *localClient) IngestURL(ctx context.Context, args IngestURLArgs, progres
 	if progress != nil {
 		progress(1, "indexed")
 	}
+
+	// Read the stored content from the brain store so downstream
+	// extraction can use it without re-fetching the URL.
+	var storedContent string
+	raw, readErr := br.store.Read(ctx, resp.Path)
+	if readErr == nil {
+		storedContent = string(raw)
+	}
+
 	return map[string]any{
 		"path": "server",
 		"result": map[string]any{
@@ -649,6 +670,7 @@ func (c *localClient) IngestURL(ctx context.Context, args IngestURLArgs, progres
 			"duration_ms":    resp.TookMs,
 			"reused":         false,
 		},
+		"_document_content": storedContent,
 	}, nil
 }
 
@@ -729,6 +751,70 @@ func (c *localClient) Extract(ctx context.Context, args ExtractArgs, progress Pr
 			"updated_at":      time.Now().UTC().Format(time.RFC3339),
 			"deleted_at":      nil,
 		},
+	}, nil
+}
+
+// ExtractAfterIngest implements [MemoryClient]. Uses the provided document
+// content and runs the memory extractor to derive structured facts.
+// Content must be supplied directly (read from brain store or file);
+// no re-fetching of URLs occurs here.
+// Extraction failure is non-fatal: returns empty result.
+func (c *localClient) ExtractAfterIngest(ctx context.Context, args ExtractAfterIngestArgs) (map[string]any, error) {
+	emptyResult := map[string]any{"factsExtracted": 0, "memories": []any{}}
+
+	if c.provider == nil {
+		return emptyResult, nil
+	}
+
+	content := args.Content
+	if strings.TrimSpace(content) == "" {
+		return emptyResult, nil
+	}
+
+	brainID := c.resolveBrainID(args.Brain)
+	br, err := c.openBrain(ctx, brainID)
+	if err != nil {
+		c.log.Warn("extract-after-ingest: failed to open brain", "brain", brainID, "error", err)
+		return emptyResult, nil
+	}
+
+	// Truncate by rune count to avoid splitting multi-byte characters.
+	runes := []rune(content)
+	if len(runes) > 128_000 {
+		runes = runes[:128_000]
+		content = string(runes)
+	}
+
+	source := args.DocumentSource
+	if source == "" {
+		source = "unknown"
+	}
+	messages := []memory.Message{
+		{
+			Role: "user",
+			Content: fmt.Sprintf(
+				"The following document was ingested from %q. Extract any important facts, knowledge, or structured information from it:\n\n<ingested-document>\n%s\n</ingested-document>",
+				source, content,
+			),
+		},
+	}
+
+	extracted, xerr := memory.ExtractFromMessages(ctx, c.provider, "", br.memory, "", messages)
+	if xerr != nil {
+		c.log.Warn("extract-after-ingest: extraction failed", "document", source, "error", xerr)
+		return emptyResult, nil
+	}
+
+	memories := make([]map[string]any, 0, len(extracted))
+	for _, e := range extracted {
+		memories = append(memories, map[string]any{
+			"filename": e.Filename,
+			"content":  e.Content,
+		})
+	}
+	return map[string]any{
+		"factsExtracted": len(extracted),
+		"memories":       memories,
 	}, nil
 }
 
@@ -1162,6 +1248,13 @@ func (c *hostedClient) Extract(ctx context.Context, args ExtractArgs, progress P
 	return map[string]any{"mode": "transcript", "document": doc}, nil
 }
 
+// ExtractAfterIngest implements [MemoryClient] for hosted mode.
+func (c *hostedClient) ExtractAfterIngest(_ context.Context, _ ExtractAfterIngestArgs) (map[string]any, error) {
+	// Hosted mode does not support extract-after-ingest yet.
+	// Return empty result — non-fatal.
+	return map[string]any{"factsExtracted": 0, "memories": []any{}}, nil
+}
+
 // Reflect implements [MemoryClient].
 func (c *hostedClient) Reflect(ctx context.Context, args ReflectArgs, progress ProgressEmitter) (map[string]any, error) {
 	brainID, err := c.resolveBrainID(args.Brain)
@@ -1210,14 +1303,16 @@ func brainPath(id, suffix string) string {
 }
 
 // truncate clips s to n runes, appending nothing.
+// Uses []rune to avoid splitting multi-byte characters.
 func truncate(s string, n int) string {
 	if n <= 0 {
 		return ""
 	}
-	if len(s) <= n {
+	runes := []rune(s)
+	if len(runes) <= n {
 		return s
 	}
-	return s[:n]
+	return string(runes[:n])
 }
 
 // firstNonEmpty returns the first non-empty input.

@@ -121,3 +121,9 @@ export {
 } from './state-store-pg.js'
 
 export * from './trigger/index.js'
+
+export {
+  extractAfterIngest,
+  type ExtractAfterIngestOptions,
+  type ExtractAfterIngestResult,
+} from './extract-after-ingest.js'

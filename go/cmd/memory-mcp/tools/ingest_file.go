@@ -4,6 +4,8 @@ package tools
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 
 	"github.com/google/jsonschema-go/jsonschema"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -13,9 +15,10 @@ func registerIngestFile(server *mcp.Server, client MemoryClient) {
 	schema := &jsonschema.Schema{
 		Type: "object",
 		Properties: map[string]*jsonschema.Schema{
-			"path":  {Type: "string", MinLength: ptrInt(1)},
-			"brain": {Type: "string"},
-			"as":    {Type: "string", Enum: []any{"markdown", "text", "pdf", "json"}},
+			"path":    {Type: "string", MinLength: ptrInt(1)},
+			"brain":   {Type: "string"},
+			"as":      {Type: "string", Enum: []any{"markdown", "text", "pdf", "json"}},
+			"extract": {Type: "boolean"},
 		},
 		Required: []string{"path"},
 	}
@@ -29,6 +32,36 @@ func registerIngestFile(server *mcp.Server, client MemoryClient) {
 		if err != nil {
 			return nil, nil, err
 		}
-		return structuredResult(result)
+
+		if !args.Extract {
+			return structuredResult(result)
+		}
+
+		// Read content from local file for extraction (no re-fetch needed).
+		absPath := args.Path
+		if !filepath.IsAbs(absPath) {
+			absPath, _ = filepath.Abs(absPath)
+		}
+		raw, readErr := os.ReadFile(absPath)
+		extractionResult := map[string]any{
+			"factsExtracted": 0,
+			"memories":       []any{},
+		}
+		if readErr == nil && len(raw) > 0 {
+			extraction, extractErr := client.ExtractAfterIngest(ctx, ExtractAfterIngestArgs{
+				Content:        string(raw),
+				DocumentSource: args.Path,
+				Brain:          args.Brain,
+			})
+			if extractErr == nil {
+				extractionResult = extraction
+			}
+		}
+
+		combined := map[string]any{
+			"ingest":     result,
+			"extraction": extractionResult,
+		}
+		return structuredResult(combined)
 	})
 }
