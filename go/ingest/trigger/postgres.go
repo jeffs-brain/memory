@@ -4,6 +4,8 @@ package trigger
 import (
 	"context"
 	"encoding/json"
+	"math"
+	"math/rand/v2"
 	"sync"
 	"time"
 )
@@ -27,8 +29,10 @@ type PostgresBridgeOptions struct {
 	Bus Bus
 	// Logger receives diagnostic messages.
 	Logger Logger
-	// ReconnectDelay is the delay between reconnection attempts. Defaults to 5s.
+	// ReconnectDelay is the base delay between reconnection attempts. Defaults to 5s.
 	ReconnectDelay time.Duration
+	// MaxReconnectDelay is the maximum backoff delay. Defaults to 30s.
+	MaxReconnectDelay time.Duration
 }
 
 // PostgresBridge forwards events from PostgreSQL LISTEN/NOTIFY to a local Bus.
@@ -48,6 +52,9 @@ func NewPostgresBridge(opts PostgresBridgeOptions) *PostgresBridge {
 	if opts.ReconnectDelay == 0 {
 		opts.ReconnectDelay = 5 * time.Second
 	}
+	if opts.MaxReconnectDelay == 0 {
+		opts.MaxReconnectDelay = 30 * time.Second
+	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	b := &PostgresBridge{opts: opts, cancel: cancel}
@@ -64,8 +71,10 @@ func (b *PostgresBridge) Close() error {
 }
 
 // listen runs the LISTEN loop with automatic reconnection on failure.
+// Uses exponential backoff with jitter to avoid thundering herd.
 func (b *PostgresBridge) listen(ctx context.Context) {
 	defer b.wg.Done()
+	attempt := 0
 	for {
 		err := b.opts.Listener.Listen(ctx, b.opts.Channel, func(payload string) {
 			var event IngestTriggerEvent
@@ -93,16 +102,22 @@ func (b *PostgresBridge) listen(ctx context.Context) {
 		if ctx.Err() != nil {
 			return
 		}
+		backoff := time.Duration(math.Min(
+			float64(b.opts.ReconnectDelay)*math.Pow(2, float64(attempt)),
+			float64(b.opts.MaxReconnectDelay),
+		))
+		jitteredDelay := time.Duration(float64(backoff) * (0.5 + rand.Float64()*0.5))
 		if err != nil && b.opts.Logger != nil {
 			b.opts.Logger.Warn("trigger/postgres: listen error, reconnecting", map[string]string{
 				"error": err.Error(),
-				"delay": b.opts.ReconnectDelay.String(),
+				"delay": jitteredDelay.String(),
 			})
 		}
 		select {
 		case <-ctx.Done():
 			return
-		case <-time.After(b.opts.ReconnectDelay):
+		case <-time.After(jitteredDelay):
 		}
+		attempt++
 	}
 }

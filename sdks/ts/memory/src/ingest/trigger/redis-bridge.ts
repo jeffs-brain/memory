@@ -69,28 +69,33 @@ export const createRedisBridge = async (opts: RedisBridgeOptions): Promise<Redis
     }
   }
 
-  const connect = async (attempt: number): Promise<void> => {
-    if (closed) return
-    try {
-      await subscriber.subscribe(channel, onMessage)
-    } catch (err) {
-      if (closed) return
-      const delay = Math.min(baseDelay * Math.pow(2, attempt), maxDelay)
-      logger?.warn('trigger/redis: subscription error, reconnecting', {
-        error: String(err),
-        delay: String(delay),
-      })
-      await new Promise<void>((resolve) => {
-        reconnectTimer = setTimeout(() => {
-          reconnectTimer = undefined
-          resolve()
-        }, delay)
-      })
-      return connect(attempt + 1)
+  const connect = async (): Promise<void> => {
+    let attempt = 0
+    while (!closed) {
+      try {
+        await subscriber.subscribe(channel, onMessage)
+        return
+      } catch (err) {
+        if (closed) return
+        const jitteredDelay =
+          Math.min(baseDelay * Math.pow(2, attempt), maxDelay) *
+          (0.5 + Math.random() * 0.5)
+        logger?.warn('trigger/redis: subscription error, reconnecting', {
+          error: String(err),
+          delay: String(Math.round(jitteredDelay)),
+        })
+        await new Promise<void>((resolve) => {
+          reconnectTimer = setTimeout(() => {
+            reconnectTimer = undefined
+            resolve()
+          }, jitteredDelay)
+        })
+        attempt++
+      }
     }
   }
 
-  await connect(0)
+  await connect()
 
   return {
     close: async () => {
