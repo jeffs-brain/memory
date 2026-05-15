@@ -117,3 +117,5 @@ export {
   type PostgresPipelineStateStoreOptions,
   type PgSql as PipelineStatePgSql,
 } from './state-store-pg.js'
+
+export * from './trigger/index.js'
