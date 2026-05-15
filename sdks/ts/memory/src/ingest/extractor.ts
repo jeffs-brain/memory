@@ -8,6 +8,7 @@
  */
 
 import type { Readable } from 'node:stream'
+import { TextDecoder as NodeTextDecoder } from 'node:util'
 
 /**
  * Security constants for downstream extractors (Phase 4) that decompress
@@ -443,7 +444,7 @@ export const transcodeToUTF8 = (raw: Buffer, fromEncoding: string): Buffer => {
   const label = labelMap[normalised] ?? normalised
 
   try {
-    const decoder = new TextDecoder(label, { fatal: true })
+    const decoder = new NodeTextDecoder(label, { fatal: true })
     const text = decoder.decode(raw)
     return Buffer.from(text, 'utf-8')
   } catch (err) {
