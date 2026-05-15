@@ -20,18 +20,16 @@ type IngestBatchArgs struct {
 
 // IngestBatchFileArg describes a single file entry in a batch ingest request.
 type IngestBatchFileArg struct {
-	Path  string `json:"path"`
-	As    string `json:"as,omitempty"`
-	Title string `json:"title,omitempty"`
+	Path string `json:"path"`
+	As   string `json:"as,omitempty"`
 }
 
 func registerIngestBatch(server *mcp.Server, client MemoryClient) {
 	fileSchema := &jsonschema.Schema{
 		Type: "object",
 		Properties: map[string]*jsonschema.Schema{
-			"path":  {Type: "string", MinLength: ptrInt(1)},
-			"as":    {Type: "string", Enum: []any{"markdown", "text", "pdf", "json"}},
-			"title": {Type: "string"},
+			"path": {Type: "string", MinLength: ptrInt(1)},
+			"as":   {Type: "string", Enum: []any{"markdown", "text", "pdf", "json"}},
 		},
 		Required: []string{"path"},
 	}

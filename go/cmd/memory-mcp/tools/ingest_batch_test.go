@@ -191,6 +191,42 @@ func TestIngestBatch_PerFileErrorIsolation(t *testing.T) {
 	}
 }
 
+func TestIngestBatch_DuplicateFiles(t *testing.T) {
+	calls := []string{}
+	client := &mockMemoryClient{
+		ingestFileFn: func(_ context.Context, args IngestFileArgs, _ ProgressEmitter) (map[string]any, error) {
+			calls = append(calls, args.Path)
+			return map[string]any{
+				"status":      "completed",
+				"document_id": fmt.Sprintf("doc-%d", len(calls)),
+				"hash":        fmt.Sprintf("hash-%d", len(calls)),
+				"byte_size":   42,
+			}, nil
+		},
+	}
+	session := setupBatchTestServer(t, client)
+
+	payload := callBatchTool(t, session, map[string]any{
+		"files": []map[string]any{
+			{"path": "/same.md"},
+			{"path": "/same.md"},
+		},
+	})
+
+	if payload["total"] != float64(2) {
+		t.Errorf("expected total=2, got %v", payload["total"])
+	}
+	if payload["succeeded"] != float64(2) {
+		t.Errorf("expected succeeded=2, got %v", payload["succeeded"])
+	}
+	if payload["failed"] != float64(0) {
+		t.Errorf("expected failed=0, got %v", payload["failed"])
+	}
+	if len(calls) != 2 {
+		t.Fatalf("expected 2 calls, got %d", len(calls))
+	}
+}
+
 func TestIngestBatch_BrainAppliedToAll(t *testing.T) {
 	brainsSeen := []string{}
 	client := &mockMemoryClient{

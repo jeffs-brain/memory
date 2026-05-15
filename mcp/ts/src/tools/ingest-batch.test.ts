@@ -168,6 +168,44 @@ describe('memory_ingest_batch tool', () => {
     expect(brainsSeen).toEqual(['test-brain', 'test-brain'])
   })
 
+  it('handles duplicate file paths: both entries are processed independently', async () => {
+    const calls: string[] = []
+    const client = noopClient()
+    client.ingestFile = async (args: { path: string }) => {
+      calls.push(args.path)
+      return {
+        status: 'completed',
+        document_id: `doc-${calls.length}`,
+        hash: `hash-${calls.length}`,
+        byte_size: 42,
+      }
+    }
+
+    const result = await ingestBatchTool.handler(
+      {
+        files: [
+          { path: '/data/same.md' },
+          { path: '/data/same.md' },
+        ],
+      },
+      client,
+      {},
+    )
+
+    const payload = result.structuredContent as {
+      total: number
+      succeeded: number
+      failed: number
+      results: { path: string; status: string }[]
+    }
+    expect(payload.total).toBe(2)
+    expect(payload.succeeded).toBe(2)
+    expect(payload.failed).toBe(0)
+    expect(calls).toHaveLength(2)
+    expect(calls[0]).toBe('/data/same.md')
+    expect(calls[1]).toBe('/data/same.md')
+  })
+
   it('rejects empty files array via zod validation', () => {
     const parseResult = ingestBatchTool.inputSchema.safeParse({ files: [] })
     expect(parseResult.success).toBe(false)

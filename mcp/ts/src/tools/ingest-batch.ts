@@ -8,13 +8,22 @@ const MAX_BATCH_SIZE = 50
 const fileEntrySchema = z.object({
   path: z.string().min(1),
   as: z.enum(['markdown', 'text', 'pdf', 'json']).optional(),
-  title: z.string().optional(),
 })
 
 const schema = z.object({
   files: z.array(fileEntrySchema).min(1).max(MAX_BATCH_SIZE),
   brain: z.string().optional(),
 })
+
+/** Typed subset of the ingest response relevant to batch result reporting. */
+type IngestResult = {
+  readonly document_id?: string
+  readonly hash?: string
+  readonly byte_size?: number
+}
+
+const isIngestResult = (value: unknown): value is IngestResult =>
+  typeof value === 'object' && value !== null
 
 export type BatchIngestFileResult = {
   readonly path: string
@@ -47,21 +56,23 @@ export const ingestBatchTool: Tool<typeof schema> = {
       if (file === undefined) continue
 
       try {
-        const ingestResult = (await client.ingestFile(
+        const raw = await client.ingestFile(
           {
             path: file.path,
             brain: args.brain,
             as: file.as,
           },
           ctx?.progress,
-        )) as Record<string, unknown>
+        )
+
+        const ingestResult: IngestResult = isIngestResult(raw) ? raw : {}
 
         results.push({
           path: file.path,
           status: 'success',
-          documentId: ingestResult.document_id as string | undefined,
-          hash: ingestResult.hash as string | undefined,
-          bytes: ingestResult.byte_size as number | undefined,
+          documentId: ingestResult.document_id,
+          hash: ingestResult.hash,
+          bytes: ingestResult.byte_size,
         })
         succeeded++
       } catch (err: unknown) {

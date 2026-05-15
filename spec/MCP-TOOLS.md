@@ -189,7 +189,6 @@ Ingest up to 50 local files in a single call with per-file error isolation. Retu
   files: Array<{
     path:   string   # absolute or relative local path (min 1 char)
     as?:    'markdown' | 'text' | 'pdf' | 'json'
-    title?: string
   }>  # min 1, max 50 items
   brain?: string
 }
