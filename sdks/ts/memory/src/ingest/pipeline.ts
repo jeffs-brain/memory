@@ -7,9 +7,9 @@
  * skipping documents that were stored but never indexed.
  */
 
-import { createHash } from 'node:crypto'
 import { RAW_DOCUMENTS_PREFIX } from '../knowledge/ingest.js'
 import { appendLogInBatch } from '../knowledge/log.js'
+import { hashDocument } from './hash.js'
 import type { Embedder, Logger } from '../llm/index.js'
 import { noopLogger } from '../llm/index.js'
 import type { Chunk as IndexChunk, SearchIndex as SqliteSearchIndex } from '../search/index.js'
@@ -66,7 +66,7 @@ export type IngestPipelineDeps = {
   readonly now?: () => Date
 }
 
-const hashContent = (buf: Buffer): string => createHash('sha256').update(buf).digest('hex')
+const hashContent = (buf: Buffer): string => hashDocument(buf)
 
 const extensionForMime = (mime: string | undefined): string => {
   if (mime === undefined) return '.md'

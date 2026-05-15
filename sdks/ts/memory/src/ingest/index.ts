@@ -15,6 +15,16 @@ export {
 } from './chunker.js'
 
 export {
+  hashChunk,
+  hashDocument,
+  hashDocumentId,
+  hashSlug,
+  hashString,
+  blake3Hasher,
+  type Hasher,
+} from './hash.js'
+
+export {
   DEFAULT_CHUNK_CONFIG,
   DEFAULT_MAX_TOKENS,
   DEFAULT_MIN_TOKENS,
