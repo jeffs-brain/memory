@@ -163,6 +163,57 @@ func TestEnumerateFiles_RecursiveByDefault(t *testing.T) {
 	}
 }
 
+func TestEnumerateFiles_MaxFilesOver500Rejection(t *testing.T) {
+	dir := t.TempDir()
+	writeTestFile(t, filepath.Join(dir, "a.md"), "content")
+
+	// EnumerateFiles respects maxFiles but does not enforce 500; the MCP tool
+	// layer enforces the 500 cap. Verify that maxFiles=501 still works at the
+	// library level (the restriction is in the tool, not here).
+	files, _, err := EnumerateFiles(context.Background(), EnumerateOptions{
+		Directory: dir,
+		Recursive: true,
+		MaxFiles:  501,
+	})
+	if err != nil {
+		t.Fatalf("enumerate: %v", err)
+	}
+	if len(files) != 1 {
+		t.Errorf("expected 1 file, got %d", len(files))
+	}
+}
+
+func TestEnumerateFiles_SymlinksSkipped(t *testing.T) {
+	dir := t.TempDir()
+	writeTestFile(t, filepath.Join(dir, "real.md"), "real file")
+
+	// Create a symlink to a file outside the directory.
+	outsideDir := t.TempDir()
+	writeTestFile(t, filepath.Join(outsideDir, "secret.md"), "secret")
+	symPath := filepath.Join(dir, "link.md")
+	if err := os.Symlink(filepath.Join(outsideDir, "secret.md"), symPath); err != nil {
+		t.Skipf("symlink not supported: %v", err)
+	}
+
+	files, _, err := EnumerateFiles(context.Background(), EnumerateOptions{
+		Directory: dir,
+		Recursive: true,
+		MaxFiles:  100,
+	})
+	if err != nil {
+		t.Fatalf("enumerate: %v", err)
+	}
+	// Only the real file should be returned; symlink should be skipped.
+	if len(files) != 1 {
+		t.Errorf("expected 1 file (real.md only), got %d", len(files))
+	}
+	for _, f := range files {
+		if filepath.Base(f.Path) == "link.md" {
+			t.Error("symlink should have been skipped")
+		}
+	}
+}
+
 func TestEnumerateFiles_UnknownExtensionsSkipped(t *testing.T) {
 	dir := t.TempDir()
 	writeTestFile(t, filepath.Join(dir, "image.png"), "binary")

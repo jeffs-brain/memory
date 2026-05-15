@@ -42,10 +42,16 @@ type EnumeratedFile struct {
 // It excludes hidden files (dot-prefix), does not follow symlinks, respects
 // .gitignore patterns when present, applies glob filter if provided, enforces
 // maxFiles limit, and skips files over 25 MiB.
+//
+// The directory path is sanitised with filepath.Clean, and all enumerated
+// file paths are verified to reside within the cleaned directory boundary
+// to prevent path-traversal attacks.
 func EnumerateFiles(ctx context.Context, opts EnumerateOptions) ([]EnumeratedFile, []string, error) {
 	if opts.MaxFiles <= 0 {
 		opts.MaxFiles = 100
 	}
+
+	opts.Directory = filepath.Clean(opts.Directory)
 
 	gitignorePatterns := loadGitignore(opts.Directory)
 
@@ -89,6 +95,13 @@ func EnumerateFiles(ctx context.Context, opts EnumerateOptions) ([]EnumeratedFil
 			if !opts.Recursive && path != opts.Directory {
 				return filepath.SkipDir
 			}
+			return nil
+		}
+
+		// Boundary check: ensure file is within the directory root.
+		cleaned := filepath.Clean(path)
+		if !strings.HasPrefix(cleaned, opts.Directory+string(filepath.Separator)) && cleaned != opts.Directory {
+			skipped = append(skipped, fmt.Sprintf("%s: path escapes directory boundary", relPath))
 			return nil
 		}
 
@@ -175,11 +188,14 @@ func matchesGitignore(relPath string, patterns []string) bool {
 			return true
 		}
 		// Root-relative (e.g. "/dist")
-		if strings.HasPrefix(cleaned, "/") && strings.HasPrefix(relPath, cleaned[1:]) {
-			return true
+		if strings.HasPrefix(cleaned, "/") {
+			trimmed := cleaned[1:]
+			if relPath == trimmed || strings.HasPrefix(relPath, trimmed+"/") {
+				return true
+			}
 		}
-		// Direct prefix
-		if strings.HasPrefix(relPath, cleaned) {
+		// Direct prefix (with path separator boundary)
+		if relPath == cleaned || strings.HasPrefix(relPath, cleaned+"/") {
 			return true
 		}
 	}

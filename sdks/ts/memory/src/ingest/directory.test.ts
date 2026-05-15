@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
-import { mkdir, writeFile } from 'node:fs/promises'
+import { mkdir, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -102,5 +102,29 @@ describe('enumerateFiles', () => {
 
     const result = await enumerateFiles({ directory: tmp })
     expect(result.files).toHaveLength(2)
+  })
+
+  it('skips symlinks and only returns real files', async () => {
+    await writeFile(join(tmp, 'real.md'), 'real content')
+    const outsideDir = await mkdtemp(join(tmpdir(), 'dir-enum-outside-'))
+    await writeFile(join(outsideDir, 'secret.md'), 'secret')
+    try {
+      await symlink(join(outsideDir, 'secret.md'), join(tmp, 'link.md'))
+    } catch {
+      // Symlinks may not be supported on all platforms; skip test.
+      return
+    }
+
+    const result = await enumerateFiles({ directory: tmp })
+    expect(result.files).toHaveLength(1)
+    expect(result.files[0]?.path).toContain('real.md')
+    await rm(outsideDir, { recursive: true, force: true })
+  })
+
+  it('maxFiles > 500 still works at library level (cap is in MCP tool layer)', async () => {
+    await writeFile(join(tmp, 'a.md'), 'content')
+
+    const result = await enumerateFiles({ directory: tmp, maxFiles: 501 })
+    expect(result.files).toHaveLength(1)
   })
 })

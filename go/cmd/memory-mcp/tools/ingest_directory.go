@@ -5,6 +5,8 @@ package tools
 import (
 	"context"
 	"fmt"
+	"path/filepath"
+	"strings"
 
 	"github.com/google/jsonschema-go/jsonschema"
 	"github.com/jeffs-brain/memory/go/ingest"
@@ -40,6 +42,15 @@ func registerIngestDirectory(server *mcp.Server, client MemoryClient) {
 		Description: "Ingest files from a directory. Walks recursively, respects .gitignore, and supports glob filtering.",
 		InputSchema: schema,
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args IngestDirectoryArgs) (*mcp.CallToolResult, any, error) {
+		// Sanitise directory path to prevent traversal.
+		cleanedDir := filepath.Clean(args.Directory)
+		if !filepath.IsAbs(cleanedDir) {
+			return nil, nil, fmt.Errorf("memory_ingest_directory: directory must be an absolute path")
+		}
+		if strings.Contains(cleanedDir, "..") {
+			return nil, nil, fmt.Errorf("memory_ingest_directory: directory path must not contain '..'")
+		}
+
 		recursive := true
 		if args.Recursive != nil {
 			recursive = *args.Recursive
@@ -53,7 +64,7 @@ func registerIngestDirectory(server *mcp.Server, client MemoryClient) {
 		}
 
 		enumerated, skipped, err := ingest.EnumerateFiles(ctx, ingest.EnumerateOptions{
-			Directory: args.Directory,
+			Directory: cleanedDir,
 			Glob:      args.Glob,
 			Recursive: recursive,
 			MaxFiles:  maxFiles,

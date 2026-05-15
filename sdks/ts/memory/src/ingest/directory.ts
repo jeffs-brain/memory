@@ -7,7 +7,7 @@
  */
 
 import { lstat, readFile, readdir } from 'node:fs/promises'
-import { extname, join, relative } from 'node:path'
+import { extname, join, normalize, relative, resolve } from 'node:path'
 
 const FILE_SIZE_LIMIT = 25 * 1024 * 1024
 const KNOWN_EXTENSIONS = new Set([
@@ -72,10 +72,13 @@ const matchesGitignore = (relativePath: string, patterns: readonly string[]): bo
     if (segments.some((seg) => seg === cleaned)) return true
     // Pattern with wildcard prefix (e.g. "*.log")
     if (cleaned.startsWith('*') && relativePath.endsWith(cleaned.slice(1))) return true
-    // Pattern starting with / means root-relative
-    if (cleaned.startsWith('/') && relativePath.startsWith(cleaned.slice(1))) return true
-    // Direct prefix match
-    if (relativePath.startsWith(cleaned)) return true
+    // Pattern starting with / means root-relative (with separator boundary)
+    if (cleaned.startsWith('/')) {
+      const trimmed = cleaned.slice(1)
+      if (relativePath === trimmed || relativePath.startsWith(trimmed + '/')) return true
+    }
+    // Direct prefix match (with separator boundary)
+    if (relativePath === cleaned || relativePath.startsWith(cleaned + '/')) return true
   }
   return false
 }
@@ -110,13 +113,14 @@ const matchesGlob = (filename: string, pattern: string): boolean => {
 export const enumerateFiles = async (opts: EnumerateOptions): Promise<EnumerateResult> => {
   const maxFiles = opts.maxFiles ?? 100
   const recursive = opts.recursive ?? true
+  const cleanedDirectory = resolve(normalize(opts.directory))
   const files: EnumeratedFile[] = []
   const skipped: string[] = []
 
   // Try to load .gitignore
   let gitignorePatterns: readonly string[] = []
   try {
-    const gitignoreContent = await readFile(join(opts.directory, '.gitignore'), 'utf8')
+    const gitignoreContent = await readFile(join(cleanedDirectory, '.gitignore'), 'utf8')
     gitignorePatterns = parseGitignore(gitignoreContent)
   } catch {
     // No .gitignore or unreadable — proceed without patterns
@@ -144,7 +148,11 @@ export const enumerateFiles = async (opts: EnumerateOptions): Promise<EnumerateR
       if (entry.name.startsWith('.')) continue
 
       const fullPath = join(dir, entry.name)
-      const relativePath = relative(opts.directory, fullPath)
+      const normalizedFull = resolve(normalize(fullPath))
+      const relativePath = relative(cleanedDirectory, normalizedFull)
+
+      // Boundary check: ensure path stays within the directory root.
+      if (relativePath.startsWith('..')) continue
 
       // Check .gitignore patterns
       if (gitignorePatterns.length > 0 && matchesGitignore(relativePath, gitignorePatterns)) {
@@ -190,6 +198,6 @@ export const enumerateFiles = async (opts: EnumerateOptions): Promise<EnumerateR
     }
   }
 
-  await walk(opts.directory)
+  await walk(cleanedDirectory)
   return { files, skipped }
 }

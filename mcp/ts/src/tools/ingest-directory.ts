@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
+import { isAbsolute, normalize, resolve } from 'node:path'
 import { z } from 'zod'
 import { enumerateFiles } from '@jeffs-brain/memory/ingest'
 import { type Tool, jsonContent } from './types.js'
@@ -13,6 +14,16 @@ const schema = z.object({
   recursive: z.boolean().optional().default(true),
   maxFiles: z.number().int().positive().max(MAX_FILES).optional().default(100),
 })
+
+/** Typed subset of the ingest response relevant to result reporting. */
+type IngestResult = {
+  readonly document_id?: string
+  readonly hash?: string
+  readonly byte_size?: number
+}
+
+const isIngestResult = (value: unknown): value is IngestResult =>
+  typeof value === 'object' && value !== null
 
 export type DirectoryIngestFileResult = {
   readonly path: string
@@ -38,8 +49,16 @@ export const ingestDirectoryTool: Tool<typeof schema> = {
     'Ingest files from a directory. Walks recursively, respects .gitignore, and supports glob filtering.',
   inputSchema: schema,
   async handler(args, client, ctx) {
+    const cleanedDir = resolve(normalize(args.directory))
+    if (!isAbsolute(cleanedDir)) {
+      throw new Error('memory_ingest_directory: directory must be an absolute path')
+    }
+    if (cleanedDir.includes('..')) {
+      throw new Error("memory_ingest_directory: directory path must not contain '..'")
+    }
+
     const enumerated = await enumerateFiles({
-      directory: args.directory,
+      directory: cleanedDir,
       glob: args.glob,
       recursive: args.recursive,
       maxFiles: args.maxFiles,
@@ -55,20 +74,22 @@ export const ingestDirectoryTool: Tool<typeof schema> = {
       if (file === undefined) continue
 
       try {
-        const ingestResult = (await client.ingestFile(
+        const raw = await client.ingestFile(
           {
             path: file.path,
             brain: args.brain,
           },
           ctx?.progress,
-        )) as Record<string, unknown>
+        )
+
+        const ingestResult: IngestResult = isIngestResult(raw) ? raw : {}
 
         results.push({
           path: file.path,
           status: 'success',
-          documentId: ingestResult.document_id as string | undefined,
-          hash: ingestResult.hash as string | undefined,
-          bytes: ingestResult.byte_size as number | undefined,
+          documentId: ingestResult.document_id,
+          hash: ingestResult.hash,
+          bytes: ingestResult.byte_size,
         })
         succeeded++
       } catch (err: unknown) {
