@@ -7,6 +7,17 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+### memory-pi 0.2.1
+
+#### Fixed
+
+- Replace `"@jeffs-brain/memory": "workspace:*"` in the published tarball
+  with `"^0.3.0"` so consumers installing via `npm` / `bun add` outside
+  the source monorepo can actually resolve the core SDK. `npm publish`
+  does not rewrite workspace specifiers (unlike `bun publish` /
+  `pnpm publish`), so the 0.2.0 tarball was effectively uninstallable
+  outside this repo. (TS)
+
 ### memory-pi 0.2.0
 
 #### Added
