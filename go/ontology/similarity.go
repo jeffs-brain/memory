@@ -30,16 +30,18 @@ func JaroWinklerDistance(s1, s2 string) float64 {
 
 	jaro := jaroDistance(a, b)
 
+	ra := []rune(a)
+	rb := []rune(b)
 	commonPrefix := 0
 	limit := 4
-	if len(a) < limit {
-		limit = len(a)
+	if len(ra) < limit {
+		limit = len(ra)
 	}
-	if len(b) < limit {
-		limit = len(b)
+	if len(rb) < limit {
+		limit = len(rb)
 	}
 	for i := 0; i < limit; i++ {
-		if a[i] != b[i] {
+		if ra[i] != rb[i] {
 			break
 		}
 		commonPrefix++
@@ -50,37 +52,41 @@ func JaroWinklerDistance(s1, s2 string) float64 {
 
 // jaroDistance computes the Jaro similarity between two strings.
 // Both strings must be non-empty and already lowercased/trimmed.
+// Uses []rune internally for correct multi-byte character handling.
 func jaroDistance(s1, s2 string) float64 {
-	maxLen := len(s1)
-	if len(s2) > maxLen {
-		maxLen = len(s2)
+	r1 := []rune(s1)
+	r2 := []rune(s2)
+
+	maxLen := len(r1)
+	if len(r2) > maxLen {
+		maxLen = len(r2)
 	}
 	matchWindow := maxLen/2 - 1
 	if matchWindow < 0 {
 		matchWindow = 0
 	}
 
-	s1Matches := make([]bool, len(s1))
-	s2Matches := make([]bool, len(s2))
+	r1Matches := make([]bool, len(r1))
+	r2Matches := make([]bool, len(r2))
 
 	matches := 0
 	transpositions := 0
 
-	for i := 0; i < len(s1); i++ {
+	for i := 0; i < len(r1); i++ {
 		start := i - matchWindow
 		if start < 0 {
 			start = 0
 		}
 		end := i + matchWindow + 1
-		if end > len(s2) {
-			end = len(s2)
+		if end > len(r2) {
+			end = len(r2)
 		}
 		for j := start; j < end; j++ {
-			if s2Matches[j] || s1[i] != s2[j] {
+			if r2Matches[j] || r1[i] != r2[j] {
 				continue
 			}
-			s1Matches[i] = true
-			s2Matches[j] = true
+			r1Matches[i] = true
+			r2Matches[j] = true
 			matches++
 			break
 		}
@@ -91,21 +97,21 @@ func jaroDistance(s1, s2 string) float64 {
 	}
 
 	k := 0
-	for i := 0; i < len(s1); i++ {
-		if !s1Matches[i] {
+	for i := 0; i < len(r1); i++ {
+		if !r1Matches[i] {
 			continue
 		}
-		for !s2Matches[k] {
+		for !r2Matches[k] {
 			k++
 		}
-		if s1[i] != s2[k] {
+		if r1[i] != r2[k] {
 			transpositions++
 		}
 		k++
 	}
 
-	return (float64(matches)/float64(len(s1)) +
-		float64(matches)/float64(len(s2)) +
+	return (float64(matches)/float64(len(r1)) +
+		float64(matches)/float64(len(r2)) +
 		float64(matches-transpositions/2)/float64(matches)) / 3.0
 }
 
