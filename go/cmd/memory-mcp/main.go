@@ -118,6 +118,16 @@ func (a toolAdapter) IngestURL(ctx context.Context, args tools.IngestURLArgs, pr
 	}, ProgressEmitter(progress))
 }
 
+func (a toolAdapter) ExtractAfterIngest(ctx context.Context, args tools.ExtractAfterIngestArgs) (map[string]any, error) {
+	return a.client.ExtractAfterIngest(ctx, ExtractAfterIngestArgs{
+		Path:      args.Path,
+		URL:       args.URL,
+		Brain:     args.Brain,
+		ActorID:   args.ActorID,
+		SessionID: args.SessionID,
+	})
+}
+
 func (a toolAdapter) Extract(ctx context.Context, args tools.ExtractArgs, progress tools.ProgressEmitter) (map[string]any, error) {
 	messages := make([]ExtractMessage, 0, len(args.Messages))
 	for _, m := range args.Messages {

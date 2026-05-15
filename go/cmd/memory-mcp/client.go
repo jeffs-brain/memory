@@ -52,6 +52,7 @@ type MemoryClient interface {
 	IngestFile(ctx context.Context, args IngestFileArgs, progress ProgressEmitter) (map[string]any, error)
 	IngestURL(ctx context.Context, args IngestURLArgs, progress ProgressEmitter) (map[string]any, error)
 	Extract(ctx context.Context, args ExtractArgs, progress ProgressEmitter) (map[string]any, error)
+	ExtractAfterIngest(ctx context.Context, args ExtractAfterIngestArgs) (map[string]any, error)
 	Reflect(ctx context.Context, args ReflectArgs, progress ProgressEmitter) (map[string]any, error)
 	Consolidate(ctx context.Context, args ConsolidateArgs, progress ProgressEmitter) (map[string]any, error)
 	CreateBrain(ctx context.Context, args CreateBrainArgs) (map[string]any, error)
@@ -105,6 +106,15 @@ type IngestFileArgs struct {
 type IngestURLArgs struct {
 	URL   string
 	Brain string
+}
+
+// ExtractAfterIngestArgs captures input for post-ingest extraction.
+type ExtractAfterIngestArgs struct {
+	Path      string
+	URL       string
+	Brain     string
+	ActorID   string
+	SessionID string
 }
 
 // ExtractMessage is one turn supplied to memory_extract.
@@ -732,6 +742,82 @@ func (c *localClient) Extract(ctx context.Context, args ExtractArgs, progress Pr
 	}, nil
 }
 
+// ExtractAfterIngest implements [MemoryClient]. Reads the ingested document
+// content and runs the memory extractor to derive structured facts.
+// Extraction failure is non-fatal: returns empty result.
+func (c *localClient) ExtractAfterIngest(ctx context.Context, args ExtractAfterIngestArgs) (map[string]any, error) {
+	if c.provider == nil {
+		return map[string]any{"factsExtracted": 0, "memories": []any{}}, nil
+	}
+
+	brainID := c.resolveBrainID(args.Brain)
+	br, err := c.openBrain(ctx, brainID)
+	if err != nil {
+		return map[string]any{"factsExtracted": 0, "memories": []any{}}, nil
+	}
+
+	var content string
+	if args.Path != "" {
+		raw, readErr := os.ReadFile(args.Path)
+		if readErr != nil {
+			return map[string]any{"factsExtracted": 0, "memories": []any{}}, nil
+		}
+		content = string(raw)
+	} else if args.URL != "" {
+		resp, fetchErr := http.Get(args.URL) //nolint:gosec
+		if fetchErr != nil || resp.StatusCode >= 400 {
+			if resp != nil {
+				resp.Body.Close()
+			}
+			return map[string]any{"factsExtracted": 0, "memories": []any{}}, nil
+		}
+		defer resp.Body.Close()
+		body, readErr := io.ReadAll(io.LimitReader(resp.Body, 128_000))
+		if readErr != nil {
+			return map[string]any{"factsExtracted": 0, "memories": []any{}}, nil
+		}
+		content = string(body)
+	} else {
+		return map[string]any{"factsExtracted": 0, "memories": []any{}}, nil
+	}
+
+	if strings.TrimSpace(content) == "" {
+		return map[string]any{"factsExtracted": 0, "memories": []any{}}, nil
+	}
+
+	if len(content) > 128_000 {
+		content = content[:128_000]
+	}
+
+	source := args.Path
+	if source == "" {
+		source = args.URL
+	}
+	messages := []memory.Message{
+		{
+			Role:    "user",
+			Content: fmt.Sprintf("The following document was ingested from %q. Extract any important facts, knowledge, or structured information from it:\n\n%s", source, content),
+		},
+	}
+
+	extracted, xerr := memory.ExtractFromMessages(ctx, c.provider, "", br.memory, "", messages)
+	if xerr != nil {
+		return map[string]any{"factsExtracted": 0, "memories": []any{}}, nil
+	}
+
+	memories := make([]map[string]any, 0, len(extracted))
+	for _, e := range extracted {
+		memories = append(memories, map[string]any{
+			"filename": e.Filename,
+			"content":  e.Content,
+		})
+	}
+	return map[string]any{
+		"factsExtracted": len(extracted),
+		"memories":       memories,
+	}, nil
+}
+
 // Reflect implements [MemoryClient]. Local mode runs
 // [memory.Reflector.ForceReflect] so callers can exercise the surface
 // end-to-end without a dedicated session backend.
@@ -1160,6 +1246,13 @@ func (c *hostedClient) Extract(ctx context.Context, args ExtractArgs, progress P
 		return nil, err
 	}
 	return map[string]any{"mode": "transcript", "document": doc}, nil
+}
+
+// ExtractAfterIngest implements [MemoryClient] for hosted mode.
+func (c *hostedClient) ExtractAfterIngest(_ context.Context, _ ExtractAfterIngestArgs) (map[string]any, error) {
+	// Hosted mode does not support extract-after-ingest yet.
+	// Return empty result — non-fatal.
+	return map[string]any{"factsExtracted": 0, "memories": []any{}}, nil
 }
 
 // Reflect implements [MemoryClient].

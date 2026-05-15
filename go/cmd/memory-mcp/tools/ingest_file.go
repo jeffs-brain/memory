@@ -13,9 +13,10 @@ func registerIngestFile(server *mcp.Server, client MemoryClient) {
 	schema := &jsonschema.Schema{
 		Type: "object",
 		Properties: map[string]*jsonschema.Schema{
-			"path":  {Type: "string", MinLength: ptrInt(1)},
-			"brain": {Type: "string"},
-			"as":    {Type: "string", Enum: []any{"markdown", "text", "pdf", "json"}},
+			"path":    {Type: "string", MinLength: ptrInt(1)},
+			"brain":   {Type: "string"},
+			"as":      {Type: "string", Enum: []any{"markdown", "text", "pdf", "json"}},
+			"extract": {Type: "boolean"},
 		},
 		Required: []string{"path"},
 	}
@@ -29,6 +30,28 @@ func registerIngestFile(server *mcp.Server, client MemoryClient) {
 		if err != nil {
 			return nil, nil, err
 		}
-		return structuredResult(result)
+
+		if !args.Extract {
+			return structuredResult(result)
+		}
+
+		// Run extraction after successful ingest
+		extraction, extractErr := client.ExtractAfterIngest(ctx, ExtractAfterIngestArgs{
+			Path:  args.Path,
+			Brain: args.Brain,
+		})
+		if extractErr != nil {
+			// Extraction failure is non-fatal; return ingest result with empty extraction
+			extraction = map[string]any{
+				"factsExtracted": 0,
+				"memories":       []any{},
+			}
+		}
+
+		combined := map[string]any{
+			"ingest":     result,
+			"extraction": extraction,
+		}
+		return structuredResult(combined)
 	})
 }

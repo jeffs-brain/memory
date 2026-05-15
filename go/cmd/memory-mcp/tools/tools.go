@@ -25,6 +25,7 @@ type MemoryClient interface {
 	IngestFile(ctx context.Context, args IngestFileArgs, progress ProgressEmitter) (map[string]any, error)
 	IngestURL(ctx context.Context, args IngestURLArgs, progress ProgressEmitter) (map[string]any, error)
 	Extract(ctx context.Context, args ExtractArgs, progress ProgressEmitter) (map[string]any, error)
+	ExtractAfterIngest(ctx context.Context, args ExtractAfterIngestArgs) (map[string]any, error)
 	Reflect(ctx context.Context, args ReflectArgs, progress ProgressEmitter) (map[string]any, error)
 	Consolidate(ctx context.Context, args ConsolidateArgs, progress ProgressEmitter) (map[string]any, error)
 	CreateBrain(ctx context.Context, args CreateBrainArgs) (map[string]any, error)
@@ -71,15 +72,26 @@ type AskArgs struct {
 
 // IngestFileArgs is the input shape for memory_ingest_file.
 type IngestFileArgs struct {
-	Path  string `json:"path"`
-	Brain string `json:"brain,omitempty"`
-	As    string `json:"as,omitempty"`
+	Path    string `json:"path"`
+	Brain   string `json:"brain,omitempty"`
+	As      string `json:"as,omitempty"`
+	Extract bool   `json:"extract,omitempty"`
 }
 
 // IngestURLArgs is the input shape for memory_ingest_url.
 type IngestURLArgs struct {
-	URL   string `json:"url"`
-	Brain string `json:"brain,omitempty"`
+	URL     string `json:"url"`
+	Brain   string `json:"brain,omitempty"`
+	Extract bool   `json:"extract,omitempty"`
+}
+
+// ExtractAfterIngestArgs is the input for post-ingest extraction.
+type ExtractAfterIngestArgs struct {
+	Path      string `json:"path,omitempty"`
+	URL       string `json:"url,omitempty"`
+	Brain     string `json:"brain,omitempty"`
+	ActorID   string `json:"actor_id,omitempty"`
+	SessionID string `json:"session_id,omitempty"`
 }
 
 // ExtractMessage is one turn supplied to memory_extract.

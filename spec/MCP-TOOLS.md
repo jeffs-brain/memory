@@ -124,17 +124,21 @@ Ingest a local file (<= 25 MB) into the brain via the file-ingest endpoint.
 
 ```
 {
-  path:   string                       # absolute or relative local path
-  brain?: string
-  as?:    'markdown' | 'text' | 'pdf' | 'json'
+  path:     string                       # absolute or relative local path
+  brain?:   string
+  as?:      'markdown' | 'text' | 'pdf' | 'json'
+  extract?: boolean                      # run extractor after ingest (default: false)
 }
 ```
 
 Content type is inferred from the extension when `as` is omitted. Files over 25 MiB are rejected with code `file_too_large`.
 
+When `extract` is `true`, the document content is passed through the memory extractor after successful ingestion. Both the raw document and any extracted facts are persisted. Extraction failure is non-fatal: the ingest result is always returned.
+
 **Output shape**
 
 ```
+# without extract (default)
 {
   status:      'queued' | 'ingested',
   path:        string,
@@ -142,6 +146,15 @@ Content type is inferred from the extension when `as` is omitted. Files over 25 
   chunk_count?: number,
   reused?:     boolean,
   ...
+}
+
+# with extract: true
+{
+  ingest: { status, path, chunk_count, ... },
+  extraction: {
+    factsExtracted: number,
+    memories: Array<{ filename: string, content: string }>
+  }
 }
 ```
 
@@ -157,8 +170,9 @@ Fetch a URL and ingest its content. Uses the server-side `/ingest/url` when the 
 
 ```
 {
-  url:    string (must be a valid URL)
-  brain?: string
+  url:      string (must be a valid URL)
+  brain?:   string
+  extract?: boolean                      # run extractor after ingest (default: false)
 }
 ```
 

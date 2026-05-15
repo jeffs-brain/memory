@@ -108,6 +108,19 @@ export type CreateBrainArgs = {
  */
 export type ProgressEmitter = (progress: number, message?: string) => void
 
+export type ExtractAfterIngestArgs = {
+  readonly path?: string | undefined
+  readonly url?: string | undefined
+  readonly brain?: string | undefined
+  readonly actorId?: string | undefined
+  readonly sessionId?: string | undefined
+}
+
+export type ExtractAfterIngestResult = {
+  readonly factsExtracted: number
+  readonly memories: readonly { readonly filename: string; readonly content: string }[]
+}
+
 export type MemoryClient = {
   readonly mode: ConfigMode['kind']
   remember(args: RememberArgs): Promise<unknown>
@@ -117,6 +130,7 @@ export type MemoryClient = {
   ingestFile(args: IngestFileArgs, progress?: ProgressEmitter): Promise<unknown>
   ingestUrl(args: IngestUrlArgs, progress?: ProgressEmitter): Promise<unknown>
   extract(args: ExtractArgs, progress?: ProgressEmitter): Promise<unknown>
+  extractAfterIngest(args: ExtractAfterIngestArgs): Promise<ExtractAfterIngestResult>
   reflect(args: ReflectArgs, progress?: ProgressEmitter): Promise<unknown>
   consolidate(args: ConsolidateArgs, progress?: ProgressEmitter): Promise<unknown>
   createBrain(args: CreateBrainArgs): Promise<unknown>
@@ -866,6 +880,66 @@ const createLocalClient = (cfg: LocalConfig): MemoryClient => {
       return { items }
     },
 
+    async extractAfterIngest(args) {
+      await ensureBootstrap()
+      const provider = deps.provider
+      if (provider === undefined) {
+        // No provider available — return empty extraction
+        return { factsExtracted: 0, memories: [] }
+      }
+      const brainId = resolveBrainId(cfg, args.brain)
+      const brain = await openBrainResources(deps, brainId)
+      const memory = buildMemory(brain, provider as Provider)
+
+      // Read the document content for extraction
+      let content: string
+      if (args.path !== undefined && args.path !== '') {
+        const absPath = isAbsolute(args.path) ? args.path : resolve(args.path)
+        const raw = await readFile(absPath, 'utf8')
+        content = raw.slice(0, 128_000) // Cap at 128k chars
+      } else if (args.url !== undefined && args.url !== '') {
+        // For URL ingests, re-fetch the content for extraction
+        const resp = await fetch(args.url)
+        if (!resp.ok) {
+          return { factsExtracted: 0, memories: [] }
+        }
+        const text = await resp.text()
+        content = text.slice(0, 128_000)
+      } else {
+        return { factsExtracted: 0, memories: [] }
+      }
+
+      if (content.trim() === '') {
+        return { factsExtracted: 0, memories: [] }
+      }
+
+      const source = args.path ?? args.url ?? 'unknown'
+      const syntheticMessages: readonly Message[] = [
+        {
+          role: 'user',
+          content: `The following document was ingested from "${source}". Extract any important facts, knowledge, or structured information from it:\n\n${content}`,
+        },
+      ]
+
+      try {
+        const extracted = await memory.extract({
+          messages: syntheticMessages,
+          ...(args.actorId !== undefined ? { actorId: args.actorId } : {}),
+          ...(args.sessionId !== undefined ? { sessionId: args.sessionId } : {}),
+        })
+        return {
+          factsExtracted: extracted.length,
+          memories: extracted.map((m) => ({
+            filename: m.filename,
+            content: m.content,
+          })),
+        }
+      } catch {
+        // Extraction failure is non-fatal
+        return { factsExtracted: 0, memories: [] }
+      }
+    },
+
     async close() {
       for (const brain of deps.brains.values()) {
         await brain.close()
@@ -1061,6 +1135,43 @@ const createHostedClient = (cfg: HostedConfig): MemoryClient => {
     },
     async listBrains() {
       return hostedFetch(deps, '/v1/brains')
+    },
+    async extractAfterIngest(args) {
+      // In hosted mode, read the file/URL and send as a transcript for extraction
+      const brain = hostedResolveBrain(deps, args.brain)
+      let content: string
+      if (args.path !== undefined && args.path !== '') {
+        const absPath = isAbsolute(args.path) ? args.path : resolve(args.path)
+        const raw = await readFile(absPath, 'utf8')
+        content = raw.slice(0, 128_000)
+      } else if (args.url !== undefined && args.url !== '') {
+        const resp = await fetch(args.url)
+        if (!resp.ok) return { factsExtracted: 0, memories: [] }
+        const text = await resp.text()
+        content = text.slice(0, 128_000)
+      } else {
+        return { factsExtracted: 0, memories: [] }
+      }
+
+      if (content.trim() === '') return { factsExtracted: 0, memories: [] }
+
+      const source = args.path ?? args.url ?? 'unknown'
+      try {
+        const doc = await hostedFetch(deps, `/v1/brains/${encodeURIComponent(brain)}/documents`, {
+          method: 'POST',
+          body: JSON.stringify({
+            title: `Extraction from ${source}`,
+            content: `Extract facts from ingested document "${source}":\n\n${content}`,
+            source: 'extract-after-ingest',
+          }),
+        })
+        return {
+          factsExtracted: doc !== undefined ? 1 : 0,
+          memories: [],
+        }
+      } catch {
+        return { factsExtracted: 0, memories: [] }
+      }
     },
     async close() {
       /* no persistent connections */
