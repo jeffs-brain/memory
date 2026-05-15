@@ -1,0 +1,223 @@
+// SPDX-License-Identifier: Apache-2.0
+
+/**
+ * SHA-256 to BLAKE3 hash migration for the ingest pipeline. Provides a
+ * non-blocking, resumable migrator that re-hashes existing documents
+ * and a dual-read resolver that tries BLAKE3 first with SHA-256 fallback.
+ */
+
+import type { Path, Store } from '../store/index.js'
+import { isNotFound, joinPath, toPath } from '../store/index.js'
+import { hashContent, hashContentSHA256, hashSlug, hashSlugSHA256 } from './hash.js'
+
+const MIGRATION_STATE_PATH = 'raw/.pipeline-state/.blake3-migration.json'
+const RAW_DOCUMENTS_PREFIX = 'raw/documents'
+const DEFAULT_BATCH_SIZE = 100
+
+export type MigrateOpts = {
+  readonly batchSize?: number
+  readonly dryRun?: boolean
+  readonly cursor?: string
+}
+
+export type MigrateResult = {
+  readonly migrated: number
+  readonly skipped: number
+  readonly total: number
+  readonly nextCursor: string
+}
+
+export type MigrationState = {
+  readonly cursor: string
+  readonly migrated: number
+  readonly total: number
+}
+
+/**
+ * Backend interface for migration state persistence. Implementations
+ * exist for file-based stores (default, uses Store.read/write) and
+ * PostgresStore (uses the memory.blake3_migration_state table).
+ */
+export type MigrationStateBackend = {
+  readonly load: () => Promise<MigrationState>
+  readonly save: (state: MigrationState) => Promise<void>
+}
+
+/**
+ * Creates a file-based migration state backend that stores state as
+ * JSON at `raw/.pipeline-state/.blake3-migration.json`. This is the
+ * default for FsStore and MemStore.
+ */
+export const createFileMigrationStateBackend = (store: Store): MigrationStateBackend => ({
+  load: async (): Promise<MigrationState> => {
+    try {
+      const data = await store.read(toPath(MIGRATION_STATE_PATH))
+      return JSON.parse(data.toString('utf8')) as MigrationState
+    } catch (err: unknown) {
+      if (isNotFound(err)) {
+        return { cursor: '', migrated: 0, total: 0 }
+      }
+      throw err
+    }
+  },
+  save: async (state: MigrationState): Promise<void> => {
+    const data = Buffer.from(JSON.stringify(state), 'utf8')
+    await store.write(toPath(MIGRATION_STATE_PATH), data)
+  },
+})
+
+export type HashMigratorOptions = {
+  readonly store: Store
+  readonly stateBackend?: MigrationStateBackend
+}
+
+type HashMigrator = {
+  migrate(opts?: MigrateOpts, signal?: AbortSignal): Promise<MigrateResult>
+}
+
+/**
+ * Create a hash migrator bound to the given store. The migrator
+ * processes documents in batches, renaming SHA-256-hashed files to
+ * BLAKE3-hashed paths. Migration is non-blocking and resumable.
+ *
+ * An optional `stateBackend` can be provided for PostgresStore
+ * deployments (backed by the `memory.blake3_migration_state` table).
+ * When omitted, the file-based backend is used.
+ */
+export const createHashMigrator = (storeOrOpts: Store | HashMigratorOptions): HashMigrator => {
+  const store = 'store' in storeOrOpts ? storeOrOpts.store : storeOrOpts
+  const stateBackend = 'stateBackend' in storeOrOpts && storeOrOpts.stateBackend !== undefined
+    ? storeOrOpts.stateBackend
+    : createFileMigrationStateBackend(store)
+
+  const rawDocumentPath = (slug: string): Path => joinPath(RAW_DOCUMENTS_PREFIX, `${slug}.md`)
+
+  const extractSlug = (p: Path): string => {
+    const s = String(p)
+    const prefix = `${RAW_DOCUMENTS_PREFIX}/`
+    if (!s.startsWith(prefix)) return ''
+    const name = s.slice(prefix.length)
+    if (!name.endsWith('.md')) return ''
+    return name.slice(0, -3)
+  }
+
+  const migrateDocument = async (docPath: Path, dryRun: boolean): Promise<'migrated' | 'skipped' | 'not_found'> => {
+    const slug = extractSlug(docPath)
+    if (slug === '') return 'skipped'
+
+    let content: Buffer
+    try {
+      content = await store.read(docPath)
+    } catch (err: unknown) {
+      if (isNotFound(err)) {
+        return 'not_found'
+      }
+      throw err
+    }
+    const blake3SlugValue = hashSlug(content)
+
+    if (slug === blake3SlugValue) return 'skipped'
+
+    if (dryRun) return 'migrated'
+
+    const newPath = rawDocumentPath(blake3SlugValue)
+    if (String(docPath) === String(newPath)) return 'skipped'
+
+    await store.batch({ reason: 'blake3-migration' }, async (batch) => {
+      await batch.write(newPath, content)
+      await batch.delete(docPath)
+    })
+    return 'migrated'
+  }
+
+  const migrate = async (opts?: MigrateOpts, signal?: AbortSignal): Promise<MigrateResult> => {
+    const batchSize = opts?.batchSize ?? DEFAULT_BATCH_SIZE
+    const dryRun = opts?.dryRun ?? false
+
+    let cursor = opts?.cursor ?? ''
+    if (cursor === '') {
+      const state = await stateBackend.load()
+      if (state.cursor !== '') {
+        cursor = state.cursor
+      }
+    }
+
+    // Migration processes documents in batches of batchSize. The initial list
+    // call loads all document paths into memory. For brains with >100K documents,
+    // consider running migration in multiple passes with path-prefix filtering.
+    // The Store interface doesn't support server-side pagination for file-based
+    // backends, so a streaming approach would require Store API changes.
+    const entries = await store.list(toPath(RAW_DOCUMENTS_PREFIX), {
+      recursive: true,
+      includeGenerated: true,
+    })
+
+    const docPaths = entries
+      .filter((e) => !e.isDir && String(e.path).endsWith('.md'))
+      .map((e) => e.path)
+      .sort()
+
+    const total = docPaths.length
+    const startIdx = cursorIndex(docPaths, cursor)
+    const endIdx = Math.min(startIdx + batchSize, total)
+
+    let migrated = 0
+    let skipped = 0
+
+    for (let i = startIdx; i < endIdx; i++) {
+      if (signal?.aborted) {
+        throw new Error('ingest: migration aborted')
+      }
+
+      const docPath = docPaths[i]
+      if (docPath === undefined) break
+
+      const result = await migrateDocument(docPath, dryRun)
+      if (result === 'migrated') {
+        migrated++
+      } else {
+        skipped++
+      }
+    }
+
+    const nextCursor = endIdx < total ? String(docPaths[endIdx] ?? '') : ''
+
+    if (!dryRun) {
+      await stateBackend.save({ cursor: nextCursor, migrated, total })
+    }
+
+    return { migrated, skipped, total, nextCursor }
+  }
+
+  return { migrate }
+}
+
+/**
+ * Dual-read hash resolver. Computes the BLAKE3 hash of content and
+ * checks whether a document exists under that hash. If not found, falls
+ * back to the SHA-256 hash. Returns the resolved hash slug, or the
+ * BLAKE3 hash for new documents that do not exist under either scheme.
+ */
+export const resolveHash = async (store: Store, content: Buffer): Promise<string> => {
+  const blake3SlugValue = hashSlug(content)
+  const blake3Path = joinPath(RAW_DOCUMENTS_PREFIX, `${blake3SlugValue}.md`)
+
+  const blake3Exists = await store.exists(toPath(blake3Path))
+  if (blake3Exists) return blake3SlugValue
+
+  const sha256SlugValue = hashSlugSHA256(content)
+  const sha256Path = joinPath(RAW_DOCUMENTS_PREFIX, `${sha256SlugValue}.md`)
+
+  const sha256Exists = await store.exists(toPath(sha256Path))
+  if (sha256Exists) return sha256SlugValue
+
+  return blake3SlugValue
+}
+
+const cursorIndex = (paths: readonly Path[], cursor: string): number => {
+  if (cursor === '') return 0
+  for (let i = 0; i < paths.length; i++) {
+    if (String(paths[i]) >= cursor) return i
+  }
+  return paths.length
+}
