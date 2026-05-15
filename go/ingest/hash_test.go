@@ -189,7 +189,7 @@ func BenchmarkBLAKE3_1KB(b *testing.B) {
 	data := []byte(strings.Repeat("x", 1024))
 	b.SetBytes(1024)
 	b.ResetTimer()
-	for b.Loop() {
+	for i := 0; i < b.N; i++ {
 		HashDocument(data)
 	}
 }
@@ -198,7 +198,7 @@ func BenchmarkBLAKE3_10KB(b *testing.B) {
 	data := []byte(strings.Repeat("x", 10*1024))
 	b.SetBytes(10 * 1024)
 	b.ResetTimer()
-	for b.Loop() {
+	for i := 0; i < b.N; i++ {
 		HashDocument(data)
 	}
 }
@@ -207,7 +207,7 @@ func BenchmarkBLAKE3_100KB(b *testing.B) {
 	data := []byte(strings.Repeat("x", 100*1024))
 	b.SetBytes(100 * 1024)
 	b.ResetTimer()
-	for b.Loop() {
+	for i := 0; i < b.N; i++ {
 		HashDocument(data)
 	}
 }
@@ -216,7 +216,7 @@ func BenchmarkSHA256_1KB(b *testing.B) {
 	data := []byte(strings.Repeat("x", 1024))
 	b.SetBytes(1024)
 	b.ResetTimer()
-	for b.Loop() {
+	for i := 0; i < b.N; i++ {
 		sum := sha256.Sum256(data)
 		_ = hex.EncodeToString(sum[:])
 	}
@@ -226,7 +226,7 @@ func BenchmarkSHA256_10KB(b *testing.B) {
 	data := []byte(strings.Repeat("x", 10*1024))
 	b.SetBytes(10 * 1024)
 	b.ResetTimer()
-	for b.Loop() {
+	for i := 0; i < b.N; i++ {
 		sum := sha256.Sum256(data)
 		_ = hex.EncodeToString(sum[:])
 	}
@@ -236,7 +236,7 @@ func BenchmarkSHA256_100KB(b *testing.B) {
 	data := []byte(strings.Repeat("x", 100*1024))
 	b.SetBytes(100 * 1024)
 	b.ResetTimer()
-	for b.Loop() {
+	for i := 0; i < b.N; i++ {
 		sum := sha256.Sum256(data)
 		_ = hex.EncodeToString(sum[:])
 	}
