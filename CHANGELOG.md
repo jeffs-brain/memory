@@ -7,6 +7,18 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+### memory-pi 0.2.2
+
+#### Added
+
+- `vectorExtensionPath` config option (also `MEMORY_PI_VECTOR_EXTENSION_PATH`
+  env var) that overrides the path to sqlite-vec's loadable extension.
+  Threaded straight through to `createSearchIndex`. Required for hosts
+  that ship a bun-compiled single-file binary: sqlite-vec's
+  `import.meta.resolve('sqlite-vec-<platform>/vec0.<ext>')` fails inside
+  the virtual fs, so the host must copy the native extension next to
+  the executable and point memory-pi at it. (TS)
+
 ### memory-pi 0.2.1
 
 #### Fixed

@@ -1,6 +1,6 @@
 {
   "name": "@jeffs-brain/memory-pi",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "Pi extension for the @jeffs-brain/memory pipeline. Recall, extract, reflect, consolidate on every pi session via four lifecycle hooks plus 11 memory_* tools.",
   "license": "Apache-2.0",
   "type": "module",
