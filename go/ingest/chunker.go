@@ -68,12 +68,19 @@ type ChunkerRegistry struct {
 // the fallback for all other types.
 func NewChunkerRegistry() *ChunkerRegistry {
 	r := &ChunkerRegistry{
-		routes:   make(map[string]Chunker, 8),
+		routes:   make(map[string]Chunker, 16),
 		fallback: &RecursiveChunker{},
 	}
-	md := &MarkdownChunker{}
-	for _, ct := range md.ContentTypes() {
-		r.routes[ct] = md
+	builtins := []Chunker{
+		&MarkdownChunker{},
+		&CodeChunker{},
+		&TabularChunker{},
+		&PageLevelChunker{},
+	}
+	for _, c := range builtins {
+		for _, ct := range c.ContentTypes() {
+			r.routes[ct] = c
+		}
 	}
 	return r
 }

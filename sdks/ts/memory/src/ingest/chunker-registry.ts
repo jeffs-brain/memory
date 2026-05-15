@@ -8,8 +8,11 @@
  */
 
 import type { ChunkConfig } from './chunk-config.js'
+import { codeChunker } from './chunkers/code.js'
 import { markdownChunker } from './chunkers/markdown.js'
+import { pageLevelChunker } from './chunkers/page-level.js'
 import { recursiveChunker } from './chunkers/recursive.js'
+import { tabularChunker } from './chunkers/tabular.js'
 
 /** A single chunk produced by a Chunker. */
 export type Chunk = {
@@ -73,6 +76,44 @@ export const createChunkerRegistry = (): ChunkerRegistry => {
   }
   for (const ct of recursiveDescriptor.contentTypes) {
     routes.set(ct, recursiveDescriptor)
+  }
+
+  const codeDescriptor: ChunkerDescriptor = {
+    name: 'code',
+    contentTypes: [
+      'text/x-go',
+      'text/x-python',
+      'text/x-typescript',
+      'text/x-javascript',
+      'text/x-java',
+      'text/x-c',
+      'text/x-c++',
+      'text/x-rust',
+      'application/x-typescript',
+      'application/javascript',
+    ],
+    chunker: codeChunker,
+  }
+  for (const ct of codeDescriptor.contentTypes) {
+    routes.set(ct, codeDescriptor)
+  }
+
+  const tabularDescriptor: ChunkerDescriptor = {
+    name: 'tabular',
+    contentTypes: ['text/csv', 'text/tab-separated-values', 'text/tsv'],
+    chunker: tabularChunker,
+  }
+  for (const ct of tabularDescriptor.contentTypes) {
+    routes.set(ct, tabularDescriptor)
+  }
+
+  const pageLevelDescriptor: ChunkerDescriptor = {
+    name: 'page_level',
+    contentTypes: ['application/pdf', 'text/x-pdf-text'],
+    chunker: pageLevelChunker,
+  }
+  for (const ct of pageLevelDescriptor.contentTypes) {
+    routes.set(ct, pageLevelDescriptor)
   }
 
   const register = (descriptor: ChunkerDescriptor): void => {

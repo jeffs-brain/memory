@@ -8,8 +8,11 @@ import {
 } from './chunk-config.js'
 import { createChunkerRegistry } from './chunker-registry.js'
 import type { Chunk, Chunker } from './chunker-registry.js'
+import { codeChunker } from './chunkers/code.js'
 import { markdownChunker } from './chunkers/markdown.js'
+import { pageLevelChunker } from './chunkers/page-level.js'
 import { estimateTokens, recursiveChunker } from './chunkers/recursive.js'
+import { tabularChunker } from './chunkers/tabular.js'
 
 describe('createChunkConfig', () => {
   it('creates a valid config with explicit values', () => {
@@ -23,7 +26,7 @@ describe('createChunkConfig', () => {
     const cfg = createChunkConfig()
     expect(cfg.maxTokens).toBe(512)
     expect(cfg.overlapTokens).toBe(64)
-    expect(cfg.minTokens).toBe(40)
+    expect(cfg.minTokens).toBe(64)
   })
 
   it('rejects minTokens >= maxTokens', () => {
@@ -267,5 +270,215 @@ describe('estimateTokens', () => {
   it('approximates chars/4', () => {
     expect(estimateTokens('abcd')).toBe(1)
     expect(estimateTokens('abcdefgh')).toBe(2)
+  })
+})
+
+describe('codeChunker', () => {
+  it('splits Go source at function boundaries', async () => {
+    const source = [
+      'package main',
+      '',
+      'import "fmt"',
+      '',
+      'func hello() {',
+      '  fmt.Println("hello")',
+      '}',
+      '',
+      'func world() {',
+      '  fmt.Println("world")',
+      '}',
+      '',
+      'func main() {',
+      '  hello()',
+      '  world()',
+      '}',
+    ].join('\n')
+    const cfg = createChunkConfig(512, 64, 5)
+    const chunks = await codeChunker(source, cfg)
+    expect(chunks.length).toBeGreaterThanOrEqual(2)
+    for (const c of chunks) {
+      expect(c.metadata.chunker).toBe('code')
+    }
+  })
+
+  it('splits Python source at def/class boundaries', async () => {
+    const source = [
+      'import os',
+      'import sys',
+      '',
+      'def greet(name):',
+      '    print(f"Hello {name}")',
+      '',
+      'class Greeter:',
+      '    def __init__(self, name):',
+      '        self.name = name',
+      '',
+      'def main():',
+      '    g = Greeter("world")',
+    ].join('\n')
+    const cfg = createChunkConfig(512, 64, 5)
+    const chunks = await codeChunker(source, cfg)
+    expect(chunks.length).toBeGreaterThanOrEqual(2)
+  })
+
+  it('preserves import block as first chunk', async () => {
+    const source = [
+      'import "fmt"',
+      'import "os"',
+      '',
+      'func run() {',
+      '  fmt.Println(os.Args)',
+      '}',
+    ].join('\n')
+    const cfg = defaultChunkConfig()
+    const chunks = await codeChunker(source, cfg)
+    expect(chunks.length).toBeGreaterThanOrEqual(1)
+    expect(chunks[0]?.content).toContain('import')
+  })
+
+  it('returns empty array for blank content', async () => {
+    const cfg = defaultChunkConfig()
+    const chunks = await codeChunker('', cfg)
+    expect(chunks).toHaveLength(0)
+  })
+})
+
+describe('tabularChunker', () => {
+  it('chunks CSV with header prepended to each chunk', async () => {
+    const rows = ['name,age,city']
+    for (let i = 0; i < 120; i++) {
+      rows.push(`person${i},${20 + i},city${i}`)
+    }
+    const content = rows.join('\n')
+    const cfg = defaultChunkConfig()
+    const chunks = await tabularChunker(content, cfg)
+    expect(chunks.length).toBeGreaterThanOrEqual(2)
+    for (const c of chunks) {
+      expect(c.content.startsWith('name,age,city')).toBe(true)
+      expect(c.metadata.chunker).toBe('tabular')
+    }
+  })
+
+  it('detects tab delimiter for TSV', async () => {
+    const rows = ['name\tage\tcity']
+    for (let i = 0; i < 60; i++) {
+      rows.push(`person${i}\t${20 + i}\tcity${i}`)
+    }
+    const content = rows.join('\n')
+    const cfg = defaultChunkConfig()
+    const chunks = await tabularChunker(content, cfg)
+    expect(chunks.length).toBeGreaterThanOrEqual(2)
+    for (const c of chunks) {
+      const firstLine = c.content.split('\n')[0] ?? ''
+      expect(firstLine).toContain('\t')
+    }
+  })
+
+  it('produces single chunk for single row', async () => {
+    const content = 'name,age,city\nAlice,30,NYC'
+    const cfg = defaultChunkConfig()
+    const chunks = await tabularChunker(content, cfg)
+    expect(chunks).toHaveLength(1)
+    expect(chunks[0]?.content.startsWith('name,age,city')).toBe(true)
+  })
+
+  it('handles header-only content', async () => {
+    const cfg = defaultChunkConfig()
+    const chunks = await tabularChunker('name,age,city', cfg)
+    expect(chunks).toHaveLength(1)
+  })
+
+  it('returns empty array for blank content', async () => {
+    const cfg = defaultChunkConfig()
+    const chunks = await tabularChunker('  ', cfg)
+    expect(chunks).toHaveLength(0)
+  })
+
+  it('respects maxTokens for row count per chunk', async () => {
+    const rows = ['name,age,city']
+    for (let i = 0; i < 200; i++) {
+      rows.push(`person${i},${20 + i},city${i}`)
+    }
+    const content = rows.join('\n')
+    const cfg = createChunkConfig(64, 0, 5)
+    const chunks = await tabularChunker(content, cfg)
+    expect(chunks.length).toBeGreaterThanOrEqual(4)
+  })
+})
+
+describe('pageLevelChunker', () => {
+  it('splits on form-feed character', async () => {
+    const content = 'Page 1 content.\fPage 2 content.\fPage 3 content.'
+    const cfg = defaultChunkConfig()
+    const chunks = await pageLevelChunker(content, cfg)
+    expect(chunks).toHaveLength(3)
+    expect(chunks[0]?.metadata.page).toBe('1')
+    expect(chunks[1]?.metadata.page).toBe('2')
+    expect(chunks[2]?.metadata.page).toBe('3')
+    expect(chunks[0]?.metadata.chunker).toBe('page_level')
+  })
+
+  it('skips empty pages', async () => {
+    const content = 'Page 1\f\f\fPage 4'
+    const cfg = defaultChunkConfig()
+    const chunks = await pageLevelChunker(content, cfg)
+    expect(chunks).toHaveLength(2)
+  })
+
+  it('returns empty array for blank content', async () => {
+    const cfg = defaultChunkConfig()
+    const chunks = await pageLevelChunker('  ', cfg)
+    expect(chunks).toHaveLength(0)
+  })
+
+  it('splits large pages using recursive strategy', async () => {
+    const largePage = 'This is a long sentence with many words. '.repeat(100)
+    const content = largePage + '\fSmall page.'
+    const cfg = createChunkConfig(64, 16, 10)
+    const chunks = await pageLevelChunker(content, cfg)
+    expect(chunks.length).toBeGreaterThanOrEqual(3)
+  })
+})
+
+describe('createChunkerRegistry (new chunkers)', () => {
+  it('selects code chunker for text/x-go', async () => {
+    const reg = createChunkerRegistry()
+    const cfg = defaultChunkConfig()
+    const chunks = await reg.chunk('func main() {}', 'text/x-go', cfg)
+    expect(chunks.length).toBeGreaterThanOrEqual(1)
+    expect(chunks[0]?.metadata.chunker).toBe('code')
+  })
+
+  it('selects tabular chunker for text/csv', async () => {
+    const reg = createChunkerRegistry()
+    const cfg = defaultChunkConfig()
+    const chunks = await reg.chunk('name,age\nAlice,30', 'text/csv', cfg)
+    expect(chunks.length).toBeGreaterThanOrEqual(1)
+    expect(chunks[0]?.metadata.chunker).toBe('tabular')
+  })
+
+  it('selects page-level chunker for application/pdf', async () => {
+    const reg = createChunkerRegistry()
+    const cfg = defaultChunkConfig()
+    const chunks = await reg.chunk('Page 1\fPage 2', 'application/pdf', cfg)
+    expect(chunks.length).toBeGreaterThanOrEqual(2)
+    expect(chunks[0]?.metadata.chunker).toBe('page_level')
+  })
+})
+
+describe('createChunkConfig (strategy and separators)', () => {
+  it('defaults strategy to empty and separators to undefined', () => {
+    const cfg = createChunkConfig()
+    expect(cfg.strategy).toBe('')
+    expect(cfg.separators).toBeUndefined()
+  })
+
+  it('accepts strategy and separators options', () => {
+    const cfg = createChunkConfig(512, 64, 64, {
+      strategy: 'code',
+      separators: ['\n'],
+    })
+    expect(cfg.strategy).toBe('code')
+    expect(cfg.separators).toEqual(['\n'])
   })
 })

@@ -116,11 +116,49 @@ func EstimateTokens(text string) int {
 	return (len(text) + 3) / 4
 }
 
+// ChunkStrategy names a built-in chunking approach that a caller can
+// request. The registry uses this to override the default content-type
+// routing when a specific strategy is desired.
+type ChunkStrategy string
+
+const (
+	// ChunkStrategyAuto lets the registry pick the chunker from the content type.
+	ChunkStrategyAuto ChunkStrategy = ""
+	// ChunkStrategyRecursive forces the recursive separator-hierarchy chunker.
+	ChunkStrategyRecursive ChunkStrategy = "recursive"
+	// ChunkStrategyMarkdown forces the heading-aware markdown chunker.
+	ChunkStrategyMarkdown ChunkStrategy = "markdown"
+	// ChunkStrategyCode forces the code-aware chunker.
+	ChunkStrategyCode ChunkStrategy = "code"
+	// ChunkStrategyTabular forces the tabular (CSV/TSV) chunker.
+	ChunkStrategyTabular ChunkStrategy = "tabular"
+	// ChunkStrategyPageLevel forces the page-level (form-feed) chunker.
+	ChunkStrategyPageLevel ChunkStrategy = "page_level"
+)
+
+// ChunkConfigOption applies an optional setting to a ChunkConfig.
+type ChunkConfigOption func(*ChunkConfig)
+
+// WithStrategy returns an option that sets the chunking strategy on the
+// ChunkConfig's Strategy field using the mapping from ChunkStrategy.
+func WithStrategy(s ChunkStrategy) ChunkConfigOption {
+	return func(c *ChunkConfig) {
+		c.Strategy = Strategy(s)
+	}
+}
+
+// WithSeparators returns an option that overrides the default separator
+// hierarchy used by the recursive chunker.
+func WithSeparators(seps []string) ChunkConfigOption {
+	return func(c *ChunkConfig) { c.Separators = seps }
+}
+
 // NewChunkConfig validates and returns a ChunkConfig for the chunker
 // registry. Returns an error when maxTokens < minTokens, overlapTokens
 // >= maxTokens, or any value is negative. Applies defaults for
-// zero/negative values.
-func NewChunkConfig(maxTokens, overlapTokens, minTokens int) (ChunkConfig, error) {
+// zero/negative values. Optional ChunkConfigOption values configure
+// strategy and separators.
+func NewChunkConfig(maxTokens, overlapTokens, minTokens int, opts ...ChunkConfigOption) (ChunkConfig, error) {
 	if maxTokens <= 0 {
 		maxTokens = DefaultMaxTokens
 	}
@@ -136,6 +174,9 @@ func NewChunkConfig(maxTokens, overlapTokens, minTokens int) (ChunkConfig, error
 		MinTokens:     minTokens,
 		Strategy:      StrategyRecursive,
 		Separators:    DefaultSeparators,
+	}
+	for _, opt := range opts {
+		opt(&cfg)
 	}
 	if err := ValidateChunkConfig(cfg); err != nil {
 		return ChunkConfig{}, err

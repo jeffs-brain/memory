@@ -85,8 +85,11 @@ export {
   type ChunkerRegistry,
 } from './chunker-registry.js'
 
+export { codeChunker } from './chunkers/code.js'
 export { markdownChunker } from './chunkers/markdown.js'
+export { pageLevelChunker } from './chunkers/page-level.js'
 export { recursiveChunker, estimateTokens } from './chunkers/recursive.js'
+export { tabularChunker } from './chunkers/tabular.js'
 
 export * from './sources/index.js'
 
