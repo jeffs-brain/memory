@@ -167,21 +167,24 @@ const buildStore = async (
   brainRoot: string,
 ): Promise<Store> => {
   const storeConfig = config?.store
-  const kind = storeConfig?.kind ?? 'auto'
   await mkdir(brainRoot, { recursive: true })
-  if (kind === 'auto') {
+  // The fallthrough order matters: `auto` is the default when no store
+  // block is supplied, so we resolve it first. The remaining branches
+  // narrow on `storeConfig.kind` so TS picks up the discriminated union
+  // and the per-variant fields (e.g. `remote` on git).
+  if (storeConfig === undefined || storeConfig.kind === 'auto') {
     return autodetectStore({ root: brainRoot })
   }
-  if (kind === 'fs') {
+  if (storeConfig.kind === 'fs') {
     return createFsStore({ root: brainRoot })
   }
-  if (kind === 'git') {
+  if (storeConfig.kind === 'git') {
     return createGitStore({
       dir: brainRoot,
-      ...(storeConfig?.remote !== undefined ? { remoteUrl: storeConfig.remote } : {}),
+      ...(storeConfig.remote !== undefined ? { remoteUrl: storeConfig.remote } : {}),
     })
   }
-  if (kind === 'http') {
+  if (storeConfig.kind === 'http') {
     // The http store lives behind the same Store interface but the
     // pi extension does not own its lifecycle today; surface a clear
     // error so callers know to plumb it themselves until W5.
