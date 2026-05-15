@@ -24,10 +24,12 @@ export type Chunk = {
 export type ChunkOptions = {
   readonly maxTokens?: number
   readonly overlapTokens?: number
+  readonly minTokens?: number
 }
 
 const DEFAULT_MAX_TOKENS = 512
 const DEFAULT_OVERLAP_TOKENS = 64
+const DEFAULT_MIN_TOKENS = 30
 const MIN_MAX_TOKENS = 16
 
 /** Rough token approximation. Monotonic in text length. Swap for a real
@@ -52,7 +54,8 @@ const normaliseOpts = (opts: ChunkOptions | undefined): Required<ChunkOptions> =
   const maxTokens = Math.max(MIN_MAX_TOKENS, opts?.maxTokens ?? DEFAULT_MAX_TOKENS)
   const rawOverlap = opts?.overlapTokens ?? DEFAULT_OVERLAP_TOKENS
   const overlapTokens = Math.max(0, Math.min(rawOverlap, Math.floor(maxTokens / 2)))
-  return { maxTokens, overlapTokens }
+  const minTokens = Math.max(0, opts?.minTokens ?? DEFAULT_MIN_TOKENS)
+  return { maxTokens, overlapTokens, minTokens }
 }
 
 /**
@@ -277,20 +280,20 @@ const renderHeadingPrefix = (path: readonly string[]): string => {
 }
 
 export const chunkMarkdown = (text: string, opts?: ChunkOptions): readonly Chunk[] => {
-  const { maxTokens, overlapTokens } = normaliseOpts(opts)
+  const { maxTokens, overlapTokens, minTokens } = normaliseOpts(opts)
   if (text.trim() === '') return []
   const lines = text.split('\n')
   const headings = findHeadings(lines)
   const sections = splitSections(lines, headings)
 
-  const chunks: Chunk[] = []
+  const raw: Chunk[] = []
   let ordinal = 0
   for (const section of sections) {
     const trimmed = section.content.trim()
     if (trimmed === '') continue
     const tokens = countTokens(section.content)
     if (tokens <= maxTokens) {
-      chunks.push({
+      raw.push({
         content: section.content,
         ordinal: ordinal++,
         headingPath: section.headingPath,
@@ -309,7 +312,7 @@ export const chunkMarkdown = (text: string, opts?: ChunkOptions): readonly Chunk
         w.startLine === section.startLine
           ? w.content
           : `${renderHeadingPrefix(section.headingPath)}\n\n${w.content}`
-      chunks.push({
+      raw.push({
         content: contentWithHeading,
         ordinal: ordinal++,
         headingPath: section.headingPath,
@@ -319,7 +322,38 @@ export const chunkMarkdown = (text: string, opts?: ChunkOptions): readonly Chunk
       })
     }
   }
-  return chunks
+  return mergeSmallChunks(raw, minTokens)
+}
+
+/**
+ * Merge chunks below the minTokens threshold into their predecessor.
+ * Recomputes ordinals after merging so they remain contiguous.
+ */
+const mergeSmallChunks = (chunks: Chunk[], minTokens: number): readonly Chunk[] => {
+  if (chunks.length === 0 || minTokens <= 0) return chunks
+  const out: Chunk[] = []
+  for (const c of chunks) {
+    if (out.length > 0 && c.tokens < minTokens) {
+      const prev = out[out.length - 1]
+      if (prev === undefined) {
+        out.push(c)
+        continue
+      }
+      const merged = prev.content + '\n\n' + c.content
+      out[out.length - 1] = {
+        content: merged,
+        ordinal: prev.ordinal,
+        headingPath: prev.headingPath,
+        startLine: prev.startLine,
+        endLine: c.endLine,
+        tokens: countTokens(merged),
+      }
+      continue
+    }
+    out.push(c)
+  }
+  // Recompute ordinals.
+  return out.map((c, i) => ({ ...c, ordinal: i }))
 }
 
 export const chunkPlainText = (text: string, opts?: ChunkOptions): readonly Chunk[] => {
