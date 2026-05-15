@@ -142,6 +142,43 @@ across turns leave the prompt alone, so Anthropic / OpenAI prompt
 caching stays warm. Flip `recall.onPrompt: false` to move injection to
 the per-turn `context` boundary instead (below the cache).
 
+## Single-brain hosts (flatLayout)
+
+Some hosts manage exactly one brain per identity at a well-known path
+with content (`wiki/`, `memory/`, `raw/`, ...) sitting directly under the
+brain root. The default multi-brain layout, which nests
+`<root>/<brainId>/<content>`, does not fit that shape.
+
+Pass `flatLayout: true` to tell `createMemoryExtension` that `brainRoot`
+already IS the brain. Combined with `searchIndexPath`, this also lets
+hosts that keep the brain in a git working tree redirect the FTS sqlite
+to a machine-local state directory so it never enters the tree.
+
+```typescript
+const ext = createMemoryExtension(pi, {
+  brainRoot: '/var/lib/myagent/brain',          // single-brain root
+  brainId: 'myagent',                            // logical label only
+  flatLayout: true,
+  searchIndexPath: '/var/state/myagent/search.sqlite',
+})
+```
+
+When `flatLayout` is on, the runtime also runs a one-shot indexer on
+first boot: it walks the configured `bootstrapScanDirs` (default
+`['wiki', 'memory', 'raw']`), chunks every markdown file, and upserts
+the chunks directly into the FTS index via `SearchIndex.upsertChunks`.
+The Store is bypassed entirely so the source `.md` files are never
+re-written. Re-entries are no-ops once `knowledge_chunks` is populated.
+
+Environment overrides:
+
+| Var | Effect |
+|---|---|
+| `MEMORY_PI_FLAT_LAYOUT=true` | Enable flat layout without touching the config object. |
+| `MEMORY_PI_SEARCH_INDEX_PATH=/path/...` | Override the FTS sqlite path. |
+| `MEMORY_PI_BRAIN_ROOT=/path/...` | Override `brainRoot`. |
+| `MEMORY_PI_BRAIN_ID=...` | Override `brainId`. |
+
 ## Tools
 
 | Tool name              | Operation                                          |

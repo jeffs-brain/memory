@@ -134,4 +134,28 @@ describe('defaults.resolveBrainPaths', () => {
     const paths = resolveBrainPaths('/tmp/brains', '...')
     expect(paths.id).toBe('default')
   })
+
+  it('returns root verbatim when flat mode is on', () => {
+    const paths = resolveBrainPaths('/tmp/host-brain', 'primary', { flat: true })
+    expect(paths.root).toBe('/tmp/host-brain')
+    expect(paths.id).toBe('primary')
+    expect(paths.searchIndexPath).toBe('/tmp/host-brain/search.sqlite')
+  })
+
+  it('honours an explicit searchIndexPath override', () => {
+    const paths = resolveBrainPaths('/tmp/host-brain', 'primary', {
+      flat: true,
+      searchIndexPath: '/var/state/host/memory-pi/search.sqlite',
+    })
+    expect(paths.root).toBe('/tmp/host-brain')
+    expect(paths.searchIndexPath).toBe('/var/state/host/memory-pi/search.sqlite')
+  })
+
+  it('still applies overrides in scoped mode', () => {
+    const paths = resolveBrainPaths('/tmp/brains', 'primary', {
+      searchIndexPath: '/var/state/host/memory-pi/search.sqlite',
+    })
+    expect(paths.root.endsWith('/primary')).toBe(true)
+    expect(paths.searchIndexPath).toBe('/var/state/host/memory-pi/search.sqlite')
+  })
 })

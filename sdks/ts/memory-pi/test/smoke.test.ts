@@ -239,4 +239,39 @@ describe('memory-pi smoke', () => {
     const rendered = renderRecallBlock([], 'empty')
     expect(rendered).toBe('<recalled-memory>empty</recalled-memory>')
   })
+
+  it('honours flatLayout and writes the FTS sqlite to the override path', async () => {
+    const { mkdir, writeFile } = await import('node:fs/promises')
+    const { existsSync } = await import('node:fs')
+    await mkdir(join(brainRoot, 'memory'), { recursive: true })
+    await writeFile(
+      join(brainRoot, 'memory', 'feedback-style.md'),
+      '# Feedback\n\nPrefer concise responses.\n',
+      'utf8',
+    )
+    const indexDir = await mkdtemp(join(tmpdir(), 'memory-pi-state-'))
+    try {
+      const indexPath = join(indexDir, 'memory-pi', 'search.sqlite')
+      const runtime = await createMemoryRuntime({
+        brainRoot,
+        brainId: 'test-brain',
+        flatLayout: true,
+        searchIndexPath: indexPath,
+        store: { kind: 'fs' },
+        embedder: { kind: 'off' },
+      })
+      try {
+        expect(runtime.config.flatLayout).toBe(true)
+        expect(runtime.config.searchIndexPath).toBe(indexPath)
+        expect(existsSync(indexPath)).toBe(true)
+        const hits = runtime.searchIndex.searchBM25('concise', 5)
+        expect(hits.length).toBeGreaterThan(0)
+        expect(hits[0]?.chunk.path).toBe('memory/feedback-style.md')
+      } finally {
+        await runtime.close()
+      }
+    } finally {
+      await rm(indexDir, { recursive: true, force: true })
+    }
+  })
 })

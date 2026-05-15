@@ -7,6 +7,39 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+### memory-pi 0.2.0
+
+#### Added
+
+- `flatLayout` configuration option on `createMemoryExtension`. When
+  `true`, the extension treats `brainRoot` as the brain directly and
+  skips the `brainId` subdirectory join. Aimed at single-brain hosts
+  that manage one brain per identity at a fixed path. (TS)
+- `searchIndexPath` configuration option to redirect the SQLite FTS
+  index outside the brain root. Lets hosts that keep brain content in
+  a git working tree keep machine-local state out of the tree. (TS)
+- `bootstrapScanDirs` option (default `['wiki', 'memory', 'raw']`) and
+  a one-shot indexer (`bootstrap-flat.ts`) that walks the configured
+  directories on first boot, chunks every markdown file, and upserts
+  the chunks into the FTS index via `SearchIndex.upsertChunks`. The
+  Store is bypassed entirely so source files are never duplicated or
+  rewritten. Idempotent on re-entry. (TS)
+- Internal SQLite `SearchIndex` is now wired into the `Memory` recall
+  pipeline through an adapter so `memory_recall` returns BM25 hits
+  instead of relying on the scope-prefix fallback. (TS)
+- Environment variables `MEMORY_PI_FLAT_LAYOUT`,
+  `MEMORY_PI_SEARCH_INDEX_PATH`, `MEMORY_PI_BRAIN_ROOT`,
+  `MEMORY_PI_BRAIN_ID` for ops-friendly configuration. (TS)
+
+#### Changed
+
+- `resolveBrainPaths(root, brainId)` now accepts an optional third
+  argument `{ flat?: boolean; searchIndexPath?: string }`. Existing
+  two-argument calls keep working unchanged. (TS)
+- `@earendil-works/pi-coding-agent` and `typebox` are now declared as
+  `peerDependencies` so pi-bundled copies are used instead of installed
+  duplicates. Required by pi's package-loading model. (TS)
+
 ## [0.3.0] - 2026-05-12
 
 ### Added
