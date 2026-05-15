@@ -62,7 +62,7 @@ export {
 export {
   buildChunkManifest,
   computeChunkDeltas,
-  hashChunk,
+  hashChunk as hashChunkText,
   readChunkManifest,
   writeChunkManifest,
   type ChunkDelta,
@@ -88,7 +88,7 @@ export {
 export { codeChunker } from './chunkers/code.js'
 export { markdownChunker } from './chunkers/markdown.js'
 export { pageLevelChunker } from './chunkers/page-level.js'
-export { recursiveChunker, estimateTokens } from './chunkers/recursive.js'
+export { recursiveChunker } from './chunkers/recursive.js'
 export { tabularChunker } from './chunkers/tabular.js'
 
 export * from './sources/index.js'
@@ -107,9 +107,9 @@ export {
 export {
   FilePipelineStateStore,
   type FilePipelineStateStoreOptions,
-  type PipelineStage,
-  type PipelineStateEntry,
-  type PipelineStateStore,
+  type PipelineStage as FilePipelineStage,
+  type PipelineStateEntry as FilePipelineStateEntry,
+  type PipelineStateStore as FilePipelineStateStore_Contract,
 } from './state-store.js'
 
 export {
