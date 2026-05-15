@@ -99,6 +99,7 @@ export type ResolvedRuntimeConfig = {
   readonly brainId: string
   readonly flatLayout: boolean
   readonly searchIndexPath: string | undefined
+  readonly vectorExtensionPath: string | undefined
   readonly bootstrapScanDirs: readonly string[] | undefined
   readonly scope: Scope
   readonly fallbackScopes: readonly Scope[]
@@ -133,6 +134,7 @@ export const resolveRuntimeConfig = (
   const brainId = config?.brainId ?? env.MEMORY_PI_BRAIN_ID ?? DEFAULT_BRAIN_ID
   const flatLayout = config?.flatLayout ?? truthyEnv(env.MEMORY_PI_FLAT_LAYOUT)
   const searchIndexPath = config?.searchIndexPath ?? env.MEMORY_PI_SEARCH_INDEX_PATH
+  const vectorExtensionPath = config?.vectorExtensionPath ?? env.MEMORY_PI_VECTOR_EXTENSION_PATH
   const bootstrapScanDirs = config?.bootstrapScanDirs
   const scope = (config?.recall?.scope as Scope | undefined) ?? 'global'
   const fallbackScopes = (config?.recall?.fallbackScopes as readonly Scope[] | undefined) ?? []
@@ -142,6 +144,7 @@ export const resolveRuntimeConfig = (
     brainId,
     flatLayout,
     searchIndexPath,
+    vectorExtensionPath,
     bootstrapScanDirs,
     scope,
     fallbackScopes,
@@ -290,7 +293,12 @@ export const createMemoryRuntime = async (
     await mkdir(dirname(paths.searchIndexPath), { recursive: true })
   }
   const store = await buildStore(config, paths.root)
-  const searchIndex = await createSearchIndex({ dbPath: paths.searchIndexPath })
+  const searchIndex = await createSearchIndex({
+    dbPath: paths.searchIndexPath,
+    ...(resolved.vectorExtensionPath !== undefined
+      ? { vectorExtensionPath: resolved.vectorExtensionPath }
+      : {}),
+  })
   const embedder = await buildEmbedder(config)
   const provider = await buildProvider(config)
 

@@ -90,6 +90,14 @@ export const MemoryExtensionConfigSchema = z
     // of `brainRoot` and ingest every markdown file found. Only honoured
     // when `flatLayout` is true. Defaults to ['wiki', 'memory', 'raw'].
     bootstrapScanDirs: z.array(z.string()).optional(),
+    // Override the path to sqlite-vec's loadable extension (e.g.
+    // `vec0.so`). sqlite-vec normally resolves this via
+    // `import.meta.resolve('sqlite-vec-linux-x64/vec0.so')`, which fails
+    // inside a bun-compiled single-file binary where the platform package
+    // is not on disk. Hosts that compile a binary should copy `vec0.so`
+    // (or the platform-equivalent .dylib/.dll) next to the executable
+    // and point this option at it.
+    vectorExtensionPath: z.string().optional(),
     store: StoreConfigSchema.optional(),
     embedder: EmbedderConfigSchema.optional(),
     provider: ProviderConfigSchema.optional(),
