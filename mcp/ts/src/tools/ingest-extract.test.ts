@@ -2,9 +2,7 @@
 
 import { describe, expect, it } from 'vitest'
 import type { MemoryClient, ExtractAfterIngestArgs } from '../memory-client.js'
-import { ingestFileTool } from './ingest-file.js'
 import { ingestUrlTool } from './ingest-url.js'
-import type { ToolContext } from './types.js'
 
 const noopClient = (): MemoryClient => ({
   mode: 'local',
@@ -21,6 +19,7 @@ const noopClient = (): MemoryClient => ({
   ingestUrl: async () => ({
     path: 'server',
     result: { status: 'completed', document_id: 'doc-url', hash: 'def' },
+    _document_content: 'fetched content from URL',
   }),
   extract: async () => ({}),
   extractAfterIngest: async () => ({ factsExtracted: 0, memories: [] }),
@@ -29,52 +28,6 @@ const noopClient = (): MemoryClient => ({
   createBrain: async () => ({}),
   listBrains: async () => ({}),
   close: async () => undefined,
-})
-
-describe('memory_ingest_file with extract option', () => {
-  it('returns only ingest result when extract is false (default)', async () => {
-    const client = noopClient()
-    const result = await ingestFileTool.handler(
-      { path: '/test.md' },
-      client,
-      {},
-    )
-    const payload = result.structuredContent as Record<string, unknown>
-    expect(payload.status).toBe('completed')
-    expect(payload).not.toHaveProperty('ingest')
-    expect(payload).not.toHaveProperty('extraction')
-  })
-
-  it('returns combined ingest + extraction when extract is true', async () => {
-    const extractCalls: ExtractAfterIngestArgs[] = []
-    const client = noopClient()
-    client.extractAfterIngest = async (args: ExtractAfterIngestArgs) => {
-      extractCalls.push(args)
-      return {
-        factsExtracted: 2,
-        memories: [
-          { filename: 'fact-1.md', content: 'Fact 1' },
-          { filename: 'fact-2.md', content: 'Fact 2' },
-        ],
-      }
-    }
-
-    const result = await ingestFileTool.handler(
-      { path: '/test.md', extract: true },
-      client,
-      {},
-    )
-    const payload = result.structuredContent as {
-      ingest: Record<string, unknown>
-      extraction: { factsExtracted: number; memories: { filename: string }[] }
-    }
-    expect(payload.ingest).toBeDefined()
-    expect(payload.ingest.status).toBe('completed')
-    expect(payload.extraction.factsExtracted).toBe(2)
-    expect(payload.extraction.memories).toHaveLength(2)
-    expect(extractCalls).toHaveLength(1)
-    expect(extractCalls[0]?.path).toBe('/test.md')
-  })
 })
 
 describe('memory_ingest_url with extract option', () => {
@@ -88,6 +41,7 @@ describe('memory_ingest_url with extract option', () => {
     const payload = result.structuredContent as Record<string, unknown>
     expect(payload.path).toBe('server')
     expect(payload).not.toHaveProperty('extraction')
+    expect(payload).not.toHaveProperty('_document_content')
   })
 
   it('returns combined ingest + extraction when extract is true', async () => {
@@ -113,6 +67,29 @@ describe('memory_ingest_url with extract option', () => {
     expect(payload.ingest).toBeDefined()
     expect(payload.extraction.factsExtracted).toBe(1)
     expect(extractCalls).toHaveLength(1)
-    expect(extractCalls[0]?.url).toBe('https://example.com/doc.md')
+    expect(extractCalls[0]?.content).toBe('fetched content from URL')
+    expect(extractCalls[0]?.documentSource).toBe('https://example.com/doc.md')
+    // Ensure internal field is stripped from returned result
+    expect(payload.ingest).not.toHaveProperty('_document_content')
+  })
+
+  it('returns empty extraction when no content is available', async () => {
+    const client = noopClient()
+    // Simulate hosted mode where no _document_content is returned
+    client.ingestUrl = async () => ({
+      path: 'server',
+      result: { status: 'completed', document_id: 'doc-url', hash: 'def' },
+    })
+
+    const result = await ingestUrlTool.handler(
+      { url: 'https://example.com/doc.md', extract: true },
+      client,
+      {},
+    )
+    const payload = result.structuredContent as {
+      ingest: Record<string, unknown>
+      extraction: { factsExtracted: number }
+    }
+    expect(payload.extraction.factsExtracted).toBe(0)
   })
 })

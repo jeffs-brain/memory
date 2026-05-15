@@ -4,6 +4,8 @@ package tools
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 
 	"github.com/google/jsonschema-go/jsonschema"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -35,22 +37,30 @@ func registerIngestFile(server *mcp.Server, client MemoryClient) {
 			return structuredResult(result)
 		}
 
-		// Run extraction after successful ingest
-		extraction, extractErr := client.ExtractAfterIngest(ctx, ExtractAfterIngestArgs{
-			Path:  args.Path,
-			Brain: args.Brain,
-		})
-		if extractErr != nil {
-			// Extraction failure is non-fatal; return ingest result with empty extraction
-			extraction = map[string]any{
-				"factsExtracted": 0,
-				"memories":       []any{},
+		// Read content from local file for extraction (no re-fetch needed).
+		absPath := args.Path
+		if !filepath.IsAbs(absPath) {
+			absPath, _ = filepath.Abs(absPath)
+		}
+		raw, readErr := os.ReadFile(absPath)
+		extractionResult := map[string]any{
+			"factsExtracted": 0,
+			"memories":       []any{},
+		}
+		if readErr == nil && len(raw) > 0 {
+			extraction, extractErr := client.ExtractAfterIngest(ctx, ExtractAfterIngestArgs{
+				Content:        string(raw),
+				DocumentSource: args.Path,
+				Brain:          args.Brain,
+			})
+			if extractErr == nil {
+				extractionResult = extraction
 			}
 		}
 
 		combined := map[string]any{
 			"ingest":     result,
-			"extraction": extraction,
+			"extraction": extractionResult,
 		}
 		return structuredResult(combined)
 	})

@@ -120,11 +120,11 @@ func (a toolAdapter) IngestURL(ctx context.Context, args tools.IngestURLArgs, pr
 
 func (a toolAdapter) ExtractAfterIngest(ctx context.Context, args tools.ExtractAfterIngestArgs) (map[string]any, error) {
 	return a.client.ExtractAfterIngest(ctx, ExtractAfterIngestArgs{
-		Path:      args.Path,
-		URL:       args.URL,
-		Brain:     args.Brain,
-		ActorID:   args.ActorID,
-		SessionID: args.SessionID,
+		Content:        args.Content,
+		DocumentSource: args.DocumentSource,
+		Brain:          args.Brain,
+		ActorID:        args.ActorID,
+		SessionID:      args.SessionID,
 	})
 }
 

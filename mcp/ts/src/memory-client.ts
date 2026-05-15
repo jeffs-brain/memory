@@ -29,7 +29,7 @@ import {
   createSearchIndex,
   createStoreBackedCursorStore,
 } from '@jeffs-brain/memory'
-import { ingestDocument } from '@jeffs-brain/memory/ingest'
+import { ingestDocument, extractAfterIngest as sdkExtractAfterIngest } from '@jeffs-brain/memory/ingest'
 import { createRetrieval } from '@jeffs-brain/memory/retrieval'
 import type { ConfigMode, HostedConfig, LocalConfig } from './config.js'
 
@@ -109,8 +109,10 @@ export type CreateBrainArgs = {
 export type ProgressEmitter = (progress: number, message?: string) => void
 
 export type ExtractAfterIngestArgs = {
-  readonly path?: string | undefined
-  readonly url?: string | undefined
+  /** Document content to extract from (provided directly, no re-fetch). */
+  readonly content: string
+  /** Human-readable source label for logging/prompts. */
+  readonly documentSource: string
   readonly brain?: string | undefined
   readonly actorId?: string | undefined
   readonly sessionId?: string | undefined
@@ -656,7 +658,9 @@ const createLocalClient = (cfg: LocalConfig): MemoryClient => {
       await ensureBootstrap()
       const brainId = resolveBrainId(cfg, args.brain)
       const brain = await openBrainResources(deps, brainId)
-      const resp = await fetch(args.url)
+      const resp = await fetch(args.url, {
+        signal: AbortSignal.timeout(30_000),
+      })
       if (!resp.ok) {
         throw new Error(`memory_ingest_url: fetch failed ${resp.status} ${resp.statusText}`)
       }
@@ -699,6 +703,7 @@ const createLocalClient = (cfg: LocalConfig): MemoryClient => {
             updated_at: new Date().toISOString(),
             deleted_at: null,
           },
+          _document_content: buffer.toString('utf8'),
         }
       }
       const result = await ingestDocument({
@@ -728,6 +733,7 @@ const createLocalClient = (cfg: LocalConfig): MemoryClient => {
           duration_ms: result.durationMs,
           reused: result.reused,
         },
+        _document_content: buffer.toString('utf8'),
       }
     },
 
@@ -882,61 +888,37 @@ const createLocalClient = (cfg: LocalConfig): MemoryClient => {
 
     async extractAfterIngest(args) {
       await ensureBootstrap()
+      const emptyResult: ExtractAfterIngestResult = { factsExtracted: 0, memories: [] }
+
       const provider = deps.provider
       if (provider === undefined) {
-        // No provider available — return empty extraction
-        return { factsExtracted: 0, memories: [] }
+        return emptyResult
       }
+
+      if (args.content.trim() === '') {
+        return emptyResult
+      }
+
       const brainId = resolveBrainId(cfg, args.brain)
       const brain = await openBrainResources(deps, brainId)
       const memory = buildMemory(brain, provider as Provider)
 
-      // Read the document content for extraction
-      let content: string
-      if (args.path !== undefined && args.path !== '') {
-        const absPath = isAbsolute(args.path) ? args.path : resolve(args.path)
-        const raw = await readFile(absPath, 'utf8')
-        content = raw.slice(0, 128_000) // Cap at 128k chars
-      } else if (args.url !== undefined && args.url !== '') {
-        // For URL ingests, re-fetch the content for extraction
-        const resp = await fetch(args.url)
-        if (!resp.ok) {
-          return { factsExtracted: 0, memories: [] }
-        }
-        const text = await resp.text()
-        content = text.slice(0, 128_000)
-      } else {
-        return { factsExtracted: 0, memories: [] }
-      }
+      // Delegate to the SDK extractAfterIngest (DRY).
+      const result = await sdkExtractAfterIngest({
+        brainId,
+        documentPath: args.documentSource,
+        documentContent: args.content,
+        memory,
+        ...(args.actorId !== undefined ? { actorId: args.actorId } : {}),
+        ...(args.sessionId !== undefined ? { sessionId: args.sessionId } : {}),
+      })
 
-      if (content.trim() === '') {
-        return { factsExtracted: 0, memories: [] }
-      }
-
-      const source = args.path ?? args.url ?? 'unknown'
-      const syntheticMessages: readonly Message[] = [
-        {
-          role: 'user',
-          content: `The following document was ingested from "${source}". Extract any important facts, knowledge, or structured information from it:\n\n${content}`,
-        },
-      ]
-
-      try {
-        const extracted = await memory.extract({
-          messages: syntheticMessages,
-          ...(args.actorId !== undefined ? { actorId: args.actorId } : {}),
-          ...(args.sessionId !== undefined ? { sessionId: args.sessionId } : {}),
-        })
-        return {
-          factsExtracted: extracted.length,
-          memories: extracted.map((m) => ({
-            filename: m.filename,
-            content: m.content,
-          })),
-        }
-      } catch {
-        // Extraction failure is non-fatal
-        return { factsExtracted: 0, memories: [] }
+      return {
+        factsExtracted: result.factsExtracted,
+        memories: result.memories.map((m) => ({
+          filename: m.filename,
+          content: m.content,
+        })),
       }
     },
 
@@ -978,6 +960,7 @@ const hostedFetch = async (
 ): Promise<unknown> => {
   const resp = await fetch(joinUrl(deps.endpoint, path), {
     ...init,
+    signal: init.signal ?? AbortSignal.timeout(30_000),
     headers: {
       authorization: `Bearer ${deps.token}`,
       'content-type': 'application/json',
@@ -1056,6 +1039,7 @@ const createHostedClient = (cfg: HostedConfig): MemoryClient => {
         joinUrl(deps.endpoint, `/v1/brains/${encodeURIComponent(brain)}/documents/ingest/file`),
         {
           method: 'POST',
+          signal: AbortSignal.timeout(60_000),
           headers: { authorization: `Bearer ${deps.token}` },
           body: form,
         },
@@ -1137,31 +1121,20 @@ const createHostedClient = (cfg: HostedConfig): MemoryClient => {
       return hostedFetch(deps, '/v1/brains')
     },
     async extractAfterIngest(args) {
-      // In hosted mode, read the file/URL and send as a transcript for extraction
+      const emptyResult: ExtractAfterIngestResult = { factsExtracted: 0, memories: [] }
+
+      if (args.content.trim() === '') return emptyResult
+
       const brain = hostedResolveBrain(deps, args.brain)
-      let content: string
-      if (args.path !== undefined && args.path !== '') {
-        const absPath = isAbsolute(args.path) ? args.path : resolve(args.path)
-        const raw = await readFile(absPath, 'utf8')
-        content = raw.slice(0, 128_000)
-      } else if (args.url !== undefined && args.url !== '') {
-        const resp = await fetch(args.url)
-        if (!resp.ok) return { factsExtracted: 0, memories: [] }
-        const text = await resp.text()
-        content = text.slice(0, 128_000)
-      } else {
-        return { factsExtracted: 0, memories: [] }
-      }
+      const content =
+        args.content.length > 128_000 ? args.content.slice(0, 128_000) : args.content
 
-      if (content.trim() === '') return { factsExtracted: 0, memories: [] }
-
-      const source = args.path ?? args.url ?? 'unknown'
       try {
         const doc = await hostedFetch(deps, `/v1/brains/${encodeURIComponent(brain)}/documents`, {
           method: 'POST',
           body: JSON.stringify({
-            title: `Extraction from ${source}`,
-            content: `Extract facts from ingested document "${source}":\n\n${content}`,
+            title: `Extraction from ${args.documentSource}`,
+            content: `Extract facts from ingested document "${args.documentSource}":\n\n<ingested-document>\n${content}\n</ingested-document>`,
             source: 'extract-after-ingest',
           }),
         })
@@ -1170,7 +1143,7 @@ const createHostedClient = (cfg: HostedConfig): MemoryClient => {
           memories: [],
         }
       } catch {
-        return { factsExtracted: 0, memories: [] }
+        return emptyResult
       }
     },
     async close() {

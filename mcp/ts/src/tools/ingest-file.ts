@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
+import { readFile } from 'node:fs/promises'
+import { isAbsolute, resolve } from 'node:path'
 import { z } from 'zod'
 import { type Tool, jsonContent } from './types.js'
 
@@ -24,11 +26,21 @@ export const ingestFileTool: Tool<typeof schema> = {
       return jsonContent(ingestResult)
     }
 
-    // Run extraction after successful ingest
-    const extraction = await client.extractAfterIngest({
-      path: args.path,
-      brain: args.brain,
-    })
+    // Read the file content directly (already on disk, no re-fetch needed).
+    const absPath = isAbsolute(args.path) ? args.path : resolve(args.path)
+    let extraction = { factsExtracted: 0, memories: [] as readonly { filename: string; content: string }[] }
+    try {
+      const raw = await readFile(absPath, 'utf8')
+      if (raw.length > 0) {
+        extraction = await client.extractAfterIngest({
+          content: raw,
+          documentSource: args.path,
+          brain: args.brain,
+        })
+      }
+    } catch {
+      // Extraction failure is non-fatal; return ingest result with empty extraction
+    }
 
     return jsonContent({
       ingest: ingestResult,

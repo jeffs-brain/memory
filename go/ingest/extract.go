@@ -5,6 +5,7 @@ package ingest
 import (
 	"context"
 	"fmt"
+	"log/slog"
 )
 
 // MaxContentChars is the default maximum character count passed to the
@@ -31,13 +32,14 @@ type ExtractedMemory struct {
 
 // ExtractAfterIngestOptions configures post-ingest extraction.
 type ExtractAfterIngestOptions struct {
-	BrainID          string
-	DocumentPath     string
-	DocumentContent  string
-	Extractor        MemoryExtractor
-	ActorID          string
-	SessionID        string
-	MaxContentChars  int
+	BrainID         string
+	DocumentPath    string
+	DocumentContent string
+	Extractor       MemoryExtractor
+	ActorID         string
+	SessionID       string
+	MaxContentChars int
+	Logger          *slog.Logger
 }
 
 // ExtractAfterIngestResult holds the outcome of post-ingest extraction.
@@ -53,6 +55,11 @@ type ExtractAfterIngestResult struct {
 // Extraction failure is non-fatal: an empty result is returned and the
 // error is swallowed.
 func ExtractAfterIngest(ctx context.Context, opts ExtractAfterIngestOptions) (ExtractAfterIngestResult, error) {
+	logger := opts.Logger
+	if logger == nil {
+		logger = slog.Default()
+	}
+
 	maxChars := opts.MaxContentChars
 	if maxChars <= 0 {
 		maxChars = MaxContentChars
@@ -63,20 +70,26 @@ func ExtractAfterIngest(ctx context.Context, opts ExtractAfterIngestOptions) (Ex
 		return ExtractAfterIngestResult{FactsExtracted: 0}, nil
 	}
 
-	if len(content) > maxChars {
-		content = content[:maxChars]
+	// Truncate by rune count to avoid splitting multi-byte characters.
+	runes := []rune(content)
+	if len(runes) > maxChars {
+		runes = runes[:maxChars]
+		content = string(runes)
 	}
 
 	messages := []ExtractMessage{
 		{
-			Role:    "user",
-			Content: fmt.Sprintf("The following document was ingested from %q. Extract any important facts, knowledge, or structured information from it:\n\n%s", opts.DocumentPath, content),
+			Role: "user",
+			Content: fmt.Sprintf(
+				"The following document was ingested from %q. Extract any important facts, knowledge, or structured information from it:\n\n<ingested-document>\n%s\n</ingested-document>",
+				opts.DocumentPath, content,
+			),
 		},
 	}
 
 	extracted, err := opts.Extractor.Extract(ctx, messages)
 	if err != nil {
-		// Non-fatal: return empty result
+		logger.Warn("extract-after-ingest: extraction failed", "document", opts.DocumentPath, "error", err)
 		return ExtractAfterIngestResult{FactsExtracted: 0}, nil
 	}
 

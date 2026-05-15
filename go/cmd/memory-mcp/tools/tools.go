@@ -86,12 +86,13 @@ type IngestURLArgs struct {
 }
 
 // ExtractAfterIngestArgs is the input for post-ingest extraction.
+// Content should be provided directly to avoid re-fetching.
 type ExtractAfterIngestArgs struct {
-	Path      string `json:"path,omitempty"`
-	URL       string `json:"url,omitempty"`
-	Brain     string `json:"brain,omitempty"`
-	ActorID   string `json:"actor_id,omitempty"`
-	SessionID string `json:"session_id,omitempty"`
+	Content        string `json:"content"`
+	DocumentSource string `json:"document_source,omitempty"`
+	Brain          string `json:"brain,omitempty"`
+	ActorID        string `json:"actor_id,omitempty"`
+	SessionID      string `json:"session_id,omitempty"`
 }
 
 // ExtractMessage is one turn supplied to memory_extract.

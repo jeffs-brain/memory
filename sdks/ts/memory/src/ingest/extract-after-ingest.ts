@@ -56,7 +56,7 @@ export const extractAfterIngest = async (
   const syntheticMessages = [
     {
       role: 'user' as const,
-      content: `The following document was ingested from "${opts.documentPath}". Extract any important facts, knowledge, or structured information from it:\n\n${truncated}`,
+      content: `The following document was ingested from "${opts.documentPath}". Extract any important facts, knowledge, or structured information from it:\n\n<ingested-document>\n${truncated}\n</ingested-document>`,
     },
   ]
 

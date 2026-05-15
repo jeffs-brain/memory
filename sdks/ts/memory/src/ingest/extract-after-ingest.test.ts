@@ -114,6 +114,43 @@ describe('extractAfterIngest', () => {
     expect(result.factsExtracted).toBe(0)
   })
 
+  it('returns empty result for zero-byte file content', async () => {
+    let called = false
+    const memory = makeMemoryStub(async () => {
+      called = true
+      return []
+    })
+
+    const result = await extractAfterIngest({
+      brainId: 'test-brain',
+      documentPath: '/docs/zero.bin',
+      documentContent: '',
+      memory,
+    })
+
+    expect(called).toBe(false)
+    expect(result.factsExtracted).toBe(0)
+    expect(result.memories).toHaveLength(0)
+  })
+
+  it('wraps content in isolation delimiters', async () => {
+    let receivedContent = ''
+    const memory = makeMemoryStub(async (args) => {
+      receivedContent = args.messages[0]?.content ?? ''
+      return []
+    })
+
+    await extractAfterIngest({
+      brainId: 'test-brain',
+      documentPath: '/docs/test.md',
+      documentContent: 'Hello world',
+      memory,
+    })
+
+    expect(receivedContent).toContain('<ingested-document>')
+    expect(receivedContent).toContain('</ingested-document>')
+  })
+
   it('passes actorId and sessionId to extract when provided', async () => {
     const calls: ExtractArgs[] = []
     const memory = makeMemoryStub(async (args) => {

@@ -18,20 +18,32 @@ export const ingestUrlTool: Tool<typeof schema> = {
     const ingestResult = await client.ingestUrl(
       { url: args.url, brain: args.brain },
       ctx?.progress,
-    )
+    ) as Record<string, unknown>
 
     if (args.extract !== true) {
-      return jsonContent(ingestResult)
+      // Strip internal field before returning to caller.
+      const { _document_content: _, ...cleanResult } = ingestResult
+      return jsonContent(cleanResult)
     }
 
-    // Run extraction after successful ingest
-    const extraction = await client.extractAfterIngest({
-      url: args.url,
-      brain: args.brain,
-    })
+    // Read document content from the ingest result (populated by the
+    // local client from the fetched buffer). No URL re-fetch needed.
+    const content = typeof ingestResult._document_content === 'string'
+      ? ingestResult._document_content
+      : ''
+    const { _document_content: _, ...cleanResult } = ingestResult
+
+    let extraction = { factsExtracted: 0, memories: [] as readonly { filename: string; content: string }[] }
+    if (content.length > 0) {
+      extraction = await client.extractAfterIngest({
+        content,
+        documentSource: args.url,
+        brain: args.brain,
+      })
+    }
 
     return jsonContent({
-      ingest: ingestResult,
+      ingest: cleanResult,
       extraction,
     })
   },
