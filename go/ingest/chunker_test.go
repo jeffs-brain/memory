@@ -14,14 +14,14 @@ func TestNewChunkConfig_valid(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if cfg.MaxTokens() != 512 {
-		t.Fatalf("MaxTokens = %d, want 512", cfg.MaxTokens())
+	if cfg.MaxTokens != 512 {
+		t.Fatalf("MaxTokens = %d, want 512", cfg.MaxTokens)
 	}
-	if cfg.OverlapTokens() != 64 {
-		t.Fatalf("OverlapTokens = %d, want 64", cfg.OverlapTokens())
+	if cfg.OverlapTokens != 64 {
+		t.Fatalf("OverlapTokens = %d, want 64", cfg.OverlapTokens)
 	}
-	if cfg.MinTokens() != 64 {
-		t.Fatalf("MinTokens = %d, want 64", cfg.MinTokens())
+	if cfg.MinTokens != 64 {
+		t.Fatalf("MinTokens = %d, want 64", cfg.MinTokens)
 	}
 }
 
@@ -55,14 +55,14 @@ func TestNewChunkConfig_appliesDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if cfg.MaxTokens() != DefaultMaxTokens {
-		t.Fatalf("MaxTokens = %d, want %d", cfg.MaxTokens(), DefaultMaxTokens)
+	if cfg.MaxTokens != DefaultMaxTokens {
+		t.Fatalf("MaxTokens = %d, want %d", cfg.MaxTokens, DefaultMaxTokens)
 	}
-	if cfg.OverlapTokens() != DefaultOverlapTokens {
-		t.Fatalf("OverlapTokens = %d, want %d", cfg.OverlapTokens(), DefaultOverlapTokens)
+	if cfg.OverlapTokens != DefaultOverlapTokens {
+		t.Fatalf("OverlapTokens = %d, want %d", cfg.OverlapTokens, DefaultOverlapTokens)
 	}
-	if cfg.MinTokens() != DefaultMinTokens {
-		t.Fatalf("MinTokens = %d, want %d", cfg.MinTokens(), DefaultMinTokens)
+	if cfg.MinTokens != DefaultMinTokens {
+		t.Fatalf("MinTokens = %d, want %d", cfg.MinTokens, DefaultMinTokens)
 	}
 }
 
@@ -119,8 +119,8 @@ func TestRecursiveChunker_separatorHierarchy(t *testing.T) {
 	for i, c := range chunks {
 		tokens := estimateTokens(c.Content)
 		// Allow 2x max for overlap prefix; the core piece should still fit.
-		if tokens > cfg.MaxTokens()*2 {
-			t.Errorf("chunk %d has %d tokens, exceeds 2x maxTokens (%d)", i, tokens, cfg.MaxTokens())
+		if tokens > cfg.MaxTokens*2 {
+			t.Errorf("chunk %d has %d tokens, exceeds 2x maxTokens (%d)", i, tokens, cfg.MaxTokens)
 		}
 	}
 }
@@ -148,7 +148,7 @@ func TestRecursiveChunker_overlapApplied(t *testing.T) {
 	}
 	// The second chunk should contain overlap from the first.
 	firstContent := chunks[0].Content
-	tail := extractTail(firstContent, cfg.OverlapTokens())
+	tail := extractTail(firstContent, cfg.OverlapTokens)
 	if !strings.Contains(chunks[1].Content, tail) {
 		t.Errorf("chunk 1 does not contain overlap tail from chunk 0")
 	}
@@ -781,14 +781,14 @@ func TestChunkerRegistry_routesPageLevelChunker(t *testing.T) {
 
 func TestChunkConfig_strategyAndSeparators(t *testing.T) {
 	t.Parallel()
-	cfg, err := NewChunkConfig(512, 64, 64, WithStrategy(StrategyCode), WithSeparators([]string{"\n"}))
+	cfg, err := NewChunkConfig(512, 64, 64, WithStrategy(ChunkStrategyCode), WithSeparators([]string{"\n"}))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if cfg.Strategy() != StrategyCode {
-		t.Fatalf("Strategy = %q, want %q", cfg.Strategy(), StrategyCode)
+	if cfg.Strategy != StrategyCode {
+		t.Fatalf("Strategy = %q, want %q", cfg.Strategy, StrategyCode)
 	}
-	if len(cfg.Separators()) != 1 || cfg.Separators()[0] != "\n" {
-		t.Fatalf("Separators = %v, want [\\n]", cfg.Separators())
+	if len(cfg.Separators) != 1 || cfg.Separators[0] != "\n" {
+		t.Fatalf("Separators = %v, want [\\n]", cfg.Separators)
 	}
 }

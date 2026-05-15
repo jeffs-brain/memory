@@ -41,7 +41,7 @@ func (pc *PageLevelChunker) Chunk(_ context.Context, content string, cfg ChunkCo
 
 		pageNum := fmt.Sprintf("%d", i+1)
 
-		if estimateTokens(trimmed) <= cfg.MaxTokens() {
+		if estimateTokens(trimmed) <= cfg.MaxTokens {
 			chunks = append(chunks, Chunk{
 				Content: trimmed,
 				Metadata: map[string]string{
@@ -53,7 +53,7 @@ func (pc *PageLevelChunker) Chunk(_ context.Context, content string, cfg ChunkCo
 		}
 
 		// Page too large: recursively split.
-		subPieces := recursiveSplit(trimmed, cfg.MaxTokens(), 0)
+		subPieces := recursiveSplit(trimmed, cfg.MaxTokens, 0)
 		for _, piece := range subPieces {
 			t := strings.TrimSpace(piece)
 			if t == "" {
