@@ -1,0 +1,83 @@
+{
+  "description": "Expected token estimates and config validation outcomes for conformance testing across Go and TS SDKs.",
+  "tokenEstimates": [
+    { "input": "", "expected": 0 },
+    { "input": "a", "expected": 1 },
+    { "input": "ab", "expected": 1 },
+    { "input": "abc", "expected": 1 },
+    { "input": "abcd", "expected": 1 },
+    { "input": "abcde", "expected": 2 },
+    { "input": "hello world", "expected": 3 },
+    { "input": "The quick brown fox jumps over the lazy dog.", "expected": 11 },
+    { "input": "a b c d e f g h", "expected": 4 }
+  ],
+  "defaultConfig": {
+    "maxTokens": 512,
+    "overlapTokens": 64,
+    "minTokens": 30,
+    "strategy": "recursive",
+    "separators": ["\n\n", "\n", ". ", " ", ""]
+  },
+  "validConfigs": [
+    {
+      "name": "spec defaults",
+      "config": { "maxTokens": 512, "overlapTokens": 64, "minTokens": 30, "strategy": "recursive", "separators": ["\n\n", "\n", ". ", " ", ""] },
+      "valid": true
+    },
+    {
+      "name": "small chunks no overlap",
+      "config": { "maxTokens": 64, "overlapTokens": 0, "minTokens": 10, "strategy": "recursive", "separators": ["\n\n", "\n", ". ", " ", ""] },
+      "valid": true
+    },
+    {
+      "name": "markdown strategy",
+      "config": { "maxTokens": 1024, "overlapTokens": 128, "minTokens": 50, "strategy": "markdown", "separators": ["\n\n", "\n", ". ", " ", ""] },
+      "valid": true
+    },
+    {
+      "name": "zero maxTokens rejected",
+      "config": { "maxTokens": 0, "overlapTokens": 64, "minTokens": 30, "strategy": "recursive", "separators": ["\n\n", "\n", ". ", " ", ""] },
+      "valid": false
+    },
+    {
+      "name": "negative maxTokens rejected",
+      "config": { "maxTokens": -1, "overlapTokens": 64, "minTokens": 30, "strategy": "recursive", "separators": ["\n\n", "\n", ". ", " ", ""] },
+      "valid": false
+    },
+    {
+      "name": "overlap exceeds max rejected",
+      "config": { "maxTokens": 100, "overlapTokens": 100, "minTokens": 30, "strategy": "recursive", "separators": ["\n\n", "\n", ". ", " ", ""] },
+      "valid": false
+    },
+    {
+      "name": "negative overlap rejected",
+      "config": { "maxTokens": 512, "overlapTokens": -1, "minTokens": 30, "strategy": "recursive", "separators": ["\n\n", "\n", ". ", " ", ""] },
+      "valid": false
+    },
+    {
+      "name": "minTokens exceeds max rejected",
+      "config": { "maxTokens": 512, "overlapTokens": 64, "minTokens": 512, "strategy": "recursive", "separators": ["\n\n", "\n", ". ", " ", ""] },
+      "valid": false
+    },
+    {
+      "name": "negative minTokens rejected",
+      "config": { "maxTokens": 512, "overlapTokens": 64, "minTokens": -5, "strategy": "recursive", "separators": ["\n\n", "\n", ". ", " ", ""] },
+      "valid": false
+    },
+    {
+      "name": "invalid strategy rejected",
+      "config": { "maxTokens": 512, "overlapTokens": 64, "minTokens": 30, "strategy": "unknown", "separators": ["\n\n", "\n", ". ", " ", ""] },
+      "valid": false
+    },
+    {
+      "name": "empty separators with recursive rejected",
+      "config": { "maxTokens": 512, "overlapTokens": 64, "minTokens": 30, "strategy": "recursive", "separators": [] },
+      "valid": false
+    },
+    {
+      "name": "empty separators with markdown allowed",
+      "config": { "maxTokens": 512, "overlapTokens": 64, "minTokens": 30, "strategy": "markdown", "separators": [] },
+      "valid": true
+    }
+  ]
+}

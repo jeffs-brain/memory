@@ -22,6 +22,7 @@ import (
 	pdfreader "github.com/ledongthuc/pdf"
 
 	"github.com/jeffs-brain/memory/go/brain"
+	"github.com/jeffs-brain/memory/go/ingest"
 )
 
 // Content-type constants for the supported raw formats. Used by the
@@ -114,7 +115,8 @@ func (k *kbase) Ingest(ctx context.Context, req IngestRequest) (IngestResponse, 
 	}
 
 	// Compile inline so the index reflects the ingest immediately.
-	chunks, err := k.chunkAndIndex(ctx, doc)
+	// Uses zero-valued ChunkConfig which triggers spec defaults.
+	chunks, err := k.chunkAndIndex(ctx, doc, ingest.ChunkConfig{})
 	if err != nil {
 		return IngestResponse{}, err
 	}

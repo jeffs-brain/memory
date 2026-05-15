@@ -1,0 +1,32 @@
+{
+  "description": "Expected chunk boundaries for chunking-conformance.md with spec defaults (maxTokens=512, overlapTokens=64, minTokens=30). Both Go and TS SDKs must produce identical chunk counts and matching content prefixes.",
+  "config": {
+    "maxTokens": 512,
+    "overlapTokens": 64,
+    "minTokens": 30
+  },
+  "chunkCount": 3,
+  "chunks": [
+    {
+      "ordinal": 0,
+      "heading": "Introduction",
+      "minTokens": 80,
+      "maxTokens": 100,
+      "contentPrefix": "This is a reference document"
+    },
+    {
+      "ordinal": 1,
+      "heading": "Architecture Overview",
+      "minTokens": 170,
+      "maxTokens": 250,
+      "contentPrefix": ""
+    },
+    {
+      "ordinal": 2,
+      "heading": "Configuration",
+      "minTokens": 65,
+      "maxTokens": 160,
+      "contentPrefix": ""
+    }
+  ]
+}

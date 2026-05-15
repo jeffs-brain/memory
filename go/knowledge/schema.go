@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/jeffs-brain/memory/go/brain"
+	"github.com/jeffs-brain/memory/go/ingest"
 )
 
 // Document represents a persisted ingest in the brain.
@@ -70,10 +71,13 @@ type IngestResponse struct {
 // When Paths is empty the whole raw tree is compiled. MaxBatch bounds
 // the number of documents compiled per call; zero means unlimited.
 // DryRun walks the documents without writing to the index.
+// ChunkConfig overrides the default chunking parameters; a zero value
+// selects the spec defaults from [ingest.DefaultChunkConfig].
 type CompileOptions struct {
-	Paths    []brain.Path
-	MaxBatch int
-	DryRun   bool
+	Paths       []brain.Path
+	MaxBatch    int
+	DryRun      bool
+	ChunkConfig ingest.ChunkConfig
 }
 
 // CompileResult summarises the outcome of a compile run.
