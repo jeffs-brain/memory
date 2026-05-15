@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -145,11 +146,9 @@ func TestIngestBatch_AllSucceed(t *testing.T) {
 }
 
 func TestIngestBatch_PerFileErrorIsolation(t *testing.T) {
-	callCount := 0
 	client := &mockMemoryClient{
 		ingestFileFn: func(_ context.Context, args IngestFileArgs, _ ProgressEmitter) (map[string]any, error) {
-			callCount++
-			if callCount == 2 {
+			if args.Path == "/missing.md" {
 				return nil, fmt.Errorf("file not found")
 			}
 			return map[string]any{
@@ -192,14 +191,18 @@ func TestIngestBatch_PerFileErrorIsolation(t *testing.T) {
 }
 
 func TestIngestBatch_DuplicateFiles(t *testing.T) {
-	calls := []string{}
+	var mu sync.Mutex
+	var callCount int
 	client := &mockMemoryClient{
 		ingestFileFn: func(_ context.Context, args IngestFileArgs, _ ProgressEmitter) (map[string]any, error) {
-			calls = append(calls, args.Path)
+			mu.Lock()
+			callCount++
+			n := callCount
+			mu.Unlock()
 			return map[string]any{
 				"status":      "completed",
-				"document_id": fmt.Sprintf("doc-%d", len(calls)),
-				"hash":        fmt.Sprintf("hash-%d", len(calls)),
+				"document_id": fmt.Sprintf("doc-%d", n),
+				"hash":        fmt.Sprintf("hash-%d", n),
 				"byte_size":   42,
 			}, nil
 		},
@@ -222,16 +225,21 @@ func TestIngestBatch_DuplicateFiles(t *testing.T) {
 	if payload["failed"] != float64(0) {
 		t.Errorf("expected failed=0, got %v", payload["failed"])
 	}
-	if len(calls) != 2 {
-		t.Fatalf("expected 2 calls, got %d", len(calls))
+	mu.Lock()
+	if callCount != 2 {
+		t.Fatalf("expected 2 calls, got %d", callCount)
 	}
+	mu.Unlock()
 }
 
 func TestIngestBatch_BrainAppliedToAll(t *testing.T) {
+	var mu sync.Mutex
 	brainsSeen := []string{}
 	client := &mockMemoryClient{
 		ingestFileFn: func(_ context.Context, args IngestFileArgs, _ ProgressEmitter) (map[string]any, error) {
+			mu.Lock()
 			brainsSeen = append(brainsSeen, args.Brain)
+			mu.Unlock()
 			return map[string]any{"status": "completed", "document_id": "d", "hash": "h", "byte_size": 1}, nil
 		},
 	}
@@ -245,6 +253,8 @@ func TestIngestBatch_BrainAppliedToAll(t *testing.T) {
 		"brain": "test-brain",
 	})
 
+	mu.Lock()
+	defer mu.Unlock()
 	if len(brainsSeen) != 2 {
 		t.Fatalf("expected 2 calls, got %d", len(brainsSeen))
 	}
