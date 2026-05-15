@@ -5,10 +5,18 @@
 // path patterns, debouncing for rapid writes, and opt-out via batch reason.
 package hooks
 
-import "time"
+import (
+	"sync"
+	"time"
+)
 
 // DispatchFunc is called when a matching change event should trigger
 // ingestion. The path is the store path of the changed document.
+//
+// The function is invoked in a background goroutine after the debounce
+// timer fires. Implementations that perform network I/O or long-running
+// work should enforce their own context/timeout to avoid goroutine
+// leaks. Panics inside DispatchFunc will crash the process.
 type DispatchFunc func(brainID string, path string) error
 
 // PathMatcher determines whether a store path should trigger ingestion.
@@ -51,12 +59,14 @@ type Logger interface {
 // MutationHook subscribes to store change events and dispatches
 // ingestion requests.
 type MutationHook struct {
-	opts     MutationHookOptions
-	timers   map[string]*time.Timer
-	closed   chan struct{}
+	mu     sync.Mutex
+	opts   MutationHookOptions
+	timers map[string]*time.Timer
+	closed chan struct{}
 }
 
 // DefaultPathMatcher returns true for paths under raw/documents/.
+// The bare prefix "raw/documents/" is rejected; a filename must follow.
 func DefaultPathMatcher(path string) bool {
 	return len(path) > len("raw/documents/") && path[:len("raw/documents/")] == "raw/documents/"
 }

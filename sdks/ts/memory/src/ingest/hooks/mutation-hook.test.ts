@@ -185,6 +185,41 @@ describe('mutation-hook', () => {
     expect(dispatch).not.toHaveBeenCalled()
   })
 
+  it('rejects paths containing ".."', async () => {
+    const dispatch = vi.fn()
+    const warnFn = vi.fn()
+    const hook = createMutationHook({
+      brainId: 'brain-1',
+      dispatch,
+      debounceIntervalMs: 10,
+      logger: { debug: vi.fn(), info: vi.fn(), warn: warnFn, error: vi.fn() },
+    })
+
+    hook.sink(makeEvent('created', 'raw/documents/../../../etc/passwd'))
+    hook.sink(makeEvent('created', 'raw/documents/..secret.md'))
+    hook.sink(makeEvent('created', '../raw/documents/readme.md'))
+    await delay(50)
+
+    expect(dispatch).not.toHaveBeenCalled()
+    expect(warnFn).toHaveBeenCalledTimes(3)
+    hook.close()
+  })
+
+  it('ignores empty path', async () => {
+    const dispatch = vi.fn()
+    const hook = createMutationHook({
+      brainId: 'brain-1',
+      dispatch,
+      debounceIntervalMs: 10,
+    })
+
+    hook.sink(makeEvent('created', ''))
+    await delay(50)
+
+    expect(dispatch).not.toHaveBeenCalled()
+    hook.close()
+  })
+
   it('dispatch errors are logged', async () => {
     const errorFn = vi.fn()
     const hook = createMutationHook({
@@ -212,6 +247,10 @@ describe('defaultPathMatcher', () => {
     expect(defaultPathMatcher('memory/global/fact.md')).toBe(false)
     expect(defaultPathMatcher('raw/documents/')).toBe(false)
   })
+
+  it('rejects empty path', () => {
+    expect(defaultPathMatcher('')).toBe(false)
+  })
 })
 
 describe('globPathMatcher', () => {
@@ -226,6 +265,33 @@ describe('globPathMatcher', () => {
   it('rejects non-matching files', () => {
     expect(matcher('raw/documents/readme.txt')).toBe(false)
     expect(matcher('memory/global/fact.md')).toBe(false)
+  })
+
+  it('matches ** at end of glob', () => {
+    const allMatcher = globPathMatcher('raw/documents/**')
+    expect(allMatcher('raw/documents/readme.md')).toBe(true)
+    expect(allMatcher('raw/documents/sub/notes.md')).toBe(true)
+    expect(allMatcher('memory/global/fact.md')).toBe(false)
+  })
+})
+
+describe('prefixPathMatcher boundary', () => {
+  const matcher = prefixPathMatcher('custom/')
+
+  it('matches paths longer than the prefix', () => {
+    expect(matcher('custom/data.json')).toBe(true)
+  })
+
+  it('rejects bare prefix', () => {
+    expect(matcher('custom/')).toBe(false)
+  })
+
+  it('rejects shorter-than-prefix', () => {
+    expect(matcher('custom')).toBe(false)
+  })
+
+  it('rejects empty path', () => {
+    expect(matcher('')).toBe(false)
   })
 })
 

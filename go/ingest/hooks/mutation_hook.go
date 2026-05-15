@@ -3,7 +3,6 @@ package hooks
 
 import (
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/jeffs-brain/memory/go/brain"
@@ -48,15 +47,13 @@ func (h *MutationHook) Close() {
 	default:
 		close(h.closed)
 	}
-	mu.Lock()
-	defer mu.Unlock()
+	h.mu.Lock()
+	defer h.mu.Unlock()
 	for path, timer := range h.timers {
 		timer.Stop()
 		delete(h.timers, path)
 	}
 }
-
-var mu sync.Mutex
 
 func (h *MutationHook) handleEvent(evt brain.ChangeEvent) {
 	select {
@@ -71,6 +68,16 @@ func (h *MutationHook) handleEvent(evt brain.ChangeEvent) {
 	}
 
 	path := string(evt.Path)
+
+	// Reject paths containing ".." to prevent path traversal.
+	if strings.Contains(path, "..") {
+		if h.opts.Logger != nil {
+			h.opts.Logger.Warn("hooks: rejecting path with traversal segment", map[string]string{
+				"path": path,
+			})
+		}
+		return
+	}
 
 	// Opt-out by batch reason.
 	if evt.Reason != "" && h.opts.OptOutReasons[evt.Reason] {
@@ -101,18 +108,25 @@ func (h *MutationHook) matchesAny(path string) bool {
 }
 
 func (h *MutationHook) debounceDispatch(path string) {
-	mu.Lock()
-	defer mu.Unlock()
+	h.mu.Lock()
+	defer h.mu.Unlock()
 
-	// Reset existing timer for this path.
-	if timer, ok := h.timers[path]; ok {
-		timer.Stop()
+	// Reset existing timer for this path if it has not already fired.
+	if entryI, ok := h.timers[path]; ok {
+		entryI.Stop()
 	}
 
 	h.timers[path] = time.AfterFunc(h.opts.DebounceInterval, func() {
-		mu.Lock()
+		h.mu.Lock()
 		delete(h.timers, path)
-		mu.Unlock()
+		h.mu.Unlock()
+
+		// Guard against dispatch after Close.
+		select {
+		case <-h.closed:
+			return
+		default:
+		}
 
 		if err := h.opts.Dispatch(h.opts.BrainID, path); err != nil {
 			if h.opts.Logger != nil {
@@ -126,10 +140,11 @@ func (h *MutationHook) debounceDispatch(path string) {
 }
 
 // PrefixPathMatcher returns a PathMatcher that matches paths starting
-// with the given prefix.
+// with the given prefix. The bare prefix itself is not matched; the
+// path must contain at least one additional character after the prefix.
 func PrefixPathMatcher(prefix string) PathMatcher {
 	return func(path string) bool {
-		return strings.HasPrefix(path, prefix)
+		return len(path) > len(prefix) && strings.HasPrefix(path, prefix)
 	}
 }
 

@@ -17,9 +17,9 @@ const DEFAULT_PATH_PREFIX = 'raw/documents/'
 export const defaultPathMatcher: PathMatcher = (path: string): boolean =>
   path.startsWith(DEFAULT_PATH_PREFIX) && path.length > DEFAULT_PATH_PREFIX.length
 
-/** Prefix-based path matcher. */
+/** Prefix-based path matcher. Rejects the bare prefix itself. */
 export const prefixPathMatcher = (prefix: string): PathMatcher =>
-  (path: string): boolean => path.startsWith(prefix)
+  (path: string): boolean => path.length > prefix.length && path.startsWith(prefix)
 
 /** Glob-based path matcher supporting * and ** patterns. */
 export const globPathMatcher = (pattern: string): PathMatcher =>
@@ -54,6 +54,10 @@ export const createMutationHook = (opts: MutationHookOptions): MutationHook => {
       path,
       setTimeout(() => {
         timers.delete(path)
+
+        // Guard against dispatch after close.
+        if (closed) return
+
         try {
           const result = opts.dispatch(opts.brainId, path)
           if (result && typeof (result as Promise<void>).catch === 'function') {
@@ -75,6 +79,12 @@ export const createMutationHook = (opts: MutationHookOptions): MutationHook => {
     if (event.kind !== 'created' && event.kind !== 'updated') return
 
     const path = event.path
+
+    // Reject paths containing ".." to prevent path traversal.
+    if (path.includes('..')) {
+      logger?.warn('hooks: rejecting path with traversal segment', { path })
+      return
+    }
 
     // Opt-out by batch reason.
     if (event.reason && optOutReasons.has(event.reason)) {

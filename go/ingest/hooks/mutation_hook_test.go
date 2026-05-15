@@ -285,6 +285,109 @@ func TestGlobPathMatcher(t *testing.T) {
 	}
 }
 
+func TestGlobDoubleStarAtEnd(t *testing.T) {
+	matcher := GlobPathMatcher("raw/documents/**")
+
+	tests := []struct {
+		path  string
+		match bool
+	}{
+		{"raw/documents/readme.md", true},
+		{"raw/documents/sub/notes.md", true},
+		{"raw/documents/sub/deep/nested.txt", true},
+		{"memory/global/fact.md", false},
+	}
+
+	for _, tt := range tests {
+		if got := matcher(tt.path); got != tt.match {
+			t.Errorf("glob ** at end: %q: expected %v, got %v", tt.path, tt.match, got)
+		}
+	}
+}
+
+func TestPathTraversalRejected(t *testing.T) {
+	var dispatched atomic.Int32
+
+	hook := NewMutationHook(MutationHookOptions{
+		BrainID:          "brain-1",
+		DebounceInterval: 10 * time.Millisecond,
+		Dispatch: func(_, _ string) error {
+			dispatched.Add(1)
+			return nil
+		},
+	})
+	defer hook.Close()
+
+	sink := hook.Sink()
+
+	// Paths containing ".." must be rejected.
+	paths := []string{
+		"raw/documents/../../../etc/passwd",
+		"raw/documents/..secret.md",
+		"../raw/documents/readme.md",
+	}
+	for _, p := range paths {
+		sink.OnBrainChange(brain.ChangeEvent{
+			Kind: brain.ChangeCreated,
+			Path: brain.Path(p),
+			When: time.Now(),
+		})
+	}
+
+	time.Sleep(50 * time.Millisecond)
+
+	if got := dispatched.Load(); got != 0 {
+		t.Fatalf("expected 0 dispatches for traversal paths, got %d", got)
+	}
+}
+
+func TestPrefixPathMatcherBoundary(t *testing.T) {
+	matcher := PrefixPathMatcher("custom/")
+
+	tests := []struct {
+		path  string
+		match bool
+	}{
+		{"custom/data.json", true},
+		{"custom/", false},    // bare prefix must not match
+		{"custom", false},     // shorter than prefix
+		{"", false},           // empty path
+	}
+
+	for _, tt := range tests {
+		if got := matcher(tt.path); got != tt.match {
+			t.Errorf("PrefixPathMatcher(%q): expected %v, got %v", tt.path, tt.match, got)
+		}
+	}
+}
+
+func TestEmptyPathIgnored(t *testing.T) {
+	var dispatched atomic.Int32
+
+	hook := NewMutationHook(MutationHookOptions{
+		BrainID:          "brain-1",
+		DebounceInterval: 10 * time.Millisecond,
+		Dispatch: func(_, _ string) error {
+			dispatched.Add(1)
+			return nil
+		},
+	})
+	defer hook.Close()
+
+	sink := hook.Sink()
+	sink.OnBrainChange(brain.ChangeEvent{
+		Kind: brain.ChangeCreated,
+		Path: "",
+		When: time.Now(),
+	})
+
+	time.Sleep(50 * time.Millisecond)
+
+	if got := dispatched.Load(); got != 0 {
+		t.Fatalf("expected 0 dispatches for empty path, got %d", got)
+	}
+}
+
 func TestCloseStopsPendingTimers(t *testing.T) {
 	var dispatched atomic.Int32
 
