@@ -127,6 +127,32 @@ func TestNextOccurrenceSpecificDay(t *testing.T) {
 	}
 }
 
+func TestNextOccurrenceDOMDOWUnion(t *testing.T) {
+	// "0 9 15 * 1" means: at 9:00 on the 15th of every month OR on every Monday.
+	// Using a Wednesday 2025-05-14 as reference. Next Monday is May 19, but the
+	// 15th comes first (May 15 is a Thursday).
+	sched, _ := ParseCron("0 9 15 * 1")
+	ref := time.Date(2025, 5, 14, 10, 0, 0, 0, time.UTC)
+	next := NextOccurrence(sched, ref)
+
+	// May 15 is a Thursday (not Monday), but it matches DOM=15 via union.
+	expected := time.Date(2025, 5, 15, 9, 0, 0, 0, time.UTC)
+	if !next.Equal(expected) {
+		t.Fatalf("expected %v (DOM match), got %v", expected, next)
+	}
+}
+
+func TestParseFieldDeduplicatesOverlap(t *testing.T) {
+	// "1,1-3" should produce [1,2,3] not [1,1,2,3]
+	vals, err := parseField("1,1-3", 1, 31)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(vals) != 3 {
+		t.Fatalf("expected 3 values, got %d: %v", len(vals), vals)
+	}
+}
+
 func TestParseCronRangeAndList(t *testing.T) {
 	sched, err := ParseCron("0 9-17 * * 1-5")
 	if err != nil {

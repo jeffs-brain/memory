@@ -73,4 +73,5 @@ type Logger interface {
 }
 
 // DispatchFunc is called when a due job should trigger ingestion.
-type DispatchFunc func(job Job) error
+// The context allows callers to enforce per-job timeouts.
+type DispatchFunc func(ctx context.Context, job Job) error

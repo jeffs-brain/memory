@@ -129,6 +129,34 @@ describe('scheduler', () => {
     expect(succeeded).toBe(1)
   })
 
+  it('start() polls and stop() halts gracefully', async () => {
+    const store = createMemoryScheduleStore()
+    let dispatched = 0
+
+    const job = await store.create({
+      brainId: 'brain-1',
+      name: 'lifecycle job',
+      cronExpression: '* * * * *',
+      target: { kind: 'file', path: '/data/lifecycle.md' },
+    })
+
+    const past = new Date(Date.now() - 3600_000)
+    await store.markRun(job.id, new Date(Date.now() - 7200_000), past)
+
+    const scheduler = createScheduler({
+      scheduleStore: store,
+      pollIntervalMs: 50,
+      dispatch: () => { dispatched++ },
+    })
+
+    scheduler.start()
+    // Give the immediate poll time to fire.
+    await new Promise((r) => setTimeout(r, 100))
+    await scheduler.stop()
+
+    expect(dispatched).toBeGreaterThanOrEqual(1)
+  })
+
   it('per-brain scheduling isolation', async () => {
     const store = createMemoryScheduleStore()
 

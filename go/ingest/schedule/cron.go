@@ -64,6 +64,11 @@ func IsValid(expression string) bool {
 // NextOccurrence computes the next time the schedule fires after the
 // given reference time. It iterates minute-by-minute up to 4 years out
 // to find the next match.
+//
+// DOM+DOW union semantics: per POSIX cron, when both day-of-month and
+// day-of-week are non-wildcard (i.e. not full-range), a date matches if
+// EITHER condition is true. When one or both are wildcard, standard
+// intersection applies.
 func NextOccurrence(sched CronSchedule, after time.Time) time.Time {
 	// Start one minute after `after`, zeroing seconds.
 	t := after.Truncate(time.Minute).Add(time.Minute)
@@ -74,12 +79,15 @@ func NextOccurrence(sched CronSchedule, after time.Time) time.Time {
 	monthSet := toSet(sched.Month)
 	dowSet := toSet(sched.DayOfWeek)
 
+	domIsWild := len(sched.DayOfMonth) == 31
+	dowIsWild := len(sched.DayOfWeek) == 7
+
 	// Search up to 4 years (≈2.1M minutes) to find a match.
 	limit := after.Add(4 * 365 * 24 * time.Hour)
 	for t.Before(limit) {
+		dayMatch := matchDay(domSet, dowSet, domIsWild, dowIsWild, t.Day(), int(t.Weekday()))
 		if monthSet[int(t.Month())] &&
-			domSet[t.Day()] &&
-			dowSet[int(t.Weekday())] &&
+			dayMatch &&
 			hourSet[t.Hour()] &&
 			minuteSet[t.Minute()] {
 			return t
@@ -91,7 +99,7 @@ func NextOccurrence(sched CronSchedule, after time.Time) time.Time {
 			t = time.Date(t.Year(), t.Month()+1, 1, 0, 0, 0, 0, t.Location())
 			continue
 		}
-		if !domSet[t.Day()] || !dowSet[int(t.Weekday())] {
+		if !dayMatch {
 			// Jump to the next day.
 			t = time.Date(t.Year(), t.Month(), t.Day()+1, 0, 0, 0, 0, t.Location())
 			continue
@@ -106,6 +114,17 @@ func NextOccurrence(sched CronSchedule, after time.Time) time.Time {
 
 	// Fallback: should not happen for valid schedules.
 	return limit
+}
+
+// matchDay implements POSIX cron union semantics for day-of-month and
+// day-of-week. When both fields are restricted (non-wildcard), the day
+// matches if EITHER the DOM or DOW matches. When one or both are
+// wildcard, standard AND logic applies.
+func matchDay(domSet, dowSet map[int]bool, domIsWild, dowIsWild bool, day, weekday int) bool {
+	if !domIsWild && !dowIsWild {
+		return domSet[day] || dowSet[weekday]
+	}
+	return domSet[day] && dowSet[weekday]
 }
 
 // parseField parses a single cron field (e.g., "*/5", "1-3", "1,3,5", "*").
@@ -162,7 +181,21 @@ func parseField(field string, min, max int) ([]int, error) {
 	if len(result) == 0 {
 		return nil, fmt.Errorf("empty field")
 	}
-	return result, nil
+	return deduplicate(result), nil
+}
+
+// deduplicate removes duplicate values from a sorted-ish slice
+// produced by parseField, preserving order.
+func deduplicate(vals []int) []int {
+	seen := make(map[int]bool, len(vals))
+	out := make([]int, 0, len(vals))
+	for _, v := range vals {
+		if !seen[v] {
+			seen[v] = true
+			out = append(out, v)
+		}
+	}
+	return out
 }
 
 func toSet(vals []int) map[int]bool {

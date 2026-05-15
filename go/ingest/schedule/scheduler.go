@@ -66,7 +66,7 @@ func (s *Scheduler) RunDueJobs(ctx context.Context) (int, error) {
 
 	fired := 0
 	for _, job := range jobs {
-		if err := s.opts.Dispatch(job); err != nil {
+		if err := s.opts.Dispatch(ctx, job); err != nil {
 			if s.opts.Logger != nil {
 				s.opts.Logger.Error("schedule: dispatch failed", map[string]string{
 					"jobId": job.ID,

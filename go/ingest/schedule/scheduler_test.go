@@ -143,7 +143,7 @@ func TestSchedulerRunDueJobs(t *testing.T) {
 
 	scheduler := NewScheduler(SchedulerOptions{
 		Store: store,
-		Dispatch: func(j Job) error {
+		Dispatch: func(_ context.Context, j Job) error {
 			dispatched.Add(1)
 			return nil
 		},
@@ -185,7 +185,7 @@ func TestSchedulerDisabledJobSkipped(t *testing.T) {
 
 	scheduler := NewScheduler(SchedulerOptions{
 		Store: store,
-		Dispatch: func(_ Job) error {
+		Dispatch: func(_ context.Context, _ Job) error {
 			dispatched.Add(1)
 			return nil
 		},
@@ -222,7 +222,7 @@ func TestSchedulerJobFailureDoesNotBlockOthers(t *testing.T) {
 	scheduler := NewScheduler(SchedulerOptions{
 		Store:  store,
 		Logger: &testLogger{},
-		Dispatch: func(j Job) error {
+		Dispatch: func(_ context.Context, j Job) error {
 			if j.Name == "failing job" {
 				return errors.New("dispatch error")
 			}
@@ -248,7 +248,7 @@ func TestSchedulerNoDueJobs(t *testing.T) {
 	var dispatched atomic.Int32
 	scheduler := NewScheduler(SchedulerOptions{
 		Store: store,
-		Dispatch: func(_ Job) error {
+		Dispatch: func(_ context.Context, _ Job) error {
 			dispatched.Add(1)
 			return nil
 		},
@@ -285,7 +285,7 @@ func TestSchedulerPerBrainIsolation(t *testing.T) {
 	brains := map[string]int{}
 	scheduler := NewScheduler(SchedulerOptions{
 		Store: store,
-		Dispatch: func(j Job) error {
+		Dispatch: func(_ context.Context, j Job) error {
 			brains[j.BrainID]++
 			return nil
 		},
@@ -312,6 +312,45 @@ func TestInvalidCronExpressionRejected(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("expected error for invalid cron expression")
+	}
+}
+
+func TestSchedulerStartStop(t *testing.T) {
+	db := openTestDB(t)
+	store, _ := NewSQLiteStore(db)
+
+	var dispatched atomic.Int32
+
+	job, _ := store.Create(context.Background(), CreateInput{
+		BrainID:        "brain-1",
+		Name:           "lifecycle job",
+		CronExpression: "* * * * *",
+		Target:         Target{Kind: "file", Path: "/data/lifecycle.md"},
+	})
+
+	// Force next_run_at to the past.
+	past := time.Now().UTC().Add(-1 * time.Hour)
+	store.MarkRun(context.Background(), job.ID, past.Add(-2*time.Hour), past)
+
+	scheduler := NewScheduler(SchedulerOptions{
+		Store:        store,
+		PollInterval: 50 * time.Millisecond,
+		Dispatch: func(_ context.Context, _ Job) error {
+			dispatched.Add(1)
+			return nil
+		},
+	})
+
+	scheduler.Start()
+	// Give the immediate poll time to fire.
+	time.Sleep(100 * time.Millisecond)
+	err := scheduler.Stop()
+	if err != nil {
+		t.Fatalf("stop: %v", err)
+	}
+
+	if got := dispatched.Load(); got < 1 {
+		t.Fatalf("expected at least 1 dispatch after start, got %d", got)
 	}
 }
 

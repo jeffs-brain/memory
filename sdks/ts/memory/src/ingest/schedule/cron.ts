@@ -42,6 +42,11 @@ export const isValid = (expression: string): boolean => {
 /**
  * Compute the next occurrence of the schedule after the given reference
  * time. Searches up to 4 years ahead.
+ *
+ * DOM+DOW union semantics: per POSIX cron, when both day-of-month and
+ * day-of-week are non-wildcard (not full-range), a date matches if
+ * EITHER condition is true. When one or both are wildcard, standard
+ * intersection (AND) applies.
  */
 export const nextOccurrence = (sched: CronSchedule, after: Date): Date => {
   // Start one minute after `after`, zeroing seconds.
@@ -55,6 +60,9 @@ export const nextOccurrence = (sched: CronSchedule, after: Date): Date => {
   const monthSet = toSet(sched.month)
   const dowSet = toSet(sched.dayOfWeek)
 
+  const domIsWild = sched.dayOfMonth.length === 31
+  const dowIsWild = sched.dayOfWeek.length === 7
+
   const limit = new Date(after)
   limit.setFullYear(limit.getFullYear() + 4)
 
@@ -67,7 +75,8 @@ export const nextOccurrence = (sched: CronSchedule, after: Date): Date => {
       t.setHours(0, 0, 0, 0)
       continue
     }
-    if (!domSet.has(t.getDate()) || !dowSet.has(t.getDay())) {
+    const dayMatch = matchDay(domSet, dowSet, domIsWild, dowIsWild, t.getDate(), t.getDay())
+    if (!dayMatch) {
       t.setDate(t.getDate() + 1)
       t.setHours(0, 0, 0, 0)
       continue
@@ -86,6 +95,25 @@ export const nextOccurrence = (sched: CronSchedule, after: Date): Date => {
   }
 
   return limit
+}
+
+/**
+ * POSIX cron union semantics for day matching. When both DOM and DOW
+ * are restricted (non-wildcard), match if EITHER is true. Otherwise
+ * use standard AND logic.
+ */
+const matchDay = (
+  domSet: Set<number>,
+  dowSet: Set<number>,
+  domIsWild: boolean,
+  dowIsWild: boolean,
+  day: number,
+  weekday: number,
+): boolean => {
+  if (!domIsWild && !dowIsWild) {
+    return domSet.has(day) || dowSet.has(weekday)
+  }
+  return domSet.has(day) && dowSet.has(weekday)
 }
 
 const parseField = (field: string, min: number, max: number, name: string): number[] => {
@@ -139,7 +167,7 @@ const parseField = (field: string, min: number, max: number, name: string): numb
     throw new Error(`cron: ${name} field: empty`)
   }
 
-  return result
+  return [...new Set(result)]
 }
 
 const toSet = (values: readonly number[]): Set<number> => new Set(values)

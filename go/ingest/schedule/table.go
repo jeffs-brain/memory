@@ -197,24 +197,31 @@ func (s *SQLiteStore) FindDue(ctx context.Context, now time.Time) ([]Job, error)
 }
 
 func (s *SQLiteStore) MarkRun(ctx context.Context, id string, ranAt, nextRunAt time.Time) error {
+	now := time.Now().UTC()
 	_, err := s.db.ExecContext(ctx,
 		`UPDATE ingest_schedules SET last_run_at=?, next_run_at=?, updated_at=? WHERE id=?`,
-		ranAt.Format(time.RFC3339), nextRunAt.Format(time.RFC3339), ranAt.Format(time.RFC3339), id)
+		ranAt.Format(time.RFC3339), nextRunAt.Format(time.RFC3339), now.Format(time.RFC3339), id)
 	if err != nil {
 		return fmt.Errorf("schedule: markRun: %w", err)
 	}
 	return nil
 }
 
-// scanJob scans a single row into a Job.
-func scanJob(row *sql.Row) (Job, error) {
+// scanner abstracts the common Scan method shared by *sql.Row and
+// *sql.Rows so both can use the same hydration logic.
+type scanner interface {
+	Scan(dest ...any) error
+}
+
+// scanJobFrom hydrates a Job from any scanner (Row or Rows).
+func scanJobFrom(s scanner) (Job, error) {
 	var j Job
 	var enabled int
 	var lastRunAt, nextRunAt, createdAt, updatedAt sql.NullString
 	var targetURL, targetPath, targetGlob sql.NullString
 	var metadataJSON sql.NullString
 
-	err := row.Scan(&j.ID, &j.BrainID, &j.Name, &j.CronExpression,
+	err := s.Scan(&j.ID, &j.BrainID, &j.Name, &j.CronExpression,
 		&j.Target.Kind, &targetURL, &targetPath, &targetGlob,
 		&enabled, &lastRunAt, &nextRunAt, &createdAt, &updatedAt, &metadataJSON)
 	if err != nil {
@@ -248,43 +255,14 @@ func scanJob(row *sql.Row) (Job, error) {
 	return j, nil
 }
 
+// scanJob scans a single row into a Job.
+func scanJob(row *sql.Row) (Job, error) {
+	return scanJobFrom(row)
+}
+
 // scanJobRows scans a Rows iterator into a Job.
 func scanJobRows(rows *sql.Rows) (Job, error) {
-	var j Job
-	var enabled int
-	var lastRunAt, nextRunAt, createdAt, updatedAt sql.NullString
-	var targetURL, targetPath, targetGlob sql.NullString
-	var metadataJSON sql.NullString
-
-	err := rows.Scan(&j.ID, &j.BrainID, &j.Name, &j.CronExpression,
-		&j.Target.Kind, &targetURL, &targetPath, &targetGlob,
-		&enabled, &lastRunAt, &nextRunAt, &createdAt, &updatedAt, &metadataJSON)
-	if err != nil {
-		return Job{}, fmt.Errorf("schedule: scan: %w", err)
-	}
-
-	j.Target.URL = targetURL.String
-	j.Target.Path = targetPath.String
-	j.Target.Glob = targetGlob.String
-	j.Enabled = enabled == 1
-	if lastRunAt.Valid {
-		t, _ := time.Parse(time.RFC3339, lastRunAt.String)
-		j.LastRunAt = &t
-	}
-	if nextRunAt.Valid {
-		j.NextRunAt, _ = time.Parse(time.RFC3339, nextRunAt.String)
-	}
-	if createdAt.Valid {
-		j.CreatedAt, _ = time.Parse(time.RFC3339, createdAt.String)
-	}
-	if updatedAt.Valid {
-		j.UpdatedAt, _ = time.Parse(time.RFC3339, updatedAt.String)
-	}
-	if metadataJSON.Valid {
-		_ = json.Unmarshal([]byte(metadataJSON.String), &j.Metadata)
-	}
-
-	return j, nil
+	return scanJobFrom(rows)
 }
 
 func nullStr(s string) *string {

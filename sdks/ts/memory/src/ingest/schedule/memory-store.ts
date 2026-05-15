@@ -14,17 +14,17 @@ import type {
   UpdateSchedulePatch,
 } from './types.js'
 
-let idCounter = 0
-const nextId = (): string => {
-  idCounter++
-  return `sched-${idCounter}`
-}
-
 /**
  * Create an in-memory ScheduleStore. Useful for testing. For production
  * use, swap in a SQLite or PostgreSQL adapter.
  */
 export const createMemoryScheduleStore = (): ScheduleStore => {
+  let idCounter = 0
+  const nextId = (): string => {
+    idCounter++
+    return `sched-${idCounter}`
+  }
+
   const jobs = new Map<string, ScheduledJob>()
 
   const create = async (input: CreateScheduleInput): Promise<ScheduledJob> => {
@@ -95,7 +95,7 @@ export const createMemoryScheduleStore = (): ScheduleStore => {
       ...existing,
       lastRunAt: ranAt,
       nextRunAt,
-      updatedAt: ranAt,
+      updatedAt: new Date(),
     })
   }
 

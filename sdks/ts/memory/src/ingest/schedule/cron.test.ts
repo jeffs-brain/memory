@@ -52,6 +52,13 @@ describe('isValid', () => {
   })
 })
 
+describe('parseField deduplication', () => {
+  it('deduplicates overlapping list+range "1,1-3"', () => {
+    const sched = parseCron('0 1,1-3 * * *')
+    expect(sched.hour).toEqual([1, 2, 3])
+  })
+})
+
 describe('nextOccurrence', () => {
   it('computes next hour for "0 * * * *"', () => {
     const sched = parseCron('0 * * * *')
@@ -85,5 +92,16 @@ describe('nextOccurrence', () => {
     expect(next.getUTCDay()).toBe(1) // Monday
     expect(next.getUTCHours()).toBe(2)
     expect(next.getUTCMinutes()).toBe(30)
+  })
+
+  it('uses DOM+DOW union semantics when both are non-wildcard', () => {
+    // "0 9 15 * 1" = at 9:00 on the 15th OR on Mondays
+    const sched = parseCron('0 9 15 * 1')
+    // Wednesday May 14, 2025 at 10:00 -> next should be May 15 (DOM match)
+    const ref = new Date('2025-05-14T10:00:00Z')
+    const next = nextOccurrence(sched, ref)
+    expect(next.getUTCDate()).toBe(15) // DOM match (Thursday, not Monday)
+    expect(next.getUTCHours()).toBe(9)
+    expect(next.getUTCMinutes()).toBe(0)
   })
 })
