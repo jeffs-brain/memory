@@ -59,6 +59,18 @@ export {
   type V1PipelineStateEntry,
 } from './state-machine.js'
 
+export {
+  buildChunkManifest,
+  computeChunkDeltas,
+  hashChunk,
+  readChunkManifest,
+  writeChunkManifest,
+  type ChunkDelta,
+  type ChunkManifest,
+  type ChunkManifestEntry,
+  type DeltaCategory,
+} from './delta.js'
+
 export * from './sources/index.js'
 
 export {
