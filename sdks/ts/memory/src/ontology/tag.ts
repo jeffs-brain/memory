@@ -49,12 +49,17 @@ export function tagChunk(
     }
   }
 
-  return {
-    entityTypes: entityTypes ?? [],
+  const base: ChunkTag = {
     businessCategory,
     confidence: classification.confidence,
     documentClass: classification.class,
   }
+
+  if (entityTypes !== undefined) {
+    return { ...base, entityTypes }
+  }
+
+  return base
 }
 
 /**
