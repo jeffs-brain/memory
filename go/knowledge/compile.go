@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/jeffs-brain/memory/go/brain"
+	"github.com/jeffs-brain/memory/go/ingest"
 )
 
 // rawDocumentsPrefix is the logical prefix under which [Base.Ingest]
@@ -19,16 +20,6 @@ import (
 // rich compile pipeline; it focuses on the minimum surface required by
 // the Go SDK (markdown + plain-text chunk segmentation).
 var rawDocumentsPrefix = brain.RawDocumentsPrefix()
-
-// defaultChunkMinChars is the minimum character length of a segmentation
-// output. Short paragraphs below this floor are merged with the
-// preceding chunk so the index does not get flooded with single-line
-// stubs.
-const defaultChunkMinChars = 120
-
-// defaultChunkMaxChars bounds the biggest chunk. Longer segments are
-// split at sentence boundaries when possible.
-const defaultChunkMaxChars = 1800
 
 // Compile implements [Base].
 //
@@ -65,12 +56,12 @@ func (k *kbase) Compile(ctx context.Context, opts CompileOptions) (CompileResult
 			continue
 		}
 		if opts.DryRun {
-			chunks := segmentDocument(doc)
+			chunks := segmentDocumentWithConfig(doc, opts.ChunkConfig)
 			res.Compiled++
 			res.Chunks += len(chunks)
 			continue
 		}
-		n, err := k.chunkAndIndex(ctx, doc)
+		n, err := k.chunkAndIndex(ctx, doc, opts.ChunkConfig)
 		if err != nil {
 			res.Errors++
 			continue
@@ -84,8 +75,8 @@ func (k *kbase) Compile(ctx context.Context, opts CompileOptions) (CompileResult
 
 // chunkAndIndex segments the document, updates the search index when
 // bound, and returns the number of chunks produced.
-func (k *kbase) chunkAndIndex(ctx context.Context, doc *Document) (int, error) {
-	chunks := segmentDocument(doc)
+func (k *kbase) chunkAndIndex(ctx context.Context, doc *Document, cfg ingest.ChunkConfig) (int, error) {
+	chunks := segmentDocumentWithConfig(doc, cfg)
 	idx, _, _ := k.snapshot()
 	if idx == nil {
 		return len(chunks), nil
@@ -149,46 +140,34 @@ func documentFromStored(p brain.Path, data []byte) *Document {
 	}
 }
 
-// segmentDocument splits a document body into [Chunk]s. Markdown
-// headings mark chunk boundaries; within a heading, large paragraphs
-// are split by sentence.
+// segmentDocument splits a document body into [Chunk]s using the
+// spec-mandated [ingest.ChunkConfig]. When cfg is zero-valued, the
+// spec defaults (512 tokens, 64 overlap, 30 min) are applied.
 //
 // This mirrors the simple path in jeff's compile.go: the wiki-linking,
 // two-phase planner, and LLM summarisation passes are intentionally
 // skipped. They depend on jeff's richer subsystems (llm provider wiring,
 // wiki index, stats) that do not belong in this minimal port.
-//
-// TODO(next): port the richer chunker from
-// jeff/apps/jeff/internal/knowledge/compile.go once the SDK wires up an
-// llm.Provider. The current segmenter is deterministic and adequate for
-// the Go-side search index; it is not a faithful reproduction of the
-// upstream compile pipeline.
 func segmentDocument(doc *Document) []Chunk {
+	return segmentDocumentWithConfig(doc, ingest.ChunkConfig{})
+}
+
+// segmentDocumentWithConfig splits a document body into [Chunk]s using
+// the supplied [ingest.ChunkConfig]. A zero-valued config triggers spec
+// defaults.
+func segmentDocumentWithConfig(doc *Document, cfg ingest.ChunkConfig) []Chunk {
 	if doc == nil || strings.TrimSpace(doc.Body) == "" {
 		return nil
 	}
 
 	sections := splitByHeadings(doc.Body)
-	out := make([]Chunk, 0, len(sections))
-	ordinal := 0
-	for _, sec := range sections {
-		pieces := splitLong(sec.text, defaultChunkMaxChars)
-		for _, piece := range pieces {
-			piece = strings.TrimSpace(piece)
-			if piece == "" {
-				continue
-			}
-			out = append(out, Chunk{
-				DocumentID: doc.ID,
-				Ordinal:    ordinal,
-				Heading:    sec.heading,
-				Text:       piece,
-				Tokens:     estimateTokens(piece),
-			})
-			ordinal++
-		}
+	chunks := ChunkDocument(doc.Body, sections, cfg)
+
+	// Stamp the document ID on every chunk.
+	for i := range chunks {
+		chunks[i].DocumentID = doc.ID
 	}
-	return mergeSmallChunks(out, defaultChunkMinChars)
+	return chunks
 }
 
 // headingSection is one logical section split off the document body.
@@ -291,37 +270,6 @@ func findSentenceCut(text string, maxChars int) int {
 		}
 	}
 	return 0
-}
-
-// mergeSmallChunks folds chunks shorter than minChars into the previous
-// chunk so the index never sees single-line stubs.
-func mergeSmallChunks(in []Chunk, minChars int) []Chunk {
-	if len(in) == 0 {
-		return in
-	}
-	out := make([]Chunk, 0, len(in))
-	for _, c := range in {
-		if len(out) > 0 && len(c.Text) < minChars {
-			last := out[len(out)-1]
-			last.Text = last.Text + "\n\n" + c.Text
-			last.Tokens = estimateTokens(last.Text)
-			out[len(out)-1] = last
-			continue
-		}
-		out = append(out, c)
-	}
-	// Recompute ordinals so they stay contiguous after merging.
-	for i := range out {
-		out[i].Ordinal = i
-	}
-	return out
-}
-
-// estimateTokens is a coarse byte/4 approximation used only to set
-// [Chunk.Tokens]. Mirrors the rule of thumb jeff uses when a real
-// tokeniser is not wired in.
-func estimateTokens(text string) int {
-	return (len(text) + 3) / 4
 }
 
 // lastSegment returns the trailing path segment.
