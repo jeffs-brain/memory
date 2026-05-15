@@ -122,6 +122,7 @@ func TestListToolsReturnsTwelveTools(t *testing.T) {
 		"memory_search",
 		"memory_ask",
 		"memory_ingest_batch",
+		"memory_ingest_directory",
 		"memory_ingest_file",
 		"memory_ingest_url",
 		"memory_extract",

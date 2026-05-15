@@ -127,3 +127,10 @@ export {
   type ExtractAfterIngestOptions,
   type ExtractAfterIngestResult,
 } from './extract-after-ingest.js'
+
+export {
+  enumerateFiles,
+  type EnumerateOptions,
+  type EnumeratedFile,
+  type EnumerateResult,
+} from './directory.js'
