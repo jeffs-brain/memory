@@ -50,6 +50,16 @@ describe('isJsonDocument', () => {
   it('returns false for empty string', () => {
     expect(isJsonDocument('')).toBe(false)
   })
+
+  it('returns false for primitive arrays', () => {
+    expect(isJsonDocument('[1, 2, 3]')).toBe(false)
+    expect(isJsonDocument('["a", "b", "c"]')).toBe(false)
+  })
+
+  it('returns false for empty structures', () => {
+    expect(isJsonDocument('{}')).toBe(false)
+    expect(isJsonDocument('[]')).toBe(false)
+  })
 })
 
 describe('isTabularDocument', () => {
@@ -129,14 +139,34 @@ describe('determineCategory', () => {
     businessCategories: ['customer', 'order', 'general'],
   }
 
-  it('returns category from ontology analysis', () => {
+  it('returns specific category from ontology analysis', () => {
     const content = 'The customer submitted a new order for processing.'
     const category = determineCategory(content, sampleOntology)
-    expect(category).toBeTruthy()
+    // Content contains "customer" which matches entity.customer whose
+    // description contains "customer" (a business category).
+    expect(category).toBe('customer')
   })
 
   it('returns general for undefined ontology', () => {
     expect(determineCategory('some content', undefined)).toBe('general')
+  })
+})
+
+describe('LLM category mapping', () => {
+  it('preserves LLM process category instead of mapping to general', async () => {
+    const provider = fakeProvider('{"category": "process", "confidence": 0.9, "reasoning": "describes a workflow"}')
+    const c = new Classifier({ provider })
+    const content = 'The approval workflow requires two levels of sign-off before any purchase order is released.'
+    const result = await c.classify(content, 'workflow.md')
+    expect(result.category).toBe('process')
+  })
+
+  it('preserves LLM entity category', async () => {
+    const provider = fakeProvider('{"category": "entity", "confidence": 0.85, "reasoning": "contains customer data"}')
+    const c = new Classifier({ provider })
+    const content = 'The customer approval process requires manager sign-off for orders above $10,000.'
+    const result = await c.classify(content, 'approval-rules.md')
+    expect(result.category).toBe('entity')
   })
 })
 

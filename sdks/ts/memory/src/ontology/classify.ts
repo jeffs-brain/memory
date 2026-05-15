@@ -145,17 +145,62 @@ type LLMClassification = {
   readonly confidence?: number
 }
 
+/**
+ * Finds the first balanced JSON object in text using depth-tracking.
+ * Returns undefined if no valid object is found.
+ */
+function extractJSONObject(text: string): string | undefined {
+  const start = text.indexOf('{')
+  if (start < 0) return undefined
+
+  let depth = 0
+  let inString = false
+  let escaping = false
+
+  for (let i = start; i < text.length; i++) {
+    const ch = text[i]
+    if (escaping) {
+      escaping = false
+      continue
+    }
+    if (inString) {
+      if (ch === '\\') escaping = true
+      else if (ch === '"') inString = false
+      continue
+    }
+    if (ch === '"') {
+      inString = true
+      continue
+    }
+    if (ch === '{') {
+      depth++
+    } else if (ch === '}') {
+      depth--
+      if (depth === 0) {
+        const candidate = text.slice(start, i + 1)
+        try {
+          JSON.parse(candidate)
+          return candidate
+        } catch {
+          return undefined
+        }
+      }
+    }
+  }
+
+  return undefined
+}
+
 function parseClassificationResponse(text: string): ClassificationResult {
   const trimmed = text.trim()
-  const start = trimmed.indexOf('{')
-  const end = trimmed.lastIndexOf('}')
+  const jsonStr = extractJSONObject(trimmed)
 
-  if (start < 0 || end <= start) {
+  if (jsonStr === undefined) {
     return { class: 'unstructured', category: 'general', confidence: 0.3, isStructured: false }
   }
 
   try {
-    const parsed = JSON.parse(trimmed.slice(start, end + 1)) as LLMClassification
+    const parsed = JSON.parse(jsonStr) as LLMClassification
     const category = mapLLMCategory(parsed.category ?? '')
     let confidence = parsed.confidence ?? 0.7
     if (confidence <= 0 || confidence > 1) confidence = 0.7
@@ -173,12 +218,12 @@ function parseClassificationResponse(text: string): ClassificationResult {
 
 function mapLLMCategory(raw: string): string {
   const categoryMap: Record<string, string> = {
-    entity: 'general',
-    rule: 'general',
-    exception: 'general',
-    decision: 'general',
-    process: 'general',
-    reference: 'general',
+    entity: 'entity',
+    rule: 'rule',
+    exception: 'exception',
+    decision: 'decision',
+    process: 'process',
+    reference: 'reference',
     customer: 'customer',
     order: 'order',
     product: 'product',
@@ -205,7 +250,20 @@ export function isJsonDocument(content: string): boolean {
 
   try {
     const parsed: unknown = JSON.parse(trimmed)
-    return typeof parsed === 'object' && parsed !== null
+    if (parsed === null || typeof parsed !== 'object') return false
+
+    // Require non-empty structure
+    if (Array.isArray(parsed)) {
+      // Empty arrays and primitive arrays are not business-relevant JSON
+      if (parsed.length === 0) return false
+      // At least one element must be an object or nested array
+      return parsed.some(
+        (item) => typeof item === 'object' && item !== null,
+      )
+    }
+
+    // Non-empty object
+    return Object.keys(parsed).length > 0
   } catch {
     return false
   }

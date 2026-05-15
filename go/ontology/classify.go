@@ -4,7 +4,6 @@ package ontology
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"strings"
 
 	"github.com/jeffs-brain/memory/go/llm"
@@ -79,7 +78,9 @@ func (c *Classifier) Classify(ctx context.Context, content string, fileName stri
 }
 
 // IsJsonDocument returns true if content parses as JSON with
-// business-relevant structure (object or array, not a bare primitive).
+// business-relevant structure: a non-empty object, or an array
+// containing at least one object or nested array. Bare primitives,
+// empty structures, and primitive-only arrays are excluded.
 func IsJsonDocument(content string) bool {
 	trimmed := strings.TrimSpace(content)
 	if len(trimmed) == 0 {
@@ -96,9 +97,20 @@ func IsJsonDocument(content string) bool {
 		return false
 	}
 
-	switch parsed.(type) {
-	case map[string]interface{}, []interface{}:
-		return true
+	switch v := parsed.(type) {
+	case map[string]interface{}:
+		return len(v) > 0
+	case []interface{}:
+		if len(v) == 0 {
+			return false
+		}
+		for _, item := range v {
+			switch item.(type) {
+			case map[string]interface{}, []interface{}:
+				return true
+			}
+		}
+		return false
 	default:
 		return false
 	}
@@ -202,13 +214,59 @@ type llmClassification struct {
 	Confidence float64 `json:"confidence"`
 }
 
+// extractJSONObject finds the first balanced JSON object in text using
+// depth-tracking. Returns the extracted JSON string, or a non-empty
+// error message on failure.
+func extractJSONObject(text string) (string, string) {
+	start := strings.IndexByte(text, '{')
+	if start < 0 {
+		return "", "no JSON object found"
+	}
+
+	depth := 0
+	inString := false
+	escaping := false
+
+	for i := start; i < len(text); i++ {
+		ch := text[i]
+		if escaping {
+			escaping = false
+			continue
+		}
+		if inString {
+			if ch == '\\' {
+				escaping = true
+			} else if ch == '"' {
+				inString = false
+			}
+			continue
+		}
+		switch ch {
+		case '"':
+			inString = true
+		case '{':
+			depth++
+		case '}':
+			depth--
+			if depth == 0 {
+				candidate := text[start : i+1]
+				var check json.RawMessage
+				if json.Unmarshal([]byte(candidate), &check) == nil {
+					return candidate, ""
+				}
+				return "", "extracted JSON is not valid"
+			}
+		}
+	}
+
+	return "", "unclosed JSON object"
+}
+
 func parseClassificationResponse(text string) (ClassificationResult, error) {
 	trimmed := strings.TrimSpace(text)
 
-	// Find the first '{' and last '}'
-	start := strings.IndexByte(trimmed, '{')
-	end := strings.LastIndexByte(trimmed, '}')
-	if start < 0 || end <= start {
+	jsonStr, extractErr := extractJSONObject(trimmed)
+	if extractErr != "" {
 		return ClassificationResult{
 			Class:        DocumentClassUnstructured,
 			Category:     "general",
@@ -218,7 +276,7 @@ func parseClassificationResponse(text string) (ClassificationResult, error) {
 	}
 
 	var result llmClassification
-	if err := json.Unmarshal([]byte(trimmed[start:end+1]), &result); err != nil {
+	if err := json.Unmarshal([]byte(jsonStr), &result); err != nil {
 		return ClassificationResult{
 			Class:        DocumentClassUnstructured,
 			Category:     "general",
@@ -242,15 +300,20 @@ func parseClassificationResponse(text string) (ClassificationResult, error) {
 }
 
 // mapLLMCategory maps the LLM's category response to a business
-// category string. Falls back to "general" for unrecognised values.
+// category string. The system prompt instructs the LLM to return one
+// of: entity, rule, exception, decision, process, reference. These
+// are preserved as-is since they are the ontology type prefixes the
+// pipeline already understands. Additionally, common business
+// categories like "customer" and "order" pass through directly.
+// Falls back to "general" for unrecognised values.
 func mapLLMCategory(raw string) string {
 	categoryMap := map[string]string{
-		"entity":    "general",
-		"rule":      "general",
-		"exception": "general",
-		"decision":  "general",
-		"process":   "general",
-		"reference": "general",
+		"entity":    "entity",
+		"rule":      "rule",
+		"exception": "exception",
+		"decision":  "decision",
+		"process":   "process",
+		"reference": "reference",
 		"customer":  "customer",
 		"order":     "order",
 		"product":   "product",
@@ -386,19 +449,3 @@ func DetermineCategory(content string, ontology *ResolvedOntology) string {
 	return categoryWinner(counts)
 }
 
-// classificationPromptForAppendixA4 is the system prompt from the
-// plan's Appendix A4 for document-level classification.
-const classificationPromptForAppendixA4 = classificationSystemPrompt
-
-// classificationPromptForAppendixA5 returns the chunk-level entity
-// tagging prompt. Used by TagChunk when LLM is available.
-func classificationPromptForAppendixA5() string {
-	return fmt.Sprintf(`You are a chunk-level entity tagger. Given a text chunk, identify which ontology entity types are mentioned or implied.
-
-Return a JSON object with:
-- "entityTypes": array of dotted type identifiers (e.g., "entity.customer", "rule.validation")
-- "businessCategory": the dominant business category
-- "confidence": your confidence in the tagging (0-1)
-
-Only use types from the standard ontology prefixes: entity., rule., exception., decision., process.`)
-}

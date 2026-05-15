@@ -63,6 +63,27 @@ func TestIsJsonDocument_TrivialJson(t *testing.T) {
 	}
 }
 
+func TestIsJsonDocument_PrimitiveArray(t *testing.T) {
+	t.Parallel()
+	// Primitive-only arrays are not business-relevant
+	if ontology.IsJsonDocument(`[1, 2, 3]`) {
+		t.Fatal("expected false for primitive array")
+	}
+	if ontology.IsJsonDocument(`["a", "b", "c"]`) {
+		t.Fatal("expected false for string array")
+	}
+}
+
+func TestIsJsonDocument_EmptyStructures(t *testing.T) {
+	t.Parallel()
+	if ontology.IsJsonDocument(`{}`) {
+		t.Fatal("expected false for empty object")
+	}
+	if ontology.IsJsonDocument(`[]`) {
+		t.Fatal("expected false for empty array")
+	}
+}
+
 func TestIsTabularDocument_Csv(t *testing.T) {
 	t.Parallel()
 	content := "name,age,city\nAlice,30,NYC\nBob,25,LA\nCharlie,35,SF\n"
@@ -195,9 +216,10 @@ func TestDetermineCategory_WithOntology(t *testing.T) {
 
 	content := "The customer submitted a new order for processing."
 	category := ontology.DetermineCategory(content, ontologyData)
-	// Should find "customer" in the content matching entity.customer
-	if category == "" {
-		t.Fatal("expected non-empty category")
+	// Content contains "customer" which matches entity.customer whose
+	// description contains "customer" (one of the business categories).
+	if category != "customer" {
+		t.Fatalf("expected category 'customer', got %q", category)
 	}
 }
 
@@ -206,6 +228,46 @@ func TestDetermineCategory_NilOntology(t *testing.T) {
 	category := ontology.DetermineCategory("some content", nil)
 	if category != "general" {
 		t.Fatalf("expected general for nil ontology, got %q", category)
+	}
+}
+
+func TestClassify_LLMCategoryIsUsed(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	// The LLM returns "process" category. After fix, mapLLMCategory
+	// should preserve it as "process" rather than mapping to "general".
+	provider := &fakeProvider{
+		response: `{"category": "process", "confidence": 0.9, "reasoning": "describes a workflow"}`,
+	}
+	c := ontology.NewClassifier(provider)
+
+	content := "The approval workflow requires two levels of sign-off before any purchase order is released."
+	result, err := c.Classify(ctx, content, "workflow.md")
+	if err != nil {
+		t.Fatalf("Classify: %v", err)
+	}
+	if result.Category != "process" {
+		t.Fatalf("expected category 'process', got %q (LLM category was not used)", result.Category)
+	}
+}
+
+func TestClassify_LLMEntityCategory(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	provider := &fakeProvider{
+		response: `{"category": "entity", "confidence": 0.85, "reasoning": "contains customer data"}`,
+	}
+	c := ontology.NewClassifier(provider)
+
+	content := "The customer approval process requires manager sign-off for orders above $10,000."
+	result, err := c.Classify(ctx, content, "approval-rules.md")
+	if err != nil {
+		t.Fatalf("Classify: %v", err)
+	}
+	if result.Category != "entity" {
+		t.Fatalf("expected category 'entity', got %q", result.Category)
 	}
 }
 
