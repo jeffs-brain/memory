@@ -57,3 +57,17 @@ export {
   getTemplate,
   registerTemplate,
 } from './templates.js'
+
+export type {
+  FileOntologyStoreConfig,
+  ListTypesOpts,
+  OntologyStore,
+  ResolvedOntology,
+  ResolvedType,
+  StoredOntology,
+} from './store.js'
+
+export { createFileOntologyStore } from './store.js'
+
+export type { RegistryOptions } from './registry.js'
+export { Registry, PROPOSE_DEDUP_THRESHOLD } from './registry.js'

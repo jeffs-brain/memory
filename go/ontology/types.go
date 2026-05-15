@@ -76,6 +76,15 @@ var BusinessCategories = [8]string{
 	"general",
 }
 
+// NodeTypePrefixes are the 5 valid prefixes for node type identifiers.
+var NodeTypePrefixes = [5]string{
+	"entity.",
+	"rule.",
+	"exception.",
+	"decision.",
+	"process.",
+}
+
 // nodeTypePrefixes is the mutable backing list of valid prefixes.
 // Protected by prefixMu. Starts with the 5 built-in prefixes.
 var nodeTypePrefixes = []string{
@@ -89,7 +98,7 @@ var nodeTypePrefixes = []string{
 // prefixMu protects concurrent access to nodeTypePrefixes.
 var prefixMu sync.RWMutex
 
-// NodeTypePrefixes returns a copy of the current valid prefixes.
+// NodeTypePrefixesList returns a copy of the current valid prefixes.
 // The returned slice is safe to iterate without holding any lock.
 func NodeTypePrefixesList() []string {
 	prefixMu.RLock()
