@@ -139,6 +139,7 @@ func Register(server *mcp.Server, client MemoryClient) {
 	registerSearch(server, client)
 	registerAsk(server, client)
 	registerIngestBatch(server, client)
+	registerIngestDirectory(server, client)
 	registerIngestFile(server, client)
 	registerIngestURL(server, client)
 	registerExtract(server, client)
