@@ -144,6 +144,33 @@ export type MemoryClient = {
 // Local mode
 // ---------------------------------------------------------------------
 
+type BrainConfigFile = {
+  readonly slug?: string
+  readonly name?: string
+  readonly visibility?: string
+  readonly createdAt?: string
+}
+
+type BrainListItem = {
+  readonly id: string
+  readonly slug: string
+  readonly name: string
+  readonly visibility: string
+  readonly created_at: string | null
+}
+
+const parseBrainConfig = (raw: string): BrainConfigFile | undefined => {
+  const parsed: unknown = JSON.parse(raw)
+  if (typeof parsed !== 'object' || parsed === null) return undefined
+  const obj = parsed as { slug?: unknown; name?: unknown; visibility?: unknown; createdAt?: unknown }
+  return {
+    ...(typeof obj.slug === 'string' ? { slug: obj.slug } : {}),
+    ...(typeof obj.name === 'string' ? { name: obj.name } : {}),
+    ...(typeof obj.visibility === 'string' ? { visibility: obj.visibility } : {}),
+    ...(typeof obj.createdAt === 'string' ? { createdAt: obj.createdAt } : {}),
+  }
+}
+
 const OLLAMA_EMBED_MODEL = 'bge-m3'
 const OLLAMA_CHAT_MODEL = 'gemma3'
 const DEFAULT_BRAIN_ID = 'default'
@@ -290,10 +317,29 @@ const deriveTitle = (content: string, fallback: string | undefined): string => {
   return firstLine ?? 'Untitled memory'
 }
 
-const buildFrontmatterBlock = (frontmatter: Record<string, unknown>): string => {
+type FrontmatterValue = string | number | boolean | readonly string[]
+
+type FrontmatterFields = {
+  readonly title: string
+  readonly scope: string
+  readonly type: string
+  readonly created: string
+  readonly modified: string
+  readonly tags?: readonly string[]
+}
+
+const buildFrontmatterBlock = (frontmatter: FrontmatterFields): string => {
   const lines: string[] = ['---']
-  for (const [key, value] of Object.entries(frontmatter)) {
-    if (value === undefined || value === null) continue
+  const entries: ReadonlyArray<readonly [string, FrontmatterValue | undefined]> = [
+    ['title', frontmatter.title],
+    ['scope', frontmatter.scope],
+    ['type', frontmatter.type],
+    ['created', frontmatter.created],
+    ['modified', frontmatter.modified],
+    ['tags', frontmatter.tags],
+  ]
+  for (const [key, value] of entries) {
+    if (value === undefined) continue
     if (Array.isArray(value)) {
       lines.push(`${key}: [${value.map((v) => JSON.stringify(String(v))).join(', ')}]`)
       continue
@@ -864,23 +910,23 @@ const createLocalClient = (cfg: LocalConfig): MemoryClient => {
       )
       if (!exists) return { items: [] }
       const entries = await readdir(cfg.brainRoot, { withFileTypes: true })
-      const items: Array<Record<string, unknown>> = []
+      const items: BrainListItem[] = []
       for (const entry of entries) {
         if (!entry.isDirectory()) continue
         const configPath = join(cfg.brainRoot, entry.name, 'config.json')
-        let parsed: Record<string, unknown> = {}
+        let parsed: BrainConfigFile | undefined
         try {
           const raw = await readFile(configPath, 'utf8')
-          parsed = JSON.parse(raw) as Record<string, unknown>
+          parsed = parseBrainConfig(raw)
         } catch {
           // Brain without config — surface the directory name as the slug
         }
         items.push({
-          id: (parsed.slug as string | undefined) ?? entry.name,
-          slug: (parsed.slug as string | undefined) ?? entry.name,
-          name: (parsed.name as string | undefined) ?? entry.name,
-          visibility: (parsed.visibility as string | undefined) ?? 'private',
-          created_at: (parsed.createdAt as string | undefined) ?? null,
+          id: parsed?.slug ?? entry.name,
+          slug: parsed?.slug ?? entry.name,
+          name: parsed?.name ?? entry.name,
+          visibility: parsed?.visibility ?? 'private',
+          created_at: parsed?.createdAt ?? null,
         })
       }
       return { items }

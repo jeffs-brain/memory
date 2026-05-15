@@ -454,27 +454,41 @@ function validateBatchId(id: string): void {
  * parsed value has the required shape rather than relying on a bare
  * `as` cast.
  */
+type RawProposalBatch = {
+  id?: unknown
+  proposals?: unknown
+  domain?: unknown
+  sourceDocument?: unknown
+  createdAt?: unknown
+}
+
 function validateProposalBatch(parsed: unknown): ProposalBatch {
   if (typeof parsed !== 'object' || parsed === null) {
     throw new Error('ontology: proposal batch must be an object')
   }
-  const obj = parsed as Record<string, unknown>
-  if (typeof obj['id'] !== 'string' || obj['id'] === '') {
+  const obj = parsed as RawProposalBatch
+  if (typeof obj.id !== 'string' || obj.id === '') {
     throw new Error('ontology: proposal batch missing or empty "id"')
   }
-  if (!Array.isArray(obj['proposals'])) {
+  if (!Array.isArray(obj.proposals)) {
     throw new Error('ontology: proposal batch missing "proposals" array')
   }
-  if (typeof obj['domain'] !== 'string') {
+  if (typeof obj.domain !== 'string') {
     throw new Error('ontology: proposal batch missing "domain"')
   }
-  if (typeof obj['sourceDocument'] !== 'string') {
+  if (typeof obj.sourceDocument !== 'string') {
     throw new Error('ontology: proposal batch missing "sourceDocument"')
   }
-  if (typeof obj['createdAt'] !== 'string') {
+  if (typeof obj.createdAt !== 'string') {
     throw new Error('ontology: proposal batch missing "createdAt"')
   }
-  return obj as unknown as ProposalBatch
+  return {
+    id: obj.id,
+    proposals: obj.proposals as readonly Proposal[],
+    domain: obj.domain,
+    sourceDocument: obj.sourceDocument,
+    createdAt: obj.createdAt,
+  }
 }
 
 function extractionToDefinitions(result: ExtractionResult, clock: () => Date): OntologyTypeDefinition[] {

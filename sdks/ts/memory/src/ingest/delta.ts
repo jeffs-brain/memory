@@ -205,11 +205,16 @@ const manifestPath = (documentHash: string): string => {
  */
 const validateChunkManifest = (parsed: unknown): ChunkManifest | undefined => {
   if (parsed === null || typeof parsed !== 'object') return undefined
-  const obj = parsed as Record<string, unknown>
-  if (typeof obj['documentHash'] !== 'string') return undefined
-  if (typeof obj['generation'] !== 'number') return undefined
-  if (!Array.isArray(obj['chunks'])) return undefined
-  return parsed as ChunkManifest
+  const obj = parsed as { documentHash?: unknown; generation?: unknown; chunks?: unknown; updatedAt?: unknown }
+  if (typeof obj.documentHash !== 'string') return undefined
+  if (typeof obj.generation !== 'number') return undefined
+  if (!Array.isArray(obj.chunks)) return undefined
+  return {
+    documentHash: obj.documentHash,
+    generation: obj.generation,
+    chunks: obj.chunks as readonly ChunkManifestEntry[],
+    updatedAt: typeof obj.updatedAt === 'string' ? obj.updatedAt : '',
+  }
 }
 
 export const readChunkManifest = async (
