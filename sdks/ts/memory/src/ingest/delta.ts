@@ -2,7 +2,7 @@
 
 /**
  * Chunk-level change detection via content-hash delta comparison.
- * Computes a SHA-256 hash per chunk during chunking and stores chunk
+ * Computes a BLAKE3 hash per chunk during chunking and stores chunk
  * hashes in a manifest alongside the document metadata. On re-ingest,
  * compares new chunk hashes against the stored manifest to determine
  * which chunks need re-embedding (new/changed), which can be skipped
@@ -15,7 +15,7 @@
  * Port of go/knowledge/delta.go.
  */
 
-import { createHash } from 'node:crypto'
+import { hashChunk as blake3HashChunk } from './hash.js'
 
 import type { Chunk } from './chunker.js'
 import type { Store } from '../store/index.js'
@@ -56,12 +56,13 @@ export type ChunkDelta = {
 }
 
 /**
- * Computes a SHA-256 content hash of a chunk's text. This is the
- * canonical hashing function for chunk-level change detection. When P1-2
- * lands BLAKE3 support, this function becomes the single swap point.
+ * Computes a BLAKE3 content hash of a chunk's text. This is the
+ * canonical hashing function for chunk-level change detection.
+ * Delegates to the shared BLAKE3 hasher in hash.ts for cross-SDK
+ * conformance with the Go implementation.
  */
 export const hashChunk = (text: string): string =>
-  createHash('sha256').update(text, 'utf8').digest('hex')
+  blake3HashChunk(Buffer.from(text, 'utf8'))
 
 /**
  * Compares new chunks against a stored manifest and returns the delta

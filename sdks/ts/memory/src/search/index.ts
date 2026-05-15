@@ -16,6 +16,13 @@
 
 import { openDatabase } from './driver.js'
 import type { DriverKind, SqlDb } from './driver.js'
+import {
+  createChunkMetadataTable,
+  deleteChunkMetadataBatch,
+  getChunkMetadata,
+  queryByMetadata,
+  setChunkMetadata,
+} from './metadata.js'
 import { getChunk, searchBM25, searchBM25Compiled, searchVector } from './reader.js'
 import type { BM25Result, VectorResult } from './reader.js'
 import { applyDDL } from './schema.js'
@@ -77,6 +84,24 @@ export type SearchIndex = {
   getChunk(id: string): Chunk | undefined
 
   /**
+   * Upsert key-value metadata for a chunk. Empty keys or values are
+   * rejected. Existing entries for the same (chunk_id, key) pair are
+   * overwritten.
+   */
+  setChunkMetadata(chunkId: string, meta: Record<string, string>): void
+  /**
+   * Retrieve all key-value metadata for a chunk. Returns an empty
+   * object when the chunk has no metadata.
+   */
+  getChunkMetadata(chunkId: string): Record<string, string>
+  /**
+   * Return chunk IDs where the given key matches the given value.
+   * Results are ordered by chunk_id for determinism. A limit of zero
+   * or negative defaults to 100.
+   */
+  queryByMetadata(key: string, value: string, limit: number): string[]
+
+  /**
    * Return every distinct path currently indexed in knowledge_chunks.
    * Parity with the Go `Index.IndexedPaths()` used by the daemon's
    * vector backfill to enumerate candidates without re-scanning the
@@ -132,6 +157,7 @@ export async function createSearchIndex(opts: CreateSearchIndexOptions = {}): Pr
   try {
     await loadSqliteVec(db, opts.vectorExtensionPath)
     applyDDL((sql) => db.exec(sql), vectorDim)
+    createChunkMetadataTable(db)
   } catch (err) {
     if (owned) {
       try {
@@ -149,12 +175,26 @@ export async function createSearchIndex(opts: CreateSearchIndexOptions = {}): Pr
     vectorDim,
     upsertChunk: (chunk) => upsertChunk(db, chunk),
     upsertChunks: (chunks) => upsertChunksBatch(db, chunks),
-    deleteChunk: (id) => deleteChunk(db, id),
-    deleteByPath: (path) => deleteByPath(db, path),
+    deleteChunk: (id) => {
+      deleteChunk(db, id)
+      deleteChunkMetadataBatch(db, [id])
+    },
+    deleteByPath: (path) => {
+      const ids = (
+        db
+          .prepare('SELECT id FROM knowledge_chunks WHERE path = ?')
+          .all(path) as Array<{ id: string }>
+      ).map((r) => r.id)
+      deleteByPath(db, path)
+      deleteChunkMetadataBatch(db, ids)
+    },
     searchBM25: (query, limit) => searchBM25(db, query, limit),
     searchBM25Compiled: (expr, limit) => searchBM25Compiled(db, expr, limit),
     searchVector: (embedding, limit) => searchVector(db, embedding, limit),
     getChunk: (id) => getChunk(db, id),
+    setChunkMetadata: (chunkId, meta) => setChunkMetadata(db, chunkId, meta),
+    getChunkMetadata: (chunkId) => getChunkMetadata(db, chunkId),
+    queryByMetadata: (key, value, limit) => queryByMetadata(db, key, value, limit),
     indexedPaths: () => {
       const rows = db
         .prepare('SELECT DISTINCT path FROM knowledge_chunks ORDER BY path')
