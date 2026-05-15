@@ -93,6 +93,8 @@ export { tabularChunker } from './chunkers/tabular.js'
 
 export * from './sources/index.js'
 
+export * from './hooks/index.js'
+
 export {
   createSafetyScanner,
   preprocessText,

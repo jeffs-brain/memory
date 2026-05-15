@@ -70,6 +70,10 @@
       "import": "./dist/ingest/index.js",
       "types": "./dist/ingest/index.d.ts"
     },
+    "./ingest/hooks": {
+      "import": "./dist/ingest/hooks/index.js",
+      "types": "./dist/ingest/hooks/index.d.ts"
+    },
     "./llm": {
       "import": "./dist/llm/index.js",
       "types": "./dist/llm/index.d.ts"
