@@ -199,7 +199,10 @@ export const registerMemoryHooks = (
 
   const contextHook = async (event: ContextEvent): Promise<ContextEventResult | undefined> => {
     if (surface !== 'context') return undefined
-    if (!cfg.recallOnPrompt) return undefined
+    // Note: `cfg.recallOnPrompt` gates the system-prompt surface only.
+    // When the host has explicitly opted into context-surface injection
+    // we always run the recall, otherwise both surfaces would be
+    // simultaneously gateable and recall could vanish entirely.
     const latestUser = findLatestUserText(event.messages as unknown as readonly AgentMessageLike[])
     if (latestUser === undefined) return undefined
     const snapshot = await buildRecallSnapshot(runtime, latestUser)

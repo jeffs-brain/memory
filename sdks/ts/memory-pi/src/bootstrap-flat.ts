@@ -16,7 +16,7 @@
  */
 
 import { readFile, readdir, stat } from 'node:fs/promises'
-import { join, relative } from 'node:path'
+import { join, relative, sep } from 'node:path'
 import { chunkMarkdown } from '@jeffs-brain/memory/ingest'
 import type { Chunk as IndexChunk, SearchIndex } from '@jeffs-brain/memory/search'
 import { type RuntimeLogger, noopRuntimeLogger } from './runtime-logger.js'
@@ -50,6 +50,8 @@ export type BootstrapFlatResult = {
 const bumpReason = (reasons: Record<string, number>, key: string): void => {
   reasons[key] = (reasons[key] ?? 0) + 1
 }
+
+const toPosixRel = (rel: string): string => (sep === '/' ? rel : rel.split(sep).join('/'))
 
 const isFileAccessible = async (path: string): Promise<boolean> => {
   try {
@@ -149,7 +151,7 @@ export const bootstrapFlatBrain = async (
     }
     for await (const absPath of walk(dir, extensions)) {
       scanned++
-      const rel = relative(options.brainRoot, absPath)
+      const rel = toPosixRel(relative(options.brainRoot, absPath))
       if (known.has(rel)) {
         skipped++
         bumpReason(skippedReasons, 'already-indexed')
