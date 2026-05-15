@@ -13,4 +13,8 @@
 // Scope resolution follows a four-level hierarchy: built-in, organisation,
 // project, brain. Higher scopes override lower scopes for types sharing the
 // same identifier.
+//
+// Industry templates provide pre-built sets of node types, edge types, and
+// business categories for common verticals (healthcare, finance, legal,
+// ecommerce, education, software).
 package ontology
