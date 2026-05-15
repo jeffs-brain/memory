@@ -48,17 +48,69 @@ type migrationState struct {
 	Total    int    `json:"total"`
 }
 
+// MigrationStateBackend abstracts the persistence of migration progress.
+// File-based stores use the default JSON-sidecar implementation;
+// Postgres-backed stores may provide a table-backed implementation.
+type MigrationStateBackend interface {
+	Load(ctx context.Context) (migrationState, error)
+	Save(ctx context.Context, state migrationState) error
+}
+
+// fileMigrationStateBackend stores migration state as a JSON file at
+// migrationStatePath. This is the default for FsStore backends.
+type fileMigrationStateBackend struct {
+	store brain.Store
+}
+
+func (f *fileMigrationStateBackend) Load(ctx context.Context) (migrationState, error) {
+	data, err := f.store.Read(ctx, brain.Path(migrationStatePath))
+	if err != nil {
+		if errors.Is(err, brain.ErrNotFound) {
+			return migrationState{}, nil
+		}
+		return migrationState{}, err
+	}
+	var state migrationState
+	if jsonErr := json.Unmarshal(data, &state); jsonErr != nil {
+		return migrationState{}, fmt.Errorf("ingest: parse migration state: %w", jsonErr)
+	}
+	return state, nil
+}
+
+func (f *fileMigrationStateBackend) Save(ctx context.Context, state migrationState) error {
+	data, err := json.Marshal(state)
+	if err != nil {
+		return err
+	}
+	return f.store.Write(ctx, brain.Path(migrationStatePath), data)
+}
+
 // HashMigrator handles the transition from SHA-256 to BLAKE3 document
 // hashes. It iterates documents stored under raw/documents/, computes
 // BLAKE3 hashes, and renames files from their SHA-256-based path to a
 // BLAKE3-based path. The migration is non-blocking and resumable.
 type HashMigrator struct {
-	store brain.Store
+	store        brain.Store
+	stateBackend MigrationStateBackend
 }
 
-// NewHashMigrator creates a migrator bound to the given store.
+// NewHashMigrator creates a migrator bound to the given store. Uses
+// file-based state persistence by default.
 func NewHashMigrator(store brain.Store) *HashMigrator {
-	return &HashMigrator{store: store}
+	return &HashMigrator{
+		store:        store,
+		stateBackend: &fileMigrationStateBackend{store: store},
+	}
+}
+
+// NewHashMigratorWithBackend creates a migrator with a custom state
+// backend. Use this for PostgresStore deployments that persist migration
+// state in the memory.blake3_migration_state table.
+func NewHashMigratorWithBackend(store brain.Store, backend MigrationStateBackend) *HashMigrator {
+	return &HashMigrator{
+		store:        store,
+		stateBackend: backend,
+	}
 }
 
 // Migrate processes up to BatchSize documents, re-hashing from SHA-256
@@ -72,7 +124,7 @@ func (m *HashMigrator) Migrate(ctx context.Context, opts MigrateOpts) (*MigrateR
 
 	cursor := opts.Cursor
 	if cursor == "" {
-		state, err := m.loadState(ctx)
+		state, err := m.stateBackend.Load(ctx)
 		if err == nil && state.Cursor != "" {
 			cursor = state.Cursor
 		}
@@ -130,7 +182,7 @@ func (m *HashMigrator) Migrate(ctx context.Context, opts MigrateOpts) (*MigrateR
 	}
 
 	if !opts.DryRun {
-		saveErr := m.saveState(ctx, migrationState{
+		saveErr := m.stateBackend.Save(ctx, migrationState{
 			Cursor:   nextCursor,
 			Migrated: migrated,
 			Total:    total,
@@ -210,32 +262,6 @@ func (m *HashMigrator) renameDocument(ctx context.Context, oldPath, newPath brai
 		return false, err
 	}
 	return true, nil
-}
-
-// loadState reads the migration state file. Returns zero state on
-// ErrNotFound.
-func (m *HashMigrator) loadState(ctx context.Context) (migrationState, error) {
-	data, err := m.store.Read(ctx, brain.Path(migrationStatePath))
-	if err != nil {
-		if errors.Is(err, brain.ErrNotFound) {
-			return migrationState{}, nil
-		}
-		return migrationState{}, err
-	}
-	var state migrationState
-	if jsonErr := json.Unmarshal(data, &state); jsonErr != nil {
-		return migrationState{}, fmt.Errorf("ingest: parse migration state: %w", jsonErr)
-	}
-	return state, nil
-}
-
-// saveState writes the migration state file.
-func (m *HashMigrator) saveState(ctx context.Context, state migrationState) error {
-	data, err := json.Marshal(state)
-	if err != nil {
-		return err
-	}
-	return m.store.Write(ctx, brain.Path(migrationStatePath), data)
 }
 
 // ResolveHash is the dual-read helper. It computes the BLAKE3 hash of

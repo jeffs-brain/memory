@@ -27,10 +27,48 @@ export type MigrateResult = {
   readonly nextCursor: string
 }
 
-type MigrationState = {
+export type MigrationState = {
   readonly cursor: string
   readonly migrated: number
   readonly total: number
+}
+
+/**
+ * Backend interface for migration state persistence. Implementations
+ * exist for file-based stores (default, uses Store.read/write) and
+ * PostgresStore (uses the memory.blake3_migration_state table).
+ */
+export type MigrationStateBackend = {
+  readonly load: () => Promise<MigrationState>
+  readonly save: (state: MigrationState) => Promise<void>
+}
+
+/**
+ * Creates a file-based migration state backend that stores state as
+ * JSON at `raw/.pipeline-state/.blake3-migration.json`. This is the
+ * default for FsStore and MemStore.
+ */
+export const createFileMigrationStateBackend = (store: Store): MigrationStateBackend => ({
+  load: async (): Promise<MigrationState> => {
+    try {
+      const data = await store.read(toPath(MIGRATION_STATE_PATH))
+      return JSON.parse(data.toString('utf8')) as MigrationState
+    } catch (err: unknown) {
+      if (isNotFound(err)) {
+        return { cursor: '', migrated: 0, total: 0 }
+      }
+      throw err
+    }
+  },
+  save: async (state: MigrationState): Promise<void> => {
+    const data = Buffer.from(JSON.stringify(state), 'utf8')
+    await store.write(toPath(MIGRATION_STATE_PATH), data)
+  },
+})
+
+export type HashMigratorOptions = {
+  readonly store: Store
+  readonly stateBackend?: MigrationStateBackend
 }
 
 type HashMigrator = {
@@ -41,24 +79,16 @@ type HashMigrator = {
  * Create a hash migrator bound to the given store. The migrator
  * processes documents in batches, renaming SHA-256-hashed files to
  * BLAKE3-hashed paths. Migration is non-blocking and resumable.
+ *
+ * An optional `stateBackend` can be provided for PostgresStore
+ * deployments (backed by the `memory.blake3_migration_state` table).
+ * When omitted, the file-based backend is used.
  */
-export const createHashMigrator = (store: Store): HashMigrator => {
-  const loadState = async (): Promise<MigrationState> => {
-    try {
-      const data = await store.read(toPath(MIGRATION_STATE_PATH))
-      return JSON.parse(data.toString('utf8')) as MigrationState
-    } catch (err: unknown) {
-      if (isNotFound(err)) {
-        return { cursor: '', migrated: 0, total: 0 }
-      }
-      throw err
-    }
-  }
-
-  const saveState = async (state: MigrationState): Promise<void> => {
-    const data = Buffer.from(JSON.stringify(state), 'utf8')
-    await store.write(toPath(MIGRATION_STATE_PATH), data)
-  }
+export const createHashMigrator = (storeOrOpts: Store | HashMigratorOptions): HashMigrator => {
+  const store = 'store' in storeOrOpts ? storeOrOpts.store : storeOrOpts
+  const stateBackend = 'stateBackend' in storeOrOpts && storeOrOpts.stateBackend !== undefined
+    ? storeOrOpts.stateBackend
+    : createFileMigrationStateBackend(store)
 
   const rawDocumentPath = (slug: string): Path => joinPath(RAW_DOCUMENTS_PREFIX, `${slug}.md`)
 
@@ -106,7 +136,7 @@ export const createHashMigrator = (store: Store): HashMigrator => {
 
     let cursor = opts?.cursor ?? ''
     if (cursor === '') {
-      const state = await loadState()
+      const state = await stateBackend.load()
       if (state.cursor !== '') {
         cursor = state.cursor
       }
@@ -153,7 +183,7 @@ export const createHashMigrator = (store: Store): HashMigrator => {
     const nextCursor = endIdx < total ? String(docPaths[endIdx] ?? '') : ''
 
     if (!dryRun) {
-      await saveState({ cursor: nextCursor, migrated, total })
+      await stateBackend.save({ cursor: nextCursor, migrated, total })
     }
 
     return { migrated, skipped, total, nextCursor }
