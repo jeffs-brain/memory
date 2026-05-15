@@ -90,3 +90,17 @@ export type {
   SimilarityFn,
 } from './dedup.js'
 export { cosineSimilarity, jaroWinklerDistance } from './similarity.js'
+
+export type { ExtractionResult, ExtractionParams, ExtractorOptions } from './extract.js'
+export {
+  Extractor,
+  noisyOr,
+  buildOntologyExtractionPrompt,
+  splitContent,
+  isTabularContent,
+  SINGLE_SECTION_THRESHOLD,
+  EXTRACTION_TEMPERATURE,
+  FUZZY_LABEL_MERGE,
+  CONFIDENCE_FLOOR,
+  CONFIDENCE_CAP,
+} from './extract.js'
