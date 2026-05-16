@@ -116,6 +116,7 @@ export const enumerateFiles = async (opts: EnumerateOptions): Promise<EnumerateR
   const cleanedDirectory = resolve(normalize(opts.directory))
   const files: EnumeratedFile[] = []
   const skipped: string[] = []
+  let limitReached = false
 
   // Try to load .gitignore
   let gitignorePatterns: readonly string[] = []
@@ -140,7 +141,10 @@ export const enumerateFiles = async (opts: EnumerateOptions): Promise<EnumerateR
 
     for (const entry of entries) {
       if (files.length >= maxFiles) {
-        skipped.push(`max files limit (${maxFiles}) reached`)
+        if (!limitReached) {
+          skipped.push(`max files limit (${maxFiles}) reached`)
+          limitReached = true
+        }
         return
       }
 
