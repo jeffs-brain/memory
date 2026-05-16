@@ -38,13 +38,10 @@ export const parseCron = (expression: string): CronSchedule => {
   }
 }
 
-/**
- * Returns true when the raw cron field token represents a wildcard.
- * Matches bare '*' and step-only forms like '* /N' (without space).
- */
+// Only a bare '*' is a true wildcard for DOM/DOW union semantics.
+// Step forms like '*/N' restrict to every-Nth value, so not wildcards.
 const isWildcard = (token: string): boolean => {
-  const trimmed = token.trim()
-  return trimmed === '*' || trimmed.startsWith('*/')
+  return token.trim() === '*'
 }
 
 export const isValid = (expression: string): boolean => {

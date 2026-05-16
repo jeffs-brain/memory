@@ -20,7 +20,9 @@ const defaultCronEngine: CronEngine = {
 }
 
 export const createScheduler = (opts: SchedulerOptions): Scheduler => {
-  const pollIntervalMs = opts.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS
+  const pollIntervalMs = (opts.pollIntervalMs !== undefined && opts.pollIntervalMs > 0)
+    ? opts.pollIntervalMs
+    : DEFAULT_POLL_INTERVAL_MS
   const logger = opts.logger
   const now = opts.now ?? (() => new Date())
   const cronEngine = opts.cronEngine ?? defaultCronEngine
@@ -90,6 +92,7 @@ export const createScheduler = (opts: SchedulerOptions): Scheduler => {
 
   const start = (): void => {
     if (stopped) return
+    if (timer !== undefined) return // idempotent: already started
     // Run immediately on start.
     runningPromise = guardedPoll()
     timer = setInterval(() => {

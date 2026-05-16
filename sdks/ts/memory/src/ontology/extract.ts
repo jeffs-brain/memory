@@ -607,7 +607,8 @@ export function isTabularContent(content: string): boolean {
     const line = lines[i]!
     const commas = (line.match(/,/g) ?? []).length
     const pipes = (line.match(/\|/g) ?? []).length
-    if (commas >= 2 || pipes >= 2) {
+    const tabs = (line.match(/\t/g) ?? []).length
+    if (commas >= 2 || pipes >= 2 || tabs >= 2) {
       tabularLines++
     }
   }
