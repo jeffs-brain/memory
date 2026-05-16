@@ -45,7 +45,16 @@ type RedisBridge struct {
 // NewRedisBridge creates and starts a Redis pub/sub bridge. The bridge
 // listens on the configured channel and publishes parsed events to the
 // local bus. Call Close to stop.
+//
+// Panics if Subscriber or Bus is nil because the bridge cannot function
+// without these dependencies.
 func NewRedisBridge(opts RedisBridgeOptions) *RedisBridge {
+	if opts.Subscriber == nil {
+		panic("trigger: NewRedisBridge requires a non-nil Subscriber")
+	}
+	if opts.Bus == nil {
+		panic("trigger: NewRedisBridge requires a non-nil Bus")
+	}
 	if opts.Channel == "" {
 		opts.Channel = "ingest:trigger"
 	}

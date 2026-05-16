@@ -4,9 +4,13 @@ package ingest
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 )
+
+// ErrNilExtractor is returned when ExtractAfterIngest is called without an Extractor.
+var ErrNilExtractor = errors.New("ingest: Extractor is required but was nil")
 
 // MaxContentChars is the default maximum character count passed to the
 // extractor from an ingested document.
@@ -55,6 +59,10 @@ type ExtractAfterIngestResult struct {
 // Extraction failure is non-fatal: an empty result is returned and the
 // error is swallowed.
 func ExtractAfterIngest(ctx context.Context, opts ExtractAfterIngestOptions) (ExtractAfterIngestResult, error) {
+	if opts.Extractor == nil {
+		return ExtractAfterIngestResult{}, ErrNilExtractor
+	}
+
 	logger := opts.Logger
 	if logger == nil {
 		logger = slog.Default()

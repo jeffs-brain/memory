@@ -463,3 +463,45 @@ func TestMigrateFromV1_UnknownStage(t *testing.T) {
 		t.Fatalf("expected received for unknown stage, got %s", v2.Stage)
 	}
 }
+
+func TestRecordFailure_NilError(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store := newMemStateStore()
+	seedEntry(store, "nil-err-doc", StageChunked)
+
+	sm := NewPipelineStateMachine(StateMachineConfig{Store: store})
+
+	if err := sm.RecordFailure(ctx, "nil-err-doc", nil); err != nil {
+		t.Fatalf("RecordFailure with nil error: %v", err)
+	}
+
+	entry, _ := store.Load(ctx, "nil-err-doc")
+	if entry.RetryCount != 1 {
+		t.Fatalf("expected retryCount=1, got %d", entry.RetryCount)
+	}
+	if entry.LastError != "" {
+		t.Fatalf("expected empty lastError for nil failErr, got %q", entry.LastError)
+	}
+}
+
+func TestMarkDeadLetter_NilError(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store := newMemStateStore()
+	seedEntry(store, "nil-dead-doc", StageStored)
+
+	sm := NewPipelineStateMachine(StateMachineConfig{Store: store})
+
+	if err := sm.MarkDeadLetter(ctx, "nil-dead-doc", nil); err != nil {
+		t.Fatalf("MarkDeadLetter with nil error: %v", err)
+	}
+
+	entry, _ := store.Load(ctx, "nil-dead-doc")
+	if entry.Stage != StageDeadLetter {
+		t.Fatalf("expected stage dead_letter, got %s", entry.Stage)
+	}
+	if entry.LastError != "" {
+		t.Fatalf("expected empty lastError for nil failErr, got %q", entry.LastError)
+	}
+}

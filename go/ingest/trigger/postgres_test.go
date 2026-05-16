@@ -68,6 +68,38 @@ func TestPostgresBridgeValidPayload(t *testing.T) {
 	}
 }
 
+func TestNewPostgresBridge_NilListenerPanics(t *testing.T) {
+	defer func() {
+		r := recover()
+		if r == nil {
+			t.Fatal("expected panic for nil Listener, got none")
+		}
+		msg, ok := r.(string)
+		if !ok || msg != "trigger: NewPostgresBridge requires a non-nil Listener" {
+			t.Fatalf("unexpected panic value: %v", r)
+		}
+	}()
+
+	bus := NewBus(nil)
+	defer bus.Close()
+	NewPostgresBridge(PostgresBridgeOptions{Listener: nil, Bus: bus})
+}
+
+func TestNewPostgresBridge_NilBusPanics(t *testing.T) {
+	defer func() {
+		r := recover()
+		if r == nil {
+			t.Fatal("expected panic for nil Bus, got none")
+		}
+		msg, ok := r.(string)
+		if !ok || msg != "trigger: NewPostgresBridge requires a non-nil Bus" {
+			t.Fatalf("unexpected panic value: %v", r)
+		}
+	}()
+
+	NewPostgresBridge(PostgresBridgeOptions{Listener: &mockPgListener{}, Bus: nil})
+}
+
 func TestPostgresBridgeInvalidJSON(t *testing.T) {
 	bus := NewBus(nil)
 	defer bus.Close()

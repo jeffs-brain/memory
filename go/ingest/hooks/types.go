@@ -59,10 +59,11 @@ type Logger interface {
 // MutationHook subscribes to store change events and dispatches
 // ingestion requests.
 type MutationHook struct {
-	mu     sync.Mutex
-	opts   MutationHookOptions
-	timers map[string]*time.Timer
-	closed chan struct{}
+	mu          sync.Mutex
+	opts        MutationHookOptions
+	timers      map[string]*time.Timer
+	generations map[string]uint64
+	closed      chan struct{}
 }
 
 // DefaultPathMatcher returns true for paths under raw/documents/.

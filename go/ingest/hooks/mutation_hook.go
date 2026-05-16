@@ -13,7 +13,13 @@ const defaultDebounceInterval = 1 * time.Second
 // NewMutationHook creates a MutationHook and returns it along with an
 // EventSink that should be subscribed to the store. Call Close when done
 // to release timers and goroutines.
+//
+// Panics if opts.Dispatch is nil because a hook without a dispatch
+// function can never perform useful work.
 func NewMutationHook(opts MutationHookOptions) *MutationHook {
+	if opts.Dispatch == nil {
+		panic("hooks: NewMutationHook requires a non-nil Dispatch function")
+	}
 	if opts.DebounceInterval == 0 {
 		opts.DebounceInterval = defaultDebounceInterval
 	}
@@ -25,9 +31,10 @@ func NewMutationHook(opts MutationHookOptions) *MutationHook {
 	}
 
 	return &MutationHook{
-		opts:   opts,
-		timers: make(map[string]*time.Timer),
-		closed: make(chan struct{}),
+		opts:        opts,
+		timers:      make(map[string]*time.Timer),
+		generations: make(map[string]uint64),
+		closed:      make(chan struct{}),
 	}
 }
 
@@ -111,14 +118,25 @@ func (h *MutationHook) debounceDispatch(path string) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
-	// Reset existing timer for this path if it has not already fired.
-	if entryI, ok := h.timers[path]; ok {
-		entryI.Stop()
+	// Increment generation so any in-flight callback for this path
+	// recognises itself as stale and skips dispatch.
+	h.generations[path]++
+	gen := h.generations[path]
+
+	// Stop existing timer for this path if it has not already fired.
+	if existing, ok := h.timers[path]; ok {
+		existing.Stop()
 	}
 
 	h.timers[path] = time.AfterFunc(h.opts.DebounceInterval, func() {
 		h.mu.Lock()
+		// If generation has advanced, a newer event superseded this callback.
+		if h.generations[path] != gen {
+			h.mu.Unlock()
+			return
+		}
 		delete(h.timers, path)
+		delete(h.generations, path)
 		h.mu.Unlock()
 
 		// Guard against dispatch after Close.

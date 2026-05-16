@@ -7,6 +7,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 )
 
 // mockRedisSubscriber simulates a Redis pub/sub client for testing.
@@ -55,10 +56,42 @@ func TestRedisBridgeValidJSON(t *testing.T) {
 	})
 	defer bridge.Close()
 
-	wg.Wait()
+	waitWithTimeout(t, &wg, 5*time.Second)
 	if got := received.Load(); got != 1 {
 		t.Fatalf("expected 1 event, got %d", got)
 	}
+}
+
+func TestNewRedisBridge_NilSubscriberPanics(t *testing.T) {
+	defer func() {
+		r := recover()
+		if r == nil {
+			t.Fatal("expected panic for nil Subscriber, got none")
+		}
+		msg, ok := r.(string)
+		if !ok || msg != "trigger: NewRedisBridge requires a non-nil Subscriber" {
+			t.Fatalf("unexpected panic value: %v", r)
+		}
+	}()
+
+	bus := NewBus(nil)
+	defer bus.Close()
+	NewRedisBridge(RedisBridgeOptions{Subscriber: nil, Bus: bus})
+}
+
+func TestNewRedisBridge_NilBusPanics(t *testing.T) {
+	defer func() {
+		r := recover()
+		if r == nil {
+			t.Fatal("expected panic for nil Bus, got none")
+		}
+		msg, ok := r.(string)
+		if !ok || msg != "trigger: NewRedisBridge requires a non-nil Bus" {
+			t.Fatalf("unexpected panic value: %v", r)
+		}
+	}()
+
+	NewRedisBridge(RedisBridgeOptions{Subscriber: &mockRedisSubscriber{}, Bus: nil})
 }
 
 func TestRedisBridgeInvalidJSON(t *testing.T) {
@@ -82,10 +115,26 @@ func TestRedisBridgeInvalidJSON(t *testing.T) {
 		Logger:     logger,
 	})
 
-	wg.Wait()
+	waitWithTimeout(t, &wg, 5*time.Second)
 	bridge.Close()
 
 	if got := warnings.Load(); got < 1 {
 		t.Fatalf("expected at least 1 warning for invalid JSON, got %d", got)
+	}
+}
+
+// waitWithTimeout waits for a WaitGroup with a bounded timeout to prevent
+// CI stalls from blocking indefinitely on missing events.
+func waitWithTimeout(t *testing.T, wg *sync.WaitGroup, timeout time.Duration) {
+	t.Helper()
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(timeout):
+		t.Fatal("timed out waiting for WaitGroup")
 	}
 }
