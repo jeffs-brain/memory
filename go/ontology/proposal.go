@@ -140,7 +140,10 @@ func (w *ProposalWorkflow) ProposeFromExtraction(ctx context.Context, result Ext
 	}
 
 	now := w.clock().UTC().Format(time.RFC3339)
-	bid := computeBatchID(result.Domain, sourceDocument, now)
+	// Use nanosecond precision for batch ID computation to avoid collisions
+	// when multiple extractions happen within the same second.
+	nowNano := w.clock().UTC().Format(time.RFC3339Nano)
+	bid := computeBatchID(result.Domain, sourceDocument, nowNano)
 
 	batch := &ProposalBatch{
 		ID:             bid,

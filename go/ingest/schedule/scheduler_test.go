@@ -141,13 +141,16 @@ func TestSchedulerRunDueJobs(t *testing.T) {
 	past := time.Now().UTC().Add(-1 * time.Hour)
 	store.MarkRun(context.Background(), job.ID, past.Add(-2*time.Hour), past)
 
-	scheduler := NewScheduler(SchedulerOptions{
+	scheduler, sErr := NewScheduler(SchedulerOptions{
 		Store: store,
 		Dispatch: func(_ context.Context, j Job) error {
 			dispatched.Add(1)
 			return nil
 		},
 	})
+	if sErr != nil {
+		t.Fatalf("new scheduler: %v", sErr)
+	}
 
 	fired, err := scheduler.RunDueJobs(context.Background())
 	if err != nil {
@@ -183,13 +186,16 @@ func TestSchedulerDisabledJobSkipped(t *testing.T) {
 	enabled := false
 	store.Update(context.Background(), job.ID, UpdatePatch{Enabled: &enabled})
 
-	scheduler := NewScheduler(SchedulerOptions{
+	scheduler, sErr := NewScheduler(SchedulerOptions{
 		Store: store,
 		Dispatch: func(_ context.Context, _ Job) error {
 			dispatched.Add(1)
 			return nil
 		},
 	})
+	if sErr != nil {
+		t.Fatalf("new scheduler: %v", sErr)
+	}
 
 	fired, _ := scheduler.RunDueJobs(context.Background())
 	if fired != 0 {
@@ -219,7 +225,7 @@ func TestSchedulerJobFailureDoesNotBlockOthers(t *testing.T) {
 	store.MarkRun(context.Background(), job2.ID, past.Add(-2*time.Hour), past)
 
 	var succeeded atomic.Int32
-	scheduler := NewScheduler(SchedulerOptions{
+	scheduler, sErr := NewScheduler(SchedulerOptions{
 		Store:  store,
 		Logger: &testLogger{},
 		Dispatch: func(_ context.Context, j Job) error {
@@ -230,6 +236,9 @@ func TestSchedulerJobFailureDoesNotBlockOthers(t *testing.T) {
 			return nil
 		},
 	})
+	if sErr != nil {
+		t.Fatalf("new scheduler: %v", sErr)
+	}
 
 	fired, _ := scheduler.RunDueJobs(context.Background())
 	// Only the successful one counts as fired.
@@ -246,13 +255,16 @@ func TestSchedulerNoDueJobs(t *testing.T) {
 	store, _ := NewSQLiteStore(db)
 
 	var dispatched atomic.Int32
-	scheduler := NewScheduler(SchedulerOptions{
+	scheduler, sErr := NewScheduler(SchedulerOptions{
 		Store: store,
 		Dispatch: func(_ context.Context, _ Job) error {
 			dispatched.Add(1)
 			return nil
 		},
 	})
+	if sErr != nil {
+		t.Fatalf("new scheduler: %v", sErr)
+	}
 
 	fired, _ := scheduler.RunDueJobs(context.Background())
 	if fired != 0 {
@@ -283,13 +295,16 @@ func TestSchedulerPerBrainIsolation(t *testing.T) {
 	store.MarkRun(context.Background(), job2.ID, past.Add(-2*time.Hour), past)
 
 	brains := map[string]int{}
-	scheduler := NewScheduler(SchedulerOptions{
+	scheduler, sErr := NewScheduler(SchedulerOptions{
 		Store: store,
 		Dispatch: func(_ context.Context, j Job) error {
 			brains[j.BrainID]++
 			return nil
 		},
 	})
+	if sErr != nil {
+		t.Fatalf("new scheduler: %v", sErr)
+	}
 
 	fired, _ := scheduler.RunDueJobs(context.Background())
 	if fired != 2 {
@@ -332,7 +347,7 @@ func TestSchedulerStartStop(t *testing.T) {
 	past := time.Now().UTC().Add(-1 * time.Hour)
 	store.MarkRun(context.Background(), job.ID, past.Add(-2*time.Hour), past)
 
-	scheduler := NewScheduler(SchedulerOptions{
+	scheduler, sErr := NewScheduler(SchedulerOptions{
 		Store:        store,
 		PollInterval: 50 * time.Millisecond,
 		Dispatch: func(_ context.Context, _ Job) error {
@@ -340,6 +355,9 @@ func TestSchedulerStartStop(t *testing.T) {
 			return nil
 		},
 	})
+	if sErr != nil {
+		t.Fatalf("new scheduler: %v", sErr)
+	}
 
 	scheduler.Start()
 	// Give the immediate poll time to fire.
@@ -374,13 +392,16 @@ func TestSchedulerCustomCronEngine(t *testing.T) {
 	past := time.Now().UTC().Add(-1 * time.Hour)
 	store.MarkRun(context.Background(), job.ID, past.Add(-2*time.Hour), past)
 
-	scheduler := NewScheduler(SchedulerOptions{
+	scheduler, sErr := NewScheduler(SchedulerOptions{
 		Store:      store,
 		CronEngine: engine,
 		Dispatch: func(_ context.Context, _ Job) error {
 			return nil
 		},
 	})
+	if sErr != nil {
+		t.Fatalf("new scheduler: %v", sErr)
+	}
 
 	fired, err := scheduler.RunDueJobs(context.Background())
 	if err != nil {
@@ -415,12 +436,15 @@ func TestSchedulerDefaultCronEngine(t *testing.T) {
 	past := time.Now().UTC().Add(-1 * time.Hour)
 	store.MarkRun(context.Background(), job.ID, past.Add(-2*time.Hour), past)
 
-	scheduler := NewScheduler(SchedulerOptions{
+	scheduler, sErr := NewScheduler(SchedulerOptions{
 		Store: store,
 		Dispatch: func(_ context.Context, _ Job) error {
 			return nil
 		},
 	})
+	if sErr != nil {
+		t.Fatalf("new scheduler: %v", sErr)
+	}
 
 	fired, err := scheduler.RunDueJobs(context.Background())
 	if err != nil {

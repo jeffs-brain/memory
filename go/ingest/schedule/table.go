@@ -68,7 +68,7 @@ func (s *SQLiteStore) Create(ctx context.Context, input CreateInput) (Job, error
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?)`,
 		id, input.BrainID, input.Name, input.CronExpression,
 		input.Target.Kind, nullStr(input.Target.URL), nullStr(input.Target.Path), nullStr(input.Target.Glob),
-		now.Format(time.RFC3339), now.Format(time.RFC3339), now.Format(time.RFC3339),
+		nextRun.Format(time.RFC3339), now.Format(time.RFC3339), now.Format(time.RFC3339),
 		metadataJSON,
 	)
 	if err != nil {

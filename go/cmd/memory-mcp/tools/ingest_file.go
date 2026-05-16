@@ -6,10 +6,37 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/google/jsonschema-go/jsonschema"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
+
+// textFormatExtensions are file extensions whose raw bytes are valid text
+// content suitable for extraction. Binary formats (PDF, etc.) need
+// normalisation before extraction and should be skipped here.
+var textFormatExtensions = map[string]bool{
+	".md": true, ".markdown": true, ".txt": true, ".text": true,
+	".json": true, ".html": true, ".htm": true, ".csv": true,
+	".tsv": true, ".xml": true, ".yaml": true, ".yml": true,
+	".toml": true, ".rst": true, ".adoc": true, ".org": true,
+	".tex": true,
+}
+
+// isTextFormat reports whether the file content is suitable for direct
+// extraction. When the explicit "as" format is one of the known text
+// formats, or the file extension is a known text extension, extraction
+// is safe. Binary formats like PDF require prior normalisation and should
+// not be passed raw to the extractor.
+func isTextFormat(asFormat, ext string) bool {
+	switch asFormat {
+	case "markdown", "text", "json":
+		return true
+	case "pdf":
+		return false
+	}
+	return textFormatExtensions[ext]
+}
 
 func registerIngestFile(server *mcp.Server, client MemoryClient) {
 	schema := &jsonschema.Schema{
@@ -37,24 +64,27 @@ func registerIngestFile(server *mcp.Server, client MemoryClient) {
 			return structuredResult(result)
 		}
 
-		// Read content from local file for extraction (no re-fetch needed).
-		absPath := args.Path
-		if !filepath.IsAbs(absPath) {
-			absPath, _ = filepath.Abs(absPath)
-		}
-		raw, readErr := os.ReadFile(absPath)
+		// Skip extraction for non-text formats where raw bytes are meaningless.
+		ext := strings.ToLower(filepath.Ext(args.Path))
 		extraction := &ExtractAfterIngestResult{
 			FactsExtracted: 0,
 			Memories:       []ExtractedMemory{},
 		}
-		if readErr == nil && len(raw) > 0 {
-			extracted, extractErr := client.ExtractAfterIngest(ctx, ExtractAfterIngestArgs{
-				Content:        string(raw),
-				DocumentSource: args.Path,
-				Brain:          args.Brain,
-			})
-			if extractErr == nil {
-				extraction = extracted
+		if isTextFormat(args.As, ext) {
+			absPath := args.Path
+			if !filepath.IsAbs(absPath) {
+				absPath, _ = filepath.Abs(absPath)
+			}
+			raw, readErr := os.ReadFile(absPath)
+			if readErr == nil && len(raw) > 0 {
+				extracted, extractErr := client.ExtractAfterIngest(ctx, ExtractAfterIngestArgs{
+					Content:        string(raw),
+					DocumentSource: args.Path,
+					Brain:          args.Brain,
+				})
+				if extractErr == nil {
+					extraction = extracted
+				}
 			}
 		}
 
