@@ -3,6 +3,7 @@ package schedule
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"time"
 )
@@ -24,13 +25,26 @@ type SchedulerOptions struct {
 
 // Scheduler polls the schedule store for due jobs and fires them.
 type Scheduler struct {
-	opts   SchedulerOptions
-	cancel context.CancelFunc
-	wg     sync.WaitGroup
+	opts    SchedulerOptions
+	cancel  context.CancelFunc
+	wg      sync.WaitGroup
+	mu      sync.Mutex
+	started bool
 }
 
 // NewScheduler creates a scheduler. Call Start to begin polling.
-func NewScheduler(opts SchedulerOptions) *Scheduler {
+// Returns an error if required options (Store, Dispatch) are nil or
+// PollInterval is negative.
+func NewScheduler(opts SchedulerOptions) (*Scheduler, error) {
+	if opts.Store == nil {
+		return nil, fmt.Errorf("schedule: NewScheduler requires a non-nil Store")
+	}
+	if opts.Dispatch == nil {
+		return nil, fmt.Errorf("schedule: NewScheduler requires a non-nil Dispatch")
+	}
+	if opts.PollInterval < 0 {
+		return nil, fmt.Errorf("schedule: NewScheduler requires a non-negative PollInterval")
+	}
 	if opts.PollInterval == 0 {
 		opts.PollInterval = defaultPollInterval
 	}
@@ -40,11 +54,20 @@ func NewScheduler(opts SchedulerOptions) *Scheduler {
 	if opts.CronEngine == nil {
 		opts.CronEngine = NewDefaultCronEngine()
 	}
-	return &Scheduler{opts: opts}
+	return &Scheduler{opts: opts}, nil
 }
 
 // Start begins the polling loop in a background goroutine.
+// Subsequent calls are no-ops (idempotent).
 func (s *Scheduler) Start() {
+	s.mu.Lock()
+	if s.started {
+		s.mu.Unlock()
+		return
+	}
+	s.started = true
+	s.mu.Unlock()
+
 	ctx, cancel := context.WithCancel(context.Background())
 	s.cancel = cancel
 	s.wg.Add(1)

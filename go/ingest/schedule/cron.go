@@ -62,10 +62,11 @@ func ParseCron(expression string) (CronSchedule, error) {
 }
 
 // isWildcard returns true when the raw cron field token represents a wildcard.
-// Matches bare "*" and step-only forms like "*/N".
+// Only a bare "*" is a true wildcard. Step forms like "*/N" restrict to
+// every-Nth value (e.g. "*/2" means every other), so they are NOT wildcards
+// for the purpose of DOM/DOW union semantics.
 func isWildcard(token string) bool {
-	trimmed := strings.TrimSpace(token)
-	return trimmed == "*" || strings.HasPrefix(trimmed, "*/")
+	return strings.TrimSpace(token) == "*"
 }
 
 // IsValid reports whether expression is a valid 5-field cron expression.

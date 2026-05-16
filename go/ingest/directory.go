@@ -121,7 +121,7 @@ func EnumerateFiles(ctx context.Context, opts EnumerateOptions) ([]EnumeratedFil
 				skipped = append(skipped, fmt.Sprintf("max files limit (%d) reached", opts.MaxFiles))
 				limitReached = true
 			}
-			return nil
+			return filepath.SkipAll
 		}
 
 		// Size check
