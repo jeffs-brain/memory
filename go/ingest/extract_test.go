@@ -4,6 +4,7 @@ package ingest
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -243,5 +244,17 @@ func TestExtractAfterIngest_NonFatalOnError(t *testing.T) {
 	}
 	if result.FactsExtracted != 0 {
 		t.Errorf("expected 0 facts on failure, got %d", result.FactsExtracted)
+	}
+}
+
+func TestExtractAfterIngest_NilExtractorReturnsError(t *testing.T) {
+	_, err := ExtractAfterIngest(context.Background(), ExtractAfterIngestOptions{
+		BrainID:         "test-brain",
+		DocumentPath:    "/docs/readme.md",
+		DocumentContent: "Some content",
+		Extractor:       nil,
+	})
+	if !errors.Is(err, ErrNilExtractor) {
+		t.Fatalf("expected ErrNilExtractor, got: %v", err)
 	}
 }

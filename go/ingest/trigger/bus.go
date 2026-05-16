@@ -32,6 +32,10 @@ type inProcessBus struct {
 	logger        Logger
 	closed        atomic.Bool
 
+	// publishMu serialises Publish with Close to prevent events from being
+	// enqueued after Close has begun draining.
+	publishMu sync.Mutex
+
 	eventCh chan IngestTriggerEvent
 	wg      sync.WaitGroup
 	done    chan struct{}
@@ -65,7 +69,13 @@ func NewBus(opts *BusOptions) Bus {
 // Publish validates and enqueues an event. Returns an error if the bus
 // is closed or the event is malformed. When the queue is full, the
 // oldest event is dropped and a warning is logged.
+//
+// Publish is serialised with Close via publishMu to prevent events from
+// being enqueued after Close has begun draining.
 func (b *inProcessBus) Publish(event IngestTriggerEvent) error {
+	b.publishMu.Lock()
+	defer b.publishMu.Unlock()
+
 	if b.closed.Load() {
 		return ErrBusClosed
 	}
@@ -122,9 +132,15 @@ func (b *inProcessBus) SubscribeWithFilter(handler TriggerHandler, opts Subscrib
 }
 
 // Close signals the dispatch loop to drain remaining events and stop.
+// It holds publishMu while setting the closed flag so that no in-flight
+// Publish can enqueue after draining begins.
 func (b *inProcessBus) Close() error {
-	if b.closed.Swap(true) {
-		return nil // already closed
+	b.publishMu.Lock()
+	alreadyClosed := b.closed.Swap(true)
+	b.publishMu.Unlock()
+
+	if alreadyClosed {
+		return nil
 	}
 	close(b.done)
 	b.wg.Wait()

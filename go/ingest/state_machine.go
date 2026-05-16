@@ -182,7 +182,9 @@ func (sm *PipelineStateMachine) RecordFailure(ctx context.Context, documentHash 
 
 	from := entry.Stage
 	entry.RetryCount++
-	entry.LastError = failErr.Error()
+	if failErr != nil {
+		entry.LastError = failErr.Error()
+	}
 	entry.UpdatedAt = time.Now().UTC()
 
 	if entry.RetryCount >= sm.maxRetries {
@@ -221,7 +223,9 @@ func (sm *PipelineStateMachine) MarkDeadLetter(ctx context.Context, documentHash
 
 	from := entry.Stage
 	entry.Stage = StageDeadLetter
-	entry.LastError = failErr.Error()
+	if failErr != nil {
+		entry.LastError = failErr.Error()
+	}
 	entry.UpdatedAt = time.Now().UTC()
 
 	if err := sm.store.Save(ctx, entry); err != nil {

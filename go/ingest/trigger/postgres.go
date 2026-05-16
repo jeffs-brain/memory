@@ -45,7 +45,16 @@ type PostgresBridge struct {
 // NewPostgresBridge creates and starts a PostgreSQL LISTEN/NOTIFY bridge.
 // The bridge listens on the configured channel and publishes parsed events
 // to the local bus. Call Close to stop.
+//
+// Panics if Listener or Bus is nil because the bridge cannot function
+// without these dependencies.
 func NewPostgresBridge(opts PostgresBridgeOptions) *PostgresBridge {
+	if opts.Listener == nil {
+		panic("trigger: NewPostgresBridge requires a non-nil Listener")
+	}
+	if opts.Bus == nil {
+		panic("trigger: NewPostgresBridge requires a non-nil Bus")
+	}
 	if opts.Channel == "" {
 		opts.Channel = "ingest_trigger"
 	}

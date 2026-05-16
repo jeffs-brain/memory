@@ -388,6 +388,24 @@ func TestEmptyPathIgnored(t *testing.T) {
 	}
 }
 
+func TestNilDispatchPanics(t *testing.T) {
+	defer func() {
+		r := recover()
+		if r == nil {
+			t.Fatal("expected panic for nil Dispatch, got none")
+		}
+		msg, ok := r.(string)
+		if !ok || msg != "hooks: NewMutationHook requires a non-nil Dispatch function" {
+			t.Fatalf("unexpected panic value: %v", r)
+		}
+	}()
+
+	NewMutationHook(MutationHookOptions{
+		BrainID:  "brain-1",
+		Dispatch: nil,
+	})
+}
+
 func TestCloseStopsPendingTimers(t *testing.T) {
 	var dispatched atomic.Int32
 

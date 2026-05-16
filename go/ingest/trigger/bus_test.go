@@ -345,6 +345,42 @@ func TestSubscribeWithoutFilterReceivesAllEvents(t *testing.T) {
 	}
 }
 
+func TestPublishCloseRace(t *testing.T) {
+	// Verify that concurrent Publish and Close do not deadlock or panic.
+	// Events published after Close returns must receive ErrBusClosed.
+	bus := NewBus(&BusOptions{MaxQueueDepth: 100})
+
+	var delivered atomic.Int32
+	bus.Subscribe(func(_ IngestTriggerEvent) error {
+		delivered.Add(1)
+		return nil
+	})
+
+	var publishWg sync.WaitGroup
+	publishWg.Add(50)
+	for i := range 50 {
+		go func(idx int) {
+			defer publishWg.Done()
+			_ = bus.Publish(validEvent("race-" + strconv.Itoa(idx)))
+		}(i)
+	}
+
+	// Close concurrently with publishes.
+	bus.Close()
+	publishWg.Wait()
+
+	// After Close, all publishes must return ErrBusClosed.
+	err := bus.Publish(validEvent("post-close"))
+	if !errors.Is(err, ErrBusClosed) {
+		t.Fatalf("expected ErrBusClosed after close, got %v", err)
+	}
+
+	// Delivered count must be <= 50 (some may have raced and been rejected).
+	if got := delivered.Load(); got > 50 {
+		t.Fatalf("delivered %d events, expected <= 50", got)
+	}
+}
+
 // testLogger is a minimal Logger implementation for tests.
 type testLogger struct {
 	onWarn func(string, ...map[string]string)
