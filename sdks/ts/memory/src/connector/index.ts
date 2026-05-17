@@ -71,3 +71,10 @@ export {
 
 export { GDriveConnector, createGDriveConnector } from './gdrive.js'
 export type { GDriveConnectorConfig } from './gdrive.js'
+
+export {
+  createNotionConnector,
+  type NotionConnectorConfig,
+  type NotionConnectorOptions,
+  type NotionHTTPFetcher,
+} from './notion.js'
