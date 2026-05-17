@@ -74,8 +74,8 @@ type PoolMetrics struct {
 // Concurrency model: mu guards brainActive and workerStates. The
 // atomic counters (processed, failed, active) are lock-free.
 type Pool struct {
-	cfg         PoolConfig
-	logger      Logger
+	cfg          PoolConfig
+	logger       Logger
 	backpressure *BackpressureChecker
 
 	// mu guards brainActive and workerStates.
@@ -210,6 +210,7 @@ func (p *Pool) Metrics() PoolMetrics {
 	return PoolMetrics{
 		ActiveWorkers:  activeCount,
 		IdleWorkers:    p.cfg.Concurrency - activeCount,
+		QueueDepth:     p.backpressure.LastDepth(),
 		ProcessedTotal: p.processed.Load(),
 		FailedTotal:    p.failed.Load(),
 		PerBrainActive: brainCopy,
@@ -244,7 +245,6 @@ func (p *Pool) idleCount() int {
 func (p *Pool) runWorker(ctx context.Context, workerIdx int) {
 	defer p.wg.Done()
 	qualifiedID := fmt.Sprintf("%s-%d", p.cfg.WorkerID, workerIdx)
-	p.logger.Debug("worker started", "worker", qualifiedID)
 
 	for {
 		select {
@@ -255,15 +255,42 @@ func (p *Pool) runWorker(ctx context.Context, workerIdx int) {
 		default:
 		}
 
+		p.workerLoop(ctx, workerIdx, qualifiedID)
+	}
+}
+
+// workerLoop runs the core claim-process-poll cycle for a single
+// worker. It is wrapped by runWorker which handles crash recovery.
+func (p *Pool) workerLoop(ctx context.Context, workerIdx int, qualifiedID string) {
+	defer func() {
+		if r := recover(); r != nil {
+			p.logger.Error("worker crashed, spawning replacement",
+				"worker", qualifiedID, "panic", fmt.Sprint(r))
+		}
+	}()
+
+	p.logger.Debug("worker started", "worker", qualifiedID)
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
+
 		claimed := p.claimAndProcess(ctx, qualifiedID, workerIdx)
 		if !claimed {
+			p.refreshBackpressure(ctx)
 			p.pollWait(ctx)
 		}
 	}
 }
 
 func (p *Pool) claimAndProcess(ctx context.Context, qualifiedID string, workerIdx int) bool {
-	job, err := p.cfg.Queue.Claim(ctx, qualifiedID)
+	jobs, err := p.cfg.Queue.Claim(ctx, ClaimOptions{
+		BatchSize: 1,
+		WorkerID:  qualifiedID,
+	})
 	if err != nil {
 		if ctx.Err() != nil {
 			return false
@@ -271,21 +298,27 @@ func (p *Pool) claimAndProcess(ctx context.Context, qualifiedID string, workerId
 		p.logger.Warn("claim failed", "worker", qualifiedID, "error", err.Error())
 		return false
 	}
-	if job == nil {
+	if len(jobs) == 0 {
 		return false
 	}
 
+	job := jobs[0]
+
 	if !p.acquireBrainSlot(job.BrainID) {
-		p.logger.Debug("per-brain concurrency limit reached, releasing job",
+		p.logger.Debug("per-brain concurrency limit reached, requeueing job",
 			"worker", qualifiedID, "brainID", job.BrainID)
-		_ = p.cfg.Queue.Fail(ctx, job.ID, "per-brain concurrency limit reached")
+		requeueErr := p.cfg.Queue.Requeue(ctx, job.ID)
+		if requeueErr != nil {
+			p.logger.Error("failed to requeue over-limit job",
+				"worker", qualifiedID, "jobID", job.ID, "error", requeueErr.Error())
+		}
 		return true
 	}
 
 	p.setWorkerStatus(workerIdx, "processing")
 	p.active.Add(1)
 
-	processErr := p.cfg.Processor(ctx, *job)
+	processErr := p.cfg.Processor(ctx, job)
 
 	p.active.Add(-1)
 	p.releaseBrainSlot(job.BrainID)
@@ -293,7 +326,7 @@ func (p *Pool) claimAndProcess(ctx context.Context, qualifiedID string, workerId
 
 	if processErr != nil {
 		p.failed.Add(1)
-		failErr := p.cfg.Queue.Fail(ctx, job.ID, processErr.Error())
+		failErr := p.cfg.Queue.Fail(ctx, job.ID, processErr.Error(), true)
 		if failErr != nil {
 			p.logger.Error("failed to mark job as failed",
 				"worker", qualifiedID, "jobID", job.ID, "error", failErr.Error())
@@ -305,7 +338,7 @@ func (p *Pool) claimAndProcess(ctx context.Context, qualifiedID string, workerId
 	}
 
 	p.processed.Add(1)
-	completeErr := p.cfg.Queue.Complete(ctx, job.ID)
+	completeErr := p.cfg.Queue.Complete(ctx, job.ID, nil)
 	if completeErr != nil {
 		p.logger.Error("failed to mark job as completed",
 			"worker", qualifiedID, "jobID", job.ID, "error", completeErr.Error())

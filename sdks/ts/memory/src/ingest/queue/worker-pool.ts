@@ -12,8 +12,8 @@
 import { randomUUID } from 'node:crypto'
 import { availableParallelism } from 'node:os'
 
-import type { PoolLogger, QueueAdapter, QueueJob } from './adapter.js'
-import { noopPoolLogger } from './adapter.js'
+import type { Logger, QueueAdapter, QueueJob } from './adapter.js'
+import { noopLogger } from './adapter.js'
 import { type BackpressureChecker, createBackpressureChecker } from './backpressure.js'
 
 /**
@@ -70,7 +70,7 @@ export type WorkerPoolOptions = {
   readonly pollIntervalMs?: number
   readonly shutdownTimeoutMs?: number
   readonly maxQueueDepth?: number
-  readonly logger?: PoolLogger
+  readonly logger?: Logger
   readonly workerId?: string
 }
 
@@ -87,12 +87,20 @@ export type WorkerPoolMetrics = {
 }
 
 /**
+ * Outcome of a graceful shutdown. Callers should check whether the
+ * pool timed out (mirrors Go's error return from Stop).
+ */
+export type StopResult = {
+  readonly timedOut: boolean
+}
+
+/**
  * Public surface of a running worker pool. Call start() to launch
  * workers, stop() for graceful shutdown.
  */
 export type WorkerPool = {
   start(): void
-  stop(): Promise<void>
+  stop(): Promise<StopResult>
   metrics(): WorkerPoolMetrics
   isBackpressured(): boolean
   healthy(): boolean
@@ -106,7 +114,7 @@ type ResolvedConfig = {
   readonly pollIntervalMs: number
   readonly shutdownTimeoutMs: number
   readonly maxQueueDepth: number
-  readonly logger: PoolLogger
+  readonly logger: Logger
   readonly workerId: string
 }
 
@@ -162,84 +170,76 @@ export const createWorkerPool = (opts: WorkerPoolOptions): WorkerPool => {
     })
 
   const claimAndProcess = async (qualifiedId: string, signal: AbortSignal): Promise<boolean> => {
-    let claimed: QueueJob | undefined
+    let claimed: readonly QueueJob[]
     try {
-      claimed = await cfg.queue.claim(qualifiedId)
+      claimed = await cfg.queue.claim({ batchSize: 1, workerId: qualifiedId })
     } catch (err: unknown) {
       if (signal.aborted) return false
       cfg.logger.warn('claim failed', { worker: qualifiedId, error: String(err) })
       return false
     }
 
-    if (claimed === undefined) return false
+    if (claimed.length === 0) return false
 
-    if (!acquireBrainSlot(claimed.brainId)) {
-      cfg.logger.debug('per-brain concurrency limit reached, releasing job', {
+    const job = claimed[0]!
+
+    if (!acquireBrainSlot(job.brainId)) {
+      cfg.logger.debug('per-brain concurrency limit reached, requeueing job', {
         worker: qualifiedId,
-        brainId: claimed.brainId,
+        brainId: job.brainId,
       })
       try {
-        await cfg.queue.fail(claimed.id, 'per-brain concurrency limit reached')
-      } catch (failErr: unknown) {
-        cfg.logger.error('failed to release over-limit job', {
+        await cfg.queue.requeue(job.id)
+      } catch (requeueErr: unknown) {
+        cfg.logger.error('failed to requeue over-limit job', {
           worker: qualifiedId,
-          jobId: claimed.id,
-          error: String(failErr),
+          jobId: job.id,
+          error: String(requeueErr),
         })
       }
-      return true
+      // Return false so the worker backs off with pollWait before
+      // claiming again. Without this, Node.js workers enter a tight
+      // claim-requeue loop that starves the event loop and prevents
+      // in-flight processors from completing.
+      return false
     }
 
     activeWorkers++
     try {
-      await cfg.processor(claimed)
+      await cfg.processor(job)
       processedTotal++
       try {
-        await cfg.queue.complete(claimed.id)
+        await cfg.queue.complete(job.id)
       } catch (completeErr: unknown) {
         cfg.logger.error('failed to mark job as completed', {
           worker: qualifiedId,
-          jobId: claimed.id,
+          jobId: job.id,
           error: String(completeErr),
         })
       }
     } catch (processErr: unknown) {
       failedTotal++
       try {
-        await cfg.queue.fail(claimed.id, String(processErr))
+        await cfg.queue.fail(job.id, String(processErr), true)
       } catch (failErr: unknown) {
         cfg.logger.error('failed to mark job as failed', {
           worker: qualifiedId,
-          jobId: claimed.id,
+          jobId: job.id,
           error: String(failErr),
         })
       }
       cfg.logger.warn('job processing failed', {
         worker: qualifiedId,
-        jobId: claimed.id,
-        brainId: claimed.brainId,
+        jobId: job.id,
+        brainId: job.brainId,
         error: String(processErr),
       })
     } finally {
       activeWorkers--
-      releaseBrainSlot(claimed.brainId)
+      releaseBrainSlot(job.brainId)
     }
 
     return true
-  }
-
-  const runWorker = async (workerIdx: number, signal: AbortSignal): Promise<void> => {
-    const qualifiedId = `${cfg.workerId}-${workerIdx}`
-    cfg.logger.debug('worker started', { worker: qualifiedId })
-
-    while (!signal.aborted) {
-      const didWork = await claimAndProcess(qualifiedId, signal)
-      if (!didWork && !signal.aborted) {
-        await pollWait(signal)
-      }
-    }
-
-    cfg.logger.debug('worker stopped', { worker: qualifiedId })
   }
 
   const refreshBackpressure = async (): Promise<void> => {
@@ -247,6 +247,44 @@ export const createWorkerPool = (opts: WorkerPoolOptions): WorkerPool => {
       await backpressure.check('')
     } catch (err: unknown) {
       cfg.logger.warn('backpressure check failed', { error: String(err) })
+    }
+  }
+
+  /**
+   * Core worker loop: claim, process, poll, repeat. On idle polls the
+   * backpressure state is refreshed so the cached value stays current.
+   */
+  const workerLoop = async (workerIdx: number, signal: AbortSignal): Promise<void> => {
+    const qualifiedId = `${cfg.workerId}-${workerIdx}`
+    cfg.logger.debug('worker started', { worker: qualifiedId })
+
+    while (!signal.aborted) {
+      const didWork = await claimAndProcess(qualifiedId, signal)
+      if (!didWork && !signal.aborted) {
+        await refreshBackpressure()
+        await pollWait(signal)
+      }
+    }
+
+    cfg.logger.debug('worker stopped', { worker: qualifiedId })
+  }
+
+  /**
+   * Resilient wrapper that restarts the worker loop when it crashes
+   * unexpectedly. Logs the crash and spawns a replacement so the pool
+   * does not permanently lose capacity.
+   */
+  const runWorker = async (workerIdx: number, signal: AbortSignal): Promise<void> => {
+    while (!signal.aborted) {
+      try {
+        await workerLoop(workerIdx, signal)
+        return
+      } catch (err: unknown) {
+        cfg.logger.error('worker crashed, spawning replacement', {
+          worker: `${cfg.workerId}-${workerIdx}`,
+          error: String(err),
+        })
+      }
     }
   }
 
@@ -267,27 +305,34 @@ export const createWorkerPool = (opts: WorkerPoolOptions): WorkerPool => {
       workerPromises = Array.from({ length: cfg.concurrency }, (_, i) => runWorker(i, signal))
     },
 
-    async stop(): Promise<void> {
-      if (stopped) return
+    async stop(): Promise<StopResult> {
+      if (stopped) return { timedOut: false }
       stopped = true
 
       cfg.logger.info('pool stopping', { shutdownTimeoutMs: cfg.shutdownTimeoutMs })
 
-      if (abortController === undefined) return
+      if (abortController === undefined) return { timedOut: false }
       abortController.abort()
 
       const allDone = Promise.all(workerPromises)
-      const timeout = new Promise<'timeout'>((resolve) =>
-        setTimeout(() => resolve('timeout'), cfg.shutdownTimeoutMs),
-      )
+      let timerId: ReturnType<typeof setTimeout> | undefined
+      const timeout = new Promise<'timeout'>((resolve) => {
+        timerId = setTimeout(() => resolve('timeout'), cfg.shutdownTimeoutMs)
+      })
 
       const outcome = await Promise.race([allDone.then(() => 'done' as const), timeout])
 
-      if (outcome === 'timeout') {
-        cfg.logger.warn('pool shutdown timed out, some workers may still be running')
-      } else {
-        cfg.logger.info('pool stopped gracefully')
-      }
+      if (timerId !== undefined) clearTimeout(timerId)
+
+      const timedOut = outcome === 'timeout'
+      const shutdownMessages = {
+        timeout: 'pool shutdown timed out, some workers may still be running',
+        done: 'pool stopped gracefully',
+      } as const satisfies Record<typeof outcome, string>
+      const logLevel = timedOut ? 'warn' : 'info' as const
+      cfg.logger[logLevel](shutdownMessages[outcome])
+
+      return { timedOut }
     },
 
     metrics(): WorkerPoolMetrics {
@@ -298,7 +343,7 @@ export const createWorkerPool = (opts: WorkerPoolOptions): WorkerPool => {
       return {
         activeWorkers,
         idleWorkers: cfg.concurrency - activeWorkers,
-        queueDepth: 0,
+        queueDepth: backpressure.lastDepth(),
         processedTotal,
         failedTotal,
         perBrainActive: perBrainSnapshot,
@@ -323,7 +368,7 @@ const resolveConfig = (opts: WorkerPoolOptions): ResolvedConfig => ({
   pollIntervalMs: resolvePollInterval(opts.pollIntervalMs),
   shutdownTimeoutMs: opts.shutdownTimeoutMs ?? DEFAULT_SHUTDOWN_TIMEOUT_MS,
   maxQueueDepth: opts.maxQueueDepth ?? 0,
-  logger: opts.logger ?? noopPoolLogger,
+  logger: opts.logger ?? noopLogger,
   workerId: opts.workerId ?? randomUUID(),
 })
 

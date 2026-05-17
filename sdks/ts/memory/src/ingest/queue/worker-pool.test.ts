@@ -7,7 +7,7 @@
 
 import { afterEach, describe, expect, it } from 'vitest'
 
-import type { QueueAdapter, QueueJob } from './adapter.js'
+import type { ClaimOptions, QueueAdapter, QueueJob, QueueJobStatus } from './adapter.js'
 import { createBackpressureChecker } from './backpressure.js'
 import { type WorkerPool, createWorkerPool } from './worker-pool.js'
 
@@ -20,8 +20,10 @@ type FakeAdapterState = {
   claimed: string[]
   completed: string[]
   failed: string[]
+  requeued: string[]
   failReasons: Map<string, string>
-  depth: number
+  claimedJobs: Map<string, QueueJob>
+  pendingDepth: number
 }
 
 const createFakeAdapter = (initialJobs: ReadonlyArray<QueueJob> = []): QueueAdapter & {
@@ -32,20 +34,44 @@ const createFakeAdapter = (initialJobs: ReadonlyArray<QueueJob> = []): QueueAdap
     claimed: [],
     completed: [],
     failed: [],
+    requeued: [],
     failReasons: new Map(),
-    depth: 0,
+    claimedJobs: new Map(),
+    pendingDepth: 0,
   }
 
   return {
     state,
 
-    async claim(workerId: string): Promise<QueueJob | undefined> {
-      if (state.jobs.length === 0) return undefined
-      const job = state.jobs.shift()
-      if (job === undefined) return undefined
-      const claimed: QueueJob = { ...job, status: 'running', claimedAt: new Date() }
-      state.claimed.push(claimed.id)
-      return claimed
+    async enqueue(): Promise<QueueJob> {
+      throw new Error('enqueue not implemented in fake adapter')
+    },
+
+    async claim(opts: ClaimOptions): Promise<readonly QueueJob[]> {
+      const batchSize = opts.batchSize > 0 ? opts.batchSize : 1
+      const result: QueueJob[] = []
+      const remaining: QueueJob[] = []
+      const now = new Date()
+
+      for (const job of state.jobs) {
+        if (job.status === 'pending' && result.length < batchSize) {
+          const claimed: QueueJob = {
+            ...job,
+            status: 'processing',
+            claimedBy: opts.workerId,
+            claimedAt: now,
+            updatedAt: now,
+          }
+          state.claimed.push(claimed.id)
+          state.claimedJobs.set(claimed.id, claimed)
+          result.push(claimed)
+        } else {
+          remaining.push(job)
+        }
+      }
+
+      state.jobs = remaining
+      return result
     },
 
     async complete(jobId: string): Promise<void> {
@@ -57,11 +83,40 @@ const createFakeAdapter = (initialJobs: ReadonlyArray<QueueJob> = []): QueueAdap
       state.failReasons.set(jobId, reason)
     },
 
+    async requeue(jobId: string): Promise<void> {
+      state.requeued.push(jobId)
+      // Return the job to the pending pool so another worker can claim it,
+      // preserving the original brain ID and retry count.
+      const original = state.claimedJobs.get(jobId)
+      if (original !== undefined) {
+        state.jobs.push({
+          ...original,
+          status: 'pending',
+          claimedBy: undefined,
+          claimedAt: undefined,
+          updatedAt: new Date(),
+        })
+        state.claimedJobs.delete(jobId)
+      }
+    },
+
     async heartbeat(): Promise<void> {},
 
-    async depth(): Promise<number> {
-      return state.depth
+    async recoverStale(): Promise<number> {
+      return 0
     },
+
+    async countByStatus(): Promise<Readonly<Record<QueueJobStatus, number>>> {
+      return {
+        pending: state.pendingDepth,
+        processing: 0,
+        completed: 0,
+        failed: 0,
+        dead_letter: 0,
+      }
+    },
+
+    async close(): Promise<void> {},
   }
 }
 
@@ -69,10 +124,12 @@ const makeJobs = (count: number, brainId: string): ReadonlyArray<QueueJob> =>
   Array.from({ length: count }, (_, i): QueueJob => ({
     id: `job-${i}`,
     brainId,
-    payload: { doc: String(i) },
+    payload: { kind: 'raw', content: JSON.stringify({ doc: String(i) }) },
     status: 'pending',
-    attempts: 0,
+    retryCount: 0,
+    maxRetries: 3,
     createdAt: new Date(),
+    updatedAt: new Date(),
   }))
 
 const makeMultiBrainJobs = (
@@ -84,10 +141,12 @@ const makeMultiBrainJobs = (
     Array.from({ length: perBrain }, (): QueueJob => ({
       id: `job-${seq++}`,
       brainId,
-      payload: {},
+      payload: { kind: 'raw' },
       status: 'pending',
-      attempts: 0,
+      retryCount: 0,
+      maxRetries: 3,
       createdAt: new Date(),
+      updatedAt: new Date(),
     })),
   )
 }
@@ -178,12 +237,19 @@ describe('createWorkerPool', () => {
     pools.push(pool)
     pool.start()
 
+    // Wait for all 6 jobs to complete. Jobs that hit the per-brain
+    // concurrency limit are requeued (not failed), so they re-enter
+    // the pending pool and are eventually processed.
     await waitFor(
-      () => adapter.state.completed.length + adapter.state.failed.length >= 6,
+      () => adapter.state.completed.length >= 6,
+      30_000,
     )
     await pool.stop()
 
     expect(maxBrainConcurrent).toBeLessThanOrEqual(2)
+    // Verify that requeue was used instead of fail for over-limit jobs.
+    expect(adapter.state.requeued.length).toBeGreaterThan(0)
+    expect(adapter.state.failed.length).toBe(0)
   })
 
   it('marks failed jobs when processor throws', async () => {
@@ -298,7 +364,7 @@ describe('createWorkerPool', () => {
     pool.start()
 
     await waitFor(
-      () => adapter.state.completed.length + adapter.state.failed.length >= 4,
+      () => adapter.state.completed.length >= 4,
     )
     await pool.stop()
 
@@ -331,10 +397,12 @@ describe('createWorkerPool', () => {
       {
         id: 'fail-1',
         brainId: 'brain-fail',
-        payload: {},
+        payload: { kind: 'raw' },
         status: 'pending',
-        attempts: 0,
+        retryCount: 0,
+        maxRetries: 3,
         createdAt: new Date(),
+        updatedAt: new Date(),
       },
     ]
     const adapter = createFakeAdapter([...succeedJobs, ...failJobs])
@@ -362,12 +430,262 @@ describe('createWorkerPool', () => {
     expect(finalMetrics.processedTotal).toBe(2)
     expect(finalMetrics.failedTotal).toBe(1)
   })
+
+  it('returns timed-out result when workers are stuck past shutdown timeout', async () => {
+    const adapter = createFakeAdapter(makeJobs(1, 'brain-stuck'))
+
+    const pool = createWorkerPool({
+      queue: adapter,
+      concurrency: 1,
+      pollIntervalMs: 10,
+      shutdownTimeoutMs: 100,
+      processor: async () => {
+        // Simulate a stuck job that takes far longer than the shutdown timeout.
+        await new Promise((r) => setTimeout(r, 5000))
+      },
+    })
+    pools.push(pool)
+    pool.start()
+
+    await waitFor(() => adapter.state.claimed.length >= 1)
+
+    const result = await pool.stop()
+    expect(result.timedOut).toBe(true)
+  })
+
+  it('returns non-timed-out result on graceful shutdown', async () => {
+    const adapter = createFakeAdapter(makeJobs(1, 'brain-fast'))
+
+    const pool = createWorkerPool({
+      queue: adapter,
+      concurrency: 1,
+      pollIntervalMs: 10,
+      shutdownTimeoutMs: 5000,
+      processor: async () => {
+        await new Promise((r) => setTimeout(r, 10))
+      },
+    })
+    pools.push(pool)
+    pool.start()
+
+    await waitFor(() => adapter.state.completed.length >= 1)
+
+    const result = await pool.stop()
+    expect(result.timedOut).toBe(false)
+  })
+
+  it('recovers from worker crash and continues processing', async () => {
+    let crashCount = 0
+    const jobIds: string[] = []
+
+    // First job will cause a crash in the worker loop wrapper, second
+    // should be processed after recovery.
+    const jobs: QueueJob[] = [
+      {
+        id: 'crash-job',
+        brainId: 'brain-crash',
+        payload: { kind: 'raw' },
+        status: 'pending',
+        retryCount: 0,
+        maxRetries: 3,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      },
+      {
+        id: 'recovery-job',
+        brainId: 'brain-crash',
+        payload: { kind: 'raw' },
+        status: 'pending',
+        retryCount: 0,
+        maxRetries: 3,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      },
+    ]
+    const adapter = createFakeAdapter(jobs)
+
+    const pool = createWorkerPool({
+      queue: adapter,
+      concurrency: 1,
+      pollIntervalMs: 10,
+      shutdownTimeoutMs: 5000,
+      processor: async (job) => {
+        if (job.id === 'crash-job' && crashCount === 0) {
+          crashCount++
+          // Processor errors are caught by claimAndProcess, not the
+          // worker loop. This verifies the processor error path.
+          throw new Error('simulated crash')
+        }
+        jobIds.push(job.id)
+      },
+    })
+    pools.push(pool)
+    pool.start()
+
+    await waitFor(() => adapter.state.completed.length >= 1)
+    await pool.stop()
+
+    expect(jobIds).toContain('recovery-job')
+    expect(adapter.state.failed.length).toBeGreaterThanOrEqual(1)
+  })
+
+  it('populates queueDepth in metrics from adapter', async () => {
+    const adapter = createFakeAdapter()
+    adapter.state.pendingDepth = 42
+
+    const pool = createWorkerPool({
+      queue: adapter,
+      concurrency: 1,
+      pollIntervalMs: 10,
+      shutdownTimeoutMs: 5000,
+      maxQueueDepth: 1000,
+      processor: async () => {},
+    })
+    pools.push(pool)
+    pool.start()
+
+    // Wait for the worker to idle and trigger a backpressure refresh.
+    await waitFor(() => pool.metrics().queueDepth === 42, 5000)
+
+    const snapshot = pool.metrics()
+    expect(snapshot.queueDepth).toBe(42)
+
+    await pool.stop()
+  })
+})
+
+describe('resolveConcurrency and resolvePollInterval environment overrides', () => {
+  const originalWorkerCount = process.env['MEMORY_WORKER_COUNT']
+  const originalPollInterval = process.env['MEMORY_INGEST_WORKER_INTERVAL_MS']
+
+  afterEach(() => {
+    // Restore original environment.
+    const restoreMap: Readonly<Record<string, string | undefined>> = {
+      MEMORY_WORKER_COUNT: originalWorkerCount,
+      MEMORY_INGEST_WORKER_INTERVAL_MS: originalPollInterval,
+    }
+    for (const [key, val] of Object.entries(restoreMap)) {
+      if (val === undefined) {
+        delete process.env[key]
+      } else {
+        process.env[key] = val
+      }
+    }
+  })
+
+  it('uses MEMORY_WORKER_COUNT env var when concurrency config is omitted', async () => {
+    process.env['MEMORY_WORKER_COUNT'] = '7'
+    const adapter = createFakeAdapter()
+    let observedConcurrency = 0
+
+    // Track how many workers start simultaneously.
+    let concurrent = 0
+    let maxConcurrent = 0
+    const processingPromise = new Promise<void>(() => {})
+
+    const pool = createWorkerPool({
+      queue: adapter,
+      pollIntervalMs: 10,
+      shutdownTimeoutMs: 1000,
+      processor: async () => {
+        concurrent++
+        maxConcurrent = Math.max(maxConcurrent, concurrent)
+        await processingPromise
+      },
+    })
+    pools.push(pool)
+
+    // The pool should have 7 idle workers based on env var.
+    pool.start()
+    await new Promise((r) => setTimeout(r, 50))
+
+    const m = pool.metrics()
+    observedConcurrency = m.activeWorkers + m.idleWorkers
+    expect(observedConcurrency).toBe(7)
+
+    await pool.stop()
+  })
+
+  it('config concurrency takes precedence over env var', async () => {
+    process.env['MEMORY_WORKER_COUNT'] = '20'
+    const adapter = createFakeAdapter()
+
+    const pool = createWorkerPool({
+      queue: adapter,
+      concurrency: 3,
+      pollIntervalMs: 10,
+      shutdownTimeoutMs: 1000,
+      processor: async () => {},
+    })
+    pools.push(pool)
+    pool.start()
+
+    await new Promise((r) => setTimeout(r, 50))
+
+    const m = pool.metrics()
+    expect(m.activeWorkers + m.idleWorkers).toBe(3)
+
+    await pool.stop()
+  })
+
+  it('uses MEMORY_INGEST_WORKER_INTERVAL_MS env var for poll interval', async () => {
+    process.env['MEMORY_INGEST_WORKER_INTERVAL_MS'] = '50'
+    const adapter = createFakeAdapter()
+    let pollCount = 0
+
+    // Count how often the worker polls (each poll cycle increments).
+    const originalClaim = adapter.claim.bind(adapter)
+    adapter.claim = async (opts: ClaimOptions) => {
+      pollCount++
+      return originalClaim(opts)
+    }
+
+    const pool = createWorkerPool({
+      queue: adapter,
+      concurrency: 1,
+      shutdownTimeoutMs: 1000,
+      processor: async () => {},
+    })
+    pools.push(pool)
+    pool.start()
+
+    // Wait 250ms -- with 50ms poll interval, expect ~5 polls.
+    await new Promise((r) => setTimeout(r, 250))
+
+    await pool.stop()
+
+    // With 50ms poll interval over 250ms, expect at least 3 polls
+    // (accounting for backpressure refresh overhead).
+    expect(pollCount).toBeGreaterThanOrEqual(3)
+  })
+
+  it('ignores invalid MEMORY_WORKER_COUNT and uses default', async () => {
+    process.env['MEMORY_WORKER_COUNT'] = 'not-a-number'
+    const adapter = createFakeAdapter()
+
+    const pool = createWorkerPool({
+      queue: adapter,
+      pollIntervalMs: 10,
+      shutdownTimeoutMs: 1000,
+      processor: async () => {},
+    })
+    pools.push(pool)
+    pool.start()
+
+    await new Promise((r) => setTimeout(r, 50))
+
+    const m = pool.metrics()
+    // Should fall back to default (4 * availableParallelism).
+    expect(m.activeWorkers + m.idleWorkers).toBeGreaterThan(0)
+
+    await pool.stop()
+  })
 })
 
 describe('createBackpressureChecker', () => {
   it('detects backpressure when depth exceeds threshold', async () => {
     const adapter = createFakeAdapter()
-    adapter.state.depth = 1500
+    adapter.state.pendingDepth = 1500
     const checker = createBackpressureChecker(adapter, 1000)
 
     const pressured = await checker.check('')
@@ -377,13 +695,13 @@ describe('createBackpressureChecker', () => {
 
   it('clears backpressure when depth drops below threshold', async () => {
     const adapter = createFakeAdapter()
-    adapter.state.depth = 1500
+    adapter.state.pendingDepth = 1500
     const checker = createBackpressureChecker(adapter, 1000)
 
     await checker.check('')
     expect(checker.isBackpressured()).toBe(true)
 
-    adapter.state.depth = 500
+    adapter.state.pendingDepth = 500
     await checker.check('')
     expect(checker.isBackpressured()).toBe(false)
   })

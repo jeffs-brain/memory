@@ -16,9 +16,10 @@ const defaultMaxQueueDepth int64 = 1000
 // capacity threshold. When backpressured, producers should stop
 // enqueuing new jobs until depth drops below the limit.
 type BackpressureChecker struct {
-	adapter      Adapter
-	maxDepth     int64
+	adapter       Adapter
+	maxDepth      int64
 	backpressured atomic.Bool
+	lastDepth     atomic.Int64
 }
 
 // NewBackpressureChecker creates a checker with the given depth limit.
@@ -34,14 +35,16 @@ func NewBackpressureChecker(adapter Adapter, maxDepth int64) *BackpressureChecke
 	}
 }
 
-// Check queries the adapter for current queue depth and updates the
-// backpressure state. The brainID parameter scopes the depth check;
-// pass an empty string for global depth.
+// Check queries the adapter for current pending job count using
+// CountByStatus and updates the backpressure state. The brainID
+// parameter scopes the count; pass an empty string for global depth.
 func (bc *BackpressureChecker) Check(ctx context.Context, brainID string) (bool, error) {
-	depth, err := bc.adapter.Depth(ctx, brainID)
+	counts, err := bc.adapter.CountByStatus(ctx, brainID)
 	if err != nil {
 		return bc.backpressured.Load(), err
 	}
+	depth := int64(counts[StatusPending])
+	bc.lastDepth.Store(depth)
 	pressured := depth >= bc.maxDepth
 	bc.backpressured.Store(pressured)
 	return pressured, nil
@@ -57,4 +60,10 @@ func (bc *BackpressureChecker) IsBackpressured() bool {
 // MaxDepth returns the configured threshold.
 func (bc *BackpressureChecker) MaxDepth() int64 {
 	return bc.maxDepth
+}
+
+// LastDepth returns the last observed queue depth from the most recent
+// Check call. Returns 0 before the first check.
+func (bc *BackpressureChecker) LastDepth() int64 {
+	return bc.lastDepth.Load()
 }

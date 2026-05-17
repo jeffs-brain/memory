@@ -5,125 +5,10 @@ package queue
 import (
 	"context"
 	"fmt"
-	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 )
-
-// fakeAdapter is a test double for the queue Adapter interface. It
-// dispenses pre-loaded jobs from a thread-safe slice and tracks
-// completion/failure calls.
-type fakeAdapter struct {
-	mu         sync.Mutex
-	jobs       []Job
-	claimed    []string
-	completed  []string
-	failed     []string
-	failReason map[string]string
-	depth      int64
-	claimErr   error
-	claimDelay time.Duration
-}
-
-func newFakeAdapter(jobs ...Job) *fakeAdapter {
-	return &fakeAdapter{
-		jobs:       jobs,
-		failReason: make(map[string]string),
-	}
-}
-
-func (f *fakeAdapter) Claim(_ context.Context, workerID string) (*Job, error) {
-	if f.claimDelay > 0 {
-		time.Sleep(f.claimDelay)
-	}
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	if f.claimErr != nil {
-		return nil, f.claimErr
-	}
-	if len(f.jobs) == 0 {
-		return nil, nil
-	}
-	job := f.jobs[0]
-	f.jobs = f.jobs[1:]
-	job.Status = JobStatusRunning
-	job.ClaimedAt = time.Now()
-	f.claimed = append(f.claimed, job.ID)
-	return &job, nil
-}
-
-func (f *fakeAdapter) Complete(_ context.Context, jobID string) error {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.completed = append(f.completed, jobID)
-	return nil
-}
-
-func (f *fakeAdapter) Fail(_ context.Context, jobID string, reason string) error {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.failed = append(f.failed, jobID)
-	f.failReason[jobID] = reason
-	return nil
-}
-
-func (f *fakeAdapter) Heartbeat(_ context.Context, _ string) error {
-	return nil
-}
-
-func (f *fakeAdapter) Depth(_ context.Context, _ string) (int64, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	return f.depth, nil
-}
-
-func (f *fakeAdapter) completedIDs() []string {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	cp := make([]string, len(f.completed))
-	copy(cp, f.completed)
-	return cp
-}
-
-func (f *fakeAdapter) failedIDs() []string {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	cp := make([]string, len(f.failed))
-	copy(cp, f.failed)
-	return cp
-}
-
-func makeJobs(count int, brainID string) []Job {
-	jobs := make([]Job, count)
-	for i := range count {
-		jobs[i] = Job{
-			ID:       fmt.Sprintf("job-%d", i),
-			BrainID:  brainID,
-			Payload:  []byte(fmt.Sprintf(`{"doc":"%d"}`, i)),
-			Status:   JobStatusPending,
-			Attempts: 0,
-		}
-	}
-	return jobs
-}
-
-func makeMultiBrainJobs(perBrain int, brainIDs ...string) []Job {
-	jobs := make([]Job, 0, perBrain*len(brainIDs))
-	seq := 0
-	for _, brainID := range brainIDs {
-		for range perBrain {
-			jobs = append(jobs, Job{
-				ID:      fmt.Sprintf("job-%d", seq),
-				BrainID: brainID,
-				Payload: []byte(`{}`),
-				Status:  JobStatusPending,
-			})
-			seq++
-		}
-	}
-	return jobs
-}
 
 func TestPool_ProcessesJobsConcurrently(t *testing.T) {
 	t.Parallel()
@@ -132,9 +17,9 @@ func TestPool_ProcessesJobsConcurrently(t *testing.T) {
 	var maxConcurrent atomic.Int32
 
 	pool := NewPool(PoolConfig{
-		Queue:       adapter,
-		Concurrency: 4,
-		PollInterval: 10 * time.Millisecond,
+		Queue:           adapter,
+		Concurrency:     4,
+		PollInterval:    10 * time.Millisecond,
 		ShutdownTimeout: 5 * time.Second,
 		Processor: func(_ context.Context, _ Job) error {
 			cur := processing.Add(1)
@@ -215,6 +100,9 @@ func TestPool_PerBrainConcurrencyLimit(t *testing.T) {
 	ctx := context.Background()
 	pool.Start(ctx)
 
+	// Wait for all 6 jobs to complete. Jobs that hit the per-brain
+	// concurrency limit are requeued (not failed), so they re-enter
+	// the pending pool and are eventually processed.
 	deadline := time.After(5 * time.Second)
 	for {
 		select {
@@ -223,8 +111,7 @@ func TestPool_PerBrainConcurrencyLimit(t *testing.T) {
 		default:
 		}
 		completed := len(adapter.completedIDs())
-		failed := len(adapter.failedIDs())
-		if completed+failed >= 6 {
+		if completed >= 6 {
 			break
 		}
 		time.Sleep(10 * time.Millisecond)
@@ -237,12 +124,20 @@ func TestPool_PerBrainConcurrencyLimit(t *testing.T) {
 	if got := maxBrainConcurrent.Load(); got > 2 {
 		t.Fatalf("per-brain concurrency exceeded limit: max observed %d, limit 2", got)
 	}
+
+	// Verify requeue was used instead of fail for over-limit jobs.
+	if len(adapter.requeuedIDs()) == 0 {
+		t.Fatal("expected requeued jobs for per-brain concurrency rejection")
+	}
+	if len(adapter.failedIDs()) != 0 {
+		t.Fatalf("expected no failed jobs from concurrency rejection, got %d", len(adapter.failedIDs()))
+	}
 }
 
 func TestPool_BackpressureDetection(t *testing.T) {
 	t.Parallel()
 	adapter := newFakeAdapter()
-	adapter.depth = 1500
+	adapter.pendingDepth = 1500
 
 	pool := NewPool(PoolConfig{
 		Queue:         adapter,
@@ -260,7 +155,7 @@ func TestPool_BackpressureDetection(t *testing.T) {
 	}
 
 	adapter.mu.Lock()
-	adapter.depth = 500
+	adapter.pendingDepth = 500
 	adapter.mu.Unlock()
 
 	pool.refreshBackpressure(ctx)
@@ -274,9 +169,9 @@ func TestPool_ProcessorErrorMarksJobFailed(t *testing.T) {
 	adapter := newFakeAdapter(makeJobs(1, "brain-err")...)
 
 	pool := NewPool(PoolConfig{
-		Queue:        adapter,
-		Concurrency:  1,
-		PollInterval: 10 * time.Millisecond,
+		Queue:           adapter,
+		Concurrency:     1,
+		PollInterval:    10 * time.Millisecond,
 		ShutdownTimeout: 5 * time.Second,
 		Processor: func(_ context.Context, _ Job) error {
 			return fmt.Errorf("extraction failed: unsupported mime type")
@@ -404,9 +299,9 @@ func TestPool_MetricsReflectCurrentState(t *testing.T) {
 	processing := make(chan struct{})
 
 	pool := NewPool(PoolConfig{
-		Queue:        adapter,
-		Concurrency:  2,
-		PollInterval: 10 * time.Millisecond,
+		Queue:           adapter,
+		Concurrency:     2,
+		PollInterval:    10 * time.Millisecond,
 		ShutdownTimeout: 5 * time.Second,
 		Processor: func(_ context.Context, _ Job) error {
 			<-processing
@@ -516,8 +411,7 @@ func TestPool_MultipleBrainsProcessInParallel(t *testing.T) {
 		default:
 		}
 		completed := len(adapter.completedIDs())
-		failed := len(adapter.failedIDs())
-		if completed+failed >= 4 {
+		if completed >= 4 {
 			break
 		}
 		time.Sleep(10 * time.Millisecond)
@@ -599,10 +493,10 @@ func TestPool_EnvironmentVariableOverrides(t *testing.T) {
 
 func TestPool_PollIntervalEnvironmentVariable(t *testing.T) {
 	tests := []struct {
-		name     string
-		envVal   string
-		cfgVal   time.Duration
-		wantVal  time.Duration
+		name    string
+		envVal  string
+		cfgVal  time.Duration
+		wantVal time.Duration
 	}{
 		{
 			name:    "config takes precedence",
@@ -636,51 +530,90 @@ func TestPool_PollIntervalEnvironmentVariable(t *testing.T) {
 	}
 }
 
-func TestBackpressureChecker_DefaultThreshold(t *testing.T) {
+func TestPool_WorkerCrashRecovery(t *testing.T) {
 	t.Parallel()
-	adapter := newFakeAdapter()
-	checker := NewBackpressureChecker(adapter, 0)
-	if checker.MaxDepth() != defaultMaxQueueDepth {
-		t.Fatalf("expected default threshold %d, got %d", defaultMaxQueueDepth, checker.MaxDepth())
-	}
-}
+	var crashCount atomic.Int32
+	adapter := newFakeAdapter(makeJobs(2, "brain-crash")...)
 
-func TestBackpressureChecker_CustomThreshold(t *testing.T) {
-	t.Parallel()
-	adapter := newFakeAdapter()
-	checker := NewBackpressureChecker(adapter, 500)
-	if checker.MaxDepth() != 500 {
-		t.Fatalf("expected threshold 500, got %d", checker.MaxDepth())
-	}
-}
-
-func TestBackpressureChecker_CheckUpdatesState(t *testing.T) {
-	t.Parallel()
-	adapter := newFakeAdapter()
-	adapter.depth = 100
-	checker := NewBackpressureChecker(adapter, 50)
+	pool := NewPool(PoolConfig{
+		Queue:           adapter,
+		Concurrency:     1,
+		PollInterval:    10 * time.Millisecond,
+		ShutdownTimeout: 5 * time.Second,
+		Processor: func(_ context.Context, job Job) error {
+			if job.ID == "job-0" && crashCount.Add(1) == 1 {
+				panic("simulated worker crash")
+			}
+			return nil
+		},
+	})
 
 	ctx := context.Background()
-	pressured, err := checker.Check(ctx, "")
-	if err != nil {
-		t.Fatalf("Check returned error: %v", err)
-	}
-	if !pressured {
-		t.Fatal("expected backpressured when depth 100 >= threshold 50")
-	}
-	if !checker.IsBackpressured() {
-		t.Fatal("IsBackpressured should reflect last check")
+	pool.Start(ctx)
+
+	deadline := time.After(5 * time.Second)
+	for {
+		select {
+		case <-deadline:
+			t.Fatal("timed out waiting for recovery job to complete")
+		default:
+		}
+		// job-0 triggers a panic then completes on retry, job-1 completes normally.
+		if len(adapter.completedIDs()) >= 1 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 
+	if err := pool.Stop(); err != nil {
+		t.Fatalf("pool.Stop() returned error: %v", err)
+	}
+}
+
+func TestPool_BackpressureAutoRefresh(t *testing.T) {
+	t.Parallel()
+	adapter := newFakeAdapter()
 	adapter.mu.Lock()
-	adapter.depth = 30
+	adapter.pendingDepth = 1500
 	adapter.mu.Unlock()
 
-	pressured, err = checker.Check(ctx, "")
-	if err != nil {
-		t.Fatalf("Check returned error: %v", err)
+	pool := NewPool(PoolConfig{
+		Queue:           adapter,
+		Concurrency:     1,
+		MaxQueueDepth:   1000,
+		PollInterval:    10 * time.Millisecond,
+		ShutdownTimeout: 2 * time.Second,
+		Processor:       func(_ context.Context, _ Job) error { return nil },
+	})
+
+	ctx := context.Background()
+	pool.Start(ctx)
+
+	// Wait for the worker to idle-poll and auto-refresh backpressure.
+	deadline := time.After(5 * time.Second)
+	for {
+		select {
+		case <-deadline:
+			t.Fatal("timed out waiting for backpressure auto-refresh")
+		default:
+		}
+		if pool.IsBackpressured() {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
-	if pressured {
-		t.Fatal("expected not backpressured when depth 30 < threshold 50")
+
+	if !pool.IsBackpressured() {
+		t.Fatal("expected pool to be auto-backpressured after idle poll")
+	}
+
+	// Verify QueueDepth is populated in metrics.
+	m := pool.Metrics()
+	if m.QueueDepth != 1500 {
+		t.Fatalf("expected QueueDepth=1500, got %d", m.QueueDepth)
+	}
+
+	if err := pool.Stop(); err != nil {
+		t.Fatalf("pool.Stop() returned error: %v", err)
 	}
 }
