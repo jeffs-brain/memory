@@ -2,17 +2,17 @@
 
 /**
  * Audio transcription extractor using faster-whisper via Python
- * subprocess. Both Go and TS implementations use the same subprocess
- * approach -- whisper.cpp Go bindings are not production-ready.
+ * subprocess. Implements the canonical Extractor interface from P1-5.
  */
 
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { extname } from 'node:path'
+import type { Readable } from 'node:stream'
 
 import { checkBinaryAvailable, runSubprocess } from './subprocess.js'
-import type { ExtractOptions, ExtractionResult, Extractor, ExtractorCapability } from './types.js'
+import type { ExtractOptions, ExtractResult, Extractor, ExtractorCapability } from './types.js'
 
 export type AudioExtractorConfig = {
   readonly pythonBinary?: string
@@ -50,7 +50,7 @@ const DEFAULT_TIMEOUT_PER_MINUTE = 30_000
 const DEFAULT_MIN_TIMEOUT = 120_000
 
 const resolveConfig = (cfg?: AudioExtractorConfig) => ({
-  pythonBinary: cfg?.pythonBinary ?? process.env['MEMORY_PYTHON_PATH'] ?? 'python3',
+  pythonBinary: cfg?.pythonBinary ?? process.env['MEMORY_WHISPER_PATH'] ?? 'python3',
   modelSize: cfg?.modelSize ?? 'base',
   defaultLanguage: cfg?.defaultLanguage,
   maxFileSizeBytes: cfg?.maxFileSizeBytes ?? DEFAULT_MAX_AUDIO_SIZE,
@@ -95,8 +95,51 @@ const formatTranscription = (segments: readonly TranscriptionSegment[]): string 
   return paragraphs.join('\n\n')
 }
 
+/** Collects all chunks from a Readable into a Buffer, respecting an optional byte limit. */
+const bufferStream = async (source: Readable, maxBytes?: number): Promise<Buffer> => {
+  const chunks: Buffer[] = []
+  let totalBytes = 0
+
+  for await (const chunk of source) {
+    const buf = Buffer.isBuffer(chunk)
+      ? chunk
+      : typeof chunk === 'string'
+        ? Buffer.from(chunk)
+        : chunk instanceof Uint8Array
+          ? Buffer.from(chunk)
+          : Buffer.from(String(chunk))
+    if (maxBytes !== undefined && maxBytes > 0) {
+      const remaining = maxBytes - totalBytes
+      if (remaining <= 0) break
+      chunks.push(buf.subarray(0, remaining))
+      totalBytes += Math.min(buf.length, remaining)
+      if (totalBytes >= maxBytes) break
+    } else {
+      chunks.push(buf)
+      totalBytes += buf.length
+    }
+  }
+
+  return Buffer.concat(chunks)
+}
+
+/** Audio content types handled by this extractor. */
+const audioContentTypes: readonly string[] = [
+  'audio/mpeg',
+  'audio/wav',
+  'audio/x-wav',
+  'audio/flac',
+  'audio/mp4',
+  'audio/ogg',
+  'audio/aac',
+  'audio/x-ms-wma',
+  'audio/opus',
+]
+
 export class AudioExtractor implements Extractor {
   readonly name = 'audio-whisper' as const
+
+  readonly contentTypes = audioContentTypes
 
   private readonly cfg: ReturnType<typeof resolveConfig>
 
@@ -104,20 +147,10 @@ export class AudioExtractor implements Extractor {
     this.cfg = resolveConfig(config)
   }
 
-  get capability(): ExtractorCapability {
+  capability(): ExtractorCapability {
     return {
-      extensions: new Set(['.mp3', '.wav', '.flac', '.m4a', '.ogg', '.aac', '.wma', '.opus']),
-      mimeTypes: new Set([
-        'audio/mpeg',
-        'audio/wav',
-        'audio/x-wav',
-        'audio/flac',
-        'audio/mp4',
-        'audio/ogg',
-        'audio/aac',
-        'audio/x-ms-wma',
-        'audio/opus',
-      ]),
+      extensions: ['.mp3', '.wav', '.flac', '.m4a', '.ogg', '.aac', '.wma', '.opus'],
+      mimeTypes: [...audioContentTypes],
       magicBytes: [
         { offset: 0, bytes: new Uint8Array([0x52, 0x49, 0x46, 0x46]) }, // RIFF (WAV)
         { offset: 0, bytes: new Uint8Array([0x66, 0x4c, 0x61, 0x43]) }, // fLaC
@@ -143,16 +176,30 @@ export class AudioExtractor implements Extractor {
     }
   }
 
-  async extract(input: Buffer, opts: ExtractOptions): Promise<ExtractionResult> {
+  async extract(input: Buffer, opts: ExtractOptions): Promise<ExtractResult> {
     if (input.length > this.cfg.maxFileSizeBytes) {
       throw new Error(
-        `extract: audio file size ${input.length} exceeds maximum ${this.cfg.maxFileSizeBytes} bytes`,
+        `ingest: audio file size ${input.length} exceeds maximum ${this.cfg.maxFileSizeBytes} bytes`,
       )
+    }
+
+    if (input.length === 0) {
+      return {
+        text: '',
+        contentType: opts.contentType ?? 'audio/wav',
+        encoding: 'UTF-8',
+        metadata: {},
+        pages: 0,
+        language: '',
+        confidence: 0,
+        skipped: true,
+        reason: 'empty audio input',
+      }
     }
 
     const tmpDir = await mkdtemp(join(tmpdir(), 'memory-audio-'))
     try {
-      const ext = opts.filename !== undefined ? extname(opts.filename) : '.wav'
+      const ext = opts.fileName !== undefined ? extname(opts.fileName) : '.wav'
       const tmpFile = join(tmpDir, `input${ext}`)
       await writeFile(tmpFile, input)
 
@@ -169,39 +216,56 @@ export class AudioExtractor implements Extractor {
       }
       const result = await runSubprocess(this.cfg.pythonBinary, args, undefined, subprocessOpts)
       if (result.exitCode !== 0) {
-        throw new Error(`extract: whisper exited ${result.exitCode}: ${result.stderr}`)
+        throw new Error(`ingest: whisper exited ${result.exitCode}: ${result.stderr}`)
       }
 
       const output = JSON.parse(result.stdout.toString('utf8')) as WhisperOutput
-      const content = formatTranscription(output.segments)
-      const metadata: Record<string, unknown> = {
+      const text = formatTranscription(output.segments)
+
+      const segmentsJSON = JSON.stringify(output.segments)
+      const metadata: Record<string, string> = {
         detected_language: output.language,
-        segments: output.segments,
+        segments: segmentsJSON,
+        model_size: this.cfg.modelSize,
+        transcription_engine: 'faster-whisper',
       }
       if (output.segments.length > 0) {
         const last = output.segments[output.segments.length - 1]
         if (last !== undefined) {
-          metadata['duration_seconds'] = last.end
+          metadata['duration_seconds'] = String(last.end)
         }
+        metadata['segment_count'] = String(output.segments.length)
       }
 
       return {
-        content,
-        mime: 'text/plain',
+        text,
+        contentType: 'text/plain',
+        encoding: 'UTF-8',
         metadata,
+        pages: 0,
         language: output.language,
+        confidence: 0,
+        skipped: false,
       }
     } finally {
       await rm(tmpDir, { recursive: true, force: true }).catch(() => {})
     }
   }
 
+  async extractStream(
+    source: Readable,
+    opts: ExtractOptions,
+  ): Promise<ExtractResult> {
+    const raw = await bufferStream(source, opts.maxBytes)
+    return this.extract(raw, opts)
+  }
+
   /**
    * Convenience method used by VideoExtractor when delegating extracted
    * audio data for transcription.
    */
-  async extractFromBuffer(wavData: Buffer, opts: ExtractOptions): Promise<ExtractionResult> {
-    return this.extract(wavData, { ...opts, filename: 'extracted.wav' })
+  async extractFromBuffer(wavData: Buffer, opts: ExtractOptions): Promise<ExtractResult> {
+    return this.extract(wavData, { ...opts, fileName: 'extracted.wav' })
   }
 
   private computeTimeout(sizeBytes: number): number {

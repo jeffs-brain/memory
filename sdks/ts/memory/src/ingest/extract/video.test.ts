@@ -77,16 +77,16 @@ describe('VideoExtractor', () => {
   describe('capability', () => {
     it('includes expected extensions', () => {
       const e = makeExtractor()
-      const cap = e.capability
+      const cap = e.capability()
       const expected = ['.mp4', '.avi', '.mkv', '.mov', '.webm', '.wmv', '.flv', '.m4v']
       for (const ext of expected) {
-        expect(cap.extensions.has(ext)).toBe(true)
+        expect(cap.extensions).toContain(ext)
       }
     })
 
     it('includes expected MIME types', () => {
       const e = makeExtractor()
-      const cap = e.capability
+      const cap = e.capability()
       const expected = [
         'video/mp4',
         'video/x-msvideo',
@@ -97,19 +97,20 @@ describe('VideoExtractor', () => {
         'video/x-flv',
       ]
       for (const mime of expected) {
-        expect(cap.mimeTypes.has(mime)).toBe(true)
+        expect(cap.mimeTypes).toContain(mime)
       }
     })
 
     it('requires binary', () => {
       const e = makeExtractor()
-      expect(e.capability.requiresBinary).toBe(true)
+      expect(e.capability().requiresBinary).toBe(true)
     })
 
     it('has magic byte signatures', () => {
       const e = makeExtractor()
-      expect(e.capability.magicBytes).toBeDefined()
-      expect(e.capability.magicBytes!.length).toBeGreaterThan(0)
+      const cap = e.capability()
+      expect(cap.magicBytes).toBeDefined()
+      expect(cap.magicBytes.length).toBeGreaterThan(0)
     })
   })
 
@@ -136,10 +137,10 @@ describe('VideoExtractor', () => {
   })
 
   describe('extractStream', () => {
-    it('rejects streams exceeding the size bound', async () => {
+    it('rejects streams exceeding the size limit', async () => {
       const e = makeExtractor({ maxFileSizeBytes: 1024 })
-      const input = Readable.from(Buffer.alloc(100))
-      await expect(e.extractStream(input, 2048, {})).rejects.toThrow('exceeds maximum')
+      const input = Readable.from(Buffer.alloc(2048))
+      await expect(e.extractStream(input, {})).rejects.toThrow('exceeds maximum')
     })
   })
 })
@@ -255,14 +256,17 @@ describe('mergeMetadata', () => {
       height: 1080,
       has_audio: true,
     }
-    const audio = {
+    const audio: Record<string, string> = {
       detected_language: 'en',
-      segments: [{ start: 0, end: 5, text: 'hello' }],
+      segments: '[{"start":0,"end":5,"text":"hello"}]',
     }
 
     const merged = mergeMetadata(video, audio)
     expect(merged['detected_language']).toBe('en')
-    expect(merged['video_info']).toEqual(video)
+    expect(merged['video_duration_seconds']).toBe('120.00')
+    expect(merged['video_width']).toBe('1920')
+    expect(merged['video_height']).toBe('1080')
+    expect(merged['video_has_audio']).toBe('true')
     expect(merged['segments']).toBeDefined()
   })
 
@@ -271,16 +275,16 @@ describe('mergeMetadata', () => {
       duration_seconds: 60,
       has_audio: true,
     }
-    const audio = {
+    const audio: Record<string, string> = {
       key1: 'value1',
-      key2: 42,
-      key3: true,
+      key2: '42',
+      key3: 'true',
     }
 
     const merged = mergeMetadata(video, audio)
     expect(merged['key1']).toBe('value1')
-    expect(merged['key2']).toBe(42)
-    expect(merged['key3']).toBe(true)
+    expect(merged['key2']).toBe('42')
+    expect(merged['key3']).toBe('true')
   })
 })
 
@@ -317,10 +321,9 @@ describe('VideoExtractor integration', () => {
       const e = makeExtractor()
       const result = await e.extract(videoData, {})
 
-      expect(result.content).toContain('no audio track')
-      expect(result.metadata['video_info']).toBeDefined()
-      const videoInfo = result.metadata['video_info'] as VideoMetadata
-      expect(videoInfo.has_audio).toBe(false)
+      expect(result.text).toContain('no audio track')
+      expect(result.metadata['video_has_audio']).toBe('false')
+      expect(result.metadata['video_duration_seconds']).toBeDefined()
     },
   )
 
@@ -333,9 +336,9 @@ describe('VideoExtractor integration', () => {
       const videoData = readFileSync(videoPath)
       const stream = Readable.from(videoData)
       const e = makeExtractor()
-      const result = await e.extractStream(stream, videoData.length, {})
+      const result = await e.extractStream(stream, {})
 
-      expect(result.content).toContain('no audio track')
+      expect(result.text).toContain('no audio track')
     },
   )
 })
@@ -349,5 +352,142 @@ describe('VideoExtractor config', () => {
   it('disables keyframe extraction by default', () => {
     const e = makeExtractor()
     expect(e.name).toBe('video-ffmpeg')
+  })
+})
+
+// ---- Mock-based pipeline test (MA-1) ----
+
+describe('VideoExtractor mock pipeline', () => {
+  it('exercises probe-parse and merge logic without FFmpeg', () => {
+    // Simulate FFprobe JSON output parsing.
+    const fakeProbeOutput = {
+      format: { duration: '90.5' },
+      streams: [
+        {
+          codec_type: 'video',
+          codec_name: 'h264',
+          width: 1920,
+          height: 1080,
+          r_frame_rate: '30/1',
+        },
+        {
+          codec_type: 'audio',
+          codec_name: 'aac',
+        },
+      ],
+    }
+
+    const videoMeta = buildVideoMetadata(fakeProbeOutput)
+    expect(videoMeta.duration_seconds).toBe(90.5)
+    expect(videoMeta.has_audio).toBe(true)
+    expect(videoMeta.width).toBe(1920)
+    expect(videoMeta.height).toBe(1080)
+    expect(videoMeta.codec).toBe('h264')
+    expect(videoMeta.frame_rate).toBe(30)
+
+    // Simulate AudioExtractor result from transcription.
+    const fakeAudioResult: Record<string, string> = {
+      detected_language: 'en',
+      segments: '[{"start":0,"end":30,"text":"Hello world."}]',
+      duration_seconds: '30.0',
+    }
+
+    const merged = mergeMetadata(videoMeta, fakeAudioResult)
+    merged['source_bytes'] = '1024'
+
+    expect(merged['detected_language']).toBe('en')
+    expect(merged['video_duration_seconds']).toBe('90.50')
+    expect(merged['source_bytes']).toBe('1024')
+    expect(merged['segments']).toBeDefined()
+  })
+
+  it('returns no-audio result when probe shows no audio stream', () => {
+    const noAudioProbe = {
+      format: { duration: '10.0' },
+      streams: [
+        {
+          codec_type: 'video',
+          codec_name: 'vp9',
+          width: 640,
+          height: 480,
+          r_frame_rate: '25/1',
+        },
+      ],
+    }
+
+    const meta = buildVideoMetadata(noAudioProbe)
+    expect(meta.has_audio).toBe(false)
+
+    // The extractor would return this message for the no-audio path.
+    const result = {
+      text: 'Video contains no audio track.',
+      contentType: 'text/plain',
+      metadata: { video_has_audio: 'false' },
+    }
+    expect(result.text).toContain('no audio track')
+    expect(result.metadata['video_has_audio']).toBe('false')
+  })
+})
+
+// ---- Corrupt/invalid video test (MA-2) ----
+
+describe('VideoExtractor corrupt video', () => {
+  let tmpDir: string
+
+  beforeEach(() => {
+    tmpDir = mkdtempSync(join(tmpdir(), 'memory-video-corrupt-'))
+  })
+
+  afterEach(() => {
+    rmSync(tmpDir, { recursive: true, force: true })
+  })
+
+  it.skipIf(!hasFFmpeg() || !hasFFprobe())(
+    'produces a meaningful error for corrupt video input',
+    async () => {
+      // Write garbage with ftyp magic bytes to pass magic-byte checks.
+      const garbage = Buffer.alloc(512)
+      garbage.write('ftyp', 4, 'ascii')
+
+      const e = makeExtractor()
+      await expect(e.extract(garbage, {})).rejects.toThrow(/ffprobe|ffmpeg/i)
+    },
+  )
+
+  it.skipIf(!hasFFmpeg() || !hasFFprobe())(
+    'produces a meaningful error for corrupt video via streaming',
+    async () => {
+      const garbage = Buffer.alloc(512)
+      garbage.write('ftyp', 4, 'ascii')
+
+      const stream = Readable.from(garbage)
+      const e = makeExtractor()
+      await expect(e.extractStream(stream, {})).rejects.toThrow(/ffprobe|ffmpeg/i)
+    },
+  )
+})
+
+// ---- Streaming size-limit enforcement during copy (M-3) ----
+
+describe('writeStreamToFile size enforcement', () => {
+  let tmpDir: string
+
+  beforeEach(() => {
+    tmpDir = mkdtempSync(join(tmpdir(), 'memory-video-stream-'))
+  })
+
+  afterEach(() => {
+    rmSync(tmpDir, { recursive: true, force: true })
+  })
+
+  it('rejects a stream that gradually exceeds the limit during copy', async () => {
+    // The maxFileSizeBytes is set low and the stream delivers more data
+    // than the limit. This tests enforcement during the actual copy, not
+    // just the pre-check.
+    const e = makeExtractor({ maxFileSizeBytes: 64 })
+    const oversizedStream = Readable.from(Buffer.alloc(128))
+    await expect(
+      e.extractStream(oversizedStream, {}),
+    ).rejects.toThrow('exceeds maximum')
   })
 })

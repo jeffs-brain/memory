@@ -23,6 +23,12 @@ export type SubprocessResult = {
   readonly exitCode: number
 }
 
+/** Type guard for ExecFileException errors with optional stdout/stderr buffers. */
+const isExecFileError = (
+  err: unknown,
+): err is ExecFileException & { stdout?: Buffer; stderr?: Buffer } =>
+  err instanceof Error && 'code' in err
+
 /**
  * Run a subprocess and capture its output. Returns the stdout as a
  * Buffer, stderr as a string, and the exit code.
@@ -58,17 +64,16 @@ export const runSubprocess = async (
       exitCode: 0,
     }
   } catch (err: unknown) {
-    const execErr = err as ExecFileException & {
-      stdout?: Buffer
-      stderr?: Buffer
+    if (!isExecFileError(err)) {
+      throw err instanceof Error ? err : new Error(String(err))
     }
-    if (execErr.code === 'ENOENT') {
+    if (err.code === 'ENOENT') {
       throw new Error(`extract: binary not found: ${binary}`)
     }
     return {
-      stdout: execErr.stdout ?? Buffer.alloc(0),
-      stderr: execErr.stderr?.toString('utf8') ?? execErr.message,
-      exitCode: execErr.code !== undefined && typeof execErr.code === 'number' ? execErr.code : 1,
+      stdout: err.stdout ?? Buffer.alloc(0),
+      stderr: err.stderr?.toString('utf8') ?? err.message,
+      exitCode: err.code !== undefined && typeof err.code === 'number' ? err.code : 1,
     }
   } finally {
     clearTimeout(timeoutId)
