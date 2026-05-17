@@ -18,6 +18,8 @@ import type {
   MagicSignature,
 } from './extractor.js'
 import { DEFAULT_SUBPROCESS_TIMEOUT_MS, checkBinaryAvailable, runSubprocess } from './subprocess.js'
+import type { Logger } from '../llm/types.js'
+import { noopLogger } from '../llm/types.js'
 
 /** Configuration for the image OCR extractor. */
 export type ImageExtractorConfig = {
@@ -29,6 +31,8 @@ export type ImageExtractorConfig = {
   readonly defaultLanguage?: string
   /** Subprocess timeout in milliseconds. Default: 60000. */
   readonly timeout?: number
+  /** Logger for diagnostic output. Defaults to a no-op logger. */
+  readonly logger?: Logger
 }
 
 /** Maps ISO 639-1 codes to PaddleOCR language parameters. */
@@ -104,6 +108,7 @@ const IMAGE_MAGIC_BYTES: readonly MagicSignature[] = [
   { offset: 0, bytes: new Uint8Array([0x4d, 0x4d, 0x00, 0x2a]) }, // TIFF BE
   { offset: 0, bytes: new Uint8Array([0x42, 0x4d]) }, // BMP
   { offset: 0, bytes: new Uint8Array([0x52, 0x49, 0x46, 0x46]) }, // WebP (RIFF)
+  { offset: 8, bytes: new Uint8Array([0x57, 0x45, 0x42, 0x50]) }, // WebP (WEBP at offset 8)
 ]
 
 /**
@@ -168,8 +173,24 @@ const writeTempFile = async (
 ): Promise<{ path: string; dir: string }> => {
   const dir = await mkdtemp(join(tmpdir(), 'memory-ocr-'))
   const path = join(dir, `input${extension}`)
-  await writeFile(path, raw)
+  try {
+    await writeFile(path, raw)
+  } catch (err: unknown) {
+    await rm(dir, { recursive: true, force: true }).catch(() => {})
+    throw err
+  }
   return { path, dir }
+}
+
+/**
+ * Validates that a language string is safe to pass as a subprocess
+ * argument. Throws if the value starts with '-' which could be
+ * interpreted as a flag by the OCR binary.
+ */
+const validateLanguage = (lang: string): void => {
+  if (lang.startsWith('-')) {
+    throw new Error(`ingest: invalid language parameter "${lang}": must not start with '-'`)
+  }
 }
 
 /**
@@ -260,8 +281,9 @@ export const createImageExtractor = (config?: ImageExtractorConfig): Extractor =
     config?.tesseractBinary ?? envOrDefault('MEMORY_TESSERACT_PATH', 'tesseract')
   const defaultLanguage = config?.defaultLanguage ?? 'en'
   const timeout = resolveTimeout(config?.timeout)
+  const logger = config?.logger ?? noopLogger
 
-  const resolveLanguage = (opts: ExtractOptions): string => opts.encoding ?? defaultLanguage
+  const resolveLanguage = (opts: ExtractOptions): string => opts.language ?? defaultLanguage
 
   const extractWithPaddleOCR = async (
     raw: Buffer,
@@ -275,11 +297,12 @@ export const createImageExtractor = (config?: ImageExtractorConfig): Extractor =
     try {
       const paddleLang = mapLanguageToPaddleOCR(language)
 
+      const subprocessOpts = signal !== undefined ? { timeout, signal } : { timeout }
       const result = await runSubprocess(
         paddleOcrBinary,
         ['--image_dir', tmpPath, '--use_angle_cls', 'true', '--lang', paddleLang, '--type', 'ocr'],
         undefined,
-        { timeout, signal },
+        subprocessOpts,
       )
 
       if (result.exitCode !== 0) {
@@ -319,11 +342,12 @@ export const createImageExtractor = (config?: ImageExtractorConfig): Extractor =
     try {
       const tesseractLang = mapLanguageToTesseract(language)
 
+      const subprocessOpts = signal !== undefined ? { timeout, signal } : { timeout }
       const result = await runSubprocess(
         tesseractBinary,
         [tmpPath, 'stdout', '-l', tesseractLang, '--oem', '3', '--psm', '3'],
         undefined,
-        { timeout, signal },
+        subprocessOpts,
       )
 
       if (result.exitCode !== 0) {
@@ -371,13 +395,17 @@ export const createImageExtractor = (config?: ImageExtractorConfig): Extractor =
       }
 
       const language = resolveLanguage(opts)
+      validateLanguage(language)
 
       // Try PaddleOCR first.
       if (await checkBinaryAvailable(paddleOcrBinary)) {
         try {
           return await extractWithPaddleOCR(raw, language, opts, signal)
-        } catch {
-          // Fall through to Tesseract.
+        } catch (paddleErr: unknown) {
+          const message = paddleErr instanceof Error ? paddleErr.message : String(paddleErr)
+          logger.warn(`paddleocr extraction failed, falling back to tesseract: ${message}`, {
+            file: opts.fileName,
+          })
         }
       }
 

@@ -35,6 +35,44 @@ export const DEFAULT_SUBPROCESS_TIMEOUT_MS = 60_000
 const DEFAULT_MAX_BUFFER = 50 * 1024 * 1024
 
 /**
+ * Maximum number of simultaneous subprocess invocations. Prevents
+ * resource exhaustion when many extractions run concurrently.
+ */
+export const MAX_CONCURRENT_SUBPROCESSES = 8
+
+/**
+ * Simple counting semaphore that limits concurrency. Callers await
+ * acquire() before spawning a subprocess and call release() when done.
+ */
+const createSemaphore = (maxConcurrency: number) => {
+  let current = 0
+  const waiting: Array<() => void> = []
+
+  const acquire = (): Promise<void> => {
+    if (current < maxConcurrency) {
+      current++
+      return Promise.resolve()
+    }
+    return new Promise<void>((resolve) => {
+      waiting.push(resolve)
+    })
+  }
+
+  const release = (): void => {
+    const next = waiting.shift()
+    if (next !== undefined) {
+      next()
+    } else {
+      current--
+    }
+  }
+
+  return { acquire, release }
+}
+
+const subprocessSemaphore = createSemaphore(MAX_CONCURRENT_SUBPROCESSES)
+
+/**
  * Executes a binary with the given arguments and optional stdin input.
  * Arguments are passed as an array — no shell expansion occurs.
  * Timeout is enforced via setTimeout + process.kill().
@@ -48,6 +86,8 @@ export const runSubprocess = async (
   stdin?: Buffer,
   opts?: SubprocessOptions,
 ): Promise<SubprocessResult> => {
+  await subprocessSemaphore.acquire()
+
   const timeout = opts?.timeout ?? DEFAULT_SUBPROCESS_TIMEOUT_MS
   const maxBuffer = opts?.maxBuffer ?? DEFAULT_MAX_BUFFER
 
@@ -63,6 +103,7 @@ export const runSubprocess = async (
         signal: opts?.signal,
       })
     } catch (err: unknown) {
+      subprocessSemaphore.release()
       reject(
         new Error(
           `ingest: subprocess "${binary}": ${err instanceof Error ? err.message : String(err)}`,
@@ -97,11 +138,13 @@ export const runSubprocess = async (
 
     child.on('error', (err: Error) => {
       clearTimeout(timer)
+      subprocessSemaphore.release()
       reject(new Error(`ingest: subprocess "${binary}": ${err.message}`))
     })
 
     child.on('close', (code: number | null) => {
       clearTimeout(timer)
+      subprocessSemaphore.release()
 
       if (timedOut) {
         reject(new Error(`ingest: subprocess "${binary}" timed out after ${timeout}ms`))

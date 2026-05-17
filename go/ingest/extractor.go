@@ -90,7 +90,8 @@ type ExtractOptions struct {
 	ContentType string
 	FileName    string
 	Encoding    string
-	MaxBytes    int64 // 0 = no limit
+	Language    string // ISO 639-1 language hint for OCR extractors (e.g. "en", "de").
+	MaxBytes    int64  // 0 = no limit
 }
 
 // ExtractResult holds the output of an extraction operation.

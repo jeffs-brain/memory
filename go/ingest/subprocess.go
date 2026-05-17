@@ -28,10 +28,49 @@ type SubprocessOptions struct {
 // DefaultSubprocessTimeout is used when no timeout is specified.
 const DefaultSubprocessTimeout = 60 * time.Second
 
-// RunSubprocess executes a binary with the given arguments and optional
-// stdin input. Timeout is enforced via context cancellation. Arguments
-// are passed as an array — no shell expansion occurs.
-func RunSubprocess(ctx context.Context, binary string, args []string, stdin []byte, opts SubprocessOptions) (SubprocessResult, error) {
+// DefaultMaxConcurrentSubprocesses is the default cap for simultaneous
+// subprocess invocations.
+const DefaultMaxConcurrentSubprocesses = 8
+
+// binaryCacheTTL is how long binary availability results are cached.
+const binaryCacheTTL = 5 * time.Minute
+
+// SubprocessRunner manages subprocess invocations with bounded
+// concurrency and binary availability caching. Each instance owns
+// its own semaphore and cache, eliminating module-global state.
+type SubprocessRunner struct {
+	semaphore chan struct{}
+	cache     binaryAvailabilityCache
+}
+
+// NewSubprocessRunner creates a runner with the given concurrency
+// limit. When maxConcurrency is zero, DefaultMaxConcurrentSubprocesses
+// is used.
+func NewSubprocessRunner(maxConcurrency int) *SubprocessRunner {
+	if maxConcurrency <= 0 {
+		maxConcurrency = DefaultMaxConcurrentSubprocesses
+	}
+	return &SubprocessRunner{
+		semaphore: make(chan struct{}, maxConcurrency),
+		cache: binaryAvailabilityCache{
+			entries: make(map[string]binaryCacheEntry),
+		},
+	}
+}
+
+// Run executes a binary with the given arguments and optional stdin
+// input. Timeout is enforced via context cancellation. Arguments are
+// passed as an array -- no shell expansion occurs. Concurrency is
+// limited by the runner's semaphore.
+func (r *SubprocessRunner) Run(ctx context.Context, binary string, args []string, stdin []byte, opts SubprocessOptions) (SubprocessResult, error) {
+	// Acquire semaphore slot, respecting context cancellation.
+	select {
+	case r.semaphore <- struct{}{}:
+		defer func() { <-r.semaphore }()
+	case <-ctx.Done():
+		return SubprocessResult{ExitCode: -1}, fmt.Errorf("ingest: subprocess %q: context cancelled while waiting for concurrency slot: %w", binary, ctx.Err())
+	}
+
 	timeout := opts.Timeout
 	if timeout <= 0 {
 		timeout = DefaultSubprocessTimeout
@@ -91,9 +130,8 @@ func RunSubprocess(ctx context.Context, binary string, args []string, stdin []by
 }
 
 // binaryAvailabilityCache caches binary availability lookups. Entries
-// expire after 5 minutes to avoid repeatedly probing the filesystem
-// for binaries that are unlikely to appear or disappear during a
-// single process lifetime.
+// expire after binaryCacheTTL to avoid repeatedly probing the
+// filesystem.
 type binaryAvailabilityCache struct {
 	mu      sync.RWMutex
 	entries map[string]binaryCacheEntry
@@ -104,18 +142,12 @@ type binaryCacheEntry struct {
 	expiresAt time.Time
 }
 
-const binaryCacheTTL = 5 * time.Minute
-
-var globalBinaryCache = &binaryAvailabilityCache{
-	entries: make(map[string]binaryCacheEntry),
-}
-
 // CheckBinaryAvailable reports whether the named binary is present on
-// the system PATH. Results are cached for 5 minutes.
-func CheckBinaryAvailable(ctx context.Context, name string) bool {
-	globalBinaryCache.mu.RLock()
-	entry, ok := globalBinaryCache.entries[name]
-	globalBinaryCache.mu.RUnlock()
+// the system PATH. Results are cached per runner instance.
+func (r *SubprocessRunner) CheckBinaryAvailable(ctx context.Context, name string) bool {
+	r.cache.mu.RLock()
+	entry, ok := r.cache.entries[name]
+	r.cache.mu.RUnlock()
 
 	if ok && time.Now().Before(entry.expiresAt) {
 		return entry.available
@@ -123,22 +155,45 @@ func CheckBinaryAvailable(ctx context.Context, name string) bool {
 
 	available := checkBinaryOnPath(ctx, name)
 
-	globalBinaryCache.mu.Lock()
-	globalBinaryCache.entries[name] = binaryCacheEntry{
+	r.cache.mu.Lock()
+	r.cache.entries[name] = binaryCacheEntry{
 		available: available,
 		expiresAt: time.Now().Add(binaryCacheTTL),
 	}
-	globalBinaryCache.mu.Unlock()
+	r.cache.mu.Unlock()
 
 	return available
 }
 
 // ResetBinaryCache clears the binary availability cache. Intended for
 // testing only.
+func (r *SubprocessRunner) ResetBinaryCache() {
+	r.cache.mu.Lock()
+	r.cache.entries = make(map[string]binaryCacheEntry)
+	r.cache.mu.Unlock()
+}
+
+// defaultRunner is the default SubprocessRunner for backwards
+// compatibility with callers that use the package-level functions.
+var defaultRunner = NewSubprocessRunner(DefaultMaxConcurrentSubprocesses)
+
+// RunSubprocess is a convenience function that delegates to the
+// default SubprocessRunner. Prefer creating a dedicated runner via
+// NewSubprocessRunner for production use.
+func RunSubprocess(ctx context.Context, binary string, args []string, stdin []byte, opts SubprocessOptions) (SubprocessResult, error) {
+	return defaultRunner.Run(ctx, binary, args, stdin, opts)
+}
+
+// CheckBinaryAvailable is a convenience function that delegates to
+// the default SubprocessRunner.
+func CheckBinaryAvailable(ctx context.Context, name string) bool {
+	return defaultRunner.CheckBinaryAvailable(ctx, name)
+}
+
+// ResetBinaryCache is a convenience function that delegates to the
+// default SubprocessRunner.
 func ResetBinaryCache() {
-	globalBinaryCache.mu.Lock()
-	globalBinaryCache.entries = make(map[string]binaryCacheEntry)
-	globalBinaryCache.mu.Unlock()
+	defaultRunner.ResetBinaryCache()
 }
 
 // checkBinaryOnPath checks if the binary exists on PATH using
