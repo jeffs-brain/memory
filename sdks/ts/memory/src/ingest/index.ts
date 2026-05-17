@@ -140,3 +140,5 @@ export {
   type MigrationState,
   type MigrationStateBackend,
 } from './migrate-hash.js'
+
+export * from './queue/index.js'
