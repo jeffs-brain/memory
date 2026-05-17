@@ -200,3 +200,12 @@ export {
   type TranscriptionSegment,
   type TranscriptionWord,
 } from './audio.js'
+
+export {
+  extractCSV,
+  extractJSON,
+  extractJSONL,
+  type CsvExtractorConfig,
+  type JsonExtractorConfig,
+  type ExtractionResult,
+} from './structured.js'
