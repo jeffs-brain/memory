@@ -179,6 +179,12 @@ export {
 } from './image.js'
 
 export {
+  createPDFExtractor,
+  isSubstantialText,
+  type PDFExtractorConfig,
+} from './pdf.js'
+
+export {
   runSubprocess,
   checkBinaryAvailable,
   resetBinaryCache,

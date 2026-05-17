@@ -112,6 +112,7 @@ var imageMagicBytes = []MagicSignature{
 	{Offset: 0, Bytes: []byte{0x4D, 0x4D, 0x00, 0x2A}},              // TIFF (big-endian)
 	{Offset: 0, Bytes: []byte{0x42, 0x4D}},                          // BMP
 	{Offset: 0, Bytes: []byte{0x52, 0x49, 0x46, 0x46}},              // WebP (RIFF header)
+	{Offset: 8, Bytes: []byte{0x57, 0x45, 0x42, 0x50}},              // WebP (WEBP at offset 8)
 }
 
 // Name returns the extractor identifier.
@@ -162,6 +163,10 @@ func (e *ImageExtractor) Extract(ctx context.Context, raw []byte, opts ExtractOp
 
 	language := e.resolveLanguage(opts)
 
+	if err := validateLanguage(language); err != nil {
+		return ExtractResult{}, err
+	}
+
 	// Try PaddleOCR first.
 	if CheckBinaryAvailable(ctx, e.cfg.PaddleOCRBinary) {
 		result, err := e.extractWithPaddleOCR(ctx, raw, language, opts)
@@ -203,11 +208,21 @@ func (e *ImageExtractor) ExtractStream(ctx context.Context, reader io.Reader, op
 	return e.Extract(ctx, raw, opts)
 }
 
+// validateLanguage checks that a language string is safe to pass as a
+// subprocess argument. Returns an error if the value starts with '-'
+// which could be interpreted as a flag by the OCR binary.
+func validateLanguage(lang string) error {
+	if strings.HasPrefix(lang, "-") {
+		return fmt.Errorf("ingest: invalid language parameter %q: must not start with '-'", lang)
+	}
+	return nil
+}
+
 // resolveLanguage determines the OCR language parameter from options
 // or falls back to the configured default.
 func (e *ImageExtractor) resolveLanguage(opts ExtractOptions) string {
-	if opts.Encoding != "" {
-		return opts.Encoding
+	if opts.Language != "" {
+		return opts.Language
 	}
 	return e.cfg.DefaultLanguage
 }
