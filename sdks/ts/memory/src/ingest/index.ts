@@ -191,3 +191,11 @@ export {
   type SubprocessResult,
   type SubprocessOptions,
 } from './subprocess.js'
+
+export {
+  createAudioExtractor,
+  formatTranscription,
+  type AudioExtractorConfig,
+  type TranscriptionSegment,
+  type TranscriptionWord,
+} from './audio.js'
