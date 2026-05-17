@@ -2,6 +2,13 @@
 
 import { describe, expect, it } from 'vitest'
 import { extractCSV, extractJSON, extractJSONL } from './structured.js'
+import { extractXML } from './xml.js'
+import {
+  createCSVExtractor,
+  createJSONExtractor,
+  createJSONLExtractor,
+  createXMLExtractor,
+} from './extractor.js'
 
 // -------------------------------------------------------------------
 // CSV Extractor
@@ -11,9 +18,9 @@ describe('extractCSV', () => {
   it('extracts basic CSV with headers', () => {
     const input = Buffer.from('Name,Age,City\nAlice,30,London\nBob,25,Paris\n')
     const result = extractCSV(input)
-    expect(result.content).toContain('- Name: Alice')
-    expect(result.content).toContain('- Age: 30')
-    expect(result.content).toContain('- City: London')
+    expect(result.text).toContain('- Name: Alice')
+    expect(result.text).toContain('- Age: 30')
+    expect(result.text).toContain('- City: London')
     expect(result.metadata.column_count).toBe('3')
     expect(result.metadata.row_count).toBe('2')
   })
@@ -22,14 +29,14 @@ describe('extractCSV', () => {
     const input = Buffer.from('Name;Age;City\nAlice;30;London\nBob;25;Paris\n')
     const result = extractCSV(input)
     expect(result.metadata.delimiter).toBe(';')
-    expect(result.content).toContain('- Name: Alice')
+    expect(result.text).toContain('- Name: Alice')
   })
 
   it('auto-detects tab delimiter', () => {
     const input = Buffer.from('Name\tAge\tCity\nAlice\t30\tLondon\n')
     const result = extractCSV(input)
     expect(result.metadata.delimiter).toBe('\t')
-    expect(result.mime).toBe('text/tab-separated-values')
+    expect(result.contentType).toBe('text/tab-separated-values')
   })
 
   it('auto-detects pipe delimiter', () => {
@@ -41,9 +48,9 @@ describe('extractCSV', () => {
   it('uses synthetic headers when first row is numeric', () => {
     const input = Buffer.from('1,2,3\n4,5,6\n7,8,9\n')
     const result = extractCSV(input)
-    expect(result.content).toContain('Column_1')
-    expect(result.content).toContain('Column_2')
-    expect(result.content).toContain('Column_3')
+    expect(result.text).toContain('Column_1')
+    expect(result.text).toContain('Column_2')
+    expect(result.text).toContain('Column_3')
     expect(result.metadata.row_count).toBe('3')
   })
 
@@ -57,16 +64,15 @@ describe('extractCSV', () => {
     const input = Buffer.concat([bom, content])
     const result = extractCSV(input)
     expect(result.metadata.encoding).toBe('utf-8-bom')
-    expect(result.content).toContain('- Name: Alice')
+    expect(result.text).toContain('- Name: Alice')
   })
 
   it('decodes Latin-1 encoding', () => {
-    // Latin-1 bytes: ï = 0xEF, é = 0xE9, ü = 0xFC
     const input = Buffer.from([
-      0x4e, 0x61, 0xef, 0x76, 0x65, 0x2c, // "Naïve,"
-      0x43, 0x61, 0x66, 0xe9, 0x0a, // "Café\n"
-      0x41, 0x6c, 0x69, 0x63, 0x65, 0x2c, // "Alice,"
-      0x5a, 0xfc, 0x72, 0x69, 0x63, 0x68, 0x0a, // "Zürich\n"
+      0x4e, 0x61, 0xef, 0x76, 0x65, 0x2c,
+      0x43, 0x61, 0x66, 0xe9, 0x0a,
+      0x41, 0x6c, 0x69, 0x63, 0x65, 0x2c,
+      0x5a, 0xfc, 0x72, 0x69, 0x63, 0x68, 0x0a,
     ])
     const result = extractCSV(input)
     expect(result.metadata.encoding).toBe('latin-1')
@@ -79,22 +85,21 @@ describe('extractCSV', () => {
     }
     const input = Buffer.from(lines.join('\n'))
     const result = extractCSV(input, { rowsPerChunk: 50 })
-    const separators = (result.content.match(/---/g) ?? []).length
-    expect(separators).toBe(2) // 3 chunks = 2 separators
+    const separators = (result.text.match(/---/g) ?? []).length
+    expect(separators).toBe(2)
     expect(result.metadata.row_count).toBe('120')
   })
 
   it('respects forced delimiter', () => {
     const input = Buffer.from('Name;Age\nAlice;30\n')
     const result = extractCSV(input, { forceDelimiter: ',' })
-    // With comma forced, the entire "Name;Age" is one field.
     expect(result.metadata.delimiter).toBe(',')
   })
 
   it('uses synthetic headers for duplicate first row values', () => {
     const input = Buffer.from('Name,Name,Age\nAlice,Bob,30\n')
     const result = extractCSV(input)
-    expect(result.content).toContain('Column_1')
+    expect(result.text).toContain('Column_1')
   })
 
   it('preserves row numbering across chunks', () => {
@@ -104,8 +109,28 @@ describe('extractCSV', () => {
     }
     const input = Buffer.from(lines.join('\n'))
     const result = extractCSV(input, { rowsPerChunk: 50 })
-    expect(result.content).toContain('Row 1:')
-    expect(result.content).toContain('Row 51:')
+    expect(result.text).toContain('Row 1:')
+    expect(result.text).toContain('Row 51:')
+  })
+
+  it('sanitises formula injection values', () => {
+    const input = Buffer.from('Name,Formula\nAlice,=SUM(A1)\nBob,+CMD\nCarol,-1+1\nDave,@INDIRECT(A1)\n')
+    const result = extractCSV(input)
+    expect(result.text).toContain("'=SUM(A1)")
+    expect(result.text).toContain("'+CMD")
+    expect(result.text).toContain("'-1+1")
+    expect(result.text).toContain("'@INDIRECT(A1)")
+  })
+
+  it('does not sanitise safe values', () => {
+    const input = Buffer.from('Name,Value\nAlice,hello\nBob,42\n')
+    const result = extractCSV(input)
+    expect(result.text).not.toContain("'hello")
+  })
+
+  it('rejects input exceeding maxInputSize', () => {
+    const input = Buffer.from('Name,Age\nAlice,30\n')
+    expect(() => extractCSV(input, { maxInputSize: 5 })).toThrow('exceeds')
   })
 })
 
@@ -118,8 +143,8 @@ describe('extractJSON', () => {
     const input = Buffer.from('{"name":"Alice","age":30,"city":"London"}')
     const result = extractJSON(input)
     expect(result.metadata.structure_type).toBe('object')
-    expect(result.content).toContain('Object with 3 keys')
-    expect(result.content).toContain('age:')
+    expect(result.text).toContain('Object with 3 keys')
+    expect(result.text).toContain('age:')
   })
 
   it('renders uniform array of objects as markdown table', () => {
@@ -128,35 +153,35 @@ describe('extractJSON', () => {
     )
     const result = extractJSON(input, { tableThreshold: 3 })
     expect(result.metadata.structure_type).toBe('uniform_object_array')
-    expect(result.content).toContain('| age |')
-    expect(result.content).toContain('| name |')
-    expect(result.content).toContain('| --- |')
+    expect(result.text).toContain('| age |')
+    expect(result.text).toContain('| name |')
+    expect(result.text).toContain('| --- |')
   })
 
   it('renders heterogeneous array of objects individually', () => {
     const input = Buffer.from('[{"a":1,"b":2},{"c":3,"d":4}]')
     const result = extractJSON(input)
     expect(result.metadata.structure_type).toBe('heterogeneous_object_array')
-    expect(result.content).toContain('Item 1:')
+    expect(result.text).toContain('Item 1:')
   })
 
   it('flattens deeply nested objects to dot-notation', () => {
     const input = Buffer.from('{"a":{"b":{"c":{"d":{"e":"deep"}}}}}')
     const result = extractJSON(input)
-    expect(result.content).toContain('a.b.c.d.e: deep')
+    expect(result.text).toContain('a.b.c.d.e: deep')
   })
 
   it('handles empty object', () => {
     const input = Buffer.from('{}')
     const result = extractJSON(input)
-    expect(result.content).toBe('{}')
+    expect(result.text).toBe('{}')
     expect(result.metadata.structure_type).toBe('empty_object')
   })
 
   it('handles empty array', () => {
     const input = Buffer.from('[]')
     const result = extractJSON(input)
-    expect(result.content).toBe('[]')
+    expect(result.text).toBe('[]')
     expect(result.metadata.structure_type).toBe('empty_array')
   })
 
@@ -169,7 +194,7 @@ describe('extractJSON', () => {
     const input = Buffer.from('[1,2,3,4,5]')
     const result = extractJSON(input)
     expect(result.metadata.structure_type).toBe('primitive_array')
-    const lines = result.content.split('\n')
+    const lines = result.text.split('\n')
     expect(lines).toHaveLength(5)
   })
 
@@ -181,7 +206,7 @@ describe('extractJSON', () => {
     const objects = Array.from({ length: 120 }, () => '{"id":1,"name":"test"}')
     const input = Buffer.from(`[${objects.join(',')}]`)
     const result = extractJSON(input, { objectsPerChunk: 50, tableThreshold: 3 })
-    const separators = (result.content.match(/\n---\n/g) ?? []).length
+    const separators = (result.text.match(/\n---\n/g) ?? []).length
     expect(separators).toBeGreaterThanOrEqual(2)
   })
 
@@ -197,27 +222,31 @@ describe('extractJSON', () => {
   it('handles null values', () => {
     const input = Buffer.from('{"key":null}')
     const result = extractJSON(input)
-    expect(result.content).toContain('null')
+    expect(result.text).toContain('null')
   })
 
   it('handles boolean values', () => {
     const input = Buffer.from('{"active":true,"deleted":false}')
     const result = extractJSON(input)
-    expect(result.content).toContain('true')
-    expect(result.content).toContain('false')
+    expect(result.text).toContain('true')
+    expect(result.text).toContain('false')
   })
 
   it('handles string values', () => {
     const input = Buffer.from('{"greeting":"hello world"}')
     const result = extractJSON(input)
-    expect(result.content).toContain('hello world')
+    expect(result.text).toContain('hello world')
   })
 
   it('renders below-threshold uniform arrays individually', () => {
     const input = Buffer.from('[{"a":1},{"a":2}]')
     const result = extractJSON(input, { tableThreshold: 5 })
-    // Only 2 objects but threshold is 5, so should render individually.
     expect(result.metadata.structure_type).toBe('heterogeneous_object_array')
+  })
+
+  it('rejects input exceeding maxInputSize', () => {
+    const input = Buffer.from('{"key":"value"}')
+    expect(() => extractJSON(input, { maxInputSize: 5 })).toThrow('exceeds')
   })
 })
 
@@ -229,7 +258,7 @@ describe('extractJSONL', () => {
   it('extracts basic JSONL', () => {
     const input = Buffer.from('{"a":1}\n{"a":2}\n{"a":3}\n')
     const result = extractJSONL(input, { tableThreshold: 3 })
-    expect(result.mime).toBe('application/jsonl')
+    expect(result.contentType).toBe('application/jsonl')
   })
 
   it('throws for empty input', () => {
@@ -243,6 +272,110 @@ describe('extractJSONL', () => {
   it('handles mixed object types in JSONL', () => {
     const input = Buffer.from('{"name":"Alice"}\n{"age":30}\n')
     const result = extractJSONL(input)
-    expect(result.mime).toBe('application/jsonl')
+    expect(result.contentType).toBe('application/jsonl')
+  })
+})
+
+// -------------------------------------------------------------------
+// XML Extractor
+// -------------------------------------------------------------------
+
+describe('extractXML', () => {
+  it('extracts basic XML with element path context', () => {
+    const input = Buffer.from('<root><item>hello</item><item>world</item></root>')
+    const result = extractXML(input)
+    expect(result.contentType).toBe('application/xml')
+    expect(result.metadata.root_element).toBe('root')
+    expect(result.text).toContain('root/item: hello')
+    expect(result.text).toContain('root/item: world')
+  })
+
+  it('renders attributes with path context', () => {
+    const input = Buffer.from('<root><user id="1" name="Alice">text content</user></root>')
+    const result = extractXML(input)
+    expect(result.text).toContain('root/user@id: 1')
+    expect(result.text).toContain('root/user@name: Alice')
+    expect(result.text).toContain('root/user: text content')
+  })
+
+  it('strips namespace prefixes', () => {
+    const input = Buffer.from('<ns:root xmlns:ns="http://example.com"><ns:item>value</ns:item></ns:root>')
+    const result = extractXML(input)
+    expect(result.text).toContain('root/item: value')
+  })
+
+  it('handles CDATA sections as text', () => {
+    const input = Buffer.from('<root><data><![CDATA[some <special> content]]></data></root>')
+    const result = extractXML(input)
+    expect(result.text).toContain('some <special> content')
+  })
+
+  it('ignores processing instructions', () => {
+    const input = Buffer.from('<?xml version="1.0"?><root><item>value</item></root>')
+    const result = extractXML(input)
+    expect(result.text).toContain('root/item: value')
+  })
+
+  it('throws for empty input', () => {
+    expect(() => extractXML(Buffer.alloc(0))).toThrow('empty xml')
+  })
+
+  it('renders nested elements with full path', () => {
+    const input = Buffer.from('<root><parent><child><grandchild>deep</grandchild></child></parent></root>')
+    const result = extractXML(input)
+    expect(result.text).toContain('root/parent/child/grandchild: deep')
+  })
+
+  it('chunks top-level children', () => {
+    const items = Array.from({ length: 60 }, (_, i) => `<item>value_${i}</item>`).join('')
+    const input = Buffer.from(`<root>${items}</root>`)
+    const result = extractXML(input, { elementsPerChunk: 50 })
+    const separators = (result.text.match(/---/g) ?? []).length
+    expect(separators).toBeGreaterThanOrEqual(1)
+  })
+
+  it('rejects input exceeding maxInputSize', () => {
+    const input = Buffer.from('<root><item>value</item></root>')
+    expect(() => extractXML(input, { maxInputSize: 5 })).toThrow('exceeds')
+  })
+})
+
+// -------------------------------------------------------------------
+// Extractor Interface
+// -------------------------------------------------------------------
+
+describe('Extractor', () => {
+  it('CSV extractor implements the interface', async () => {
+    const e = createCSVExtractor()
+    expect(e.name).toBe('csv')
+    expect(await e.available()).toBe(true)
+    expect(e.capability().mimeTypes.length).toBeGreaterThan(0)
+    const result = await e.extract(Buffer.from('Name,Age\nAlice,30\n'), {})
+    expect(result.text).toContain('- Name: Alice')
+  })
+
+  it('JSON extractor implements the interface', async () => {
+    const e = createJSONExtractor()
+    expect(e.name).toBe('json')
+    expect(await e.available()).toBe(true)
+    const result = await e.extract(Buffer.from('{"key":"value"}'), {})
+    expect(result.text).toContain('key:')
+  })
+
+  it('JSONL extractor implements the interface', async () => {
+    const e = createJSONLExtractor()
+    expect(e.name).toBe('jsonl')
+    expect(await e.available()).toBe(true)
+    const result = await e.extract(Buffer.from('{"a":1}\n{"a":2}\n'), {})
+    expect(result.contentType).toBe('application/jsonl')
+  })
+
+  it('XML extractor implements the interface', async () => {
+    const e = createXMLExtractor()
+    expect(e.name).toBe('xml')
+    expect(await e.available()).toBe(true)
+    expect(e.capability().mimeTypes.length).toBeGreaterThan(0)
+    const result = await e.extract(Buffer.from('<root><item>hello</item></root>'), {})
+    expect(result.text).toContain('root/item: hello')
   })
 })

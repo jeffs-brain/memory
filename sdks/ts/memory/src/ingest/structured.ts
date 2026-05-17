@@ -6,54 +6,46 @@
  * context instead of splitting arbitrarily by character count.
  */
 
+import { detectEncoding } from './encoding.js'
+
+// Re-export for consumers and sibling modules.
+export { detectEncoding } from './encoding.js'
+
 // -------------------------------------------------------------------
 // Shared types
 // -------------------------------------------------------------------
 
-export type ExtractionResult = {
-  readonly content: string
-  readonly mime: string
+/** Upper bound on raw input in bytes (50 MiB). */
+const DEFAULT_MAX_INPUT_SIZE = 50 * 1024 * 1024
+
+export type ExtractResult = {
+  readonly text: string
+  readonly contentType: string
+  readonly encoding: string
   readonly metadata: Readonly<Record<string, string>>
+  readonly pages: number
+  readonly language: string
+  readonly confidence: number
+  readonly skipped: boolean
+  readonly reason?: string
 }
 
 // -------------------------------------------------------------------
-// Encoding detection
+// CSV injection protection
 // -------------------------------------------------------------------
 
-const detectEncoding = (raw: Buffer): { text: string; encoding: string } => {
-  // UTF-8 BOM (EF BB BF).
-  if (raw.length >= 3 && raw[0] === 0xef && raw[1] === 0xbb && raw[2] === 0xbf) {
-    return { text: raw.subarray(3).toString('utf8'), encoding: 'utf-8-bom' }
-  }
+/** Characters that trigger formula evaluation in spreadsheet apps. */
+const FORMULA_PREFIXES = new Set(['=', '+', '-', '@'])
 
-  // UTF-16 LE BOM (FF FE).
-  if (raw.length >= 2 && raw[0] === 0xff && raw[1] === 0xfe) {
-    return { text: raw.subarray(2).toString('utf16le'), encoding: 'utf-16-le' }
-  }
-
-  // UTF-16 BE BOM (FE FF).
-  if (raw.length >= 2 && raw[0] === 0xfe && raw[1] === 0xff) {
-    return { text: decodeUTF16BE(raw.subarray(2)), encoding: 'utf-16-be' }
-  }
-
-  // Try UTF-8. If all bytes are valid, use it.
-  const utf8Text = raw.toString('utf8')
-  const roundTrip = Buffer.from(utf8Text, 'utf8')
-  if (roundTrip.length === raw.length && raw.equals(roundTrip)) {
-    return { text: utf8Text, encoding: 'utf-8' }
-  }
-
-  // Fallback: Latin-1 (ISO-8859-1).
-  return { text: raw.toString('latin1'), encoding: 'latin-1' }
-}
-
-const decodeUTF16BE = (data: Buffer): string => {
-  const swapped = Buffer.alloc(data.length)
-  for (let i = 0; i + 1 < data.length; i += 2) {
-    swapped[i] = data[i + 1] ?? 0
-    swapped[i + 1] = data[i] ?? 0
-  }
-  return swapped.toString('utf16le')
+/**
+ * Escape values starting with formula trigger characters by prepending
+ * a single-quote to prevent CSV injection in downstream consumers.
+ */
+const sanitiseCSVValue = (s: string): string => {
+  if (s.length === 0) return s
+  const first = s[0] ?? ''
+  if (FORMULA_PREFIXES.has(first)) return `'${s}`
+  return s
 }
 
 // -------------------------------------------------------------------
@@ -63,12 +55,14 @@ const decodeUTF16BE = (data: Buffer): string => {
 export type CsvExtractorConfig = {
   readonly rowsPerChunk?: number
   readonly maxRows?: number
+  readonly maxInputSize?: number
   readonly forceDelimiter?: string
 }
 
 const defaultCsvConfig = {
   rowsPerChunk: 50,
   maxRows: 100000,
+  maxInputSize: DEFAULT_MAX_INPUT_SIZE,
 } as const
 
 const resolveDelimiter = (text: string, forced: string | undefined): string => {
@@ -78,14 +72,26 @@ const resolveDelimiter = (text: string, forced: string | undefined): string => {
 
 /**
  * Parse CSV text using the detected delimiter. Handles quoted fields
- * with embedded delimiters and newlines.
+ * with embedded delimiters and newlines. Streams rows via a callback
+ * instead of building the full row array.
  */
-const parseCSV = (text: string, delimiter: string): readonly string[][] => {
-  const rows: string[][] = []
+const parseCSVStreaming = (
+  text: string,
+  delimiter: string,
+  onRow: (row: readonly string[]) => boolean,
+): void => {
   let current: string[] = []
   let field = ''
   let inQuotes = false
   let i = 0
+
+  const flushRow = (): boolean => {
+    current.push(field)
+    field = ''
+    const shouldContinue = onRow(current)
+    current = []
+    return shouldContinue
+  }
 
   while (i < text.length) {
     const ch = text[i] ?? ''
@@ -123,26 +129,17 @@ const parseCSV = (text: string, delimiter: string): readonly string[][] => {
     if (ch === '\r') {
       const next = text[i + 1]
       if (next === '\n') {
-        current.push(field)
-        field = ''
-        if (current.length > 0) rows.push(current)
-        current = []
+        if (!flushRow()) return
         i += 2
         continue
       }
-      current.push(field)
-      field = ''
-      if (current.length > 0) rows.push(current)
-      current = []
+      if (!flushRow()) return
       i++
       continue
     }
 
     if (ch === '\n') {
-      current.push(field)
-      field = ''
-      if (current.length > 0) rows.push(current)
-      current = []
+      if (!flushRow()) return
       i++
       continue
     }
@@ -154,73 +151,102 @@ const parseCSV = (text: string, delimiter: string): readonly string[][] => {
   // Flush remaining field.
   if (field.length > 0 || current.length > 0) {
     current.push(field)
-    rows.push(current)
+    onRow(current)
   }
-
-  return rows
 }
 
 /**
  * Extract structured content from CSV/TSV bytes. Each chunk preserves
- * column headers for self-contained search context.
+ * column headers for self-contained search context. Rows are processed
+ * in a streaming fashion via callback to avoid full materialisation.
  */
-export const extractCSV = (raw: Buffer, config: CsvExtractorConfig = {}): ExtractionResult => {
+export const extractCSV = (raw: Buffer, config: CsvExtractorConfig = {}): ExtractResult => {
   if (raw.length === 0) {
     throw new Error('structured: empty csv file')
+  }
+
+  const maxSize = config.maxInputSize ?? defaultCsvConfig.maxInputSize
+  if (raw.length > maxSize) {
+    throw new Error(`structured: csv input exceeds ${maxSize} byte limit`)
   }
 
   const { text, encoding } = detectEncoding(raw)
   const delimiter = resolveDelimiter(text, config.forceDelimiter)
 
-  const allRows = parseCSV(text, delimiter)
-  if (allRows.length === 0) {
-    throw new Error('structured: empty csv file')
-  }
-
-  const { headers, dataRows: allDataRows } = splitHeaders(allRows)
   const maxRows = config.maxRows ?? defaultCsvConfig.maxRows
-  const dataRows = allDataRows.length > maxRows ? allDataRows.slice(0, maxRows) : allDataRows
   const rpc = config.rowsPerChunk ?? defaultCsvConfig.rowsPerChunk
 
-  const parts: string[] = []
+  let headers: readonly string[] = []
+  let headersResolved = false
+  let rowCount = 0
   let chunkCount = 0
+  const parts: string[] = []
+  let batchLines: string[] = []
+  let batchSize = 0
 
-  for (let i = 0; i < dataRows.length; i += rpc) {
-    const end = Math.min(i + rpc, dataRows.length)
-    const batch = dataRows.slice(i, end)
-    const lines: string[] = []
-
-    for (let j = 0; j < batch.length; j++) {
-      const row = batch[j]
-      if (row === undefined) continue
-      const rowNum = i + j + 1
-      lines.push(`Row ${rowNum}:`)
-      for (let k = 0; k < headers.length; k++) {
-        const header = headers[k] ?? `Column_${k + 1}`
-        const val = k < row.length ? (row[k] ?? '') : ''
-        lines.push(`- ${header}: ${val}`)
-      }
-      if (j < batch.length - 1) {
-        lines.push('')
-      }
-    }
-
-    parts.push(lines.join('\n'))
+  const flushBatch = (): void => {
+    if (batchLines.length === 0) return
+    parts.push(batchLines.join('\n'))
+    batchLines = []
+    batchSize = 0
     chunkCount++
   }
 
-  const mime = delimiter === '\t' ? 'text/tab-separated-values' : 'text/csv'
+  parseCSVStreaming(text, delimiter, (row) => {
+    if (!headersResolved) {
+      headersResolved = true
+      if (looksLikeHeaders(row)) {
+        headers = row
+        return true
+      }
+      headers = row.map((_, idx) => `Column_${idx + 1}`)
+      // Fall through to process this row as data.
+    }
+
+    if (rowCount >= maxRows) return false
+    rowCount++
+
+    if (batchSize > 0 && batchSize >= rpc) {
+      flushBatch()
+    }
+
+    batchLines.push(`Row ${rowCount}:`)
+    for (let k = 0; k < headers.length; k++) {
+      const header = headers[k] ?? `Column_${k + 1}`
+      const val = k < row.length ? sanitiseCSVValue(row[k] ?? '') : ''
+      batchLines.push(`- ${header}: ${val}`)
+    }
+    batchSize++
+    if (batchSize < rpc) {
+      batchLines.push('')
+    }
+
+    return true
+  })
+
+  flushBatch()
+
+  if (!headersResolved) {
+    throw new Error('structured: empty csv file')
+  }
+
+  const resolvedContentType = delimiter === '\t' ? 'text/tab-separated-values' : 'text/csv'
 
   return {
-    content: parts.join('\n\n---\n\n'),
-    mime,
+    text: parts.join('\n\n---\n\n'),
+    contentType: resolvedContentType,
+    encoding,
     metadata: {
       encoding,
       delimiter,
       column_count: String(headers.length),
-      row_count: String(dataRows.length),
+      row_count: String(rowCount),
       chunk_count: String(chunkCount),
     },
+    pages: 0,
+    language: '',
+    confidence: 0,
+    skipped: false,
   }
 }
 
@@ -267,26 +293,6 @@ const firstNLines = (text: string, n: number): readonly string[] => {
   return out
 }
 
-/**
- * Separate headers from data rows. The first row is treated as
- * headers when: (a) all values are non-empty, (b) none is purely
- * numeric, and (c) all values are unique.
- */
-const splitHeaders = (
-  rows: readonly (readonly string[])[],
-): { headers: readonly string[]; dataRows: readonly (readonly string[])[] } => {
-  if (rows.length === 0) return { headers: [], dataRows: [] }
-  const first = rows[0]
-  if (first === undefined) return { headers: [], dataRows: [] }
-
-  if (looksLikeHeaders(first)) {
-    return { headers: first, dataRows: rows.slice(1) }
-  }
-
-  const headers = first.map((_, i) => `Column_${i + 1}`)
-  return { headers, dataRows: rows }
-}
-
 const looksLikeHeaders = (row: readonly string[]): boolean => {
   if (row.length === 0) return false
   const seen = new Set<string>()
@@ -316,6 +322,7 @@ export type JsonExtractorConfig = {
   readonly maxDepth?: number
   readonly schemaSampleSize?: number
   readonly tableThreshold?: number
+  readonly maxInputSize?: number
 }
 
 const defaultJsonConfig = {
@@ -323,6 +330,7 @@ const defaultJsonConfig = {
   maxDepth: 10,
   schemaSampleSize: 20,
   tableThreshold: 3,
+  maxInputSize: DEFAULT_MAX_INPUT_SIZE,
 } as const
 
 /**
@@ -330,10 +338,15 @@ const defaultJsonConfig = {
  * chunked by object boundaries. Uniform arrays render as markdown
  * tables. Deeply nested structures flatten to dot-notation.
  */
-export const extractJSON = (raw: Buffer, config: JsonExtractorConfig = {}): ExtractionResult => {
+export const extractJSON = (raw: Buffer, config: JsonExtractorConfig = {}): ExtractResult => {
   const trimmed = raw.toString('utf8').trim()
   if (trimmed === '') {
     throw new Error('structured: empty json input')
+  }
+
+  const maxSize = config.maxInputSize ?? defaultJsonConfig.maxInputSize
+  if (raw.length > maxSize) {
+    throw new Error(`structured: json input exceeds ${maxSize} byte limit`)
   }
 
   const { text, encoding } = detectEncoding(raw)
@@ -363,7 +376,7 @@ export const extractJSON = (raw: Buffer, config: JsonExtractorConfig = {}): Extr
     metadata.detected_schema = schema
   }
 
-  return { content, mime: 'application/json', metadata }
+  return { text: content, contentType: 'application/json', encoding: 'UTF-8', metadata, pages: 0, language: '', confidence: 0, skipped: false }
 }
 
 type ResolvedJsonConfig = {
@@ -607,7 +620,7 @@ const flattenValue = (
   return `${label}: ${formatPrimitive(v)}`
 }
 
-const formatPrimitive = (v: unknown): string => {
+export const formatPrimitive = (v: unknown): string => {
   if (v === null || v === undefined) return 'null'
   if (typeof v === 'string') return v
   if (typeof v === 'boolean') return v ? 'true' : 'false'
@@ -622,7 +635,7 @@ const formatValue = (v: unknown): string => {
   return formatPrimitive(v)
 }
 
-const maxNestingDepth = (v: unknown, current: number): number => {
+export const maxNestingDepth = (v: unknown, current: number): number => {
   if (v === null || typeof v !== 'object') return current
   if (Array.isArray(v)) {
     let max = current
@@ -649,14 +662,20 @@ const escapeMdTableCell = (s: string): string =>
 // -------------------------------------------------------------------
 
 /**
- * Extract structured content from newline-delimited JSON. Each line
- * is parsed as a JSON value, collected into an array, then delegated
- * to extractJSON.
+ * Extract structured content from newline-delimited JSON. Each line is
+ * parsed as a JSON value, collected into an array, then rendered
+ * directly via renderJSON. This avoids a wasteful round-trip through
+ * JSON.stringify + JSON.parse that would triple peak memory usage.
  */
-export const extractJSONL = (raw: Buffer, config: JsonExtractorConfig = {}): ExtractionResult => {
+export const extractJSONL = (raw: Buffer, config: JsonExtractorConfig = {}): ExtractResult => {
   const text = raw.toString('utf8').trim()
   if (text === '') {
     throw new Error('structured: empty jsonl input')
+  }
+
+  const maxSize = config.maxInputSize ?? defaultJsonConfig.maxInputSize
+  if (raw.length > maxSize) {
+    throw new Error(`structured: jsonl input exceeds ${maxSize} byte limit`)
   }
 
   const objects: unknown[] = []
@@ -675,7 +694,32 @@ export const extractJSONL = (raw: Buffer, config: JsonExtractorConfig = {}): Ext
     throw new Error('structured: empty jsonl input')
   }
 
-  const arrayJson = JSON.stringify(objects)
-  const result = extractJSON(Buffer.from(arrayJson, 'utf8'), config)
-  return { ...result, mime: 'application/jsonl' }
+  const cfg = {
+    objectsPerChunk: config.objectsPerChunk ?? defaultJsonConfig.objectsPerChunk,
+    maxDepth: config.maxDepth ?? defaultJsonConfig.maxDepth,
+    schemaSampleSize: config.schemaSampleSize ?? defaultJsonConfig.schemaSampleSize,
+    tableThreshold: config.tableThreshold ?? defaultJsonConfig.tableThreshold,
+  }
+
+  const { content, structureType, schema } = renderJSON(objects, cfg)
+
+  const { encoding } = detectEncoding(raw)
+  const metadata: Record<string, string> = {
+    encoding,
+    structure_type: structureType,
+  }
+  if (schema !== '') {
+    metadata.detected_schema = schema
+  }
+
+  return {
+    text: content,
+    contentType: 'application/jsonl',
+    encoding: 'UTF-8',
+    metadata,
+    pages: 0,
+    language: '',
+    confidence: 0,
+    skipped: false,
+  }
 }

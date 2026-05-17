@@ -162,6 +162,10 @@ export {
   bufferStream,
   createExtractorRegistry,
   createPlainTextExtractor,
+  createCSVExtractor,
+  createJSONExtractor,
+  createJSONLExtractor,
+  createXMLExtractor,
   sanitizeArgs,
   detectEncoding,
   transcodeToUTF8,
@@ -207,5 +211,8 @@ export {
   extractJSONL,
   type CsvExtractorConfig,
   type JsonExtractorConfig,
-  type ExtractionResult,
+  type ExtractResult as StructuredExtractResult,
 } from './structured.js'
+
+export { extractXML, type XmlExtractorConfig } from './xml.js'
+
