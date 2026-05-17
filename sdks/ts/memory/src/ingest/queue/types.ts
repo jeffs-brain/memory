@@ -20,6 +20,17 @@ export const VALID_STATUSES: ReadonlySet<QueueJobStatus> = new Set([
   'dead_letter',
 ])
 
+/**
+ * Validate a status string at runtime and return the typed value.
+ * Throws if the status is not a recognised QueueJobStatus.
+ */
+export const parseJobStatus = (raw: string): QueueJobStatus => {
+  if (!VALID_STATUSES.has(raw as QueueJobStatus)) {
+    throw new Error(`ingest: unrecognised job status: ${raw}`)
+  }
+  return raw as QueueJobStatus
+}
+
 /** Describes what the queue job should process. */
 export type QueueJobPayload = {
   readonly kind: 'file' | 'url' | 'raw'
@@ -92,6 +103,14 @@ export type QueueAdapter = {
    */
   fail(jobId: string, error: string, retryable: boolean): Promise<void>
 
+  /**
+   * Return a claimed job to pending status WITHOUT incrementing the
+   * retry count. Use when a job cannot be processed due to transient
+   * conditions (e.g. per-brain concurrency limit reached) rather than
+   * an actual processing failure.
+   */
+  requeue(jobId: string): Promise<void>
+
   /** Reset stale processing jobs to pending. Returns the count recovered. */
   recoverStale(staleThresholdMs: number): Promise<number>
 
@@ -152,18 +171,37 @@ export const validateIdentifier = (s: string): void => {
 
 /**
  * Compute a stable advisory lock key from a brain ID using FNV-1a.
- * Returns a BigInt that can be passed to pg_try_advisory_lock.
+ * Returns a signed BigInt (int64) matching Go's int64(fnv.Sum64()) so
+ * Go and TS workers mutually exclude each other on the same brain.
+ *
+ * PostgreSQL pg_try_advisory_lock accepts a signed bigint. Go's
+ * hash/fnv returns uint64 then casts to int64, which wraps values
+ * above 2^63-1 to negative. We replicate that wrapping here.
  */
 export const advisoryLockKey = (brainId: string): bigint => {
-  // FNV-1a 64-bit
+  // FNV-1a 64-bit (unsigned computation)
   let hash = 0xcbf29ce484222325n
   const prime = 0x100000001b3n
   for (let i = 0; i < brainId.length; i++) {
     hash ^= BigInt(brainId.charCodeAt(i))
     hash = (hash * prime) & 0xffffffffffffffffn
   }
-  return hash
+  // Convert to signed int64 to match Go's int64(uint64) cast.
+  const signBit = 1n << 63n
+  return hash >= signBit ? hash - (1n << 64n) : hash
 }
+
+/**
+ * Environment variable name for the PostgreSQL connection URL.
+ * Read by createPostgresQueueFromEnv to configure the adapter.
+ */
+export const ENV_POSTGRES_URL = 'MEMORY_POSTGRES_URL'
+
+/**
+ * Environment variable name for the worker poll interval in milliseconds.
+ * Defaults to the heartbeat interval when not set.
+ */
+export const ENV_INGEST_WORKER_INTERVAL_MS = 'MEMORY_INGEST_WORKER_INTERVAL_MS'
 
 /** Re-export Logger for convenience so consumers do not need llm imports. */
 export type { Logger }

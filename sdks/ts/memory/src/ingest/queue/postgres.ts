@@ -24,6 +24,7 @@ import {
   type QueueJobPayload,
   type QueueJobStatus,
   advisoryLockKey,
+  parseJobStatus,
   validateIdentifier,
 } from './types.js'
 
@@ -73,6 +74,12 @@ export type PostgresQueueOptions = {
   readonly logger?: Logger
   /** LISTEN/NOTIFY channel name. Defaults to "ingest_queue_new_job". */
   readonly notifyChannel?: string
+  /**
+   * Maximum pending queue depth for backpressure. When the number of
+   * pending jobs exceeds this value, enqueue rejects with an error.
+   * Zero or undefined means no limit.
+   */
+  readonly maxQueueDepth?: number
 }
 
 /** Row shape returned by PostgreSQL RETURNING clauses. */
@@ -113,7 +120,9 @@ export const createPostgresQueue = (opts: PostgresQueueOptions): QueueAdapter =>
   const staleThresholdMs = opts.staleThresholdMs ?? DEFAULT_STALE_THRESHOLD_MS
   const log: Logger = opts.logger ?? noopLogger
   const notifyChannel = opts.notifyChannel ?? DEFAULT_NOTIFY_CHANNEL
+  validateIdentifier(notifyChannel)
   const qualifiedTable = `${schema}.${tableName}`
+  const maxQueueDepth = opts.maxQueueDepth ?? 0
 
   // Notification callbacks registered via onNotify.
   const notifyCallbacks: Array<(jobId: string) => void> = []
@@ -121,6 +130,7 @@ export const createPostgresQueue = (opts: PostgresQueueOptions): QueueAdapter =>
   // Track claimed job IDs for heartbeat refresh.
   const claimedJobs = new Set<string>()
   let closed = false
+  let closingPromise: Promise<void> | undefined
 
   // Set up LISTEN/NOTIFY if a dedicated listen client is provided.
   if (opts.listenClient !== undefined) {
@@ -137,15 +147,22 @@ export const createPostgresQueue = (opts: PostgresQueueOptions): QueueAdapter =>
     })
   }
 
-  // Heartbeat timer refreshes liveness for all claimed jobs.
+  // Heartbeat timer refreshes liveness for all claimed jobs using
+  // a single bulk UPDATE instead of per-job serial queries.
   const heartbeatTimer = setInterval(() => {
     if (closed) return
     const ids = [...claimedJobs]
-    for (const id of ids) {
-      heartbeat(id).catch((err: unknown) => {
-        log.warn('ingest: heartbeat refresh failed', { jobId: id, error: String(err) })
+    if (ids.length === 0) return
+    client
+      .query(
+        `UPDATE ${qualifiedTable}
+         SET last_heartbeat = NOW(), updated_at = NOW()
+         WHERE id = ANY($1) AND status = $2`,
+        [ids, 'processing'],
+      )
+      .catch((err: unknown) => {
+        log.warn('ingest: bulk heartbeat refresh failed', { count: ids.length, error: String(err) })
       })
-    }
   }, heartbeatIntervalMs)
 
   // Prevent the timer from keeping the process alive.
@@ -166,31 +183,30 @@ export const createPostgresQueue = (opts: PostgresQueueOptions): QueueAdapter =>
         ? (typeof row.metadata === 'string' ? JSON.parse(row.metadata) : row.metadata)
         : undefined
 
-    const base = {
+    const status = parseJobStatus(row.status)
+
+    // Build the job object with conditional optional properties so
+    // exactOptionalPropertyTypes is satisfied (absent rather than undefined).
+    const job: QueueJob = {
       id: row.id,
       brainId: row.brain_id,
-      status: row.status as QueueJobStatus,
+      status,
       payload,
       retryCount: row.retry_count,
       maxRetries: row.max_retries,
       createdAt: new Date(row.created_at),
       updatedAt: new Date(row.updated_at),
+      ...(row.error !== null && { error: row.error }),
+      ...(row.claimed_by !== null && { claimedBy: row.claimed_by }),
+      ...(row.claimed_at !== null && { claimedAt: new Date(row.claimed_at) }),
+      ...(row.last_heartbeat !== null && { lastHeartbeat: new Date(row.last_heartbeat) }),
+      ...(row.next_retry_at !== null && { nextRetryAt: new Date(row.next_retry_at) }),
+      ...(row.completed_at !== null && { completedAt: new Date(row.completed_at) }),
+      ...(parsedMeta !== undefined && { metadata: parsedMeta }),
+      ...(row.group_id !== null && { groupId: row.group_id }),
+      ...(row.idempotency_key !== null && { idempotencyKey: row.idempotency_key }),
     }
-
-    // Build optional fields conditionally so exactOptionalPropertyTypes
-    // is satisfied (properties are absent rather than set to undefined).
-    const optional: Record<string, unknown> = {}
-    if (row.error !== null) optional['error'] = row.error
-    if (row.claimed_by !== null) optional['claimedBy'] = row.claimed_by
-    if (row.claimed_at !== null) optional['claimedAt'] = new Date(row.claimed_at)
-    if (row.last_heartbeat !== null) optional['lastHeartbeat'] = new Date(row.last_heartbeat)
-    if (row.next_retry_at !== null) optional['nextRetryAt'] = new Date(row.next_retry_at)
-    if (row.completed_at !== null) optional['completedAt'] = new Date(row.completed_at)
-    if (parsedMeta !== undefined) optional['metadata'] = parsedMeta
-    if (row.group_id !== null) optional['groupId'] = row.group_id
-    if (row.idempotency_key !== null) optional['idempotencyKey'] = row.idempotency_key
-
-    return { ...base, ...optional } as QueueJob
+    return job
   }
 
   const findByIdempotencyKey = async (key: string): Promise<QueueJob | undefined> => {
@@ -210,6 +226,19 @@ export const createPostgresQueue = (opts: PostgresQueueOptions): QueueAdapter =>
 
   const enqueue = async (input: EnqueueInput): Promise<QueueJob> => {
     ensureOpen()
+
+    // Backpressure: reject enqueue when the pending queue exceeds depth limit.
+    if (maxQueueDepth > 0) {
+      const depthResult = await client.query<{ readonly count: string }>(
+        `SELECT COUNT(*)::int as count FROM ${qualifiedTable} WHERE status = $1`,
+        ['pending'],
+      )
+      const pendingCount = Number(depthResult.rows[0]?.count ?? 0)
+      if (pendingCount >= maxQueueDepth) {
+        throw new Error(`ingest: queue depth limit reached (${pendingCount} pending jobs)`)
+      }
+    }
+
     const maxRetries = input.maxRetries ?? DEFAULT_MAX_RETRIES
 
     // Check idempotency key first.
@@ -227,27 +256,38 @@ export const createPostgresQueue = (opts: PostgresQueueOptions): QueueAdapter =>
     const payloadJson = JSON.stringify(input.payload)
     const metadataJson = input.metadata !== undefined ? JSON.stringify(input.metadata) : null
 
-    const result = await client.query<QueueRow>(
-      `INSERT INTO ${qualifiedTable}
-         (brain_id, status, payload, max_retries, metadata, group_id, idempotency_key)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)
-       RETURNING id, brain_id, status, payload, retry_count, max_retries, error,
-                 claimed_by, claimed_at, last_heartbeat, next_retry_at,
-                 created_at, updated_at, completed_at, metadata, group_id, idempotency_key`,
-      [
-        input.brainId,
-        'pending',
-        payloadJson,
-        maxRetries,
-        metadataJson,
-        input.groupId ?? null,
-        input.idempotencyKey ?? null,
-      ],
-    )
+    try {
+      const result = await client.query<QueueRow>(
+        `INSERT INTO ${qualifiedTable}
+           (brain_id, status, payload, max_retries, metadata, group_id, idempotency_key)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)
+         RETURNING id, brain_id, status, payload, retry_count, max_retries, error,
+                   claimed_by, claimed_at, last_heartbeat, next_retry_at,
+                   created_at, updated_at, completed_at, metadata, group_id, idempotency_key`,
+        [
+          input.brainId,
+          'pending',
+          payloadJson,
+          maxRetries,
+          metadataJson,
+          input.groupId ?? null,
+          input.idempotencyKey ?? null,
+        ],
+      )
 
-    const job = rowToJob(result.rows[0]!)
-    log.info('ingest: job enqueued', { jobId: job.id, brainId: job.brainId })
-    return job
+      const job = rowToJob(result.rows[0]!)
+      log.info('ingest: job enqueued', { jobId: job.id, brainId: job.brainId })
+      return job
+    } catch (err: unknown) {
+      // Handle idempotency constraint violation as a race condition:
+      // another enqueue won the race, so look up the existing job.
+      const message = err instanceof Error ? err.message : String(err)
+      if (message.includes('idx_ingest_queue_idempotency') && input.idempotencyKey !== undefined) {
+        const existing = await findByIdempotencyKey(input.idempotencyKey)
+        if (existing !== undefined) return existing
+      }
+      throw err
+    }
   }
 
   const claim = async (opts: ClaimOptions): Promise<readonly QueueJob[]> => {
@@ -280,19 +320,25 @@ export const createPostgresQueue = (opts: PostgresQueueOptions): QueueAdapter =>
 
     const jobs = result.rows.map(rowToJob)
 
-    // Track claimed jobs for heartbeat and attempt advisory locks.
+    // Track claimed jobs for heartbeat and acquire advisory locks.
+    // Batch all advisory lock acquisitions into a single query to reduce
+    // round-trips from O(k) to O(1) where k = batch size.
     for (const job of jobs) {
       claimedJobs.add(job.id)
-      const lockKey = advisoryLockKey(job.brainId)
-      client.query('SELECT pg_try_advisory_lock($1)', [lockKey.toString()]).catch((err: unknown) => {
-        log.debug('ingest: advisory lock acquisition failed', {
-          key: lockKey.toString(),
-          error: String(err),
-        })
-      })
     }
 
     if (jobs.length > 0) {
+      const lockKeys = jobs.map((job) => advisoryLockKey(job.brainId))
+      const arrayLiteral = `{${lockKeys.map((k) => k.toString()).join(',')}}`
+      client
+        .query('SELECT pg_try_advisory_lock(k) FROM unnest($1::bigint[]) AS k', [arrayLiteral])
+        .catch((err: unknown) => {
+          log.debug('ingest: batch advisory lock acquisition failed', {
+            count: lockKeys.length,
+            error: String(err),
+          })
+        })
+
       log.info('ingest: claimed jobs', { count: jobs.length, workerId: opts.workerId })
     }
 
@@ -316,92 +362,147 @@ export const createPostgresQueue = (opts: PostgresQueueOptions): QueueAdapter =>
     ensureOpen()
     const resultJson = result !== undefined ? JSON.stringify(result) : null
 
-    const res = await client.query<{ readonly brain_id: string }>(
-      `UPDATE ${qualifiedTable}
-       SET status = $1,
-           completed_at = NOW(),
-           updated_at = NOW(),
-           metadata = COALESCE($3::jsonb, metadata)
-       WHERE id = $2 AND status = $4
-       RETURNING brain_id`,
-      ['completed', jobId, resultJson, 'processing'],
-    )
-    if (res.rows.length === 0) {
-      throw new Error(`ingest: complete found no processing job with id ${jobId}`)
+    // Use a transaction so the advisory lock release runs on the same
+    // connection that holds the lock, preventing silent unlock failures
+    // when using pooled connections.
+    await client.query('BEGIN')
+    try {
+      const res = await client.query<{ readonly brain_id: string }>(
+        `UPDATE ${qualifiedTable}
+         SET status = $1,
+             completed_at = NOW(),
+             updated_at = NOW(),
+             metadata = COALESCE($3::jsonb, metadata)
+         WHERE id = $2 AND status = $4
+         RETURNING brain_id`,
+        ['completed', jobId, resultJson, 'processing'],
+      )
+      if (res.rows.length === 0) {
+        await client.query('ROLLBACK')
+        throw new Error(`ingest: complete found no processing job with id ${jobId}`)
+      }
+
+      const brainId = res.rows[0]!.brain_id
+      const lockKey = advisoryLockKey(brainId)
+      await client.query('SELECT pg_advisory_unlock($1)', [lockKey.toString()])
+      await client.query('COMMIT')
+
+      claimedJobs.delete(jobId)
+      log.info('ingest: job completed', { jobId, brainId })
+    } catch (err: unknown) {
+      await client.query('ROLLBACK').catch(() => {})
+      throw err
     }
-
-    claimedJobs.delete(jobId)
-    const brainId = res.rows[0]!.brain_id
-    const lockKey = advisoryLockKey(brainId)
-    client.query('SELECT pg_advisory_unlock($1)', [lockKey.toString()]).catch((err: unknown) => {
-      log.debug('ingest: advisory lock release failed', { key: lockKey.toString(), error: String(err) })
-    })
-
-    log.info('ingest: job completed', { jobId, brainId })
   }
 
   const fail = async (jobId: string, error: string, retryable: boolean): Promise<void> => {
     ensureOpen()
 
-    // Fetch current state in a transactional manner.
-    const fetchResult = await client.query<{
-      readonly retry_count: number
-      readonly max_retries: number
-      readonly brain_id: string
-    }>(
-      `SELECT retry_count, max_retries, brain_id
-       FROM ${qualifiedTable}
-       WHERE id = $1 AND status = $2`,
-      [jobId, 'processing'],
-    )
+    // Use a transaction with FOR UPDATE to prevent concurrent
+    // read-then-update races (matching Go's BeginTx approach).
+    await client.query('BEGIN')
+    try {
+      const fetchResult = await client.query<{
+        readonly retry_count: number
+        readonly max_retries: number
+        readonly brain_id: string
+      }>(
+        `SELECT retry_count, max_retries, brain_id
+         FROM ${qualifiedTable}
+         WHERE id = $1 AND status = $2
+         FOR UPDATE`,
+        [jobId, 'processing'],
+      )
 
-    if (fetchResult.rows.length === 0) {
-      throw new Error(`ingest: fail found no processing job with id ${jobId}`)
+      if (fetchResult.rows.length === 0) {
+        await client.query('ROLLBACK')
+        throw new Error(`ingest: fail found no processing job with id ${jobId}`)
+      }
+
+      const row = fetchResult.rows[0]!
+      const newRetryCount = row.retry_count + 1
+      const canRetry = retryable && newRetryCount < row.max_retries
+
+      const nextStatus: QueueJobStatus = canRetry ? 'pending' : 'dead_letter'
+      const nextRetryAt: Date | null = canRetry
+        ? new Date(
+            Date.now() +
+              BACKOFF_BASE_DELAY_MS *
+                Math.pow(2, newRetryCount) *
+                (BACKOFF_JITTER_MIN + Math.random() * (BACKOFF_JITTER_MAX - BACKOFF_JITTER_MIN)),
+          )
+        : null
+
+      await client.query(
+        `UPDATE ${qualifiedTable}
+         SET status = $1,
+             retry_count = $2,
+             error = $3,
+             next_retry_at = $4,
+             claimed_by = NULL,
+             claimed_at = NULL,
+             last_heartbeat = NULL,
+             updated_at = NOW()
+         WHERE id = $5`,
+        [nextStatus, newRetryCount, error, nextRetryAt, jobId],
+      )
+
+      // Release the advisory lock within the transaction so it runs on
+      // the same connection that acquired it.
+      const lockKey = advisoryLockKey(row.brain_id)
+      await client.query('SELECT pg_advisory_unlock($1)', [lockKey.toString()])
+
+      await client.query('COMMIT')
+
+      claimedJobs.delete(jobId)
+
+      log.info('ingest: job failed', {
+        jobId,
+        status: nextStatus,
+        retryCount: newRetryCount,
+        retryable: canRetry,
+      })
+    } catch (err: unknown) {
+      await client.query('ROLLBACK').catch(() => {})
+      throw err
     }
+  }
 
-    const row = fetchResult.rows[0]!
-    const newRetryCount = row.retry_count + 1
-    const canRetry = retryable && newRetryCount < row.max_retries
+  const requeue = async (jobId: string): Promise<void> => {
+    ensureOpen()
 
-    let nextStatus: QueueJobStatus
-    let nextRetryAt: Date | null = null
+    // Use a transaction so the advisory lock release runs on the same
+    // connection that holds the lock.
+    await client.query('BEGIN')
+    try {
+      const res = await client.query<{ readonly brain_id: string }>(
+        `UPDATE ${qualifiedTable}
+         SET status = $1,
+             claimed_by = NULL,
+             claimed_at = NULL,
+             last_heartbeat = NULL,
+             updated_at = NOW()
+         WHERE id = $2 AND status = $3
+         RETURNING brain_id`,
+        ['pending', jobId, 'processing'],
+      )
 
-    if (canRetry) {
-      nextStatus = 'pending'
-      const multiplier = Math.pow(2, newRetryCount)
-      const jitter = BACKOFF_JITTER_MIN + Math.random() * (BACKOFF_JITTER_MAX - BACKOFF_JITTER_MIN)
-      const delayMs = BACKOFF_BASE_DELAY_MS * multiplier * jitter
-      nextRetryAt = new Date(Date.now() + delayMs)
-    } else {
-      nextStatus = 'dead_letter'
+      if (res.rows.length === 0) {
+        await client.query('ROLLBACK')
+        throw new Error(`ingest: requeue found no processing job with id ${jobId}`)
+      }
+
+      const brainId = res.rows[0]!.brain_id
+      const lockKey = advisoryLockKey(brainId)
+      await client.query('SELECT pg_advisory_unlock($1)', [lockKey.toString()])
+      await client.query('COMMIT')
+
+      claimedJobs.delete(jobId)
+      log.info('ingest: job requeued', { jobId, brainId })
+    } catch (err: unknown) {
+      await client.query('ROLLBACK').catch(() => {})
+      throw err
     }
-
-    await client.query(
-      `UPDATE ${qualifiedTable}
-       SET status = $1,
-           retry_count = $2,
-           error = $3,
-           next_retry_at = $4,
-           claimed_by = NULL,
-           claimed_at = NULL,
-           last_heartbeat = NULL,
-           updated_at = NOW()
-       WHERE id = $5`,
-      [nextStatus, newRetryCount, error, nextRetryAt, jobId],
-    )
-
-    claimedJobs.delete(jobId)
-    const lockKey = advisoryLockKey(row.brain_id)
-    client.query('SELECT pg_advisory_unlock($1)', [lockKey.toString()]).catch((err: unknown) => {
-      log.debug('ingest: advisory lock release failed', { key: lockKey.toString(), error: String(err) })
-    })
-
-    log.info('ingest: job failed', {
-      jobId,
-      status: nextStatus,
-      retryCount: newRetryCount,
-      retryable: canRetry,
-    })
   }
 
   const recoverStale = async (thresholdMs: number): Promise<number> => {
@@ -452,7 +553,7 @@ export const createPostgresQueue = (opts: PostgresQueueOptions): QueueAdapter =>
           )
 
     for (const row of result.rows) {
-      const status = row.status as QueueJobStatus
+      const status = parseJobStatus(row.status)
       counts[status] = Number(row.count)
     }
 
@@ -460,12 +561,20 @@ export const createPostgresQueue = (opts: PostgresQueueOptions): QueueAdapter =>
   }
 
   const close = async (): Promise<void> => {
+    // Guard against concurrent close() calls -- subsequent callers
+    // await the same promise rather than racing on resource teardown.
+    if (closingPromise !== undefined) return closingPromise
     if (closed) return
-    closed = true
-    clearInterval(heartbeatTimer)
-    claimedJobs.clear()
-    notifyCallbacks.length = 0
-    log.info('ingest: queue adapter closed')
+
+    closingPromise = (async () => {
+      closed = true
+      clearInterval(heartbeatTimer)
+      claimedJobs.clear()
+      notifyCallbacks.length = 0
+      log.info('ingest: queue adapter closed')
+    })()
+
+    return closingPromise
   }
 
   return {
@@ -474,6 +583,7 @@ export const createPostgresQueue = (opts: PostgresQueueOptions): QueueAdapter =>
     heartbeat,
     complete,
     fail,
+    requeue,
     recoverStale,
     countByStatus,
     close,

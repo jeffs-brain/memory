@@ -89,6 +89,14 @@ type ClaimOptions struct {
 	WorkerID  string // unique identifier for the claiming worker
 }
 
+// EnvPostgresURL is the environment variable name for the PostgreSQL
+// connection URL used by NewPostgresQueueFromEnv.
+const EnvPostgresURL = "MEMORY_POSTGRES_URL"
+
+// EnvIngestWorkerIntervalMS is the environment variable name for the
+// worker poll interval in milliseconds.
+const EnvIngestWorkerIntervalMS = "MEMORY_INGEST_WORKER_INTERVAL_MS"
+
 // defaultMaxRetries is the retry ceiling when the caller does not specify one.
 const defaultMaxRetries = 3
 
@@ -121,6 +129,12 @@ type Adapter interface {
 	// to pending with an exponential backoff delay. Otherwise the job
 	// transitions to dead_letter.
 	Fail(ctx context.Context, jobID string, errMsg string, retryable bool) error
+
+	// Requeue returns a claimed job to pending status WITHOUT
+	// incrementing the retry count. Use this when a job cannot be
+	// processed due to transient conditions (e.g. per-brain concurrency
+	// limit reached) rather than an actual processing failure.
+	Requeue(ctx context.Context, jobID string) error
 
 	// RecoverStale finds processing jobs whose last heartbeat is older
 	// than staleThreshold and resets them to pending. Returns the count
