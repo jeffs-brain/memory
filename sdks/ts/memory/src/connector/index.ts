@@ -96,3 +96,14 @@ export {
   type ParsedDatabaseEntry,
   type ParsedPage,
 } from './notion-properties.js'
+
+export {
+  WebhookReceiver,
+  type WebhookAuthConfig,
+  type WebhookAuthMethod,
+  type WebhookDocument,
+  type WebhookDocumentResult,
+  type WebhookPayload,
+  type WebhookReceiverConfig,
+  type WebhookResponse,
+} from './webhook.js'
