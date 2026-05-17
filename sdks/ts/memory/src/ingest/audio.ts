@@ -10,10 +10,15 @@
  */
 
 import { execFile } from 'node:child_process'
+import { createWriteStream } from 'node:fs'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, extname } from 'node:path'
 import type { Readable } from 'node:stream'
+import { pipeline } from 'node:stream/promises'
+import type { Logger } from '../llm/types.js'
+import { noopLogger } from '../llm/types.js'
+import { bufferStream } from './extractor.js'
 import type { Extractor, ExtractOptions, ExtractResult, ExtractorCapability, MagicSignature } from './extractor.js'
 
 /** Default configuration values for the AudioExtractor. */
@@ -67,6 +72,8 @@ export type AudioExtractorConfig = {
   readonly timeoutPerMinuteMs?: number
   /** Minimum timeout regardless of file size (ms). Default: 120000. */
   readonly minTimeoutMs?: number
+  /** Structured logger. Defaults to a no-op. */
+  readonly logger?: Logger
 }
 
 /** A single timed segment of transcription. */
@@ -238,38 +245,6 @@ const computeTimeout = (fileSize: number, timeoutPerMinMs: number, minTimeoutMs:
 }
 
 /**
- * Collects all chunks from a Readable into a Buffer, respecting an
- * optional byte limit.
- */
-const bufferStream = async (source: Readable, maxBytes?: number): Promise<Buffer> => {
-  const chunks: Buffer[] = []
-  let totalBytes = 0
-
-  for await (const chunk of source) {
-    const buf = Buffer.isBuffer(chunk)
-      ? chunk
-      : typeof chunk === 'string'
-        ? Buffer.from(chunk)
-        : chunk instanceof Uint8Array
-          ? Buffer.from(chunk)
-          : Buffer.from(String(chunk))
-
-    if (maxBytes !== undefined && maxBytes > 0) {
-      const remaining = maxBytes - totalBytes
-      if (remaining <= 0) break
-      chunks.push(buf.subarray(0, remaining))
-      totalBytes += Math.min(buf.length, remaining)
-      if (totalBytes >= maxBytes) break
-    } else {
-      chunks.push(buf)
-      totalBytes += buf.length
-    }
-  }
-
-  return Buffer.concat(chunks)
-}
-
-/**
  * Creates an AudioExtractor that transcribes audio files using
  * faster-whisper via a Python subprocess.
  */
@@ -283,14 +258,19 @@ export const createAudioExtractor = (config?: AudioExtractorConfig): Extractor =
   const maxFileSize = config?.maxFileSizeBytes ?? DEFAULT_MAX_AUDIO_SIZE
   const timeoutPerMinMs = config?.timeoutPerMinuteMs ?? DEFAULT_TIMEOUT_PER_MIN_MS
 
+  const logger = config?.logger ?? noopLogger
+
   const envTimeoutMs = process.env['MEMORY_EXTRACTOR_TIMEOUT_MS']
   const parsedEnvTimeout = envTimeoutMs ? Number.parseInt(envTimeoutMs, 10) : Number.NaN
   const minTimeoutMs = config?.minTimeoutMs
     ?? (Number.isFinite(parsedEnvTimeout) && parsedEnvTimeout > 0 ? parsedEnvTimeout : DEFAULT_MIN_TIMEOUT_MS)
 
-  // Availability cache.
+  // Availability cache. Uses a pending-promise pattern to dedup concurrent
+  // calls that would otherwise spawn multiple Python subprocesses before the
+  // first one resolves.
   let cachedAvailable: boolean | undefined
   let cachedAt = 0
+  let pendingCheck: Promise<boolean> | undefined
 
   const checkAvailability = async (): Promise<boolean> => {
     const now = Date.now()
@@ -298,14 +278,27 @@ export const createAudioExtractor = (config?: AudioExtractorConfig): Extractor =
       return cachedAvailable
     }
 
-    try {
-      await runSubprocess(pythonBinary, ['-c', AVAILABILITY_CHECK_SCRIPT], 10_000)
-      cachedAvailable = true
-    } catch {
-      cachedAvailable = false
+    // Return the in-flight promise if another caller is already checking.
+    if (pendingCheck !== undefined) {
+      return pendingCheck
     }
-    cachedAt = Date.now()
-    return cachedAvailable
+
+    pendingCheck = (async () => {
+      try {
+        await runSubprocess(pythonBinary, ['-c', AVAILABILITY_CHECK_SCRIPT], 10_000)
+        cachedAvailable = true
+      } catch {
+        cachedAvailable = false
+        logger.warn('audio-whisper: faster-whisper not available', {
+          python: pythonBinary,
+        })
+      }
+      cachedAt = Date.now()
+      pendingCheck = undefined
+      return cachedAvailable
+    })()
+
+    return pendingCheck
   }
 
   /**
@@ -398,8 +391,49 @@ export const createAudioExtractor = (config?: AudioExtractorConfig): Extractor =
       opts: ExtractOptions,
       signal?: AbortSignal,
     ): Promise<ExtractResult> {
-      const raw = await bufferStream(source, maxFileSize + 1)
-      return extractor.extract(raw, opts, signal)
+      // Stream directly to a temp file instead of buffering the entire
+      // audio payload in memory. Critical for large files (100 MB+).
+      const ext = extensionFromContentType(opts.contentType, opts.fileName)
+      const tmpDir = await mkdtemp(join(tmpdir(), 'memory-audio-stream-'))
+      const tmpPath = join(tmpDir, `audio${ext}`)
+
+      try {
+        let written = 0
+        const { Transform } = await import('node:stream')
+        const sizeEnforcer = new Transform({
+          transform(chunk: Buffer, _encoding, callback) {
+            written += chunk.length
+            if (written > maxFileSize) {
+              callback(new Error(
+                `ingest: audio stream size ${written} bytes exceeds maximum ${maxFileSize} bytes`,
+              ))
+              return
+            }
+            callback(null, chunk)
+          },
+        })
+
+        const out = createWriteStream(tmpPath, { mode: 0o600 })
+        await pipeline(source, sizeEnforcer, out)
+
+        if (written === 0) {
+          return {
+            text: '',
+            contentType: opts.contentType,
+            encoding: 'UTF-8',
+            metadata: {},
+            pages: 0,
+            language: '',
+            confidence: 0,
+            skipped: true,
+            reason: 'empty audio input',
+          }
+        }
+
+        return await transcribe(tmpPath, written, opts, signal)
+      } finally {
+        await rm(tmpDir, { recursive: true, force: true }).catch(() => {})
+      }
     },
 
     async available(): Promise<boolean> {
