@@ -16,6 +16,10 @@ import (
 	"time"
 )
 
+// maxAPIRetries is the maximum number of retry attempts for rate-limited
+// (HTTP 429) API responses before returning an error.
+const maxAPIRetries = 5
+
 // ---------------------------------------------------------------------------
 // Configuration
 // ---------------------------------------------------------------------------
@@ -106,15 +110,16 @@ type slackUser struct {
 // downloads file attachments, and converts Slack mrkdwn to standard
 // markdown.
 type SlackConnector struct {
-	config      SlackConnectorConfig
-	rateLimiter *RateLimiter
-	userCache   map[string]string
-	userMu      sync.RWMutex
-	stopCh      chan struct{}
-	stopped     bool
-	mu          sync.Mutex
-	logger      *slog.Logger
-	httpClient  HTTPDoer
+	config       SlackConnectorConfig
+	rateLimiter  *RateLimiter
+	userCache    map[string]string
+	userMu       sync.RWMutex
+	stopCh       chan struct{}
+	stopped      bool
+	mu           sync.Mutex
+	logger       *slog.Logger
+	httpClient   HTTPDoer
+	urlValidator func(string) error // SSRF validation; defaults to validateDownloadURL
 }
 
 // NewSlackConnector creates a new Slack connector with the given config.
@@ -138,48 +143,61 @@ func NewSlackConnector(cfg SlackConnectorConfig) *SlackConnector {
 	return &SlackConnector{
 		config: cfg,
 		// Slack Tier 3: ~50 requests per minute = ~0.833 per second
-		rateLimiter: NewRateLimiter(50, 50.0/60.0),
-		userCache:   make(map[string]string),
-		stopCh:      make(chan struct{}),
-		logger:      cfg.Logger,
-		httpClient:  cfg.HTTPClient,
+		rateLimiter:  NewRateLimiter(50, 50.0/60.0),
+		userCache:    make(map[string]string),
+		stopCh:       make(chan struct{}),
+		logger:       cfg.Logger,
+		httpClient:   cfg.HTTPClient,
+		urlValidator: validateDownloadURL,
 	}
 }
 
 // Name returns "slack".
 func (c *SlackConnector) Name() string { return "slack" }
 
-// Configure validates and applies configuration from a string map.
-func (c *SlackConnector) Configure(config map[string]string) error {
-	token, ok := config["botToken"]
-	if !ok || token == "" {
+// Configure validates and applies connector-specific configuration.
+// Accepts map[string]any to match the P5-1 Connector interface.
+func (c *SlackConnector) Configure(config map[string]any) error {
+	token, _ := config["botToken"].(string)
+	if token == "" {
 		return fmt.Errorf("slack: botToken is required")
 	}
 	c.config.BotToken = token
 
-	channels, ok := config["channels"]
-	if !ok || channels == "" {
+	channelsRaw, _ := config["channels"].(string)
+	if channelsRaw == "" {
 		return fmt.Errorf("slack: at least one channel is required")
 	}
-	c.config.Channels = strings.Split(channels, ",")
+	c.config.Channels = strings.Split(channelsRaw, ",")
 	for i, ch := range c.config.Channels {
 		c.config.Channels[i] = strings.TrimSpace(ch)
 	}
 
-	if v, ok := config["includeThreads"]; ok {
+	if v, ok := config["includeThreads"].(bool); ok {
+		c.config.IncludeThreads = v
+	} else if v, ok := config["includeThreads"].(string); ok {
 		c.config.IncludeThreads = v != "false"
 	}
-	if v, ok := config["includeFiles"]; ok {
+
+	if v, ok := config["includeFiles"].(bool); ok {
+		c.config.IncludeFiles = v
+	} else if v, ok := config["includeFiles"].(string); ok {
 		c.config.IncludeFiles = v != "false"
 	}
-	if v, ok := config["maxFileSize"]; ok {
+
+	if v, ok := config["maxFileSize"].(string); ok {
 		size, err := strconv.ParseInt(v, 10, 64)
 		if err != nil {
 			return fmt.Errorf("slack: invalid maxFileSize: %w", err)
 		}
 		c.config.MaxFileSize = size
+	} else if v, ok := config["maxFileSize"].(float64); ok {
+		c.config.MaxFileSize = int64(v)
+	} else if v, ok := config["maxFileSize"].(int); ok {
+		c.config.MaxFileSize = int64(v)
 	}
-	if v, ok := config["oldestTimestamp"]; ok {
+
+	if v, ok := config["oldestTimestamp"].(string); ok {
 		c.config.OldestTimestamp = v
 	}
 
@@ -198,63 +216,45 @@ func (c *SlackConnector) FetchSince(ctx context.Context, cursor SyncCursor) (<-c
 }
 
 // Start begins a continuous sync loop that polls at the configured
-// interval. The first iteration performs a full sync if no cursor
-// exists, then subsequent iterations sync incrementally.
-func (c *SlackConnector) Start(ctx context.Context) (<-chan ConnectorDocument, <-chan error) {
-	docCh := make(chan ConnectorDocument, 100)
-	errCh := make(chan error, 1)
+// interval. Blocks until the context is cancelled or Stop is called.
+// Returns the first fatal error encountered, or nil on clean shutdown.
+func (c *SlackConnector) Start(ctx context.Context) error {
+	var lastCursor string
+	if c.config.OldestTimestamp != "" {
+		lastCursor = c.config.OldestTimestamp
+	}
 
-	go func() {
-		defer close(docCh)
-		defer close(errCh)
+	ticker := time.NewTicker(c.config.PollInterval)
+	defer ticker.Stop()
 
-		var lastCursor string
-		if c.config.OldestTimestamp != "" {
-			lastCursor = c.config.OldestTimestamp
-		}
+	// Run once immediately, then on each tick.
+	for {
+		docs, errs := c.fetchMessages(ctx, lastCursor)
+		var latestTS string
 
-		ticker := time.NewTicker(c.config.PollInterval)
-		defer ticker.Stop()
-
-		// Run once immediately, then on each tick.
-		for {
-			docs, errs := c.fetchMessages(ctx, lastCursor)
-			var latestTS string
-
-			for doc := range docs {
-				ts, tsOK := doc.Metadata["ts"]
-				if tsOK && ts > latestTS {
-					latestTS = ts
-				}
-				select {
-				case docCh <- doc:
-				case <-ctx.Done():
-					return
-				}
-			}
-
-			if err, ok := <-errs; ok && err != nil {
-				select {
-				case errCh <- err:
-				default:
-				}
-			}
-
-			if latestTS != "" {
-				lastCursor = latestTS
-			}
-
-			select {
-			case <-ctx.Done():
-				return
-			case <-c.stopCh:
-				return
-			case <-ticker.C:
+		for doc := range docs {
+			ts, tsOK := doc.Metadata["ts"]
+			if tsOK && ts > latestTS {
+				latestTS = ts
 			}
 		}
-	}()
 
-	return docCh, errCh
+		if err, ok := <-errs; ok && err != nil {
+			return fmt.Errorf("slack: sync error: %w", err)
+		}
+
+		if latestTS != "" {
+			lastCursor = latestTS
+		}
+
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-c.stopCh:
+			return nil
+		case <-ticker.C:
+		}
+	}
 }
 
 // Stop gracefully stops the continuous sync loop.
@@ -433,7 +433,9 @@ func (c *SlackConnector) buildThreadDocument(parent slackMessage, replies []slac
 	sb.WriteString("## Thread: ")
 	sb.WriteString(ConvertMrkdwn(parent.Text))
 	sb.WriteString("\n\n")
-	sb.WriteString(fmt.Sprintf("**%s** (%s):\n", parentUser, parentTS.Format("2006-01-02 15:04")))
+
+	// Include the parent message as the first entry.
+	sb.WriteString(fmt.Sprintf("**%s** (%s):\n", parentUser, formatTimestamp(parentTS)))
 	sb.WriteString(ConvertMrkdwn(parent.Text))
 	sb.WriteString("\n\n")
 
@@ -444,7 +446,7 @@ func (c *SlackConnector) buildThreadDocument(parent slackMessage, replies []slac
 		}
 		replyUser := c.resolveUserName(reply.User)
 		ts := parseSlackTimestamp(reply.TS)
-		sb.WriteString(fmt.Sprintf("**%s** (%s):\n", replyUser, ts.Format("2006-01-02 15:04")))
+		sb.WriteString(fmt.Sprintf("**%s** (%s):\n", replyUser, formatTimestamp(ts)))
 		sb.WriteString(ConvertMrkdwn(reply.Text))
 		sb.WriteString("\n\n")
 	}
@@ -461,6 +463,11 @@ func (c *SlackConnector) downloadFile(
 	channelID string,
 	file slackFile,
 ) (ConnectorDocument, error) {
+	// Validate the download URL against SSRF before fetching.
+	if err := c.urlValidator(file.URLPrivateDownload); err != nil {
+		return ConnectorDocument{}, err
+	}
+
 	if err := c.rateLimiter.Acquire(ctx, 1); err != nil {
 		return ConnectorDocument{}, err
 	}
@@ -557,179 +564,77 @@ func (c *SlackConnector) callSlackAPI(
 	endpoint string,
 	params url.Values,
 ) (slackResponse, error) {
-	reqCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
-
 	reqURL := endpoint + "?" + params.Encode()
-	req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, reqURL, nil)
-	if err != nil {
-		return slackResponse{}, fmt.Errorf("create request: %w", err)
-	}
-	req.Header.Set("Authorization", "Bearer "+c.config.BotToken)
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	backoff := time.Duration(0)
 
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return slackResponse{}, fmt.Errorf("http request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	// Handle rate limiting (HTTP 429).
-	if resp.StatusCode == http.StatusTooManyRequests {
-		retryAfter := resp.Header.Get("Retry-After")
-		waitSecs, parseErr := strconv.Atoi(retryAfter)
-		if parseErr != nil || waitSecs <= 0 {
-			waitSecs = 5
+	for attempt := range maxAPIRetries {
+		if backoff > 0 {
+			select {
+			case <-ctx.Done():
+				return slackResponse{}, ctx.Err()
+			case <-time.After(backoff):
+			}
 		}
-		select {
-		case <-ctx.Done():
-			return slackResponse{}, ctx.Err()
-		case <-time.After(time.Duration(waitSecs) * time.Second):
+
+		reqCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, reqURL, nil)
+		if err != nil {
+			cancel()
+			return slackResponse{}, fmt.Errorf("create request: %w", err)
 		}
-		// Retry once after waiting.
-		return c.callSlackAPI(ctx, endpoint, params)
+		req.Header.Set("Authorization", "Bearer "+c.config.BotToken)
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+		resp, err := c.httpClient.Do(req)
+		if err != nil {
+			cancel()
+			return slackResponse{}, fmt.Errorf("http request: %w", err)
+		}
+
+		// Handle rate limiting (HTTP 429) with exponential backoff.
+		if resp.StatusCode == http.StatusTooManyRequests {
+			retryAfter := resp.Header.Get("Retry-After")
+			waitSecs, parseErr := strconv.Atoi(retryAfter)
+			if parseErr != nil || waitSecs <= 0 {
+				waitSecs = 5
+			}
+			resp.Body.Close()
+			cancel()
+
+			if attempt == maxAPIRetries-1 {
+				return slackResponse{}, fmt.Errorf("slack API rate limited after %d retries", maxAPIRetries)
+			}
+
+			// Exponential backoff: use Retry-After as base, double on each subsequent retry.
+			backoff = time.Duration(waitSecs) * time.Second * (1 << attempt)
+			continue
+		}
+
+		if resp.StatusCode != http.StatusOK {
+			resp.Body.Close()
+			cancel()
+			return slackResponse{}, fmt.Errorf("slack API returned HTTP %d", resp.StatusCode)
+		}
+
+		body, readErr := io.ReadAll(io.LimitReader(resp.Body, 10*1024*1024)) // 10 MB limit
+		resp.Body.Close()
+		cancel()
+		if readErr != nil {
+			return slackResponse{}, fmt.Errorf("read response: %w", readErr)
+		}
+
+		var result slackResponse
+		if err := json.Unmarshal(body, &result); err != nil {
+			return slackResponse{}, fmt.Errorf("decode response: %w", err)
+		}
+
+		if !result.OK {
+			return slackResponse{}, fmt.Errorf("slack API error: %s", result.Error)
+		}
+
+		return result, nil
 	}
 
-	if resp.StatusCode != http.StatusOK {
-		return slackResponse{}, fmt.Errorf("slack API returned HTTP %d", resp.StatusCode)
-	}
-
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 10*1024*1024)) // 10 MB limit
-	if err != nil {
-		return slackResponse{}, fmt.Errorf("read response: %w", err)
-	}
-
-	var result slackResponse
-	if err := json.Unmarshal(body, &result); err != nil {
-		return slackResponse{}, fmt.Errorf("decode response: %w", err)
-	}
-
-	if !result.OK {
-		return slackResponse{}, fmt.Errorf("slack API error: %s", result.Error)
-	}
-
-	return result, nil
+	return slackResponse{}, fmt.Errorf("slack API: exhausted all %d retry attempts", maxAPIRetries)
 }
 
-// ---------------------------------------------------------------------------
-// Internal: user resolution
-// ---------------------------------------------------------------------------
-
-func (c *SlackConnector) resolveUserName(userID string) string {
-	if userID == "" {
-		return "unknown"
-	}
-
-	c.userMu.RLock()
-	name, ok := c.userCache[userID]
-	c.userMu.RUnlock()
-	if ok {
-		return name
-	}
-
-	// Attempt to fetch the user name via users.info.
-	resolved := c.fetchUserName(userID)
-
-	c.userMu.Lock()
-	c.userCache[userID] = resolved
-	c.userMu.Unlock()
-
-	return resolved
-}
-
-func (c *SlackConnector) fetchUserName(userID string) string {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	params := url.Values{"user": {userID}}
-	reqURL := "https://slack.com/api/users.info?" + params.Encode()
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
-	if err != nil {
-		return userID
-	}
-	req.Header.Set("Authorization", "Bearer "+c.config.BotToken)
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return userID
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return userID
-	}
-
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 1*1024*1024))
-	if err != nil {
-		return userID
-	}
-
-	var result slackUserResponse
-	if err := json.Unmarshal(body, &result); err != nil {
-		return userID
-	}
-
-	if !result.OK {
-		return userID
-	}
-
-	if result.User.RealName != "" {
-		return result.User.RealName
-	}
-	if result.User.Name != "" {
-		return result.User.Name
-	}
-	return userID
-}
-
-// ---------------------------------------------------------------------------
-// Internal: message -> document conversion
-// ---------------------------------------------------------------------------
-
-func (c *SlackConnector) messageToDocument(channelID string, msg slackMessage) ConnectorDocument {
-	ts := parseSlackTimestamp(msg.TS)
-	content := ConvertMrkdwn(msg.Text)
-
-	metadata := map[string]string{
-		"channel": channelID,
-		"user":    msg.User,
-		"ts":      msg.TS,
-		"source":  "slack",
-		"type":    "message",
-	}
-	if msg.ThreadTS != "" {
-		metadata["thread_ts"] = msg.ThreadTS
-	}
-	if msg.ReplyCount > 0 {
-		metadata["reply_count"] = strconv.Itoa(msg.ReplyCount)
-	}
-
-	return ConnectorDocument{
-		ExternalID: fmt.Sprintf("%s:%s", channelID, msg.TS),
-		Content:    []byte(content),
-		MIME:       "text/markdown",
-		Title:      fmt.Sprintf("Message in %s", channelID),
-		Metadata:   metadata,
-		ModifiedAt: ts,
-	}
-}
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-// parseSlackTimestamp converts a Slack epoch timestamp string (e.g.
-// "1234567890.123456") to a time.Time.
-func parseSlackTimestamp(ts string) time.Time {
-	parts := strings.SplitN(ts, ".", 2)
-	secs, err := strconv.ParseInt(parts[0], 10, 64)
-	if err != nil {
-		return time.Time{}
-	}
-	var micros int64
-	if len(parts) > 1 {
-		micros, _ = strconv.ParseInt(parts[1], 10, 64)
-	}
-	return time.Unix(secs, micros*1000)
-}

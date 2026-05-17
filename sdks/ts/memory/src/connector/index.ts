@@ -58,7 +58,13 @@ export type { SlackConnectorConfig } from './slack.js'
 
 export {
   SlackConnector,
-  convertMrkdwn,
-  parseSlackTimestamp,
   createSlackConnector,
 } from './slack.js'
+
+export {
+  convertMrkdwn,
+  parseSlackTimestamp,
+  formatDate,
+  validateDownloadURL,
+  readResponseWithLimit,
+} from './slack_helpers.js'

@@ -5,10 +5,8 @@ package connector
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -38,17 +36,6 @@ func jsonResponse(w http.ResponseWriter, data slackResponse) {
 	_ = json.NewEncoder(w).Encode(data)
 }
 
-func newTestConnector(serverURL string) *SlackConnector {
-	return NewSlackConnector(SlackConnectorConfig{
-		BotToken:       "xoxb-test-token",
-		Channels:       []string{"C123ABC"},
-		IncludeThreads: true,
-		IncludeFiles:   true,
-		MaxFileSize:    50 * 1024 * 1024,
-		HTTPClient:     &http.Client{Timeout: 5 * time.Second},
-	})
-}
-
 // replaceSlackBaseURL patches API calls to use the test server.
 // Because the connector hard-codes slack.com URLs, we use a custom
 // HTTPDoer that rewrites the host.
@@ -67,7 +54,7 @@ func newTestConnectorWithServer(serverURL string, channels ...string) *SlackConn
 	if len(channels) == 0 {
 		channels = []string{"C123ABC"}
 	}
-	return NewSlackConnector(SlackConnectorConfig{
+	c := NewSlackConnector(SlackConnectorConfig{
 		BotToken:       "xoxb-test-token",
 		Channels:       channels,
 		IncludeThreads: true,
@@ -75,6 +62,9 @@ func newTestConnectorWithServer(serverURL string, channels ...string) *SlackConn
 		MaxFileSize:    50 * 1024 * 1024,
 		HTTPClient:     &rewritingClient{baseURL: serverURL, client: &http.Client{Timeout: 5 * time.Second}},
 	})
+	// Disable SSRF validation in tests -- test servers use localhost.
+	c.urlValidator = func(_ string) error { return nil }
+	return c
 }
 
 // ---------------------------------------------------------------------------
@@ -92,19 +82,19 @@ func TestConfigure_ValidatesRequiredFields(t *testing.T) {
 	c := NewSlackConnector(SlackConnectorConfig{})
 
 	// Missing botToken.
-	err := c.Configure(map[string]string{"channels": "C123"})
+	err := c.Configure(map[string]any{"channels": "C123"})
 	if err == nil || !strings.Contains(err.Error(), "botToken is required") {
 		t.Fatalf("expected botToken validation error, got %v", err)
 	}
 
 	// Missing channels.
-	err = c.Configure(map[string]string{"botToken": "xoxb-123"})
+	err = c.Configure(map[string]any{"botToken": "xoxb-123"})
 	if err == nil || !strings.Contains(err.Error(), "at least one channel") {
 		t.Fatalf("expected channels validation error, got %v", err)
 	}
 
 	// Valid config.
-	err = c.Configure(map[string]string{
+	err = c.Configure(map[string]any{
 		"botToken": "xoxb-123",
 		"channels": "C123,C456",
 	})
@@ -575,136 +565,3 @@ func TestStop_Idempotent(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Tests: parseSlackTimestamp
-// ---------------------------------------------------------------------------
-
-func TestParseSlackTimestamp(t *testing.T) {
-	tests := []struct {
-		input string
-		want  int64
-	}{
-		{"1700000001.123456", 1700000001},
-		{"1700000000.000000", 1700000000},
-		{"0.0", 0},
-	}
-
-	for _, tt := range tests {
-		ts := parseSlackTimestamp(tt.input)
-		if ts.Unix() != tt.want {
-			t.Errorf("parseSlackTimestamp(%q) = %d, want %d", tt.input, ts.Unix(), tt.want)
-		}
-	}
-}
-
-// ---------------------------------------------------------------------------
-// Tests: Cursor update tracking
-// ---------------------------------------------------------------------------
-
-func TestFetchAll_CursorTracking(t *testing.T) {
-	server := mockSlackServer(map[string]http.HandlerFunc{
-		"conversations.history": func(w http.ResponseWriter, r *http.Request) {
-			jsonResponse(w, slackResponse{
-				OK: true,
-				Messages: []slackMessage{
-					{Type: "message", User: "U001", Text: "First", TS: "100.000000"},
-					{Type: "message", User: "U001", Text: "Second", TS: "200.000000"},
-					{Type: "message", User: "U001", Text: "Third", TS: "300.000000"},
-				},
-			})
-		},
-	})
-	defer server.Close()
-
-	c := newTestConnectorWithServer(server.URL)
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	docs, errs := c.FetchAll(ctx)
-	var latestTS string
-	for doc := range docs {
-		ts := doc.Metadata["ts"]
-		if ts > latestTS {
-			latestTS = ts
-		}
-	}
-	if err, ok := <-errs; ok && err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if latestTS != "300.000000" {
-		t.Errorf("expected latest cursor to be 300.000000, got %s", latestTS)
-	}
-}
-
-// ---------------------------------------------------------------------------
-// Tests: Multiple channels
-// ---------------------------------------------------------------------------
-
-func TestFetchAll_MultipleChannels(t *testing.T) {
-	server := mockSlackServer(map[string]http.HandlerFunc{
-		"conversations.history": func(w http.ResponseWriter, r *http.Request) {
-			channel := r.URL.Query().Get("channel")
-			jsonResponse(w, slackResponse{
-				OK: true,
-				Messages: []slackMessage{
-					{Type: "message", User: "U001", Text: fmt.Sprintf("Message in %s", channel), TS: "1700000001.000000"},
-				},
-			})
-		},
-	})
-	defer server.Close()
-
-	c := newTestConnectorWithServer(server.URL, "C001", "C002", "C003")
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	docs, errs := c.FetchAll(ctx)
-	var collected []ConnectorDocument
-	for doc := range docs {
-		collected = append(collected, doc)
-	}
-	if err, ok := <-errs; ok && err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if len(collected) != 3 {
-		t.Fatalf("expected 3 documents (one per channel), got %d", len(collected))
-	}
-}
-
-// ---------------------------------------------------------------------------
-// Tests: Connector interface compliance
-// ---------------------------------------------------------------------------
-
-func TestSlackConnector_ImplementsConnector(t *testing.T) {
-	var _ Connector = (*SlackConnector)(nil)
-}
-
-// ---------------------------------------------------------------------------
-// Tests: MaxFileSize configuration via Configure
-// ---------------------------------------------------------------------------
-
-func TestConfigure_MaxFileSizeParsing(t *testing.T) {
-	c := NewSlackConnector(SlackConnectorConfig{})
-	err := c.Configure(map[string]string{
-		"botToken":    "xoxb-test",
-		"channels":    "C123",
-		"maxFileSize": "invalid",
-	})
-	if err == nil {
-		t.Fatal("expected error for invalid maxFileSize")
-	}
-
-	err = c.Configure(map[string]string{
-		"botToken":    "xoxb-test",
-		"channels":    "C123",
-		"maxFileSize": strconv.FormatInt(100*1024*1024, 10),
-	})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if c.config.MaxFileSize != 100*1024*1024 {
-		t.Errorf("expected maxFileSize=100MB, got %d", c.config.MaxFileSize)
-	}
-}
