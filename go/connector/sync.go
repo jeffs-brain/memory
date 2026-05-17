@@ -36,6 +36,12 @@ type serialisedSyncState struct {
 //	connector/<name>/<brainID>/sync-state.json
 //
 // Updates use optimistic concurrency via a generation counter.
+//
+// Known limitation: the generation counter uses read-then-write without
+// compare-and-swap. Two concurrent SetCursor calls may both read
+// generation N and write N+1, with the second silently overwriting the
+// first. This is acceptable for V1 where a single connector instance
+// handles one brain's sync.
 type SyncStateManager struct {
 	store brain.Store
 }

@@ -6,6 +6,8 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -329,5 +331,65 @@ func TestOAuth2Client_InvalidConfig(t *testing.T) {
 	}
 	if !errors.Is(err, connector.ErrInvalidOAuth2Config) {
 		t.Errorf("error should wrap ErrInvalidOAuth2Config: %v", err)
+	}
+}
+
+func TestOAuth2Client_ConcurrentRefreshDeduplication(t *testing.T) {
+	var callCount atomic.Int32
+
+	exchanger := &mockExchanger{
+		refreshFn: func(_ context.Context, _ string) (connector.OAuth2Token, error) {
+			callCount.Add(1)
+			// Simulate network delay so both goroutines overlap.
+			time.Sleep(50 * time.Millisecond)
+			return connector.OAuth2Token{
+				AccessToken:  "refreshed",
+				RefreshToken: "new-refresh",
+				ExpiresAt:    time.Now().Add(time.Hour),
+				TokenType:    "Bearer",
+			}, nil
+		},
+	}
+
+	client, err := connector.NewOAuth2Client(validOAuth2Config(), exchanger)
+	if err != nil {
+		t.Fatalf("NewOAuth2Client: %v", err)
+	}
+
+	expired := connector.OAuth2Token{
+		AccessToken:  "old",
+		RefreshToken: "refresh",
+		ExpiresAt:    time.Now().Add(-time.Hour),
+	}
+
+	ctx := context.Background()
+	var wg sync.WaitGroup
+	tokens := make([]connector.OAuth2Token, 2)
+	errs := make([]error, 2)
+
+	for i := range 2 {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			tokens[idx], errs[idx] = client.ValidToken(ctx, expired)
+		}(i)
+	}
+
+	wg.Wait()
+
+	for i, err := range errs {
+		if err != nil {
+			t.Fatalf("goroutine %d: ValidToken error: %v", i, err)
+		}
+	}
+
+	if count := callCount.Load(); count != 1 {
+		t.Errorf("refresh called %d times, want 1 (deduplication failed)", count)
+	}
+
+	for i, tok := range tokens {
+		if tok.AccessToken != "refreshed" {
+			t.Errorf("goroutine %d: AccessToken = %q, want %q", i, tok.AccessToken, "refreshed")
+		}
 	}
 }

@@ -71,6 +71,11 @@ type SecureTokenStore struct {
 // NewSecureTokenStore creates a SecureTokenStore. The passphrase is
 // derived into a 256-bit key using SHA-256. The passphrase must be at
 // least 16 bytes long.
+//
+// V1 limitation: single-iteration SHA-256 is fast and acceptable when
+// the passphrase is a long, randomly generated environment variable.
+// Before supporting user-chosen passphrases, upgrade to PBKDF2
+// (>=100,000 iterations) or scrypt/argon2 for brute-force resistance.
 func NewSecureTokenStore(store brain.Store, passphrase []byte) (*SecureTokenStore, error) {
 	if len(passphrase) < minEncryptionKeyLength {
 		return nil, fmt.Errorf(

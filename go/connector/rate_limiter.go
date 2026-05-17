@@ -50,12 +50,13 @@ func (c RateLimiterConfig) withDefaults() RateLimiterConfig {
 // backoff and adaptive header-based adjustment. It is safe for
 // concurrent use.
 type RateLimiter struct {
-	mu       sync.Mutex
-	config   RateLimiterConfig
-	tokens   float64
-	lastTick time.Time
-	stopCh   chan struct{}
-	stopped  bool
+	mu                sync.Mutex
+	config            RateLimiterConfig
+	originalRefillRate float64
+	tokens            float64
+	lastTick          time.Time
+	stopCh            chan struct{}
+	stopped           bool
 }
 
 // NewRateLimiter creates a new token-bucket rate limiter. The bucket
@@ -63,10 +64,11 @@ type RateLimiter struct {
 func NewRateLimiter(config RateLimiterConfig) *RateLimiter {
 	cfg := config.withDefaults()
 	return &RateLimiter{
-		config:   cfg,
-		tokens:   float64(cfg.MaxTokens),
-		lastTick: time.Now(),
-		stopCh:   make(chan struct{}),
+		config:             cfg,
+		originalRefillRate: cfg.RefillRate,
+		tokens:             float64(cfg.MaxTokens),
+		lastTick:           time.Now(),
+		stopCh:             make(chan struct{}),
 	}
 }
 
@@ -138,6 +140,7 @@ func (rl *RateLimiter) Reset() {
 	rl.mu.Lock()
 	defer rl.mu.Unlock()
 	rl.tokens = float64(rl.config.MaxTokens)
+	rl.config.RefillRate = rl.originalRefillRate
 	rl.lastTick = time.Now()
 }
 
@@ -169,13 +172,11 @@ func (rl *RateLimiter) AdjustFromHeaders(headers http.Header) {
 		if remErr == nil && limErr == nil && lim > 0 {
 			ratio := rem / lim
 			if ratio < 0.1 {
-				// Proactively throttle: halve the refill rate.
-				rl.config.RefillRate = rl.config.RefillRate / 2
+				// Proactively throttle: halve the original refill rate.
+				rl.config.RefillRate = rl.originalRefillRate / 2
 			} else {
-				// Restore original refill rate if we previously throttled.
-				// The rate is restored to the original value computed from
-				// the initial config.
-				rl.config.RefillRate = rl.config.RefillRate
+				// Restore original refill rate when remaining is healthy.
+				rl.config.RefillRate = rl.originalRefillRate
 			}
 		}
 	}

@@ -25,16 +25,24 @@ const DEFAULT_MAX_PAGES = 10_000
  */
 export async function* paginate<T>(config: PaginatorConfig<T>): AsyncGenerator<T> {
   const maxPages = config.maxPages ?? DEFAULT_MAX_PAGES
+  const { signal } = config
 
   let cursor: string | undefined
   for (let page = 0; page < maxPages; page++) {
+    if (signal?.aborted) {
+      throw signal.reason ?? new DOMException('The operation was aborted.', 'AbortError')
+    }
+
     if (config.rateLimiter) {
-      await config.rateLimiter.acquire(1)
+      await config.rateLimiter.acquire(1, signal)
     }
 
     const result = await config.fetchPage(cursor)
 
     for (const item of result.items) {
+      if (signal?.aborted) {
+        throw signal.reason ?? new DOMException('The operation was aborted.', 'AbortError')
+      }
       yield item
     }
 

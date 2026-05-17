@@ -18,6 +18,45 @@ import (
 	"github.com/jeffs-brain/memory/go/brain"
 )
 
+// ConnectionStatus represents the current health state of a connector.
+type ConnectionStatus string
+
+const (
+	// StatusConnected indicates the connector is operating normally.
+	StatusConnected ConnectionStatus = "connected"
+
+	// StatusDisconnected indicates the connector cannot reach the
+	// external service.
+	StatusDisconnected ConnectionStatus = "disconnected"
+
+	// StatusDegraded indicates the connector is operational but
+	// experiencing issues (e.g. elevated error rate, approaching
+	// rate limits).
+	StatusDegraded ConnectionStatus = "degraded"
+)
+
+// HealthStatus holds the health information for a connector.
+type HealthStatus struct {
+	// Status is the current connection state.
+	Status ConnectionStatus `json:"status"`
+
+	// LastSyncAt records the timestamp of the last successful sync.
+	// Zero value indicates no sync has completed.
+	LastSyncAt time.Time `json:"lastSyncAt,omitempty"`
+
+	// ErrorCount is the number of errors since the last successful
+	// sync or since the connector was started.
+	ErrorCount int64 `json:"errorCount"`
+
+	// RateLimitRemaining is the number of API calls remaining before
+	// the rate limit is exhausted. A value of -1 indicates unknown.
+	RateLimitRemaining int64 `json:"rateLimitRemaining"`
+
+	// Message provides optional human-readable context for the
+	// current status (e.g. error details when degraded).
+	Message string `json:"message,omitempty"`
+}
+
 // Sentinel errors returned by the connector package.
 var (
 	// ErrConnectorNotFound is returned when a registry lookup finds no
@@ -90,7 +129,15 @@ type ConnectorDocument struct {
 	// Checksum is an optional content hash from the source for change
 	// detection without re-downloading.
 	Checksum string
+	// Deleted indicates the document was removed from the source system.
+	// Connectors that support incremental sync (e.g. Google Drive Changes
+	// API) set this when a file is deleted or trashed.
+	Deleted bool
 }
+
+// ConnectorConfigMap is the type alias for connector configuration
+// passed to Configure.
+type ConnectorConfigMap = map[string]any
 
 // Connector is the interface all external-service connectors implement.
 // Implementations handle service-specific API calls, authentication, and
@@ -102,7 +149,7 @@ type Connector interface {
 
 	// Configure validates and stores connector-specific configuration
 	// such as API keys, OAuth credentials, and content filters.
-	Configure(config map[string]any) error
+	Configure(config ConnectorConfigMap) error
 
 	// FetchAll performs a full sync, returning all available documents as
 	// a channel. The error channel receives at most one error. Both
@@ -120,6 +167,10 @@ type Connector interface {
 
 	// Stop gracefully stops the continuous sync loop started by Start.
 	Stop() error
+
+	// Health returns the current health status of the connector,
+	// including connection state, error counts, and rate limit info.
+	Health() HealthStatus
 }
 
 // ConnectorFactory is a function that creates a new Connector instance

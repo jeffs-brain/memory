@@ -143,6 +143,44 @@ describe('OAuth2Client', () => {
       await expect(client.refreshToken(noRefresh)).rejects.toThrow(TokenRefreshError)
     })
 
+    it('deduplicates concurrent refresh calls', async () => {
+      let callCount = 0
+      const exchanger: TokenExchanger = {
+        exchange: vi.fn(),
+        refresh: vi.fn().mockImplementation(async () => {
+          callCount++
+          // Simulate network delay so both callers overlap.
+          await new Promise((r) => setTimeout(r, 50))
+          return {
+            accessToken: 'refreshed',
+            refreshToken: 'new-refresh',
+            expiresAt: new Date(Date.now() + 3600_000),
+            tokenType: 'Bearer',
+            scopes: [],
+          } satisfies OAuth2Token
+        }),
+      }
+
+      const client = new OAuth2Client(validConfig(), exchanger)
+      const expired: OAuth2Token = {
+        accessToken: 'old',
+        refreshToken: 'refresh',
+        expiresAt: new Date(Date.now() - 3600_000),
+        tokenType: 'Bearer',
+        scopes: [],
+      }
+
+      // Fire two concurrent refreshes.
+      const [tokenA, tokenB] = await Promise.all([
+        client.validToken(expired),
+        client.validToken(expired),
+      ])
+
+      expect(callCount).toBe(1)
+      expect(tokenA.accessToken).toBe('refreshed')
+      expect(tokenB.accessToken).toBe('refreshed')
+    })
+
     it('propagates refresh failure', async () => {
       const exchanger: TokenExchanger = {
         exchange: vi.fn(),

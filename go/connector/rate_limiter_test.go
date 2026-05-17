@@ -236,3 +236,85 @@ func TestRateLimiter_TokenRefillOverTime(t *testing.T) {
 		t.Error("token should have refilled after waiting")
 	}
 }
+
+func TestRateLimiter_AdjustFromHeaders_RepeatedThrottle(t *testing.T) {
+	rl := connector.NewRateLimiter(connector.RateLimiterConfig{
+		MaxTokens:  100,
+		RefillRate: 10,
+	})
+	defer rl.Close()
+
+	lowHeaders := http.Header{}
+	lowHeaders.Set("X-Ratelimit-Remaining", "5")
+	lowHeaders.Set("X-Ratelimit-Limit", "100")
+
+	// Repeatedly call AdjustFromHeaders with low remaining.
+	// Before the fix, this would halve the rate each time,
+	// converging to zero.
+	for i := 0; i < 10; i++ {
+		rl.AdjustFromHeaders(lowHeaders)
+	}
+
+	// The refill rate should be halved once (5), not 10/1024.
+	cfg := rl.Config()
+	if cfg.RefillRate != 5 {
+		t.Errorf("RefillRate = %f after repeated throttle, want 5", cfg.RefillRate)
+	}
+}
+
+func TestRateLimiter_AdjustFromHeaders_RestoreRate(t *testing.T) {
+	rl := connector.NewRateLimiter(connector.RateLimiterConfig{
+		MaxTokens:  100,
+		RefillRate: 10,
+	})
+	defer rl.Close()
+
+	// Throttle.
+	lowHeaders := http.Header{}
+	lowHeaders.Set("X-Ratelimit-Remaining", "5")
+	lowHeaders.Set("X-Ratelimit-Limit", "100")
+	rl.AdjustFromHeaders(lowHeaders)
+
+	cfg := rl.Config()
+	if cfg.RefillRate != 5 {
+		t.Errorf("RefillRate = %f after throttle, want 5", cfg.RefillRate)
+	}
+
+	// Restore with healthy remaining.
+	healthyHeaders := http.Header{}
+	healthyHeaders.Set("X-Ratelimit-Remaining", "80")
+	healthyHeaders.Set("X-Ratelimit-Limit", "100")
+	rl.AdjustFromHeaders(healthyHeaders)
+
+	cfg = rl.Config()
+	if cfg.RefillRate != 10 {
+		t.Errorf("RefillRate = %f after restore, want 10", cfg.RefillRate)
+	}
+}
+
+func TestRateLimiter_ResetRestoresRefillRate(t *testing.T) {
+	rl := connector.NewRateLimiter(connector.RateLimiterConfig{
+		MaxTokens:  100,
+		RefillRate: 10,
+	})
+	defer rl.Close()
+
+	// Throttle.
+	lowHeaders := http.Header{}
+	lowHeaders.Set("X-Ratelimit-Remaining", "5")
+	lowHeaders.Set("X-Ratelimit-Limit", "100")
+	rl.AdjustFromHeaders(lowHeaders)
+
+	cfg := rl.Config()
+	if cfg.RefillRate != 5 {
+		t.Errorf("RefillRate = %f after throttle, want 5", cfg.RefillRate)
+	}
+
+	// Reset should restore the original refill rate.
+	rl.Reset()
+
+	cfg = rl.Config()
+	if cfg.RefillRate != 10 {
+		t.Errorf("RefillRate = %f after Reset, want 10 (original)", cfg.RefillRate)
+	}
+}

@@ -19,7 +19,7 @@ type stubConnector struct {
 
 func (s *stubConnector) Name() string { return s.name }
 
-func (s *stubConnector) Configure(_ map[string]any) error { return nil }
+func (s *stubConnector) Configure(_ connector.ConnectorConfigMap) error { return nil }
 
 func (s *stubConnector) FetchAll(_ context.Context) (<-chan connector.ConnectorDocument, <-chan error) {
 	docs := make(chan connector.ConnectorDocument)
@@ -39,6 +39,12 @@ func (s *stubConnector) FetchSince(_ context.Context, _ connector.SyncCursor) (<
 
 func (s *stubConnector) Start(_ context.Context) error { return nil }
 func (s *stubConnector) Stop() error                   { return nil }
+func (s *stubConnector) Health() connector.HealthStatus {
+	return connector.HealthStatus{
+		Status:             connector.StatusConnected,
+		RateLimitRemaining: -1,
+	}
+}
 
 func newStubFactory(name string) connector.ConnectorFactory {
 	return func(cfg connector.ConnectorConfig) connector.Connector {
@@ -135,5 +141,26 @@ func TestConnectorConfig_EffectivePollInterval(t *testing.T) {
 				t.Errorf("EffectivePollInterval = %v, want %v", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestHealthStatus_Types(t *testing.T) {
+	health := connector.HealthStatus{
+		Status:             connector.StatusConnected,
+		ErrorCount:         0,
+		RateLimitRemaining: -1,
+	}
+	if health.Status != connector.StatusConnected {
+		t.Errorf("Status = %q, want %q", health.Status, connector.StatusConnected)
+	}
+
+	health.Status = connector.StatusDegraded
+	if health.Status != connector.StatusDegraded {
+		t.Errorf("Status = %q, want %q", health.Status, connector.StatusDegraded)
+	}
+
+	health.Status = connector.StatusDisconnected
+	if health.Status != connector.StatusDisconnected {
+		t.Errorf("Status = %q, want %q", health.Status, connector.StatusDisconnected)
 	}
 }

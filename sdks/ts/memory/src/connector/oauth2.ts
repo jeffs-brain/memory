@@ -79,6 +79,7 @@ const validateOAuth2Config = (config: OAuth2Config): void => {
 export class OAuth2Client {
   private readonly config: OAuth2Config
   private readonly exchanger: TokenExchanger
+  private pendingRefresh: Promise<OAuth2Token> | undefined
 
   constructor(config: OAuth2Config, exchanger: TokenExchanger) {
     validateOAuth2Config(config)
@@ -112,11 +113,25 @@ export class OAuth2Client {
 
   /**
    * Refresh an expired access token using the refresh token.
+   * Concurrent calls are deduplicated: only the first caller triggers the
+   * actual HTTP refresh; subsequent callers await the same promise.
    */
   async refreshToken(token: OAuth2Token): Promise<OAuth2Token> {
     if (!token.refreshToken) {
       throw new TokenRefreshError('no refresh token available')
     }
+    if (this.pendingRefresh) {
+      return this.pendingRefresh
+    }
+    this.pendingRefresh = this.executeRefresh(token)
+    try {
+      return await this.pendingRefresh
+    } finally {
+      this.pendingRefresh = undefined
+    }
+  }
+
+  private async executeRefresh(token: OAuth2Token): Promise<OAuth2Token> {
     const refreshed = await this.exchanger.refresh(token.refreshToken)
     // Preserve the refresh token if the provider did not issue a new one.
     if (!refreshed.refreshToken) {

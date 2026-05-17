@@ -35,15 +35,27 @@ export const createRateLimiter = (config: RateLimiterConfig): RateLimiter => {
     lastTick = now
   }
 
-  const sleep = (ms: number): Promise<void> =>
-    new Promise((resolve) => {
-      setTimeout(resolve, ms)
+  const sleep = (ms: number, signal?: AbortSignal): Promise<void> =>
+    new Promise((resolve, reject) => {
+      if (signal?.aborted) {
+        reject(signal.reason ?? new DOMException('The operation was aborted.', 'AbortError'))
+        return
+      }
+      const timer = setTimeout(resolve, ms)
+      const onAbort = (): void => {
+        clearTimeout(timer)
+        reject(signal!.reason ?? new DOMException('The operation was aborted.', 'AbortError'))
+      }
+      signal?.addEventListener('abort', onAbort, { once: true })
     })
 
   const limiter: RateLimiter = {
-    async acquire(count = 1): Promise<void> {
+    async acquire(count = 1, signal?: AbortSignal): Promise<void> {
       const needed = Math.max(1, count)
       while (!closed) {
+        if (signal?.aborted) {
+          throw signal.reason ?? new DOMException('The operation was aborted.', 'AbortError')
+        }
         refill()
         if (currentTokens >= needed) {
           currentTokens -= needed
@@ -51,7 +63,7 @@ export const createRateLimiter = (config: RateLimiterConfig): RateLimiter => {
         }
         const deficit = needed - currentTokens
         const waitMs = (deficit / currentRefillRate) * 1000
-        await sleep(Math.max(1, waitMs))
+        await sleep(Math.max(1, waitMs), signal)
       }
     },
 
@@ -97,6 +109,13 @@ export const createRateLimiter = (config: RateLimiterConfig): RateLimiter => {
       const jitter = Math.random() * MAX_JITTER_MS
       delay = Math.min(delay + jitter, maxBackoff)
       await sleep(delay)
+    },
+
+    async retryAfter(headers: RateLimitHeaders, signal?: AbortSignal): Promise<void> {
+      if (headers.retryAfter === undefined) return
+      const seconds = parseFloat(headers.retryAfter)
+      if (Number.isNaN(seconds)) return
+      await sleep(seconds * 1000, signal)
     },
 
     tokens(): number {
