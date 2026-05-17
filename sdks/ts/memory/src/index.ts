@@ -48,7 +48,7 @@ export * from './connector/index.js'
 export * from './acl/index.js'
 
 // Connector framework (OAuth2, SecureTokenStore, registry, pagination,
-// rate limiting, sync state). Consumers can also import directly from
+// rate limiting, sync state, webhook). Consumers can also import directly from
 // '@jeffs-brain/memory/connector'.
 export * as connector from './connector/index.js'
 
