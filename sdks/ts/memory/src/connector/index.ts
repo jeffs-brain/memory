@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Barrel export for the connector framework.
+ * Barrel export for the connector framework and concrete connectors.
  */
 
 export type {
@@ -53,3 +53,12 @@ export {
 } from './paginator.js'
 
 export { SyncStateManager } from './sync.js'
+
+export type { SlackConnectorConfig } from './slack.js'
+
+export {
+  SlackConnector,
+  convertMrkdwn,
+  parseSlackTimestamp,
+  createSlackConnector,
+} from './slack.js'

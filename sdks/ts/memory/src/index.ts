@@ -57,3 +57,6 @@ export {
   type HttpSearchIndexOptions,
   type HttpSearchResult,
 } from './search/http.js'
+
+// Connector framework and concrete connectors.
+export * from './connector/index.js'
