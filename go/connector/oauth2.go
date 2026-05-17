@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -89,11 +90,25 @@ type TokenExchanger interface {
 	Refresh(ctx context.Context, refreshToken string) (OAuth2Token, error)
 }
 
+// pendingRefresh holds the in-flight refresh state, shared across
+// concurrent callers to prevent duplicate refreshes.
+type pendingRefresh struct {
+	done  chan struct{}
+	token OAuth2Token
+	err   error
+}
+
 // OAuth2Client manages the OAuth2 authorization code flow including
 // authorization URL generation, code exchange, and token refresh.
+// Concurrent refresh calls are deduplicated: only the first caller
+// triggers the actual HTTP refresh; subsequent callers receive the same
+// result.
 type OAuth2Client struct {
 	config    OAuth2Config
 	exchanger TokenExchanger
+
+	mu      sync.Mutex
+	pending *pendingRefresh
 }
 
 // NewOAuth2Client creates a new OAuth2Client. The exchanger handles
@@ -134,20 +149,47 @@ func (c *OAuth2Client) ExchangeCode(ctx context.Context, code string) (OAuth2Tok
 	return token, nil
 }
 
-// RefreshToken refreshes an expired access token using the refresh token.
+// RefreshToken refreshes an expired access token using the refresh
+// token. Concurrent calls are deduplicated: only the first caller
+// triggers the actual HTTP refresh; subsequent callers await the same
+// result.
 func (c *OAuth2Client) RefreshToken(ctx context.Context, token OAuth2Token) (OAuth2Token, error) {
 	if token.RefreshToken == "" {
 		return OAuth2Token{}, fmt.Errorf("%w: no refresh token available", ErrTokenRefreshFailed)
 	}
+
+	c.mu.Lock()
+	if c.pending != nil {
+		// Another goroutine is already refreshing. Wait for its result.
+		p := c.pending
+		c.mu.Unlock()
+		<-p.done
+		return p.token, p.err
+	}
+
+	// We are the first caller: set up the shared pending state.
+	p := &pendingRefresh{done: make(chan struct{})}
+	c.pending = p
+	c.mu.Unlock()
+
 	refreshed, err := c.exchanger.Refresh(ctx, token.RefreshToken)
 	if err != nil {
-		return OAuth2Token{}, fmt.Errorf("%w: %v", ErrTokenRefreshFailed, err)
+		p.err = fmt.Errorf("%w: %v", ErrTokenRefreshFailed, err)
+	} else {
+		// Preserve the refresh token if the provider did not issue a new one.
+		if refreshed.RefreshToken == "" {
+			refreshed.RefreshToken = token.RefreshToken
+		}
+		p.token = refreshed
 	}
-	// Preserve the refresh token if the provider did not issue a new one.
-	if refreshed.RefreshToken == "" {
-		refreshed.RefreshToken = token.RefreshToken
-	}
-	return refreshed, nil
+
+	// Broadcast result to all waiters and clear the pending state.
+	close(p.done)
+	c.mu.Lock()
+	c.pending = nil
+	c.mu.Unlock()
+
+	return p.token, p.err
 }
 
 // ValidToken returns the current token if it is still valid, or

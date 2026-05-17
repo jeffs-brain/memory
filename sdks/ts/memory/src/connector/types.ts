@@ -37,12 +37,14 @@ export type ConnectorDocument = {
   readonly title: string
   /** Optional link back to source. */
   readonly url?: string
-  /** Source-specific metadata. */
-  readonly metadata: Readonly<Record<string, unknown>>
+  /** Source-specific metadata (string values only for Go parity). */
+  readonly metadata: Readonly<Record<string, string>>
   /** Last modification time in source system. */
   readonly modifiedAt: Date
   /** Optional content hash from source for change detection. */
   readonly checksum?: string
+  /** Whether the document was removed from the source system. */
+  readonly deleted?: boolean
 }
 
 /**
@@ -54,8 +56,8 @@ export type SyncCursor = {
   readonly value: string
   /** When the cursor was last persisted. */
   readonly updatedAt: Date
-  /** Optional connector-specific context. */
-  readonly metadata?: Readonly<Record<string, unknown>>
+  /** Optional connector-specific context (string values only for Go parity). */
+  readonly metadata?: Readonly<Record<string, string>>
 }
 
 /**
@@ -113,16 +115,18 @@ export type RateLimitHeaders = {
 
 /** Rate limiter interface for token-bucket with exponential backoff. */
 export type RateLimiter = {
-  /** Block until count tokens are available, then consume them. */
-  acquire(count?: number): Promise<void>
+  /** Block until count tokens are available, then consume them. Respects AbortSignal for cancellation. */
+  acquire(count?: number, signal?: AbortSignal): Promise<void>
   /** Non-blocking: return true if tokens consumed, false otherwise. */
   tryAcquire(count?: number): boolean
-  /** Refill bucket to maximum capacity. */
+  /** Refill bucket to maximum capacity and restore the original refill rate. */
   reset(): void
   /** Adjust bucket from rate limit response headers. */
   adjustFromHeaders(headers: RateLimitHeaders): void
   /** Sleep with exponential backoff. */
   backoff(attempt: number): Promise<void>
+  /** Parse Retry-After header and sleep for the specified duration. Returns immediately when empty or unparseable. */
+  retryAfter(headers: RateLimitHeaders, signal?: AbortSignal): Promise<void>
   /** Return current available tokens. */
   tokens(): number
   /** Release resources. */
@@ -149,4 +153,6 @@ export type PaginatorConfig<T> = {
   readonly maxPages?: number
   /** Optional rate limiter. */
   readonly rateLimiter?: RateLimiter
+  /** Optional abort signal for cancellation. */
+  readonly signal?: AbortSignal
 }

@@ -16,7 +16,7 @@ type SerialisedSyncState = {
   readonly cursor: {
     readonly value: string
     readonly updatedAt: string
-    readonly metadata?: Readonly<Record<string, unknown>>
+    readonly metadata?: Readonly<Record<string, string>>
   }
   readonly generation: number
 }
@@ -27,6 +27,12 @@ const syncStatePath = (connectorName: string, brainId: string) =>
 /**
  * SyncStateManager persists sync cursors in the brain Store with
  * optimistic concurrency.
+ *
+ * Known limitation: the generation counter uses read-then-write without
+ * compare-and-swap. Two concurrent setCursor calls may both read
+ * generation N and write N+1, with the second silently overwriting the
+ * first. This is acceptable for V1 where a single connector instance
+ * handles one brain's sync.
  */
 export class SyncStateManager {
   private readonly store: Store

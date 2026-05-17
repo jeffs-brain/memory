@@ -71,4 +71,30 @@ describe('paginate', () => {
     expect(items).toHaveLength(3)
     rl.close()
   })
+
+  it('aborts via AbortSignal', async () => {
+    const controller = new AbortController()
+    let page = 0
+
+    const gen = paginate({
+      fetchPage: async () => {
+        const current = page++
+        if (current === 1) controller.abort()
+        return { items: [`page-${current}`], nextCursor: 'more' }
+      },
+      signal: controller.signal,
+    })
+
+    const items: string[] = []
+    await expect(
+      (async () => {
+        for await (const item of gen) {
+          items.push(item)
+        }
+      })(),
+    ).rejects.toThrow()
+
+    // Should have collected at most the first two pages before abort kicks in.
+    expect(items.length).toBeLessThanOrEqual(2)
+  })
 })

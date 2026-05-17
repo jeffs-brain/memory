@@ -73,7 +73,14 @@ const deserialiseToken = (json: string): OAuth2Token => {
   }
 }
 
-/** Derive a 256-bit key from a passphrase using SHA-256. */
+/**
+ * Derive a 256-bit key from a passphrase using SHA-256.
+ *
+ * V1 limitation: single-iteration SHA-256 is fast and acceptable when the
+ * passphrase is a long, randomly generated environment variable. Before
+ * supporting user-chosen passphrases, upgrade to PBKDF2 (>=100 000
+ * iterations) or scrypt/argon2 for brute-force resistance.
+ */
 const deriveKey = (passphrase: Buffer): Buffer =>
   createHash('sha256').update(passphrase).digest()
 
