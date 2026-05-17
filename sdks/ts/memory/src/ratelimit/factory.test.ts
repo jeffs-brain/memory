@@ -95,4 +95,29 @@ describe('createRateLimiterFactory', () => {
     const idx = factoriesToTeardown.indexOf(f)
     if (idx >= 0) factoriesToTeardown.splice(idx, 1)
   })
+
+  it('forTenant throws after close', async () => {
+    const f = makeFactory()
+    await f.close()
+
+    expect(() => f.forTenant('should-fail')).toThrow('rate limiter factory is closed')
+
+    // Remove from teardown since we already closed.
+    const idx = factoriesToTeardown.indexOf(f)
+    if (idx >= 0) factoriesToTeardown.splice(idx, 1)
+  })
+
+  it('constructor throws for zero defaultMaxTokens', () => {
+    expect(() => createRateLimiterFactory({
+      defaultMaxTokens: 0,
+      defaultRefillRate: 10,
+    })).toThrow('defaultMaxTokens must be a positive number')
+  })
+
+  it('constructor throws for zero defaultRefillRate', () => {
+    expect(() => createRateLimiterFactory({
+      defaultMaxTokens: 10,
+      defaultRefillRate: 0,
+    })).toThrow('defaultRefillRate must be a positive number')
+  })
 })

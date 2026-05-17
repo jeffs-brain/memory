@@ -218,6 +218,27 @@ func TestBucket_UpdateFromHeaders_RetryAfter(t *testing.T) {
 	}
 }
 
+func TestBucket_UpdateFromHeaders_RetryAfterCapped(t *testing.T) {
+	b := NewBucket(BucketOptions{
+		MaxTokens:        10,
+		RefillRatePerSec: 50,
+		TenantID:         "t1",
+	})
+	defer b.Close()
+
+	// A large retry-after should be capped at maxRetryAfter (5 min).
+	b.UpdateFromHeaders(Headers{
+		RetryAfter: 999 * time.Hour,
+	})
+
+	m := b.Metrics()
+	if m.RefillRatePerSec != 0 {
+		t.Fatalf("expected zero rate during retry-after, got %f", m.RefillRatePerSec)
+	}
+	// The bucket is paused but will resume after maxRetryAfter (5m).
+	// We just verify it accepted the header without hanging.
+}
+
 func TestBucket_Metrics(t *testing.T) {
 	b := NewBucket(BucketOptions{
 		MaxTokens:        20,
@@ -261,4 +282,101 @@ func TestBucket_ConcurrentAccess(t *testing.T) {
 		}()
 	}
 	wg.Wait()
+}
+
+func TestBucket_AcquireRejectsZeroCost(t *testing.T) {
+	b := NewBucket(BucketOptions{
+		MaxTokens:        10,
+		RefillRatePerSec: 100,
+		TenantID:         "t1",
+	})
+	defer b.Close()
+
+	_, err := b.Acquire(context.Background(), 0)
+	if err == nil {
+		t.Fatalf("expected error for zero cost")
+	}
+}
+
+func TestBucket_AcquireRejectsNegativeCost(t *testing.T) {
+	b := NewBucket(BucketOptions{
+		MaxTokens:        10,
+		RefillRatePerSec: 100,
+		TenantID:         "t1",
+	})
+	defer b.Close()
+
+	_, err := b.Acquire(context.Background(), -1)
+	if err == nil {
+		t.Fatalf("expected error for negative cost")
+	}
+}
+
+func TestBucket_TryAcquireRejectsZeroCost(t *testing.T) {
+	b := NewBucket(BucketOptions{
+		MaxTokens:        10,
+		RefillRatePerSec: 100,
+		TenantID:         "t1",
+	})
+	defer b.Close()
+
+	_, ok := b.TryAcquire(0)
+	if ok {
+		t.Fatalf("expected TryAcquire to fail for zero cost")
+	}
+}
+
+func TestBucket_TryAcquireRejectsNegativeCost(t *testing.T) {
+	b := NewBucket(BucketOptions{
+		MaxTokens:        10,
+		RefillRatePerSec: 100,
+		TenantID:         "t1",
+	})
+	defer b.Close()
+
+	_, ok := b.TryAcquire(-1)
+	if ok {
+		t.Fatalf("expected TryAcquire to fail for negative cost")
+	}
+}
+
+func TestBucket_NewBucketPanicsOnInvalidOptions(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Fatalf("expected panic for zero MaxTokens")
+		}
+	}()
+	NewBucket(BucketOptions{
+		MaxTokens:        0,
+		RefillRatePerSec: 10,
+		TenantID:         "t1",
+	})
+}
+
+func TestBucket_NewBucketPanicsOnZeroRefillRate(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Fatalf("expected panic for zero RefillRatePerSec")
+		}
+	}()
+	NewBucket(BucketOptions{
+		MaxTokens:        10,
+		RefillRatePerSec: 0,
+		TenantID:         "t1",
+	})
+}
+
+func TestBucket_SetRefillRate(t *testing.T) {
+	b := NewBucket(BucketOptions{
+		MaxTokens:        10,
+		RefillRatePerSec: 50,
+		TenantID:         "t1",
+	})
+	defer b.Close()
+
+	b.SetRefillRate(25)
+	m := b.Metrics()
+	if m.RefillRatePerSec != 25 {
+		t.Fatalf("expected refill rate 25, got %f", m.RefillRatePerSec)
+	}
 }

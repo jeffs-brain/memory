@@ -9,19 +9,66 @@ import (
 	"time"
 )
 
-// headerNames maps the canonical header names checked when parsing
-// rate-limit responses. Providers use varying casing; http.Header
-// canonicalises on lookup.
-var headerNames = struct {
-	remaining  []string
-	limit      []string
-	resetAt    []string
-	retryAfter []string
-}{
-	remaining:  []string{"X-Ratelimit-Remaining", "X-RateLimit-Remaining", "Ratelimit-Remaining"},
-	limit:      []string{"X-Ratelimit-Limit", "X-RateLimit-Limit", "Ratelimit-Limit"},
-	resetAt:    []string{"X-Ratelimit-Reset", "X-RateLimit-Reset", "Ratelimit-Reset"},
-	retryAfter: []string{"Retry-After"},
+// HeaderNames configures which HTTP header names to check when parsing
+// rate-limit responses. The zero value uses DefaultHeaderNames.
+type HeaderNames struct {
+	Remaining  []string
+	Limit      []string
+	ResetAt    []string
+	RetryAfter []string
+}
+
+// DefaultHeaderNames returns the standard header names checked when
+// parsing rate-limit responses, covering OpenAI, Anthropic, and other
+// common LLM provider conventions.
+func DefaultHeaderNames() HeaderNames {
+	return HeaderNames{
+		Remaining: []string{
+			"X-Ratelimit-Remaining",
+			"X-RateLimit-Remaining",
+			"Ratelimit-Remaining",
+			"X-RateLimit-Remaining-Requests",
+			"X-RateLimit-Remaining-Tokens",
+		},
+		Limit: []string{
+			"X-Ratelimit-Limit",
+			"X-RateLimit-Limit",
+			"Ratelimit-Limit",
+			"X-RateLimit-Limit-Requests",
+			"X-RateLimit-Limit-Tokens",
+		},
+		ResetAt: []string{
+			"X-Ratelimit-Reset",
+			"X-RateLimit-Reset",
+			"Ratelimit-Reset",
+			"X-RateLimit-Reset-Requests",
+			"X-RateLimit-Reset-Tokens",
+		},
+		RetryAfter: []string{
+			"Retry-After",
+		},
+	}
+}
+
+// defaultNames is the package-level default used when no custom names
+// are provided.
+var defaultNames = DefaultHeaderNames()
+
+// resolve returns the provided names if non-empty, or the defaults.
+func (h HeaderNames) resolve() HeaderNames {
+	if len(h.Remaining) == 0 {
+		h.Remaining = defaultNames.Remaining
+	}
+	if len(h.Limit) == 0 {
+		h.Limit = defaultNames.Limit
+	}
+	if len(h.ResetAt) == 0 {
+		h.ResetAt = defaultNames.ResetAt
+	}
+	if len(h.RetryAfter) == 0 {
+		h.RetryAfter = defaultNames.RetryAfter
+	}
+	return h
 }
 
 // ParseHeaders extracts rate-limit metadata from an HTTP response.
@@ -33,17 +80,25 @@ func ParseHeaders(resp *http.Response) Headers {
 	return ParseHeaderMap(resp.Header)
 }
 
-// ParseHeaderMap extracts rate-limit metadata from a raw header map.
-// Useful when callers have headers but not a full *http.Response.
+// ParseHeaderMap extracts rate-limit metadata from a raw header map
+// using the default header names.
 func ParseHeaderMap(h http.Header) Headers {
+	return ParseHeaderMapWith(h, HeaderNames{})
+}
+
+// ParseHeaderMapWith extracts rate-limit metadata from a raw header map
+// using custom header names. Zero-value fields in names fall back to
+// the defaults.
+func ParseHeaderMapWith(h http.Header, names HeaderNames) Headers {
 	if h == nil {
 		return Headers{}
 	}
+	n := names.resolve()
 	return Headers{
-		Remaining:  firstInt(h, headerNames.remaining),
-		Limit:      firstInt(h, headerNames.limit),
-		ResetAt:    firstTime(h, headerNames.resetAt),
-		RetryAfter: firstDuration(h, headerNames.retryAfter),
+		Remaining:  firstInt(h, n.Remaining),
+		Limit:      firstInt(h, n.Limit),
+		ResetAt:    firstTime(h, n.ResetAt),
+		RetryAfter: firstDuration(h, n.RetryAfter),
 	}
 }
 
