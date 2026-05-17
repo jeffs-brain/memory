@@ -108,3 +108,30 @@ func TestFactory_IndependentTenantBuckets(t *testing.T) {
 	}
 	tok.Release()
 }
+
+func TestFactory_ForTenantAfterClosePanics(t *testing.T) {
+	f := NewFactory(FactoryOptions{
+		DefaultMaxTokens:  10,
+		DefaultRefillRate: 100,
+	})
+	_ = f.Close()
+
+	defer func() {
+		if r := recover(); r == nil {
+			t.Fatalf("expected panic when calling ForTenant after Close")
+		}
+	}()
+	f.ForTenant("should-panic")
+}
+
+func TestFactory_PanicsOnInvalidOptions(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Fatalf("expected panic for zero DefaultMaxTokens")
+		}
+	}()
+	NewFactory(FactoryOptions{
+		DefaultMaxTokens:  0,
+		DefaultRefillRate: 10,
+	})
+}

@@ -20,13 +20,90 @@ type Waiter = {
 }
 
 /**
+ * Singly-linked list node for the waiter FIFO queue. Using a linked
+ * list avoids O(n) Array.shift() on the hot path when draining waiters.
+ */
+type WaiterNode = {
+  readonly value: Waiter
+  next: WaiterNode | undefined
+}
+
+/**
+ * O(1) enqueue/dequeue FIFO queue backed by a singly-linked list.
+ * Replaces the naive array-based queue where Array.shift() is O(n).
+ */
+class WaiterQueue {
+  private head: WaiterNode | undefined = undefined
+  private tail: WaiterNode | undefined = undefined
+  private _length = 0
+
+  get length(): number {
+    return this._length
+  }
+
+  enqueue(waiter: Waiter): void {
+    const node: WaiterNode = { value: waiter, next: undefined }
+    if (this.tail !== undefined) {
+      this.tail.next = node
+    } else {
+      this.head = node
+    }
+    this.tail = node
+    this._length++
+  }
+
+  dequeue(): Waiter | undefined {
+    if (this.head === undefined) return undefined
+    const value = this.head.value
+    this.head = this.head.next
+    if (this.head === undefined) {
+      this.tail = undefined
+    }
+    this._length--
+    return value
+  }
+
+  peek(): Waiter | undefined {
+    return this.head?.value
+  }
+
+  /** Drain all entries, returning them as an array. Resets the queue. */
+  drain(): Waiter[] {
+    const items: Waiter[] = []
+    let node = this.head
+    while (node !== undefined) {
+      items.push(node.value)
+      node = node.next
+    }
+    this.head = undefined
+    this.tail = undefined
+    this._length = 0
+    return items
+  }
+}
+
+/** Maximum retry-after duration: 5 minutes in seconds. */
+const MAX_RETRY_AFTER_SECS = 300
+
+/**
  * Create an in-memory token bucket rate limiter.
  *
  * Tokens are replenished continuously at `refillRatePerSecond`. When
  * tokens are unavailable, `acquire` queues the caller until enough
  * tokens accumulate. `tryAcquire` is non-blocking.
+ *
+ * NOTE: This is a single-process implementation. For multi-worker
+ * deployments requiring shared state, a Redis-backed bucket is planned
+ * as a follow-up (see LLE-XXXX).
  */
 export const createTokenBucket = (opts: TokenBucketOptions): RateLimiter => {
+  if (opts.maxTokens <= 0) {
+    throw new Error('maxTokens must be a positive number')
+  }
+  if (opts.refillRatePerSecond <= 0) {
+    throw new Error('refillRatePerSecond must be a positive number')
+  }
+
   const logger = opts.logger ?? noopLogger
   let tokens = opts.maxTokens
   let maxTokens = opts.maxTokens
@@ -36,7 +113,7 @@ export const createTokenBucket = (opts: TokenBucketOptions): RateLimiter => {
   let concurrencyInFlight = 0
   const maxConcurrency = opts.maxConcurrency ?? 0
 
-  const waitQueue: Waiter[] = []
+  const waitQueue = new WaiterQueue()
   let refillTimer: ReturnType<typeof setInterval> | undefined
   let retryAfterTimer: ReturnType<typeof setTimeout> | undefined
   let closed = false
@@ -78,10 +155,10 @@ export const createTokenBucket = (opts: TokenBucketOptions): RateLimiter => {
   const drainQueue = (): void => {
     refill()
     while (waitQueue.length > 0) {
-      const head = waitQueue[0]
+      const head = waitQueue.peek()
       if (head === undefined) break
       if (!canAcquire(head.cost)) break
-      waitQueue.shift()
+      waitQueue.dequeue()
       consumeTokens(head.cost)
       head.resolve(makeToken())
     }
@@ -98,7 +175,14 @@ export const createTokenBucket = (opts: TokenBucketOptions): RateLimiter => {
     refillTimer.unref()
   }
 
+  const validateCost = (cost: number): void => {
+    if (cost < 1) {
+      throw new Error('cost must be a positive integer (>= 1)')
+    }
+  }
+
   const acquire = (cost = 1): Promise<RateLimitToken> => {
+    validateCost(cost)
     if (closed) {
       return Promise.reject(new Error('rate limiter is closed'))
     }
@@ -111,11 +195,12 @@ export const createTokenBucket = (opts: TokenBucketOptions): RateLimiter => {
 
     throttledTotal++
     return new Promise<RateLimitToken>((resolve, reject) => {
-      waitQueue.push({ cost, resolve, reject })
+      waitQueue.enqueue({ cost, resolve, reject })
     })
   }
 
   const tryAcquire = (cost = 1): RateLimitToken | undefined => {
+    validateCost(cost)
     if (closed) return undefined
     refill()
     if (!canAcquire(cost)) return undefined
@@ -123,12 +208,17 @@ export const createTokenBucket = (opts: TokenBucketOptions): RateLimiter => {
     return makeToken()
   }
 
+  const setRefillRate = (rate: number): void => {
+    refillRate = rate
+  }
+
   const updateFromHeaders = (headers: RateLimitHeaders): void => {
-    // Retry-After: pause the limiter.
+    // Retry-After: pause the limiter, capped at MAX_RETRY_AFTER_SECS.
     if (headers.retryAfter !== undefined && headers.retryAfter > 0) {
+      const cappedRetryAfter = Math.min(headers.retryAfter, MAX_RETRY_AFTER_SECS)
       logger.info('rate limiter pausing due to retry-after', {
         tenantId: opts.tenantId,
-        retryAfter: headers.retryAfter,
+        retryAfter: cappedRetryAfter,
       })
       throttledTotal++
       const savedRate = refillRate
@@ -144,7 +234,7 @@ export const createTokenBucket = (opts: TokenBucketOptions): RateLimiter => {
           rate: savedRate,
         })
         drainQueue()
-      }, headers.retryAfter * 1000)
+      }, cappedRetryAfter * 1000)
       if (typeof retryAfterTimer === 'object' && 'unref' in retryAfterTimer) {
         retryAfterTimer.unref()
       }
@@ -195,7 +285,7 @@ export const createTokenBucket = (opts: TokenBucketOptions): RateLimiter => {
       retryAfterTimer = undefined
     }
     // Reject any pending waiters.
-    for (const waiter of waitQueue.splice(0)) {
+    for (const waiter of waitQueue.drain()) {
       waiter.reject(new Error('rate limiter closed'))
     }
   }
@@ -204,6 +294,7 @@ export const createTokenBucket = (opts: TokenBucketOptions): RateLimiter => {
     acquire,
     tryAcquire,
     updateFromHeaders,
+    setRefillRate,
     metrics: metricsSnapshot,
     close,
   }

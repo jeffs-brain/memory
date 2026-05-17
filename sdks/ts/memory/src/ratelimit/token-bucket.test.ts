@@ -138,6 +138,19 @@ describe('createTokenBucket', () => {
     expect(m2.refillRatePerSecond).toBeGreaterThan(0)
   })
 
+  it('updateFromHeaders caps retry-after at 5 minutes', () => {
+    const lim = makeBucket({ maxTokens: 10, refillRatePerSecond: 50 })
+
+    // Pass a very large retryAfter — it should be capped internally.
+    lim.updateFromHeaders({
+      retryAfter: 999999,
+    })
+
+    const m = lim.metrics()
+    // Rate should be zero (paused), but the timer should be capped.
+    expect(m.refillRatePerSecond).toBe(0)
+  })
+
   it('updateFromHeaders updates burst from limit header', async () => {
     const lim = makeBucket({ maxTokens: 10 })
 
@@ -207,5 +220,65 @@ describe('createTokenBucket', () => {
     // Should have refilled close to maxTokens.
     expect(m.availableTokens).toBeGreaterThanOrEqual(3)
     expect(m.availableTokens).toBeLessThanOrEqual(5)
+  })
+
+  it('acquire throws for zero cost', () => {
+    const lim = makeBucket()
+    expect(() => lim.acquire(0)).toThrow('cost must be a positive integer')
+  })
+
+  it('acquire throws for negative cost', () => {
+    const lim = makeBucket()
+    expect(() => lim.acquire(-1)).toThrow('cost must be a positive integer')
+  })
+
+  it('tryAcquire throws for zero cost', () => {
+    const lim = makeBucket()
+    expect(() => lim.tryAcquire(0)).toThrow('cost must be a positive integer')
+  })
+
+  it('tryAcquire throws for negative cost', () => {
+    const lim = makeBucket()
+    expect(() => lim.tryAcquire(-1)).toThrow('cost must be a positive integer')
+  })
+
+  it('constructor throws for zero maxTokens', () => {
+    expect(() => createTokenBucket({
+      maxTokens: 0,
+      refillRatePerSecond: 10,
+      tenantId: 'test',
+    })).toThrow('maxTokens must be a positive number')
+  })
+
+  it('constructor throws for negative maxTokens', () => {
+    expect(() => createTokenBucket({
+      maxTokens: -5,
+      refillRatePerSecond: 10,
+      tenantId: 'test',
+    })).toThrow('maxTokens must be a positive number')
+  })
+
+  it('constructor throws for zero refillRatePerSecond', () => {
+    expect(() => createTokenBucket({
+      maxTokens: 10,
+      refillRatePerSecond: 0,
+      tenantId: 'test',
+    })).toThrow('refillRatePerSecond must be a positive number')
+  })
+
+  it('constructor throws for negative refillRatePerSecond', () => {
+    expect(() => createTokenBucket({
+      maxTokens: 10,
+      refillRatePerSecond: -1,
+      tenantId: 'test',
+    })).toThrow('refillRatePerSecond must be a positive number')
+  })
+
+  it('setRefillRate changes the refill rate', () => {
+    const lim = makeBucket({ maxTokens: 10, refillRatePerSecond: 50 })
+
+    lim.setRefillRate(25)
+    const m = lim.metrics()
+    expect(m.refillRatePerSecond).toBe(25)
   })
 })

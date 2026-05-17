@@ -53,6 +53,30 @@ describe('parseRateLimitHeaders', () => {
     const parsed = parseRateLimitHeaders(headers)
     expect(parsed.remaining).toBe(25)
   })
+
+  it('accepts custom header names', () => {
+    const headers = new Headers({
+      'my-custom-remaining': '77',
+      'my-custom-limit': '200',
+    })
+    const parsed = parseRateLimitHeaders(headers, {
+      remaining: ['my-custom-remaining'],
+      limit: ['my-custom-limit'],
+    })
+    expect(parsed.remaining).toBe(77)
+    expect(parsed.limit).toBe(200)
+  })
+
+  it('falls back to defaults for unspecified custom header groups', () => {
+    const headers = new Headers({ 'x-ratelimit-remaining': '42' })
+    const parsed = parseRateLimitHeaders(headers, {
+      limit: ['my-custom-limit'],
+    })
+    // remaining should still use defaults.
+    expect(parsed.remaining).toBe(42)
+    // limit uses custom names — not present in headers.
+    expect(parsed.limit).toBeUndefined()
+  })
 })
 
 describe('parseRateLimitHeaderRecord', () => {
@@ -80,5 +104,15 @@ describe('parseRateLimitHeaderRecord', () => {
     }
     const parsed = parseRateLimitHeaderRecord(headers)
     expect(parsed.remaining).toBe(7)
+  })
+
+  it('accepts custom header names from record', () => {
+    const headers: Record<string, string | undefined> = {
+      'provider-remaining': '33',
+    }
+    const parsed = parseRateLimitHeaderRecord(headers, {
+      remaining: ['provider-remaining'],
+    })
+    expect(parsed.remaining).toBe(33)
   })
 })

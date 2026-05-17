@@ -31,6 +31,10 @@ type Limiter interface {
 	// rate-limit headers received from a provider response.
 	UpdateFromHeaders(headers Headers)
 
+	// SetRefillRate overrides the refill rate (tokens/sec). Used by
+	// the adaptive layer to inject computed rates into the bucket.
+	SetRefillRate(rate float64)
+
 	// Metrics returns a point-in-time snapshot of the limiter state.
 	Metrics() Metrics
 
@@ -110,6 +114,9 @@ type FactoryOptions struct {
 	MaxRefillRate float64
 	// RecoveryFactor for the adaptive layer.
 	RecoveryFactor float64
+	// TenantTTL is the idle duration after which a tenant limiter is
+	// evicted. Zero means the default (5 minutes).
+	TenantTTL time.Duration
 	// Logger receives diagnostic messages. Nil means discard.
 	Logger *slog.Logger
 }

@@ -18,6 +18,8 @@ func TestParseHeaderMap_Remaining(t *testing.T) {
 		{"standard casing", "X-Ratelimit-Remaining", "42", 42},
 		{"mixed casing", "X-RateLimit-Remaining", "100", 100},
 		{"no prefix", "Ratelimit-Remaining", "7", 7},
+		{"remaining-requests variant", "X-RateLimit-Remaining-Requests", "33", 33},
+		{"remaining-tokens variant", "X-RateLimit-Remaining-Tokens", "55", 55},
 		{"empty value", "X-Ratelimit-Remaining", "", 0},
 		{"non-numeric", "X-Ratelimit-Remaining", "abc", 0},
 	}
@@ -40,6 +42,29 @@ func TestParseHeaderMap_Limit(t *testing.T) {
 	got := ParseHeaderMap(h)
 	if got.Limit != 1000 {
 		t.Fatalf("Limit = %d, want 1000", got.Limit)
+	}
+}
+
+func TestParseHeaderMap_LimitVariants(t *testing.T) {
+	cases := []struct {
+		name   string
+		header string
+		value  string
+		want   int
+	}{
+		{"limit-requests", "X-RateLimit-Limit-Requests", "200", 200},
+		{"limit-tokens", "X-RateLimit-Limit-Tokens", "500", 500},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			h := http.Header{}
+			h.Set(tc.header, tc.value)
+			got := ParseHeaderMap(h)
+			if got.Limit != tc.want {
+				t.Fatalf("Limit = %d, want %d", got.Limit, tc.want)
+			}
+		})
 	}
 }
 
@@ -114,5 +139,23 @@ func TestParseHeaderMap_WhitespaceHandling(t *testing.T) {
 	}
 	if got.RetryAfter != 5*time.Second {
 		t.Fatalf("RetryAfter = %v, want 5s", got.RetryAfter)
+	}
+}
+
+func TestParseHeaderMapWith_CustomNames(t *testing.T) {
+	h := http.Header{}
+	h.Set("My-Custom-Remaining", "42")
+	h.Set("My-Custom-Limit", "100")
+
+	names := HeaderNames{
+		Remaining: []string{"My-Custom-Remaining"},
+		Limit:     []string{"My-Custom-Limit"},
+	}
+	got := ParseHeaderMapWith(h, names)
+	if got.Remaining != 42 {
+		t.Fatalf("Remaining = %d, want 42", got.Remaining)
+	}
+	if got.Limit != 100 {
+		t.Fatalf("Limit = %d, want 100", got.Limit)
 	}
 }

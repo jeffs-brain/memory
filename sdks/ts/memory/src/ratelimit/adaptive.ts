@@ -30,6 +30,16 @@ export const createAdaptiveRateLimiter = (opts: AdaptiveOptions): RateLimiter =>
 
   const tryAcquire = (cost = 1): RateLimitToken | undefined => bucket.tryAcquire(cost)
 
+  const setRefillRate = (rate: number): void => {
+    currentRate = rate
+    bucket.setRefillRate(rate)
+  }
+
+  const applyRate = (rate: number): void => {
+    currentRate = rate
+    bucket.setRefillRate(rate)
+  }
+
   const updateFromHeaders = (headers: RateLimitHeaders): void => {
     // Delegate retry-after directly to the underlying bucket.
     if (headers.retryAfter !== undefined && headers.retryAfter > 0) {
@@ -40,30 +50,29 @@ export const createAdaptiveRateLimiter = (opts: AdaptiveOptions): RateLimiter =>
     const m = bucket.metrics()
     const maxTokens = Math.max(1, m.maxTokens)
     const threshold = Math.max(1, Math.floor(maxTokens / 4))
-
     const remaining = headers.remaining ?? 0
 
+    // Throttle: reduce rate proportionally when remaining is low.
     if (remaining > 0 && remaining < threshold) {
-      // Throttle: reduce rate proportionally.
       const ratio = remaining / maxTokens
-      currentRate = Math.max(minRefillRate, currentRate * ratio)
+      applyRate(Math.max(minRefillRate, currentRate * ratio))
       logger.info('adaptive limiter throttling', {
         remaining,
         threshold,
         newRate: currentRate,
       })
-    } else if (remaining >= threshold) {
-      // Recover: ramp up towards max.
-      currentRate = Math.min(maxRefillRate, currentRate * recoveryFactor)
     }
 
-    // Propagate to the bucket (without retry-after, to avoid re-pause).
-    const propagated = {
-      ...(headers.remaining !== undefined ? { remaining: headers.remaining } : {}),
-      ...(headers.limit !== undefined ? { limit: headers.limit } : {}),
-      ...(headers.resetAt !== undefined ? { resetAt: headers.resetAt } : {}),
-    } satisfies RateLimitHeaders
-    bucket.updateFromHeaders(propagated)
+    // Recover: ramp up towards max when remaining is healthy.
+    if (remaining >= threshold) {
+      applyRate(Math.min(maxRefillRate, currentRate * recoveryFactor))
+    }
+
+    // Propagate only burst update to the bucket (not remaining, which
+    // would trigger the bucket's own independent back-off logic).
+    if (headers.limit !== undefined && headers.limit > 0) {
+      bucket.updateFromHeaders({ limit: headers.limit })
+    }
   }
 
   const metricsSnapshot = (): RateLimitMetrics => {
@@ -80,6 +89,7 @@ export const createAdaptiveRateLimiter = (opts: AdaptiveOptions): RateLimiter =>
     acquire,
     tryAcquire,
     updateFromHeaders,
+    setRefillRate,
     metrics: metricsSnapshot,
     close,
   }

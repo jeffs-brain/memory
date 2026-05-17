@@ -34,6 +34,8 @@ export type RateLimiter = {
   acquire(cost?: number): Promise<RateLimitToken>
   tryAcquire(cost?: number): RateLimitToken | undefined
   updateFromHeaders(headers: RateLimitHeaders): void
+  /** Override the refill rate (tokens/sec). Used by the adaptive layer. */
+  setRefillRate(rate: number): void
   metrics(): RateLimitMetrics
   close(): Promise<void>
 }
@@ -65,7 +67,17 @@ export type RateLimiterFactoryOptions = {
   readonly minRefillRate?: number
   readonly maxRefillRate?: number
   readonly recoveryFactor?: number
+  /** TTL in milliseconds for idle tenants. Default 300_000 (5 min). */
+  readonly tenantTtlMs?: number
   readonly logger?: Logger
+}
+
+/** Configurable header names for rate-limit parsing. */
+export type HeaderNameOptions = {
+  readonly remaining?: readonly string[]
+  readonly limit?: readonly string[]
+  readonly reset?: readonly string[]
+  readonly retryAfter?: readonly string[]
 }
 
 /** Creates per-tenant limiter instances. */
