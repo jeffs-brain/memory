@@ -47,7 +47,7 @@ export type WebhookDocument = {
   readonly mime?: string
   readonly title?: string
   readonly url?: string
-  readonly metadata?: Readonly<Record<string, unknown>>
+  readonly metadata?: Readonly<Record<string, string>>
 }
 
 export type WebhookResponse = {
@@ -102,11 +102,15 @@ type IdempotencyEntry = {
   readonly expiresAt: number
 }
 
+const DEFAULT_MAX_IDEMPOTENCY_ENTRIES = 100_000
+
 class IdempotencyStore {
   private readonly entries = new Map<string, IdempotencyEntry>()
+  private readonly maxEntries: number
   private sweepTimer: ReturnType<typeof setInterval> | undefined
 
-  constructor() {
+  constructor(maxEntries = DEFAULT_MAX_IDEMPOTENCY_ENTRIES) {
+    this.maxEntries = maxEntries
     this.sweepTimer = setInterval(() => this.sweep(), 60 * 60 * 1000)
   }
 
@@ -123,10 +127,28 @@ class IdempotencyStore {
   }
 
   set(key: string, response: WebhookResponse, ttlMs: number): void {
+    // Evict the oldest entry if the store is at capacity.
+    if (this.entries.size >= this.maxEntries) {
+      this.evictOldest()
+    }
     this.entries.set(key, {
       response,
       expiresAt: Date.now() + ttlMs,
     })
+  }
+
+  private evictOldest(): void {
+    let oldestKey: string | undefined
+    let oldestTime = Infinity
+    for (const [key, entry] of this.entries) {
+      if (entry.expiresAt < oldestTime) {
+        oldestKey = key
+        oldestTime = entry.expiresAt
+      }
+    }
+    if (oldestKey !== undefined) {
+      this.entries.delete(oldestKey)
+    }
   }
 
   sweep(): void {
@@ -270,6 +292,97 @@ const contentDecoders: Record<string, ContentDecoder> = {
   base64: decodeBase64,
 }
 
+// ---- Payload validation ----
+
+type ValidationResult<T> =
+  | { readonly value: T; readonly error?: undefined }
+  | { readonly value?: undefined; readonly error: string }
+
+/**
+ * Runtime-validates that the parsed JSON matches the expected
+ * {@link WebhookPayload} shape. Guards against unsafe casts by
+ * checking every field's type and rejecting unknown values.
+ */
+const validatePayload = (raw: unknown): ValidationResult<WebhookPayload> => {
+  if (raw === null || typeof raw !== 'object') {
+    return { error: 'payload must be an object' }
+  }
+  const obj = raw as Record<string, unknown>
+  if (!Array.isArray(obj['documents'])) {
+    return { error: 'documents array is empty' }
+  }
+  const documents: WebhookDocument[] = []
+  for (const item of obj['documents'] as unknown[]) {
+    const result = validateDocument(item)
+    if (result.error !== undefined) {
+      return { error: result.error }
+    }
+    documents.push(result.value)
+  }
+  return { value: { documents } }
+}
+
+const VALID_ENCODINGS = new Set(['utf8', 'base64'])
+
+const validateDocument = (raw: unknown): ValidationResult<WebhookDocument> => {
+  if (raw === null || typeof raw !== 'object') {
+    return { error: 'each document must be an object' }
+  }
+  const obj = raw as Record<string, unknown>
+
+  // Required fields: validate type when present. Missing/empty values are
+  // caught later by processDocument so that partial payloads return 200 with
+  // per-document rejection rather than a blanket 400.
+  if (obj['externalId'] !== undefined && typeof obj['externalId'] !== 'string') {
+    return { error: 'externalId must be a string' }
+  }
+  if (obj['content'] !== undefined && typeof obj['content'] !== 'string') {
+    return { error: 'content must be a string' }
+  }
+
+  // Optional string fields
+  if (obj['encoding'] !== undefined && typeof obj['encoding'] !== 'string') {
+    return { error: 'encoding must be a string' }
+  }
+  if (obj['encoding'] !== undefined && !VALID_ENCODINGS.has(obj['encoding'] as string)) {
+    // Let the decoder handle the actual error message; just validate it's a string here.
+    // We pass through to the decoder map which already handles unsupported encodings.
+  }
+  if (obj['mime'] !== undefined && typeof obj['mime'] !== 'string') {
+    return { error: 'mime must be a string' }
+  }
+  if (obj['title'] !== undefined && typeof obj['title'] !== 'string') {
+    return { error: 'title must be a string' }
+  }
+  if (obj['url'] !== undefined && typeof obj['url'] !== 'string') {
+    return { error: 'url must be a string' }
+  }
+
+  // Optional metadata: must be Record<string, string> for parity with Go.
+  if (obj['metadata'] !== undefined) {
+    if (obj['metadata'] === null || typeof obj['metadata'] !== 'object' || Array.isArray(obj['metadata'])) {
+      return { error: 'metadata must be an object' }
+    }
+    const meta = obj['metadata'] as Record<string, unknown>
+    for (const key of Object.keys(meta)) {
+      if (typeof meta[key] !== 'string') {
+        return { error: `metadata value for "${key}" must be a string` }
+      }
+    }
+  }
+
+  const doc: WebhookDocument = {
+    externalId: (obj['externalId'] as string | undefined) ?? '',
+    content: (obj['content'] as string | undefined) ?? '',
+    ...(obj['encoding'] !== undefined ? { encoding: obj['encoding'] as 'utf8' | 'base64' } : {}),
+    ...(obj['mime'] !== undefined ? { mime: obj['mime'] as string } : {}),
+    ...(obj['title'] !== undefined ? { title: obj['title'] as string } : {}),
+    ...(obj['url'] !== undefined ? { url: obj['url'] as string } : {}),
+    ...(obj['metadata'] !== undefined ? { metadata: obj['metadata'] as Readonly<Record<string, string>> } : {}),
+  }
+  return { value: doc }
+}
+
 // ---- WebhookReceiver ----
 
 /**
@@ -359,15 +472,22 @@ export class WebhookReceiver {
     }
 
     // Parse payload
-    let payload: WebhookPayload
+    let parsed: unknown
     try {
-      payload = JSON.parse(new TextDecoder().decode(body)) as WebhookPayload
+      parsed = JSON.parse(new TextDecoder().decode(body))
     } catch {
       return this.errorResponse(400, 'invalid json')
     }
 
+    // Runtime validation of payload shape.
+    const payloadResult = validatePayload(parsed)
+    if (payloadResult.error !== undefined) {
+      return this.errorResponse(400, payloadResult.error)
+    }
+    const payload = payloadResult.value
+
     // Validate document count
-    if (!Array.isArray(payload.documents) || payload.documents.length === 0) {
+    if (payload.documents.length === 0) {
       return this.errorResponse(400, 'documents array is empty')
     }
     if (payload.documents.length > this.maxDocuments) {
@@ -389,11 +509,35 @@ export class WebhookReceiver {
   }
 
   private async readLimitedBody(req: Request): Promise<Uint8Array | Response> {
-    const raw = await req.arrayBuffer()
-    if (raw.byteLength > this.maxPayloadBytes) {
-      return this.errorResponse(413, 'payload too large')
+    // Stream the body with a byte counter to abort early if the limit is
+    // exceeded. This prevents an attacker from OOM-ing the process by
+    // sending a payload larger than maxPayloadBytes.
+    if (req.body === null) {
+      return this.errorResponse(400, 'empty body')
     }
-    return new Uint8Array(raw)
+    const reader = req.body.getReader()
+    const chunks: Uint8Array[] = []
+    let totalBytes = 0
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (done) {
+        break
+      }
+      totalBytes += value.byteLength
+      if (totalBytes > this.maxPayloadBytes) {
+        await reader.cancel()
+        return this.errorResponse(413, 'payload too large')
+      }
+      chunks.push(value)
+    }
+    // Concatenate chunks into a single Uint8Array.
+    const result = new Uint8Array(totalBytes)
+    let offset = 0
+    for (const chunk of chunks) {
+      result.set(chunk, offset)
+      offset += chunk.byteLength
+    }
+    return result
   }
 
   private async processDocuments(

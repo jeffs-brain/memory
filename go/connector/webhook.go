@@ -130,15 +130,20 @@ type idempotencyEntry struct {
 	expiresAt time.Time
 }
 
+const defaultMaxIdempotencyEntries = 100_000
+
 // idempotencyStore is a simple in-memory store for idempotency keys.
+// It enforces a maximum entry count to prevent unbounded memory growth.
 type idempotencyStore struct {
-	mu      sync.RWMutex
-	entries map[string]idempotencyEntry
+	mu         sync.RWMutex
+	entries    map[string]idempotencyEntry
+	maxEntries int
 }
 
 func newIdempotencyStore() *idempotencyStore {
 	return &idempotencyStore{
-		entries: make(map[string]idempotencyEntry),
+		entries:    make(map[string]idempotencyEntry),
+		maxEntries: defaultMaxIdempotencyEntries,
 	}
 }
 
@@ -158,9 +163,31 @@ func (s *idempotencyStore) get(key string) (WebhookResponse, bool) {
 func (s *idempotencyStore) set(key string, resp WebhookResponse, ttl time.Duration) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	// If the store is at capacity, evict the oldest entry before inserting.
+	if len(s.entries) >= s.maxEntries {
+		s.evictOldest()
+	}
 	s.entries[key] = idempotencyEntry{
 		response:  resp,
 		expiresAt: time.Now().Add(ttl),
+	}
+}
+
+// evictOldest removes the entry with the earliest expiry time. Must be called
+// with mu held.
+func (s *idempotencyStore) evictOldest() {
+	var oldestKey string
+	var oldestTime time.Time
+	first := true
+	for key, entry := range s.entries {
+		if first || entry.expiresAt.Before(oldestTime) {
+			oldestKey = key
+			oldestTime = entry.expiresAt
+			first = false
+		}
+	}
+	if !first {
+		delete(s.entries, oldestKey)
 	}
 }
 
@@ -562,7 +589,14 @@ func readLimitedBody(r *http.Request, limit int64) ([]byte, error) {
 	return data, nil
 }
 
-func (w *WebhookReceiver) writeJSON(rw http.ResponseWriter, status int, v any) {
+// errorResponse is the typed body for RFC 7807-adjacent problem responses.
+type errorResponse struct {
+	Status int    `json:"status"`
+	Title  string `json:"title"`
+	Detail string `json:"detail"`
+}
+
+func (w *WebhookReceiver) writeJSON(rw http.ResponseWriter, status int, v WebhookResponse) {
 	rw.Header().Set("Content-Type", "application/json")
 	rw.WriteHeader(status)
 	if err := json.NewEncoder(rw).Encode(v); err != nil {
@@ -573,9 +607,9 @@ func (w *WebhookReceiver) writeJSON(rw http.ResponseWriter, status int, v any) {
 func (w *WebhookReceiver) writeError(rw http.ResponseWriter, status int, detail string) {
 	rw.Header().Set("Content-Type", "application/problem+json")
 	rw.WriteHeader(status)
-	_ = json.NewEncoder(rw).Encode(map[string]any{
-		"status": status,
-		"title":  http.StatusText(status),
-		"detail": detail,
+	_ = json.NewEncoder(rw).Encode(errorResponse{
+		Status: status,
+		Title:  http.StatusText(status),
+		Detail: detail,
 	})
 }
