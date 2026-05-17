@@ -159,6 +159,7 @@ export {
 } from './dead-letter.js'
 
 export {
+  bufferStream,
   createExtractorRegistry,
   createPlainTextExtractor,
   sanitizeArgs,

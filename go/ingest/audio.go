@@ -304,19 +304,53 @@ func (e *AudioExtractor) Extract(ctx context.Context, raw []byte, opts ExtractOp
 	return e.transcribe(ctx, tmpPath, len(raw), opts)
 }
 
-// ExtractStream reads audio from a stream and delegates to Extract.
+// ExtractStream streams audio directly to a temp file, then passes the
+// file path to faster-whisper. This avoids holding the entire audio
+// payload in memory, which is critical for large files (100 MB+).
 func (e *AudioExtractor) ExtractStream(ctx context.Context, reader io.Reader, opts ExtractOptions) (ExtractResult, error) {
-	var limitReader io.Reader = reader
-	if e.maxFileSize > 0 {
-		limitReader = io.LimitReader(reader, e.maxFileSize+1)
-	}
-
-	raw, err := io.ReadAll(limitReader)
+	ext := extensionFromContentType(opts.ContentType, opts.FileName)
+	tmpFile, err := os.CreateTemp("", "memory-audio-stream-*"+ext)
 	if err != nil {
-		return ExtractResult{}, fmt.Errorf("ingest: reading audio stream: %w", err)
+		return ExtractResult{}, fmt.Errorf("ingest: creating temp audio file: %w", err)
+	}
+	tmpPath := tmpFile.Name()
+	defer func() {
+		_ = os.Remove(tmpPath)
+	}()
+
+	var src io.Reader = reader
+	if e.maxFileSize > 0 {
+		src = io.LimitReader(reader, e.maxFileSize+1)
 	}
 
-	return e.Extract(ctx, raw, opts)
+	written, err := io.Copy(tmpFile, src)
+	if err != nil {
+		_ = tmpFile.Close()
+		return ExtractResult{}, fmt.Errorf("ingest: writing audio stream to temp file: %w", err)
+	}
+	if err := tmpFile.Close(); err != nil {
+		return ExtractResult{}, fmt.Errorf("ingest: closing temp audio file: %w", err)
+	}
+
+	if written > e.maxFileSize {
+		return ExtractResult{}, fmt.Errorf(
+			"ingest: audio stream size %d bytes exceeds maximum %d bytes",
+			written, e.maxFileSize,
+		)
+	}
+
+	if written == 0 {
+		return ExtractResult{
+			Text:        "",
+			ContentType: opts.ContentType,
+			Encoding:    "UTF-8",
+			Metadata:    map[string]string{},
+			Skipped:     true,
+			Reason:      "empty audio input",
+		}, nil
+	}
+
+	return e.transcribe(ctx, tmpPath, int(written), opts)
 }
 
 // transcribe runs the faster-whisper subprocess and formats the result.
@@ -326,10 +360,6 @@ func (e *AudioExtractor) transcribe(ctx context.Context, audioPath string, fileS
 	defer cancel()
 
 	language := e.defaultLang
-	if opts.Encoding != "" {
-		// Allow language override via the encoding field as a convention.
-		// Primary use: opts can carry language hint this way.
-	}
 
 	args := []string{"-c", whisperScript, audioPath, e.modelSize}
 	if language != "" {
@@ -445,6 +475,20 @@ func formatTimestamp(seconds float64) string {
 	return fmt.Sprintf("[%02d:%02d", minutes, secs)
 }
 
+// contentTypeExtMap maps MIME types to file extensions. Package-level to
+// avoid allocating on every call.
+var contentTypeExtMap = map[string]string{
+	"audio/mpeg":     ".mp3",
+	"audio/wav":      ".wav",
+	"audio/x-wav":    ".wav",
+	"audio/flac":     ".flac",
+	"audio/mp4":      ".m4a",
+	"audio/ogg":      ".ogg",
+	"audio/aac":      ".aac",
+	"audio/x-ms-wma": ".wma",
+	"audio/opus":     ".opus",
+}
+
 // extensionFromContentType derives a file extension from content type or
 // filename. Falls back to .wav when neither provides a hint.
 func extensionFromContentType(contentType, fileName string) string {
@@ -453,18 +497,6 @@ func extensionFromContentType(contentType, fileName string) string {
 		if ext != "" {
 			return ext
 		}
-	}
-
-	contentTypeExtMap := map[string]string{
-		"audio/mpeg":     ".mp3",
-		"audio/wav":      ".wav",
-		"audio/x-wav":    ".wav",
-		"audio/flac":     ".flac",
-		"audio/mp4":      ".m4a",
-		"audio/ogg":      ".ogg",
-		"audio/aac":      ".aac",
-		"audio/x-ms-wma": ".wma",
-		"audio/opus":     ".opus",
 	}
 
 	normalised := normaliseContentType(contentType)

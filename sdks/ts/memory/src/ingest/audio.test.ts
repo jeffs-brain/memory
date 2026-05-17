@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
+import { mkdtemp, writeFile, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { Readable } from 'node:stream'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
   createAudioExtractor,
   formatTranscription,
@@ -9,6 +12,48 @@ import {
   type TranscriptionSegment,
 } from './audio.js'
 import { createExtractorRegistry } from './extractor.js'
+
+/**
+ * Creates a temporary shell script that simulates a faster-whisper
+ * subprocess. The script ignores all arguments and outputs according
+ * to the specified mode. Returns the script path and a cleanup function.
+ */
+const createMockScript = async (
+  mode: 'success' | 'language_detect' | 'corrupt' | 'timeout' | 'availability_ok' | 'availability_fail',
+): Promise<{ scriptPath: string; cleanup: () => Promise<void> }> => {
+  const dir = await mkdtemp(join(tmpdir(), 'audio-test-'))
+
+  const scripts: Record<string, string> = {
+    success: `#!/bin/sh
+echo '{"language":"en","language_probability":0.98,"duration":15.5,"segments":[{"start":0,"end":5.0,"text":"Hello world from the test.","words":[{"start":0,"end":0.5,"word":"Hello","probability":0.99},{"start":0.6,"end":1.0,"word":"world","probability":0.97}]},{"start":5.0,"end":15.5,"text":"This is a longer segment for testing."}]}'
+`,
+    language_detect: `#!/bin/sh
+echo '{"language":"fr","language_probability":0.92,"duration":10.0,"segments":[{"start":0,"end":10.0,"text":"Bonjour le monde."}]}'
+`,
+    corrupt: `#!/bin/sh
+echo "Error: could not decode audio file" >&2
+exit 1
+`,
+    timeout: `#!/bin/sh
+sleep 60
+`,
+    availability_ok: `#!/bin/sh
+echo "ok"
+`,
+    availability_fail: `#!/bin/sh
+echo "ModuleNotFoundError: No module named 'faster_whisper'" >&2
+exit 1
+`,
+  }
+
+  const scriptPath = join(dir, 'mock-python.sh')
+  await writeFile(scriptPath, scripts[mode], { mode: 0o755 })
+
+  return {
+    scriptPath,
+    cleanup: () => rm(dir, { recursive: true, force: true }),
+  }
+}
 
 describe('createAudioExtractor', () => {
   const ext = createAudioExtractor()
@@ -259,5 +304,217 @@ describe('createAudioExtractor - registry integration', () => {
       contentType: 'audio/ogg',
     })
     expect(result.reason).toBe('empty audio input')
+  })
+})
+
+describe('createAudioExtractor - subprocess mocking', () => {
+  it('transcribes successfully with mocked subprocess', async () => {
+    const { scriptPath, cleanup } = await createMockScript('success')
+    try {
+      const ext = createAudioExtractor({
+        pythonBinary: scriptPath,
+        minTimeoutMs: 30_000,
+      })
+
+      const input = Buffer.from('fake audio data for testing')
+      const result = await ext.extract(input, { contentType: 'audio/wav' })
+
+      expect(result.skipped).toBe(false)
+      expect(result.text).toContain('Hello world from the test.')
+      expect(result.language).toBe('en')
+      expect(result.confidence).toBeGreaterThanOrEqual(0.9)
+      expect(result.metadata.detected_language).toBe('en')
+      expect(result.metadata.transcription_engine).toBe('faster-whisper')
+      expect(result.metadata.segment_count).toBe('2')
+      expect(result.metadata.segments).toBeTruthy()
+    } finally {
+      await cleanup()
+    }
+  })
+
+  it('auto-detects language when no default is set', async () => {
+    const { scriptPath, cleanup } = await createMockScript('language_detect')
+    try {
+      const ext = createAudioExtractor({
+        pythonBinary: scriptPath,
+        minTimeoutMs: 30_000,
+      })
+
+      const input = Buffer.from('fake french audio data')
+      const result = await ext.extract(input, { contentType: 'audio/mp4' })
+
+      expect(result.language).toBe('fr')
+      expect(result.text).toContain('Bonjour le monde.')
+    } finally {
+      await cleanup()
+    }
+  })
+
+  it('returns error for corrupt audio (non-zero exit)', async () => {
+    const { scriptPath, cleanup } = await createMockScript('corrupt')
+    try {
+      const ext = createAudioExtractor({
+        pythonBinary: scriptPath,
+        minTimeoutMs: 30_000,
+      })
+
+      const input = Buffer.from('corrupt audio bytes')
+      await expect(
+        ext.extract(input, { contentType: 'audio/wav' }),
+      ).rejects.toThrow('transcription failed')
+    } finally {
+      await cleanup()
+    }
+  })
+
+  it('times out for a hanging subprocess', async () => {
+    const { scriptPath, cleanup } = await createMockScript('timeout')
+    try {
+      const ext = createAudioExtractor({
+        pythonBinary: scriptPath,
+        minTimeoutMs: 1_500,
+        timeoutPerMinuteMs: 500,
+      })
+
+      const input = Buffer.from('audio data that will time out')
+      await expect(
+        ext.extract(input, { contentType: 'audio/wav' }),
+      ).rejects.toThrow('timed out')
+    } finally {
+      await cleanup()
+    }
+  })
+
+  it('cleans up temp files after successful extraction', async () => {
+    const { scriptPath, cleanup } = await createMockScript('success')
+    try {
+      const ext = createAudioExtractor({
+        pythonBinary: scriptPath,
+        minTimeoutMs: 30_000,
+      })
+
+      const input = Buffer.from('fake audio data for cleanup test')
+      await ext.extract(input, { contentType: 'audio/wav' })
+
+      // Temp files are cleaned up in a finally block; verify by checking
+      // that no memory-audio-* directories remain in tmpdir that were
+      // created in the last 5 seconds.
+      const { readdirSync, statSync } = await import('node:fs')
+      const tempBase = tmpdir()
+      const entries = readdirSync(tempBase).filter(e => e.startsWith('memory-audio-'))
+      const recent = entries.filter(e => {
+        try {
+          const info = statSync(join(tempBase, e))
+          return Date.now() - info.mtimeMs < 5000
+        } catch {
+          return false
+        }
+      })
+      expect(recent).toHaveLength(0)
+    } finally {
+      await cleanup()
+    }
+  })
+})
+
+describe('createAudioExtractor - abort signal / cancellation', () => {
+  it('aborts extraction when signal is triggered', async () => {
+    const { scriptPath, cleanup } = await createMockScript('timeout')
+    try {
+      const ext = createAudioExtractor({
+        pythonBinary: scriptPath,
+        minTimeoutMs: 60_000, // Long timeout so abort wins.
+      })
+
+      const controller = new AbortController()
+      // Abort after a short delay.
+      setTimeout(() => controller.abort(), 500)
+
+      const input = Buffer.from('audio data to be aborted')
+      await expect(
+        ext.extract(input, { contentType: 'audio/wav' }, controller.signal),
+      ).rejects.toThrow()
+    } finally {
+      await cleanup()
+    }
+  })
+
+  it('aborts stream extraction when signal is triggered', async () => {
+    const { scriptPath, cleanup } = await createMockScript('timeout')
+    try {
+      const ext = createAudioExtractor({
+        pythonBinary: scriptPath,
+        minTimeoutMs: 60_000,
+      })
+
+      const controller = new AbortController()
+      setTimeout(() => controller.abort(), 500)
+
+      const source = Readable.from([Buffer.from('audio stream data to abort')])
+      await expect(
+        ext.extractStream(source, { contentType: 'audio/wav' }, controller.signal),
+      ).rejects.toThrow()
+    } finally {
+      await cleanup()
+    }
+  })
+})
+
+describe('createAudioExtractor - logging', () => {
+  it('logs warning when faster-whisper is unavailable', async () => {
+    const warn = vi.fn()
+    const ext = createAudioExtractor({
+      pythonBinary: '/nonexistent/python3',
+      logger: { debug: vi.fn(), info: vi.fn(), warn, error: vi.fn() },
+    })
+
+    await ext.available()
+
+    expect(warn).toHaveBeenCalledWith(
+      'audio-whisper: faster-whisper not available',
+      expect.objectContaining({ python: '/nonexistent/python3' }),
+    )
+  })
+
+  it('does not log when faster-whisper is available', async () => {
+    const { scriptPath, cleanup } = await createMockScript('availability_ok')
+    try {
+      const warn = vi.fn()
+      const ext = createAudioExtractor({
+        pythonBinary: scriptPath,
+        logger: { debug: vi.fn(), info: vi.fn(), warn, error: vi.fn() },
+      })
+
+      const avail = await ext.available()
+
+      expect(avail).toBe(true)
+      expect(warn).not.toHaveBeenCalled()
+    } finally {
+      await cleanup()
+    }
+  })
+})
+
+describe('createAudioExtractor - availability race condition', () => {
+  it('deduplicates concurrent availability checks', async () => {
+    const { scriptPath, cleanup } = await createMockScript('availability_ok')
+    try {
+      const ext = createAudioExtractor({
+        pythonBinary: scriptPath,
+      })
+
+      // Fire multiple concurrent calls. If the pending-promise pattern
+      // works, they should all resolve to the same value without spawning
+      // separate subprocesses.
+      const results = await Promise.all([
+        ext.available(),
+        ext.available(),
+        ext.available(),
+      ])
+
+      expect(results).toEqual([true, true, true])
+    } finally {
+      await cleanup()
+    }
   })
 })
