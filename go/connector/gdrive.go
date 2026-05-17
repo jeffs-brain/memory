@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -52,6 +53,15 @@ const (
 
 	// httpDownloadTimeout is the timeout for file download/export requests.
 	httpDownloadTimeout = 5 * time.Minute
+
+	// rateLimitMaxRetries is the maximum number of retry attempts on rate-limit errors.
+	rateLimitMaxRetries = 5
+
+	// rateLimitBaseBackoff is the initial backoff duration for rate-limit retries.
+	rateLimitBaseBackoff = 1 * time.Second
+
+	// rateLimitMaxBackoff caps the backoff duration for rate-limit retries.
+	rateLimitMaxBackoff = 60 * time.Second
 )
 
 // Google MIME types for native document formats.
@@ -60,12 +70,11 @@ const (
 	mimeGoogleSheet        = "application/vnd.google-apps.spreadsheet"
 	mimeGoogleSlides       = "application/vnd.google-apps.presentation"
 	mimeGoogleDrawing      = "application/vnd.google-apps.drawing"
-	mimeGoogleFolder       = "application/vnd.google-apps.folder"
-	mimeTextMarkdown       = "text/markdown"
-	mimeTextPlain          = "text/plain"
-	mimeTextCSV            = "text/csv"
-	mimeImagePNG           = "image/png"
-	mimeApplicationOctet   = "application/octet-stream"
+	mimeGoogleFolder     = "application/vnd.google-apps.folder"
+	mimeTextMarkdown     = "text/markdown"
+	mimeTextPlain        = "text/plain"
+	mimeTextCSV          = "text/csv"
+	mimeImagePNG         = "image/png"
 )
 
 // defaultExportFormats maps Google-native MIME types to the export format
@@ -147,13 +156,19 @@ type HTTPClient interface {
 // It supports full sync via files.list and incremental sync via the
 // Changes API with startPageToken cursors.
 type GDriveConnector struct {
-	deps        ConnectorConfig
-	config      GDriveConfig
-	httpClient  HTTPClient
-	logger      *slog.Logger
-	accessToken string
-	configured  bool
-	stopFn      context.CancelFunc
+	deps         ConnectorConfig
+	config       GDriveConfig
+	httpClient   HTTPClient
+	logger       *slog.Logger
+	accessToken  string
+	configured   bool
+	stopFn       context.CancelFunc
+	oauth2Client *OAuth2Client
+	tokenStore   TokenStore
+	token        *OAuth2Token
+	mu           sync.Mutex
+	lastSyncAt   time.Time
+	errorCount   int64
 }
 
 // NewGDriveConnector creates a new Google Drive connector with the
@@ -170,16 +185,21 @@ func NewGDriveConnector(deps ConnectorConfig, logger *slog.Logger, httpClient HT
 func (c *GDriveConnector) Name() string { return "gdrive" }
 
 // Configure validates and stores the Google Drive-specific settings.
-func (c *GDriveConnector) Configure(config map[string]string) error {
-	clientID, ok := config["oauth2_client_id"]
-	if !ok || clientID == "" {
+// Accepts map[string]any to match the P5-1 Connector interface.
+func (c *GDriveConnector) Configure(config map[string]any) error {
+	clientID, _ := config["oauth2_client_id"].(string)
+	if clientID == "" {
 		return fmt.Errorf("gdrive: oauth2_client_id is required")
 	}
 
-	clientSecret, ok := config["oauth2_client_secret"]
-	if !ok || clientSecret == "" {
+	clientSecret, _ := config["oauth2_client_secret"].(string)
+	if clientSecret == "" {
 		return fmt.Errorf("gdrive: oauth2_client_secret is required")
 	}
+
+	redirectURI, _ := config["oauth2_redirect_uri"].(string)
+	folderID, _ := config["folder_id"].(string)
+	includeSharedRaw, _ := config["include_shared_drives"].(string)
 
 	c.config = GDriveConfig{
 		OAuth2: OAuth2Config{
@@ -188,27 +208,79 @@ func (c *GDriveConnector) Configure(config map[string]string) error {
 			AuthURL:      "https://accounts.google.com/o/oauth2/v2/auth",
 			TokenURL:     "https://oauth2.googleapis.com/token",
 			Scopes:       []string{"https://www.googleapis.com/auth/drive.readonly"},
-			RedirectURI:  config["oauth2_redirect_uri"],
+			RedirectURI:  redirectURI,
 		},
-		FolderID:            config["folder_id"],
-		IncludeSharedDrives: config["include_shared_drives"] == "true",
+		FolderID:            folderID,
+		IncludeSharedDrives: includeSharedRaw == "true",
 		MaxFileSize:         defaultMaxFileSize,
 	}
 
-	if maxSize, exists := config["max_file_size"]; exists {
-		parsed, err := strconv.ParseInt(maxSize, 10, 64)
-		if err != nil {
-			return fmt.Errorf("gdrive: invalid max_file_size %q: %w", maxSize, err)
-		}
-		c.config.MaxFileSize = parsed
+	// Also support bool type for includeSharedDrives.
+	if v, ok := config["include_shared_drives"].(bool); ok {
+		c.config.IncludeSharedDrives = v
 	}
 
-	if mimeFilter, exists := config["mime_type_filter"]; exists && mimeFilter != "" {
+	if maxSizeStr, ok := config["max_file_size"].(string); ok && maxSizeStr != "" {
+		parsed, err := strconv.ParseInt(maxSizeStr, 10, 64)
+		if err != nil {
+			return fmt.Errorf("gdrive: invalid max_file_size %q: %w", maxSizeStr, err)
+		}
+		c.config.MaxFileSize = parsed
+	} else if maxSizeNum, ok := config["max_file_size"].(float64); ok {
+		c.config.MaxFileSize = int64(maxSizeNum)
+	} else if maxSizeInt, ok := config["max_file_size"].(int); ok {
+		c.config.MaxFileSize = int64(maxSizeInt)
+	}
+
+	if mimeFilter, ok := config["mime_type_filter"].(string); ok && mimeFilter != "" {
 		c.config.MIMETypeFilter = strings.Split(mimeFilter, ",")
 	}
 
-	if token, exists := config["access_token"]; exists {
+	if token, ok := config["access_token"].(string); ok {
 		c.accessToken = token
+	}
+
+	// Store refresh token if provided.
+	refreshToken, _ := config["refresh_token"].(string)
+
+	// Build initial OAuth2Token if access token and refresh token are
+	// available. ExpiresAt defaults to the zero value (already expired)
+	// so the first API call will trigger a proactive refresh when a
+	// refresh token is present.
+	if c.accessToken != "" {
+		tok := OAuth2Token{
+			AccessToken:  c.accessToken,
+			RefreshToken: refreshToken,
+			TokenType:    "Bearer",
+		}
+		if expiresAt, ok := config["token_expires_at"].(string); ok && expiresAt != "" {
+			if parsed, parseErr := time.Parse(time.RFC3339, expiresAt); parseErr == nil {
+				tok.ExpiresAt = parsed
+			}
+		}
+		c.token = &tok
+	}
+
+	// Set up OAuth2Client for token refresh when credentials are complete.
+	if clientID != "" && clientSecret != "" && refreshToken != "" {
+		exchanger, _ := config["token_exchanger"].(TokenExchanger)
+		if exchanger == nil {
+			exchanger = &httpTokenExchanger{
+				tokenURL:     c.config.OAuth2.TokenURL,
+				clientID:     clientID,
+				clientSecret: clientSecret,
+				httpClient:   c.httpClient,
+			}
+		}
+		oauthClient, oauthErr := NewOAuth2Client(c.config.OAuth2, exchanger)
+		if oauthErr == nil {
+			c.oauth2Client = oauthClient
+		}
+	}
+
+	// Wire token store if provided.
+	if ts, ok := config["token_store"].(TokenStore); ok {
+		c.tokenStore = ts
 	}
 
 	c.config.ExportFormats = make(map[string]string, len(defaultExportFormats))
@@ -239,6 +311,11 @@ func (c *GDriveConnector) FetchAll(ctx context.Context) (<-chan ConnectorDocumen
 
 		if !c.configured {
 			errCh <- fmt.Errorf("gdrive: connector not configured")
+			return
+		}
+
+		if err := c.ensureValidToken(ctx); err != nil {
+			errCh <- err
 			return
 		}
 
@@ -294,6 +371,11 @@ func (c *GDriveConnector) FetchSince(ctx context.Context, cursor SyncCursor) (<-
 
 		if !c.configured {
 			errCh <- fmt.Errorf("gdrive: connector not configured")
+			return
+		}
+
+		if err := c.ensureValidToken(ctx); err != nil {
+			errCh <- err
 			return
 		}
 
@@ -398,7 +480,10 @@ func (c *GDriveConnector) listFiles(ctx context.Context, pageToken string) (*dri
 		params.Set("pageToken", pageToken)
 	}
 
-	query := c.buildFileQuery()
+	query, err := c.buildFileQuery()
+	if err != nil {
+		return nil, err
+	}
 	if query != "" {
 		params.Set("q", query)
 	}
@@ -448,30 +533,33 @@ func (c *GDriveConnector) listChanges(ctx context.Context, pageToken string) (*d
 }
 
 // buildFileQuery constructs the Drive API query string from configuration.
-func (c *GDriveConnector) buildFileQuery() string {
+// Returns an error if any user-supplied values fail validation.
+func (c *GDriveConnector) buildFileQuery() (string, error) {
 	var parts []string
 
-	// Exclude folders from results.
 	parts = append(parts, fmt.Sprintf("mimeType != '%s'", mimeGoogleFolder))
 
-	// Filter to a specific folder.
 	if c.config.FolderID != "" {
+		if !folderIDPattern.MatchString(c.config.FolderID) {
+			return "", fmt.Errorf("gdrive: invalid folder ID %q — must be alphanumeric with hyphens/underscores", c.config.FolderID)
+		}
 		parts = append(parts, fmt.Sprintf("'%s' in parents", c.config.FolderID))
 	}
 
-	// Filter by MIME types.
 	if len(c.config.MIMETypeFilter) > 0 {
 		mimeConditions := make([]string, 0, len(c.config.MIMETypeFilter))
 		for _, mime := range c.config.MIMETypeFilter {
+			if !mimeTypePattern.MatchString(mime) {
+				return "", fmt.Errorf("gdrive: invalid MIME type %q", mime)
+			}
 			mimeConditions = append(mimeConditions, fmt.Sprintf("mimeType = '%s'", mime))
 		}
 		parts = append(parts, "("+strings.Join(mimeConditions, " or ")+")")
 	}
 
-	// Exclude trashed files.
 	parts = append(parts, "trashed = false")
 
-	return strings.Join(parts, " and ")
+	return strings.Join(parts, " and "), nil
 }
 
 // fileToDocument converts a Drive file resource into a ConnectorDocument.
@@ -555,7 +643,7 @@ func (c *GDriveConnector) exportFile(ctx context.Context, fileID, targetMIME str
 	exportURL := fmt.Sprintf("%s/%s/export?mimeType=%s",
 		driveFilesURL, url.PathEscape(fileID), url.QueryEscape(targetMIME))
 
-	body, err := c.doAPIGet(ctx, exportURL, httpDownloadTimeout)
+	body, err := c.doAPIGet(ctx, exportURL, httpDownloadTimeout, driveExportMaxBytes)
 	if err != nil {
 		return nil, "", fmt.Errorf("exporting file %s: %w", fileID, err)
 	}
@@ -571,7 +659,11 @@ func (c *GDriveConnector) exportFile(ctx context.Context, fileID, targetMIME str
 func (c *GDriveConnector) downloadFile(ctx context.Context, fileID, mime string) ([]byte, string, error) {
 	downloadURL := fmt.Sprintf("%s/%s?alt=media", driveFilesURL, url.PathEscape(fileID))
 
-	body, err := c.doAPIGet(ctx, downloadURL, httpDownloadTimeout)
+	maxSize := c.config.MaxFileSize
+	if maxSize == 0 {
+		maxSize = defaultMaxFileSize
+	}
+	body, err := c.doAPIGet(ctx, downloadURL, httpDownloadTimeout, maxSize)
 	if err != nil {
 		return nil, "", fmt.Errorf("downloading file %s: %w", fileID, err)
 	}
@@ -579,46 +671,166 @@ func (c *GDriveConnector) downloadFile(ctx context.Context, fileID, mime string)
 	return body, mime, nil
 }
 
-// doAPIGet performs an authenticated GET request to the Google Drive API.
-func (c *GDriveConnector) doAPIGet(ctx context.Context, reqURL string, timeout time.Duration) ([]byte, error) {
-	if c.deps.RateLimiter != nil {
-		// Rate limiter integration point; currently a no-op placeholder
-		// until P5-1 is merged with the full RateLimiter.Acquire method.
+// doAPIGet performs an authenticated GET request to the Google Drive API
+// with retry and exponential backoff on rate-limit errors, and bounded
+// reads to prevent unbounded memory allocation. maxBodyBytes controls
+// the maximum response body size; use 0 for the default (50 MB).
+func (c *GDriveConnector) doAPIGet(ctx context.Context, reqURL string, timeout time.Duration, maxBodyBytes ...int64) ([]byte, error) {
+	maxBodySize := defaultMaxFileSize
+	if len(maxBodyBytes) > 0 && maxBodyBytes[0] > 0 {
+		maxBodySize = maxBodyBytes[0]
 	}
 
-	reqCtx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
+	for attempt := range rateLimitMaxRetries + 1 {
+		// Ensure token is valid before each request attempt.
+		if tokenErr := c.ensureValidToken(ctx); tokenErr != nil {
+			return nil, tokenErr
+		}
 
-	req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, reqURL, nil)
+		reqCtx, cancel := context.WithTimeout(ctx, timeout)
+
+		req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, reqURL, nil)
+		if err != nil {
+			cancel()
+			return nil, fmt.Errorf("creating request: %w", err)
+		}
+		c.mu.Lock()
+		currentToken := c.accessToken
+		c.mu.Unlock()
+		req.Header.Set("Authorization", "Bearer "+currentToken)
+
+		resp, err := c.httpClient.Do(req)
+		if err != nil {
+			cancel()
+			return nil, sanitiseGoError(fmt.Errorf("executing request: %w", err))
+		}
+
+		body, readErr := io.ReadAll(io.LimitReader(resp.Body, maxBodySize+1))
+		resp.Body.Close()
+		cancel()
+
+		if readErr != nil {
+			return nil, fmt.Errorf("reading response body: %w", readErr)
+		}
+
+		if int64(len(body)) > maxBodySize {
+			return nil, fmt.Errorf("gdrive: response body exceeds %d byte limit", maxBodySize)
+		}
+
+		// Handle 401 Unauthorised: token may have expired mid-session.
+		// Force a refresh and retry once.
+		if resp.StatusCode == http.StatusUnauthorized && c.oauth2Client != nil && c.token != nil && attempt == 0 {
+			c.mu.Lock()
+			c.token.ExpiresAt = time.Time{} // Force expiry.
+			c.mu.Unlock()
+			c.logger.Warn("gdrive: received 401, forcing token refresh")
+			continue
+		}
+
+		if resp.StatusCode == http.StatusForbidden || resp.StatusCode == http.StatusTooManyRequests {
+			rateLimitErr := c.handleRateLimitError(body, resp.StatusCode)
+			isRateLimit := isRateLimitError(body, resp.StatusCode)
+
+			if isRateLimit && attempt < rateLimitMaxRetries {
+				backoff := calculateGoBackoff(attempt, resp.Header.Get("Retry-After"))
+				c.logger.Warn("gdrive: rate limited, retrying",
+					slog.Int("attempt", attempt+1),
+					slog.Int("max_retries", rateLimitMaxRetries),
+					slog.Duration("backoff", backoff),
+				)
+
+				timer := time.NewTimer(backoff)
+				select {
+				case <-ctx.Done():
+					timer.Stop()
+					return nil, ctx.Err()
+				case <-timer.C:
+				}
+				continue
+			}
+
+			return nil, rateLimitErr
+		}
+
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			return nil, fmt.Errorf("API returned status %d: %s", resp.StatusCode, truncateBody(body))
+		}
+
+		return body, nil
+	}
+
+	return nil, fmt.Errorf("gdrive: rate limit retries exhausted")
+}
+
+// ensureValidToken checks whether the current token is expired (or
+// within the 5-minute buffer) and refreshes it using the OAuth2Client
+// if available. Thread-safe: concurrent calls are deduplicated by the
+// OAuth2Client's pendingRefresh mechanism.
+func (c *GDriveConnector) ensureValidToken(ctx context.Context) error {
+	c.mu.Lock()
+	tok := c.token
+	client := c.oauth2Client
+	c.mu.Unlock()
+
+	// No token management: static access token mode.
+	if tok == nil || client == nil {
+		return nil
+	}
+
+	// Token still valid -- nothing to do.
+	if !tok.IsExpired() {
+		return nil
+	}
+
+	// Refresh required.
+	refreshed, err := client.ValidToken(ctx, *tok)
 	if err != nil {
-		return nil, fmt.Errorf("creating request: %w", err)
-	}
-	req.Header.Set("Authorization", "Bearer "+c.accessToken)
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("executing request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("reading response body: %w", err)
+		c.mu.Lock()
+		c.errorCount++
+		c.mu.Unlock()
+		return fmt.Errorf("gdrive: token refresh failed: %w", err)
 	}
 
-	if resp.StatusCode == http.StatusForbidden {
-		return nil, c.handleRateLimitError(body, resp.StatusCode)
+	c.mu.Lock()
+	c.token = &refreshed
+	c.accessToken = refreshed.AccessToken
+	c.mu.Unlock()
+
+	// Persist refreshed token if a token store is available.
+	if c.tokenStore != nil {
+		if storeErr := c.tokenStore.Save(ctx, "gdrive", c.deps.BrainID, refreshed); storeErr != nil {
+			c.logger.Warn("gdrive: failed to persist refreshed token",
+				slog.String("error", storeErr.Error()),
+			)
+		}
 	}
 
-	if resp.StatusCode == http.StatusTooManyRequests {
-		return nil, c.handleRateLimitError(body, resp.StatusCode)
+	return nil
+}
+
+// Health returns the current health status of the connector.
+func (c *GDriveConnector) Health() HealthStatus {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	status := StatusConnected
+	var message string
+
+	if !c.configured {
+		status = StatusDisconnected
+		message = "connector not configured"
+	} else if c.errorCount > 0 {
+		status = StatusDegraded
+		message = fmt.Sprintf("%d errors since last successful sync", c.errorCount)
 	}
 
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("API returned status %d: %s", resp.StatusCode, truncateBody(body))
+	return HealthStatus{
+		Status:             status,
+		LastSyncAt:         c.lastSyncAt,
+		ErrorCount:         c.errorCount,
+		RateLimitRemaining: -1,
+		Message:            message,
 	}
-
-	return body, nil
 }
 
 // handleRateLimitError parses rate limit error responses.
@@ -645,51 +857,3 @@ func (c *GDriveConnector) handleRateLimitError(body []byte, statusCode int) erro
 	return fmt.Errorf("gdrive: API error (status %d): %s", statusCode, apiErr.Error.Message)
 }
 
-// isGoogleNativeFormat reports whether the MIME type is a Google-native
-// document format that must be exported rather than downloaded.
-func isGoogleNativeFormat(mime string) bool {
-	switch mime {
-	case mimeGoogleDoc, mimeGoogleSheet, mimeGoogleSlides, mimeGoogleDrawing:
-		return true
-	}
-	return false
-}
-
-// parseFileSize parses the file size string from the Drive API. Returns
-// 0 for empty or unparsable values (Google-native formats omit size).
-func parseFileSize(sizeStr string) int64 {
-	if sizeStr == "" {
-		return 0
-	}
-	size, err := strconv.ParseInt(sizeStr, 10, 64)
-	if err != nil {
-		return 0
-	}
-	return size
-}
-
-// buildFileMetadata constructs the metadata map for a Drive file.
-func buildFileMetadata(f *driveFile) map[string]string {
-	meta := map[string]string{
-		"source":    "gdrive",
-		"mime_type": f.MIMEType,
-		"file_id":   f.ID,
-	}
-	if len(f.Parents) > 0 {
-		meta["parent_id"] = f.Parents[0]
-	}
-	if f.Size != "" {
-		meta["size"] = f.Size
-	}
-	return meta
-}
-
-// truncateBody returns at most 200 bytes of a response body for error
-// messages, avoiding excessively long error strings.
-func truncateBody(body []byte) string {
-	const maxLen = 200
-	if len(body) <= maxLen {
-		return string(body)
-	}
-	return string(body[:maxLen]) + "..."
-}
