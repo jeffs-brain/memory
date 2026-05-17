@@ -497,3 +497,183 @@ func TranscodeToUTF8(raw []byte, fromEncoding string) ([]byte, error) {
 	}
 	return decoded, nil
 }
+
+// -------------------------------------------------------------------
+// Structured data extractors (P4-4)
+// -------------------------------------------------------------------
+
+// CSVExtractor wraps the CSV extraction function as a canonical
+// ingest.Extractor implementation.
+type CSVExtractor struct {
+	Config CsvExtractorConfig
+}
+
+// Compile-time interface check.
+var _ Extractor = (*CSVExtractor)(nil)
+
+// Name implements Extractor.
+func (e *CSVExtractor) Name() string { return "csv" }
+
+// ContentTypes implements Extractor.
+func (e *CSVExtractor) ContentTypes() []string {
+	return []string{"text/csv", "text/tab-separated-values"}
+}
+
+// Capability implements Extractor.
+func (e *CSVExtractor) Capability() ExtractorCapability {
+	return ExtractorCapability{
+		Extensions: []string{".csv", ".tsv"},
+		MIMETypes:  e.ContentTypes(),
+	}
+}
+
+// Available implements Extractor. Structured data extractors have no
+// external dependencies and are always available.
+func (e *CSVExtractor) Available(_ context.Context) (bool, error) { return true, nil }
+
+// Extract implements Extractor.
+func (e *CSVExtractor) Extract(_ context.Context, raw []byte, _ ExtractOptions) (ExtractResult, error) {
+	return ExtractCSV(raw, e.Config)
+}
+
+// ExtractStream implements Extractor by buffering the reader and
+// delegating to Extract.
+func (e *CSVExtractor) ExtractStream(ctx context.Context, reader io.Reader, opts ExtractOptions) (ExtractResult, error) {
+	raw, err := io.ReadAll(reader)
+	if err != nil {
+		return ExtractResult{}, fmt.Errorf("ingest: reading csv stream: %w", err)
+	}
+	return e.Extract(ctx, raw, opts)
+}
+
+// -------------------------------------------------------------------
+
+// JSONExtractor wraps the JSON extraction function as a canonical
+// ingest.Extractor implementation.
+type JSONExtractor struct {
+	Config JsonExtractorConfig
+}
+
+// Compile-time interface check.
+var _ Extractor = (*JSONExtractor)(nil)
+
+// Name implements Extractor.
+func (e *JSONExtractor) Name() string { return "json" }
+
+// ContentTypes implements Extractor.
+func (e *JSONExtractor) ContentTypes() []string {
+	return []string{"application/json"}
+}
+
+// Capability implements Extractor.
+func (e *JSONExtractor) Capability() ExtractorCapability {
+	return ExtractorCapability{
+		Extensions: []string{".json"},
+		MIMETypes:  e.ContentTypes(),
+	}
+}
+
+// Available implements Extractor.
+func (e *JSONExtractor) Available(_ context.Context) (bool, error) { return true, nil }
+
+// Extract implements Extractor.
+func (e *JSONExtractor) Extract(_ context.Context, raw []byte, _ ExtractOptions) (ExtractResult, error) {
+	return ExtractJSON(raw, e.Config)
+}
+
+// ExtractStream implements Extractor.
+func (e *JSONExtractor) ExtractStream(ctx context.Context, reader io.Reader, opts ExtractOptions) (ExtractResult, error) {
+	raw, err := io.ReadAll(reader)
+	if err != nil {
+		return ExtractResult{}, fmt.Errorf("ingest: reading json stream: %w", err)
+	}
+	return e.Extract(ctx, raw, opts)
+}
+
+// -------------------------------------------------------------------
+
+// JSONLExtractor wraps the JSONL extraction function as a canonical
+// ingest.Extractor implementation.
+type JSONLExtractor struct {
+	Config JsonExtractorConfig
+}
+
+// Compile-time interface check.
+var _ Extractor = (*JSONLExtractor)(nil)
+
+// Name implements Extractor.
+func (e *JSONLExtractor) Name() string { return "jsonl" }
+
+// ContentTypes implements Extractor.
+func (e *JSONLExtractor) ContentTypes() []string {
+	return []string{"application/jsonl", "application/x-ndjson"}
+}
+
+// Capability implements Extractor.
+func (e *JSONLExtractor) Capability() ExtractorCapability {
+	return ExtractorCapability{
+		Extensions: []string{".jsonl", ".ndjson"},
+		MIMETypes:  e.ContentTypes(),
+	}
+}
+
+// Available implements Extractor.
+func (e *JSONLExtractor) Available(_ context.Context) (bool, error) { return true, nil }
+
+// Extract implements Extractor.
+func (e *JSONLExtractor) Extract(_ context.Context, raw []byte, _ ExtractOptions) (ExtractResult, error) {
+	return ExtractJSONL(raw, e.Config)
+}
+
+// ExtractStream implements Extractor.
+func (e *JSONLExtractor) ExtractStream(ctx context.Context, reader io.Reader, opts ExtractOptions) (ExtractResult, error) {
+	raw, err := io.ReadAll(reader)
+	if err != nil {
+		return ExtractResult{}, fmt.Errorf("ingest: reading jsonl stream: %w", err)
+	}
+	return e.Extract(ctx, raw, opts)
+}
+
+// -------------------------------------------------------------------
+
+// XMLExtractor wraps the XML extraction function as a canonical
+// ingest.Extractor implementation.
+type XMLExtractor struct {
+	Config XmlExtractorConfig
+}
+
+// Compile-time interface check.
+var _ Extractor = (*XMLExtractor)(nil)
+
+// Name implements Extractor.
+func (e *XMLExtractor) Name() string { return "xml" }
+
+// ContentTypes implements Extractor.
+func (e *XMLExtractor) ContentTypes() []string {
+	return []string{"application/xml", "text/xml"}
+}
+
+// Capability implements Extractor.
+func (e *XMLExtractor) Capability() ExtractorCapability {
+	return ExtractorCapability{
+		Extensions: []string{".xml"},
+		MIMETypes:  e.ContentTypes(),
+	}
+}
+
+// Available implements Extractor.
+func (e *XMLExtractor) Available(_ context.Context) (bool, error) { return true, nil }
+
+// Extract implements Extractor.
+func (e *XMLExtractor) Extract(_ context.Context, raw []byte, _ ExtractOptions) (ExtractResult, error) {
+	return ExtractXML(raw, e.Config)
+}
+
+// ExtractStream implements Extractor.
+func (e *XMLExtractor) ExtractStream(ctx context.Context, reader io.Reader, opts ExtractOptions) (ExtractResult, error) {
+	raw, err := io.ReadAll(reader)
+	if err != nil {
+		return ExtractResult{}, fmt.Errorf("ingest: reading xml stream: %w", err)
+	}
+	return e.Extract(ctx, raw, opts)
+}
