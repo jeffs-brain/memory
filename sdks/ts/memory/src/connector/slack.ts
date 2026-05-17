@@ -12,6 +12,13 @@
 
 import type { Connector, ConnectorDocument, SyncCursor } from './types.js'
 import { RateLimiter } from './types.js'
+import {
+  convertMrkdwn,
+  formatDate,
+  parseSlackTimestamp,
+  readResponseWithLimit,
+  validateDownloadURL,
+} from './slack_helpers.js'
 
 // ---------------------------------------------------------------------------
 // Configuration
@@ -75,6 +82,7 @@ const DEFAULT_POLL_INTERVAL_MS = 5 * 60 * 1000 // 5 minutes
 const API_TIMEOUT_MS = 30_000
 const FILE_DOWNLOAD_TIMEOUT_MS = 60_000
 const MAX_RESPONSE_BYTES = 10 * 1024 * 1024 // 10 MB
+const MAX_API_RETRIES = 5
 
 // ---------------------------------------------------------------------------
 // Slack connector
@@ -113,13 +121,13 @@ export class SlackConnector implements Connector {
     }
   }
 
-  async configure(config: Record<string, string>): Promise<void> {
-    const botToken = config['botToken']
+  async configure(config: Record<string, unknown>): Promise<void> {
+    const botToken = typeof config['botToken'] === 'string' ? config['botToken'] : ''
     if (!botToken) {
       throw new Error('slack: botToken is required')
     }
 
-    const channelsRaw = config['channels']
+    const channelsRaw = typeof config['channels'] === 'string' ? config['channels'] : ''
     if (!channelsRaw) {
       throw new Error('slack: at least one channel is required')
     }
@@ -129,24 +137,43 @@ export class SlackConnector implements Connector {
       throw new Error('slack: at least one channel is required')
     }
 
-    const resolvedMaxFileSize = config['maxFileSize']
-      ? Number.parseInt(config['maxFileSize'], 10)
-      : this.config.maxFileSize
-    const resolvedOldestTimestamp = config['oldestTimestamp'] ?? this.config.oldestTimestamp
+    let resolvedMaxFileSize = this.config.maxFileSize
+    const maxFileSizeRaw = config['maxFileSize']
+    if (typeof maxFileSizeRaw === 'string') {
+      const parsed = Number.parseInt(maxFileSizeRaw, 10)
+      if (Number.isNaN(parsed)) {
+        throw new Error('slack: invalid maxFileSize')
+      }
+      resolvedMaxFileSize = parsed
+    } else if (typeof maxFileSizeRaw === 'number') {
+      resolvedMaxFileSize = maxFileSizeRaw
+    }
 
-    const updated: SlackConnectorConfig = {
+    const resolvedOldestTimestamp =
+      typeof config['oldestTimestamp'] === 'string'
+        ? config['oldestTimestamp']
+        : this.config.oldestTimestamp
+
+    const includeThreadsRaw = config['includeThreads']
+    const includeThreads =
+      typeof includeThreadsRaw === 'boolean'
+        ? includeThreadsRaw
+        : (typeof includeThreadsRaw === 'string' ? includeThreadsRaw !== 'false' : (this.config.includeThreads ?? true))
+
+    const includeFilesRaw = config['includeFiles']
+    const includeFiles =
+      typeof includeFilesRaw === 'boolean'
+        ? includeFilesRaw
+        : (typeof includeFilesRaw === 'string' ? includeFilesRaw !== 'false' : (this.config.includeFiles ?? true))
+
+    this.config = {
       ...this.config,
       botToken,
       channels,
-      includeThreads: config['includeThreads'] !== 'false',
-      includeFiles: config['includeFiles'] !== 'false',
+      includeThreads,
+      includeFiles,
       ...(resolvedMaxFileSize !== undefined ? { maxFileSize: resolvedMaxFileSize } : {}),
       ...(resolvedOldestTimestamp !== undefined ? { oldestTimestamp: resolvedOldestTimestamp } : {}),
-    }
-    this.config = updated
-
-    if (config['maxFileSize'] && Number.isNaN(this.config.maxFileSize)) {
-      throw new Error('slack: invalid maxFileSize')
     }
   }
 
@@ -158,7 +185,7 @@ export class SlackConnector implements Connector {
     yield* this.fetchMessages(signal, cursor.value)
   }
 
-  async *start(signal: AbortSignal): AsyncIterable<ConnectorDocument> {
+  async start(signal: AbortSignal): Promise<void> {
     this.stopController = new AbortController()
     const combinedSignal = AbortSignal.any([signal, this.stopController.signal])
     let lastCursor = this.config.oldestTimestamp ?? ''
@@ -171,7 +198,10 @@ export class SlackConnector implements Connector {
         if (ts && ts > latestTS) {
           latestTS = ts
         }
-        yield doc
+        // In the P5-1 framework, start() blocks and the framework
+        // handles document dispatch internally. Documents fetched
+        // during the continuous loop are consumed here.
+        void doc
       }
 
       if (latestTS) {
@@ -296,6 +326,13 @@ export class SlackConnector implements Connector {
     lines.push(`## Thread: ${convertMrkdwn(parent.text)}`)
     lines.push('')
 
+    // Include the parent message as the first entry.
+    const parentUser = this.resolveUserName(parent.user)
+    const parentTS = parseSlackTimestamp(parent.ts)
+    lines.push(`**${parentUser}** (${formatDate(parentTS)}):`)
+    lines.push(convertMrkdwn(parent.text))
+    lines.push('')
+
     for (const reply of replies) {
       // Skip the parent message (Slack includes it in replies).
       if (reply.ts === parent.ts) {
@@ -321,6 +358,9 @@ export class SlackConnector implements Connector {
     channelId: string,
     file: SlackFile,
   ): Promise<ConnectorDocument | undefined> {
+    // Validate the download URL against SSRF before fetching.
+    validateDownloadURL(file.url_private_download)
+
     await this.rateLimiter.acquire(1, signal)
 
     const controller = new AbortController()
@@ -337,10 +377,10 @@ export class SlackConnector implements Connector {
         return undefined
       }
 
-      const arrayBuffer = await response.arrayBuffer()
-      const content = Buffer.from(arrayBuffer)
+      const maxSize = this.config.maxFileSize ?? DEFAULT_MAX_FILE_SIZE
+      const content = await readResponseWithLimit(response, maxSize)
 
-      if (content.length > (this.config.maxFileSize ?? DEFAULT_MAX_FILE_SIZE)) {
+      if (content.length > maxSize) {
         return undefined
       }
 
@@ -399,43 +439,61 @@ export class SlackConnector implements Connector {
     endpoint: string,
     params: URLSearchParams,
   ): Promise<SlackResponse> {
-    const controller = new AbortController()
-    const timeout = setTimeout(() => controller.abort(), API_TIMEOUT_MS)
-    const combinedSignal = AbortSignal.any([signal, controller.signal])
+    const requestUrl = `${endpoint}?${params.toString()}`
+    let backoffMs = 0
 
-    try {
-      const url = `${endpoint}?${params.toString()}`
-      const response = await this.fetchFn(url, {
-        headers: {
-          Authorization: `Bearer ${this.config.botToken}`,
-          'Content-Type': 'application/x-www-form-urlencoded',
-        },
-        signal: combinedSignal,
-      })
-
-      // Handle rate limiting (HTTP 429).
-      if (response.status === 429) {
-        const retryAfter = response.headers.get('Retry-After')
-        const waitSecs = retryAfter ? Number.parseInt(retryAfter, 10) : 5
-        const waitMs = (Number.isNaN(waitSecs) ? 5 : Math.max(1, waitSecs)) * 1000
-        await this.sleep(waitMs, signal)
-        return this.callSlackAPI(signal, endpoint, params)
+    for (let attempt = 0; attempt < MAX_API_RETRIES; attempt++) {
+      if (backoffMs > 0) {
+        await this.sleep(backoffMs, signal)
       }
 
-      if (!response.ok) {
-        throw new Error(`slack API returned HTTP ${response.status}`)
+      const controller = new AbortController()
+      const timeout = setTimeout(() => controller.abort(), API_TIMEOUT_MS)
+      const combinedSignal = AbortSignal.any([signal, controller.signal])
+
+      try {
+        const response = await this.fetchFn(requestUrl, {
+          headers: {
+            Authorization: `Bearer ${this.config.botToken}`,
+            'Content-Type': 'application/x-www-form-urlencoded',
+          },
+          signal: combinedSignal,
+        })
+
+        // Handle rate limiting (HTTP 429) with exponential backoff.
+        if (response.status === 429) {
+          const retryAfter = response.headers.get('Retry-After')
+          const waitSecs = retryAfter ? Number.parseInt(retryAfter, 10) : 5
+          const baseMs = (Number.isNaN(waitSecs) ? 5 : Math.max(1, waitSecs)) * 1000
+
+          if (attempt === MAX_API_RETRIES - 1) {
+            throw new Error(`slack API rate limited after ${MAX_API_RETRIES} retries`)
+          }
+
+          // Exponential backoff: use Retry-After as base, double on each subsequent retry.
+          backoffMs = baseMs * (1 << attempt)
+          continue
+        }
+
+        if (!response.ok) {
+          throw new Error(`slack API returned HTTP ${response.status}`)
+        }
+
+        // Read response with size limit to prevent OOM.
+        const bodyBuffer = await readResponseWithLimit(response, MAX_RESPONSE_BYTES)
+        const data = JSON.parse(bodyBuffer.toString('utf-8')) as SlackResponse
+
+        if (!data.ok) {
+          throw new Error(`slack API error: ${data.error ?? 'unknown'}`)
+        }
+
+        return data
+      } finally {
+        clearTimeout(timeout)
       }
-
-      const data = (await response.json()) as SlackResponse
-
-      if (!data.ok) {
-        throw new Error(`slack API error: ${data.error ?? 'unknown'}`)
-      }
-
-      return data
-    } finally {
-      clearTimeout(timeout)
     }
+
+    throw new Error(`slack API: exhausted all ${MAX_API_RETRIES} retry attempts`)
   }
 
   // -------------------------------------------------------------------------
@@ -506,132 +564,12 @@ export class SlackConnector implements Connector {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Mrkdwn conversion
-// ---------------------------------------------------------------------------
-
-/**
- * Converts Slack mrkdwn formatted text to standard Markdown. Handles
- * links, channel mentions, user mentions, bold, italic, strikethrough,
- * and code blocks. Emoji shortcodes (:name:) are left as-is.
- */
-export function convertMrkdwn(text: string): string {
-  if (!text) return ''
-
-  // Protect code blocks and inline code from formatting conversions.
-  const { text: withoutBlocks, blocks } = extractCodeBlocks(text)
-  const { text: withoutInline, codes } = extractInlineCode(withoutBlocks)
-
-  let result = withoutInline
-
-  // Links (labelled and bare).
-  result = result.replace(/<(https?:\/\/[^|>]+)\|([^>]+)>/g, '[$2]($1)')
-  result = result.replace(/<(https?:\/\/[^>]+)>/g, '$1')
-
-  // Channel mentions.
-  result = result.replace(/<#[A-Z0-9]+\|([^>]+)>/g, '#$1')
-
-  // User mentions.
-  result = result.replace(/<@([A-Z0-9]+)>/g, '@$1')
-
-  // Bold: *text* -> **text**
-  result = result.replace(/(^|\s)\*([^\s*][^*]*[^\s*]|[^\s*])\*($|\s)/g, '$1**$2**$3')
-
-  // Italic: _text_ -> *text*
-  result = result.replace(/(^|\s)_([^\s_][^_]*[^\s_]|[^\s_])_($|\s)/g, '$1*$2*$3')
-
-  // Strikethrough: ~text~ -> ~~text~~
-  result = result.replace(/(^|\s)~([^\s~][^~]*[^\s~]|[^\s~])~($|\s)/g, '$1~~$2~~$3')
-
-  // Restore inline code and code blocks.
-  result = restoreInlineCode(result, codes)
-  result = restoreCodeBlocks(result, blocks)
-
-  return result
-}
+// Re-export helpers from slack_helpers for consumers that import from slack.ts.
+export { convertMrkdwn, parseSlackTimestamp } from './slack_helpers.js'
 
 // ---------------------------------------------------------------------------
-// Code extraction helpers
+// Factory
 // ---------------------------------------------------------------------------
-
-const CODE_BLOCK_PLACEHOLDER = '\x00CB'
-const INLINE_CODE_PLACEHOLDER = '\x00IC'
-
-function extractCodeBlocks(text: string): { text: string; blocks: string[] } {
-  const blocks: string[] = []
-  let result = text
-  let start = result.indexOf('```')
-
-  while (start !== -1) {
-    const end = result.indexOf('```', start + 3)
-    if (end === -1) break
-    const block = result.slice(start, end + 3)
-    blocks.push(block)
-    result = result.slice(0, start) + CODE_BLOCK_PLACEHOLDER + result.slice(end + 3)
-    start = result.indexOf('```')
-  }
-
-  return { text: result, blocks }
-}
-
-function restoreCodeBlocks(text: string, blocks: string[]): string {
-  let result = text
-  for (const block of blocks) {
-    const inner = block.slice(3, -3).trim()
-    const replacement = `\`\`\`\n${inner}\n\`\`\``
-    result = result.replace(CODE_BLOCK_PLACEHOLDER, replacement)
-  }
-  return result
-}
-
-function extractInlineCode(text: string): { text: string; codes: string[] } {
-  const codes: string[] = []
-  let result = text
-  let start = result.indexOf('`')
-
-  while (start !== -1) {
-    const end = result.indexOf('`', start + 1)
-    if (end === -1) break
-    const code = result.slice(start, end + 1)
-    codes.push(code)
-    result = result.slice(0, start) + INLINE_CODE_PLACEHOLDER + result.slice(end + 1)
-    start = result.indexOf('`')
-  }
-
-  return { text: result, codes }
-}
-
-function restoreInlineCode(text: string, codes: string[]): string {
-  let result = text
-  for (const code of codes) {
-    result = result.replace(INLINE_CODE_PLACEHOLDER, code)
-  }
-  return result
-}
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-/**
- * Parse a Slack epoch timestamp string (e.g. "1234567890.123456") to a
- * Date object.
- */
-export function parseSlackTimestamp(ts: string): Date {
-  const parts = ts.split('.')
-  const secs = Number.parseInt(parts[0] ?? '0', 10)
-  const micros = parts.length > 1 ? Number.parseInt(parts[1] ?? '0', 10) : 0
-  return new Date(secs * 1000 + micros / 1000)
-}
-
-function formatDate(date: Date): string {
-  const year = date.getUTCFullYear()
-  const month = String(date.getUTCMonth() + 1).padStart(2, '0')
-  const day = String(date.getUTCDate()).padStart(2, '0')
-  const hours = String(date.getUTCHours()).padStart(2, '0')
-  const minutes = String(date.getUTCMinutes()).padStart(2, '0')
-  return `${year}-${month}-${day} ${hours}:${minutes}`
-}
 
 /**
  * Factory function for creating a Slack connector with the given

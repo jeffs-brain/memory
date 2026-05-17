@@ -5,18 +5,35 @@
 // pipeline. Individual connectors (Slack, Google Drive, Notion, etc.)
 // implement the Connector interface defined here.
 //
-// This package is the dependency target for P5-1 (connector framework).
-// Concrete connectors live alongside the framework in the same package
-// and will be extracted to separate modules at integration time.
+// After merge, the following types are imported from the P5-1 connector
+// framework (go/connector/connector.go, sync.go, rate_limiter.go):
+//   - ConnectorConfig
+//   - ConnectorDocument
+//   - SyncCursor
+//   - Connector (interface)
+//   - ConnectorFactory
+//   - Registry, NewRegistry
+//   - RateLimiter, RateLimiterConfig, NewRateLimiter
+//
+// After merge, rate limiting should use ratelimit.Limiter from P3-4
+// (go/ratelimit/types.go) instead of the connector-local RateLimiter.
+//
+// This file re-declares the canonical types from P5-1 so the Slack
+// connector compiles in isolation. At integration time, delete this
+// file entirely and import from the framework package.
 package connector
 
 import (
 	"context"
+	"math"
+	"sync"
 	"time"
 )
 
 // ConnectorDocument represents a single document fetched from an
 // external service, ready to be fed into the ingestion pipeline.
+//
+// Canonical definition: P5-1 go/connector/connector.go
 type ConnectorDocument struct {
 	ExternalID string
 	Content    []byte
@@ -26,12 +43,15 @@ type ConnectorDocument struct {
 	Metadata   map[string]string
 	ModifiedAt time.Time
 	Checksum   string
+	Deleted    bool
 }
 
 // SyncCursor tracks the position of the last successful sync for a
 // connector. The Value field is opaque to the framework -- each
 // connector decides what to store (timestamp, cursor token, change
 // ID, etc.).
+//
+// Canonical definition: P5-1 go/connector/sync.go
 type SyncCursor struct {
 	Value     string
 	UpdatedAt time.Time
@@ -41,12 +61,14 @@ type SyncCursor struct {
 // Connector is the interface that all external-service connectors must
 // implement. It provides full sync, incremental sync, and continuous
 // polling capabilities.
+//
+// Canonical definition: P5-1 go/connector/connector.go
 type Connector interface {
 	// Name returns the connector identifier (e.g. "slack", "gdrive").
 	Name() string
 
 	// Configure validates and stores connector-specific configuration.
-	Configure(config map[string]string) error
+	Configure(config map[string]any) error
 
 	// FetchAll performs a full sync. Returns a channel of documents and
 	// a channel that will receive at most one error (or be closed on
@@ -58,20 +80,25 @@ type Connector interface {
 	FetchSince(ctx context.Context, cursor SyncCursor) (<-chan ConnectorDocument, <-chan error)
 
 	// Start begins a continuous sync loop that polls at the configured
-	// interval and sends documents to the returned channel.
-	Start(ctx context.Context) (<-chan ConnectorDocument, <-chan error)
+	// interval. Returns when the context is cancelled or Stop is called.
+	Start(ctx context.Context) error
 
 	// Stop gracefully stops the continuous sync loop.
 	Stop() error
 }
 
-// RateLimiter provides token-bucket-based rate limiting with
-// exponential backoff for HTTP API calls.
+// RateLimiter provides token-bucket-based rate limiting for HTTP API
+// calls. All methods are safe for concurrent use.
+//
+// Canonical definition: P5-1 go/connector/rate_limiter.go
+// After merge, connectors should use ratelimit.Limiter from P3-4
+// (go/ratelimit/types.go) instead of this inline implementation.
 type RateLimiter struct {
-	maxTokens    int
-	tokens       float64
-	refillRate   float64 // tokens per second
-	lastRefill   time.Time
+	mu         sync.Mutex
+	maxTokens  int
+	tokens     float64
+	refillRate float64 // tokens per second
+	lastRefill time.Time
 }
 
 // NewRateLimiter creates a rate limiter with the given maximum token
@@ -89,9 +116,11 @@ func NewRateLimiter(maxTokens int, refillRate float64) *RateLimiter {
 // Returns an error if the context is cancelled while waiting.
 func (rl *RateLimiter) Acquire(ctx context.Context, count int) error {
 	for {
+		rl.mu.Lock()
 		rl.refill()
 		if rl.tokens >= float64(count) {
 			rl.tokens -= float64(count)
+			rl.mu.Unlock()
 			return nil
 		}
 		deficit := float64(count) - rl.tokens
@@ -99,6 +128,8 @@ func (rl *RateLimiter) Acquire(ctx context.Context, count int) error {
 		if waitDuration < time.Millisecond {
 			waitDuration = time.Millisecond
 		}
+		rl.mu.Unlock()
+
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
@@ -110,9 +141,6 @@ func (rl *RateLimiter) Acquire(ctx context.Context, count int) error {
 func (rl *RateLimiter) refill() {
 	now := time.Now()
 	elapsed := now.Sub(rl.lastRefill).Seconds()
-	rl.tokens += elapsed * rl.refillRate
-	if rl.tokens > float64(rl.maxTokens) {
-		rl.tokens = float64(rl.maxTokens)
-	}
+	rl.tokens = math.Min(float64(rl.maxTokens), rl.tokens+elapsed*rl.refillRate)
 	rl.lastRefill = now
 }
