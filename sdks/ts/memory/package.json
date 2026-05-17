@@ -98,6 +98,10 @@
       "import": "./dist/cli/index.js",
       "types": "./dist/cli/index.d.ts"
     },
+    "./ratelimit": {
+      "import": "./dist/ratelimit/index.js",
+      "types": "./dist/ratelimit/index.d.ts"
+    },
     "./package.json": "./package.json"
   },
   "bin": {
