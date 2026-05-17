@@ -14,6 +14,18 @@ import type {
   HTTPClient,
   SyncCursor,
 } from './types.js'
+import {
+  RATE_LIMIT_MAX_RETRIES,
+  buildFileMetadata,
+  buildFileQuery,
+  calculateBackoff,
+  parseFileSize,
+  parseRateLimitError,
+  readResponseWithLimit,
+  sanitiseError,
+  sleep,
+  truncateBody,
+} from './gdrive-helpers.js'
 
 // -- Google Drive API constants -----------------------------------------------
 
@@ -50,9 +62,6 @@ const HTTP_REQUEST_TIMEOUT_MS = 30_000
 
 /** Timeout for file download/export requests (5 minutes). */
 const HTTP_DOWNLOAD_TIMEOUT_MS = 5 * 60 * 1000
-
-/** Maximum response body length for error message truncation. */
-const MAX_ERROR_BODY_LENGTH = 200
 
 // -- Google MIME types --------------------------------------------------------
 
@@ -172,10 +181,11 @@ export class GDriveConnector implements Connector {
 
   /**
    * Validate and store Google Drive-specific settings.
+   * Accepts Record<string, unknown> to match the P5-1 Connector interface.
    */
-  async configure(rawConfig: Record<string, string>): Promise<void> {
-    const clientId = rawConfig['oauth2_client_id'] ?? ''
-    const clientSecret = rawConfig['oauth2_client_secret'] ?? ''
+  async configure(rawConfig: Record<string, unknown>): Promise<void> {
+    const clientId = typeof rawConfig['oauth2_client_id'] === 'string' ? rawConfig['oauth2_client_id'] : ''
+    const clientSecret = typeof rawConfig['oauth2_client_secret'] === 'string' ? rawConfig['oauth2_client_secret'] : ''
 
     if (clientId === '') {
       throw new Error('gdrive: oauth2_client_id is required')
@@ -184,26 +194,39 @@ export class GDriveConnector implements Connector {
       throw new Error('gdrive: oauth2_client_secret is required')
     }
 
-    const mimeFilter = rawConfig['mime_type_filter']
-    const maxFileSize = rawConfig['max_file_size']
+    const mimeFilterRaw = rawConfig['mime_type_filter']
+    const mimeFilter = typeof mimeFilterRaw === 'string' ? mimeFilterRaw : undefined
 
+    const maxFileSizeRaw = rawConfig['max_file_size']
     let parsedMaxFileSize = DEFAULT_MAX_FILE_SIZE
-    if (maxFileSize !== undefined && maxFileSize !== '') {
-      const parsed = Number(maxFileSize)
+    if (typeof maxFileSizeRaw === 'string' && maxFileSizeRaw !== '') {
+      const parsed = Number(maxFileSizeRaw)
       if (Number.isNaN(parsed)) {
-        throw new Error(`gdrive: invalid max_file_size "${maxFileSize}"`)
+        throw new Error(`gdrive: invalid max_file_size "${maxFileSizeRaw}"`)
       }
       parsedMaxFileSize = parsed
+    } else if (typeof maxFileSizeRaw === 'number') {
+      parsedMaxFileSize = maxFileSizeRaw
     }
+
+    const redirectUri = typeof rawConfig['oauth2_redirect_uri'] === 'string' ? rawConfig['oauth2_redirect_uri'] : undefined
+    const accessToken = typeof rawConfig['access_token'] === 'string' ? rawConfig['access_token'] : undefined
+    const folderId = typeof rawConfig['folder_id'] === 'string' ? rawConfig['folder_id'] : undefined
+
+    const includeSharedRaw = rawConfig['include_shared_drives']
+    const includeSharedDrives =
+      typeof includeSharedRaw === 'boolean'
+        ? includeSharedRaw
+        : (typeof includeSharedRaw === 'string' ? includeSharedRaw === 'true' : false)
 
     const cfg: GDriveConnectorConfig = {
       oauth2ClientId: clientId,
       oauth2ClientSecret: clientSecret,
-      oauth2RedirectUri: rawConfig['oauth2_redirect_uri'],
-      accessToken: rawConfig['access_token'],
-      folderId: rawConfig['folder_id'],
+      oauth2RedirectUri: redirectUri,
+      accessToken,
+      folderId,
       mimeTypeFilter: mimeFilter ? mimeFilter.split(',') : undefined,
-      includeSharedDrives: rawConfig['include_shared_drives'] === 'true',
+      includeSharedDrives,
       maxFileSize: parsedMaxFileSize,
       exportFormats: undefined,
     }
@@ -265,13 +288,8 @@ export class GDriveConnector implements Connector {
       for (const change of resp.changes) {
         if (signal.aborted) return
 
-        const doc = this.changeToDocument(cfg, signal, change)
-        if (doc instanceof Promise) {
-          const resolved = await doc
-          if (resolved !== undefined) {
-            yield resolved
-          }
-        } else if (doc !== undefined) {
+        const doc = await this.changeToDocument(cfg, signal, change)
+        if (doc !== undefined) {
           yield doc
         }
       }
@@ -428,11 +446,11 @@ export class GDriveConnector implements Connector {
     }
   }
 
-  private changeToDocument(
+  private async changeToDocument(
     cfg: GDriveConnectorConfig,
     signal: AbortSignal,
     change: DriveChange,
-  ): ConnectorDocument | Promise<ConnectorDocument | undefined> {
+  ): Promise<ConnectorDocument | undefined> {
     if (change.removed || change.file === undefined) {
       return {
         externalId: change.fileId,
@@ -469,7 +487,7 @@ export class GDriveConnector implements Connector {
     targetMime: string,
   ): Promise<{ content: string; mime: string }> {
     const exportUrl = `${DRIVE_FILES_URL}/${encodeURIComponent(fileId)}/export?mimeType=${encodeURIComponent(targetMime)}`
-    const body = await this.doAPIGet(exportUrl, signal, HTTP_DOWNLOAD_TIMEOUT_MS)
+    const body = await this.doAPIGet(exportUrl, signal, HTTP_DOWNLOAD_TIMEOUT_MS, DRIVE_EXPORT_MAX_BYTES)
 
     if (body.length > DRIVE_EXPORT_MAX_BYTES) {
       throw new Error(`gdrive: export of ${fileId} exceeds ${DRIVE_EXPORT_MAX_BYTES} byte limit`)
@@ -484,112 +502,72 @@ export class GDriveConnector implements Connector {
     mime: string,
   ): Promise<{ content: string; mime: string }> {
     const downloadUrl = `${DRIVE_FILES_URL}/${encodeURIComponent(fileId)}?alt=media`
-    const body = await this.doAPIGet(downloadUrl, signal, HTTP_DOWNLOAD_TIMEOUT_MS)
+    const maxSize = this.driveConfig?.maxFileSize ?? DEFAULT_MAX_FILE_SIZE
+    const body = await this.doAPIGet(downloadUrl, signal, HTTP_DOWNLOAD_TIMEOUT_MS, maxSize)
     return { content: body, mime }
   }
 
+  /**
+   * Perform an authenticated GET to the Google Drive API with retry,
+   * exponential backoff on rate-limit errors, and bounded reads.
+   * maxBodyBytes controls the response body size limit; defaults to 50 MB.
+   */
   private async doAPIGet(
     reqUrl: string,
     signal: AbortSignal,
     timeoutMs: number,
+    maxBodyBytes?: number,
   ): Promise<string> {
-    const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort(), timeoutMs)
+    const maxSize = maxBodyBytes ?? DEFAULT_MAX_FILE_SIZE
 
-    // Compose abort: external signal or internal timeout.
-    const onAbort = (): void => controller.abort()
-    signal.addEventListener('abort', onAbort, { once: true })
+    for (let attempt = 0; attempt <= RATE_LIMIT_MAX_RETRIES; attempt++) {
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), timeoutMs)
 
-    try {
-      const resp = await this.httpClient.fetch(reqUrl, {
-        method: 'GET',
-        headers: { Authorization: `Bearer ${this.accessToken}` },
-        signal: controller.signal,
-      })
+      const onAbort = (): void => controller.abort()
+      signal.addEventListener('abort', onAbort, { once: true })
 
-      const body = await resp.text()
+      try {
+        const resp = await this.httpClient.fetch(reqUrl, {
+          method: 'GET',
+          headers: { Authorization: `Bearer ${this.accessToken}` },
+          signal: controller.signal,
+        })
 
-      if (resp.status === 403 || resp.status === 429) {
-        throw this.handleRateLimitError(body, resp.status)
-      }
+        if (resp.status === 403 || resp.status === 429) {
+          const errorBody = await resp.text()
+          const rateLimitErr = parseRateLimitError(errorBody, resp.status)
 
-      if (resp.status < 200 || resp.status >= 300) {
-        throw new Error(`gdrive: API returned status ${resp.status}: ${truncateBody(body)}`)
-      }
+          if (rateLimitErr.isRateLimit && attempt < RATE_LIMIT_MAX_RETRIES) {
+            const retryAfterHeader = resp.headers?.get?.('Retry-After')
+            const backoff = calculateBackoff(attempt, retryAfterHeader)
+            this.deps.logger.warn('gdrive: rate limited, retrying', {
+              attempt: attempt + 1,
+              maxRetries: RATE_LIMIT_MAX_RETRIES,
+              backoffMs: backoff,
+            })
+            await sleep(backoff)
+            continue
+          }
 
-      return body
-    } finally {
-      clearTimeout(timeoutId)
-      signal.removeEventListener('abort', onAbort)
-    }
-  }
-
-  private handleRateLimitError(body: string, statusCode: number): Error {
-    try {
-      const apiErr = JSON.parse(body) as DriveAPIError
-      const reasons = apiErr.error.errors ?? []
-
-      for (const entry of reasons) {
-        if (entry.reason === 'rateLimitExceeded' || entry.reason === 'userRateLimitExceeded') {
-          return new Error(`gdrive: rate limit exceeded: ${apiErr.error.message}`)
+          throw new Error(rateLimitErr.message)
         }
+
+        const body = await readResponseWithLimit(resp, maxSize)
+
+        if (resp.status < 200 || resp.status >= 300) {
+          throw new Error(`gdrive: API returned status ${resp.status}: ${truncateBody(body)}`)
+        }
+
+        return body
+      } catch (err) {
+        throw sanitiseError(err)
+      } finally {
+        clearTimeout(timeoutId)
+        signal.removeEventListener('abort', onAbort)
       }
-
-      return new Error(`gdrive: API error (status ${statusCode}): ${apiErr.error.message}`)
-    } catch {
-      return new Error(`gdrive: rate limit error (status ${statusCode}): ${truncateBody(body)}`)
     }
+
+    throw new Error('gdrive: rate limit retries exhausted')
   }
-}
-
-// -- Pure helper functions ----------------------------------------------------
-
-const parseFileSize = (sizeStr: string | undefined): number => {
-  if (sizeStr === undefined || sizeStr === '') return 0
-  const parsed = Number(sizeStr)
-  return Number.isNaN(parsed) ? 0 : parsed
-}
-
-const buildFileQuery = (cfg: GDriveConnectorConfig): string => {
-  const parts: string[] = []
-
-  parts.push(`mimeType != '${MIME_GOOGLE_FOLDER}'`)
-
-  if (cfg.folderId) {
-    parts.push(`'${cfg.folderId}' in parents`)
-  }
-
-  if (cfg.mimeTypeFilter !== undefined && cfg.mimeTypeFilter.length > 0) {
-    const mimeConditions = cfg.mimeTypeFilter.map(
-      (mime) => `mimeType = '${mime}'`,
-    )
-    parts.push(`(${mimeConditions.join(' or ')})`)
-  }
-
-  parts.push('trashed = false')
-
-  return parts.join(' and ')
-}
-
-const buildFileMetadata = (file: DriveFile): Readonly<Record<string, string>> => {
-  const meta: Record<string, string> = {
-    source: 'gdrive',
-    mime_type: file.mimeType,
-    file_id: file.id,
-  }
-  if (file.parents !== undefined && file.parents.length > 0) {
-    const firstParent = file.parents[0]
-    if (firstParent !== undefined) {
-      meta['parent_id'] = firstParent
-    }
-  }
-  if (file.size !== undefined && file.size !== '') {
-    meta['size'] = file.size
-  }
-  return meta
-}
-
-const truncateBody = (body: string): string => {
-  if (body.length <= MAX_ERROR_BODY_LENGTH) return body
-  return body.slice(0, MAX_ERROR_BODY_LENGTH) + '...'
 }

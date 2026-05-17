@@ -2,7 +2,7 @@
 
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { GDriveConnector } from './gdrive.js'
-import type { ConnectorConfig, ConnectorDocument, HTTPClient } from './types.js'
+import type { ConnectorConfig, ConnectorDocument, HTTPClient, SyncCursor } from './types.js'
 import { noopLogger } from '../llm/types.js'
 
 // -- Test helpers -------------------------------------------------------------
@@ -297,18 +297,18 @@ describe('GDriveConnector', () => {
       expect(docs[0].externalId).toBe('small')
     })
 
-    it('throws on rate limit 403', async () => {
+    it('throws on non-retryable 403', async () => {
       await connector.configure(defaultConfig())
 
       client.addResponse(
         'drive/v3/files?',
         403,
-        '{"error":{"message":"Rate Limit Exceeded","errors":[{"reason":"rateLimitExceeded"}]}}',
+        '{"error":{"message":"Forbidden","errors":[{"reason":"forbidden"}]}}',
       )
 
       await expect(
         collectDocuments(connector.fetchAll(makeAbortSignal())),
-      ).rejects.toThrow('rate limit exceeded')
+      ).rejects.toThrow('API error')
     })
 
     it('includes folder ID in query parameter', async () => {
@@ -383,7 +383,7 @@ describe('GDriveConnector', () => {
       })
       client.addResponse('f1?alt=media', 200, 'updated content')
 
-      const cursor: SyncCursor = { value: 'old-token-xyz', updatedAt: new Date() }
+      const cursor = { value: 'old-token-xyz', updatedAt: new Date() } satisfies SyncCursor
       const docs = await collectDocuments(connector.fetchSince(makeAbortSignal(), cursor))
 
       // Modified file + deleted file + cursor update = 3
@@ -410,7 +410,7 @@ describe('GDriveConnector', () => {
         changes: [],
       })
 
-      const cursor: SyncCursor = { value: 'initial-token', updatedAt: new Date() }
+      const cursor = { value: 'initial-token', updatedAt: new Date() } satisfies SyncCursor
       const docs = await collectDocuments(connector.fetchSince(makeAbortSignal(), cursor))
 
       expect(docs).toHaveLength(1)
@@ -489,7 +489,117 @@ describe('GDriveConnector', () => {
       expect(docs[0].metadata['size']).toBe('1024')
     })
   })
-})
 
-// Type import for the test file scope.
-type SyncCursor = { value: string; updatedAt: Date }
+  describe('fetchAll - Slides export', () => {
+    it('exports Google Slides as plain text', async () => {
+      await connector.configure(defaultConfig())
+
+      client.addJSONResponse('drive/v3/files?', 200, {
+        files: [
+          { id: 'slides1', name: 'Presentation', mimeType: 'application/vnd.google-apps.presentation', modifiedTime: '2026-01-15T10:00:00Z' },
+        ],
+      })
+      client.addResponse('slides1/export', 200, 'Slide 1: Introduction\nSlide 2: Conclusion')
+
+      const docs = await collectDocuments(connector.fetchAll(makeAbortSignal()))
+
+      expect(docs).toHaveLength(1)
+      expect(docs[0].mime).toBe('text/plain')
+      expect(docs[0].content).toContain('Introduction')
+    })
+  })
+
+  describe('fetchAll - export exceeds limit', () => {
+    it('throws when export exceeds 10 MB limit', async () => {
+      await connector.configure(defaultConfig())
+
+      client.addJSONResponse('drive/v3/files?', 200, {
+        files: [
+          { id: 'bigdoc', name: 'Huge Document', mimeType: 'application/vnd.google-apps.document', modifiedTime: '2026-01-15T10:00:00Z' },
+        ],
+      })
+      // 10 MB + 1 byte
+      const hugeBody = 'x'.repeat(10 * 1024 * 1024 + 1)
+      client.addResponse('bigdoc/export', 200, hugeBody)
+
+      await expect(
+        collectDocuments(connector.fetchAll(makeAbortSignal())),
+      ).rejects.toThrow('exceeds')
+    })
+  })
+
+  describe('fetchAll - rate limit retry', () => {
+    it('retries on 429 and succeeds on subsequent attempt', async () => {
+      await connector.configure(defaultConfig())
+
+      let callCount = 0
+      client.fetch = async (url: string, init: RequestInit): Promise<Response> => {
+        client.requests.push({ url, init })
+
+        if (url.includes('drive/v3/files?')) {
+          callCount++
+          if (callCount === 1) {
+            return new Response(
+              '{"error":{"message":"Rate Limit","errors":[{"reason":"rateLimitExceeded"}]}}',
+              { status: 429 },
+            )
+          }
+          return new Response(
+            JSON.stringify({ files: [{ id: 'f1', name: 'doc.txt', mimeType: 'text/plain', modifiedTime: '2026-01-15T10:00:00Z', size: '50' }] }),
+            { status: 200 },
+          )
+        }
+        return new Response('content', { status: 200 })
+      }
+
+      const docs = await collectDocuments(connector.fetchAll(makeAbortSignal()))
+
+      expect(docs).toHaveLength(1)
+      expect(docs[0].externalId).toBe('f1')
+      expect(callCount).toBeGreaterThanOrEqual(2)
+    })
+  })
+
+  describe('fetchAll - OAuth2 token used in requests', () => {
+    it('uses the set access token for API requests', async () => {
+      await connector.configure(defaultConfig())
+      connector.setAccessToken('refreshed-token-abc')
+
+      client.addJSONResponse('drive/v3/files?', 200, { files: [] })
+
+      await collectDocuments(connector.fetchAll(makeAbortSignal()))
+
+      expect(client.requests.length).toBeGreaterThan(0)
+      const authHeader = (client.requests[0].init.headers as Record<string, string>)['Authorization']
+      expect(authHeader).toBe('Bearer refreshed-token-abc')
+    })
+  })
+
+  describe('input validation', () => {
+    it('rejects folder ID with injection characters', async () => {
+      await connector.configure({
+        ...defaultConfig(),
+        folder_id: "' or name contains '",
+      })
+
+      client.addJSONResponse('drive/v3/files?', 200, { files: [] })
+
+      await expect(
+        collectDocuments(connector.fetchAll(makeAbortSignal())),
+      ).rejects.toThrow('invalid folder ID')
+    })
+
+    it('rejects MIME type filter with injection characters', async () => {
+      await connector.configure({
+        ...defaultConfig(),
+        mime_type_filter: "application/pdf' or mimeType = '",
+      })
+
+      client.addJSONResponse('drive/v3/files?', 200, { files: [] })
+
+      await expect(
+        collectDocuments(connector.fetchAll(makeAbortSignal())),
+      ).rejects.toThrow('invalid MIME type')
+    })
+  })
+})
