@@ -31,14 +31,15 @@ export {
 
 export { createPostgresQueue, type PostgresQueueOptions, type PgClient, type PgListenClient } from './postgres.js'
 
-export type { JobStatus, PoolLogger } from './adapter.js'
-export { noopPoolLogger } from './adapter.js'
+export type { Logger } from './adapter.js'
+export { noopLogger } from './adapter.js'
 
 export type { BackpressureChecker } from './backpressure.js'
 export { createBackpressureChecker } from './backpressure.js'
 
 export type {
   JobProcessor,
+  StopResult,
   WorkerPool,
   WorkerPoolMetrics,
   WorkerPoolOptions,

@@ -54,22 +54,22 @@ type JobPayload struct {
 
 // Job represents a single ingest queue entry with its full metadata.
 type Job struct {
-	ID            string
-	BrainID       string
-	Status        JobStatus
-	Payload       JobPayload
-	RetryCount    int
-	MaxRetries    int
-	Error         string
-	ClaimedBy     string
-	ClaimedAt     *time.Time
-	LastHeartbeat *time.Time
-	NextRetryAt   *time.Time
-	CreatedAt     time.Time
-	UpdatedAt     time.Time
-	CompletedAt   *time.Time
-	Metadata      map[string]string
-	GroupID       string
+	ID             string
+	BrainID        string
+	Status         JobStatus
+	Payload        JobPayload
+	RetryCount     int
+	MaxRetries     int
+	Error          string
+	ClaimedBy      string
+	ClaimedAt      *time.Time
+	LastHeartbeat  *time.Time
+	NextRetryAt    *time.Time
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+	CompletedAt    *time.Time
+	Metadata       map[string]string
+	GroupID        string
 	IdempotencyKey string
 }
 
