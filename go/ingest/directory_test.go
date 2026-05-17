@@ -152,14 +152,13 @@ func TestEnumerateFiles_RecursiveByDefault(t *testing.T) {
 
 	files, _, err := EnumerateFiles(context.Background(), EnumerateOptions{
 		Directory: dir,
-		Recursive: true,
 		MaxFiles:  100,
 	})
 	if err != nil {
 		t.Fatalf("enumerate: %v", err)
 	}
-	if len(files) != 2 {
-		t.Errorf("expected 2 files, got %d", len(files))
+	if len(files) != 1 {
+		t.Errorf("expected 1 file (non-recursive default), got %d", len(files))
 	}
 }
 

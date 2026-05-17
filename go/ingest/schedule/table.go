@@ -58,9 +58,12 @@ func (s *SQLiteStore) Create(ctx context.Context, input CreateInput) (Job, error
 	id := uuid.New().String()
 	var metadataJSON *string
 	if input.Metadata != nil {
-		data, _ := json.Marshal(input.Metadata)
-		s := string(data)
-		metadataJSON = &s
+		data, marshalErr := json.Marshal(input.Metadata)
+		if marshalErr != nil {
+			return Job{}, fmt.Errorf("schedule: marshal metadata: %w", marshalErr)
+		}
+		str := string(data)
+		metadataJSON = &str
 	}
 
 	_, err := s.db.ExecContext(ctx,
@@ -148,9 +151,12 @@ func (s *SQLiteStore) Update(ctx context.Context, id string, patch UpdatePatch) 
 
 	var metadataJSON *string
 	if job.Metadata != nil {
-		data, _ := json.Marshal(job.Metadata)
-		s := string(data)
-		metadataJSON = &s
+		data, marshalErr := json.Marshal(job.Metadata)
+		if marshalErr != nil {
+			return Job{}, fmt.Errorf("schedule: marshal metadata: %w", marshalErr)
+		}
+		str := string(data)
+		metadataJSON = &str
 	}
 
 	_, err = s.db.ExecContext(ctx,

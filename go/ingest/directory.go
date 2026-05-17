@@ -69,8 +69,8 @@ func EnumerateFiles(ctx context.Context, opts EnumerateOptions) ([]EnumeratedFil
 			return ctx.Err()
 		}
 
-		// Skip hidden entries
-		if strings.HasPrefix(d.Name(), ".") {
+		// Skip hidden entries (but not the requested root itself).
+		if strings.HasPrefix(d.Name(), ".") && filepath.Clean(path) != opts.Directory {
 			if d.IsDir() {
 				return filepath.SkipDir
 			}
