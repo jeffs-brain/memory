@@ -10,6 +10,20 @@ import (
 	"github.com/jeffs-brain/memory/go/brain"
 )
 
+// waitFor polls cond every 5ms until it returns true or timeout elapses.
+// Fails the test with msg if the condition is not met within the timeout.
+func waitFor(t *testing.T, timeout time.Duration, cond func() bool, msg string) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if cond() {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatal(msg)
+}
+
 func TestCreatedEventInRawDocumentsDispatches(t *testing.T) {
 	var dispatched atomic.Int32
 	var dispatchedPath string
@@ -35,11 +49,8 @@ func TestCreatedEventInRawDocumentsDispatches(t *testing.T) {
 		When: time.Now(),
 	})
 
-	time.Sleep(50 * time.Millisecond)
+	waitFor(t, 500*time.Millisecond, func() bool { return dispatched.Load() == 1 }, "expected 1 dispatch for created event")
 
-	if got := dispatched.Load(); got != 1 {
-		t.Fatalf("expected 1 dispatch, got %d", got)
-	}
 	mu.Lock()
 	if dispatchedPath != "raw/documents/readme.md" {
 		t.Fatalf("expected raw/documents/readme.md, got %q", dispatchedPath)
@@ -67,11 +78,7 @@ func TestUpdatedEventInRawDocumentsDispatches(t *testing.T) {
 		When: time.Now(),
 	})
 
-	time.Sleep(50 * time.Millisecond)
-
-	if got := dispatched.Load(); got != 1 {
-		t.Fatalf("expected 1 dispatch, got %d", got)
-	}
+	waitFor(t, 500*time.Millisecond, func() bool { return dispatched.Load() == 1 }, "expected 1 dispatch for updated event")
 }
 
 func TestDeletedEventIgnored(t *testing.T) {
@@ -94,6 +101,9 @@ func TestDeletedEventIgnored(t *testing.T) {
 		When: time.Now(),
 	})
 
+	// For negative assertions (expecting zero dispatches), a short sleep is
+	// acceptable because we cannot poll for a non-event. The debounce
+	// interval is 10ms so 50ms provides ample margin.
 	time.Sleep(50 * time.Millisecond)
 
 	if got := dispatched.Load(); got != 0 {
@@ -121,6 +131,7 @@ func TestPathOutsideRawDocumentsIgnored(t *testing.T) {
 		When: time.Now(),
 	})
 
+	// Negative assertion: sleep is acceptable for verifying non-dispatch.
 	time.Sleep(50 * time.Millisecond)
 
 	if got := dispatched.Load(); got != 0 {
@@ -149,11 +160,7 @@ func TestCustomPathMatcher(t *testing.T) {
 		When: time.Now(),
 	})
 
-	time.Sleep(50 * time.Millisecond)
-
-	if got := dispatched.Load(); got != 1 {
-		t.Fatalf("expected 1 dispatch for custom path, got %d", got)
-	}
+	waitFor(t, 500*time.Millisecond, func() bool { return dispatched.Load() == 1 }, "expected 1 dispatch for custom path")
 }
 
 func TestDebounceCoalescesRapidWrites(t *testing.T) {
@@ -180,11 +187,7 @@ func TestDebounceCoalescesRapidWrites(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 
-	time.Sleep(200 * time.Millisecond)
-
-	if got := dispatched.Load(); got != 1 {
-		t.Fatalf("expected 1 coalesced dispatch, got %d", got)
-	}
+	waitFor(t, 500*time.Millisecond, func() bool { return dispatched.Load() == 1 }, "expected 1 coalesced dispatch")
 }
 
 func TestOptOutByBatchReason(t *testing.T) {
@@ -211,6 +214,7 @@ func TestOptOutByBatchReason(t *testing.T) {
 		When:   time.Now(),
 	})
 
+	// Negative assertion: sleep is acceptable for verifying non-dispatch.
 	time.Sleep(50 * time.Millisecond)
 
 	if got := dispatched.Load(); got != 0 {
@@ -225,11 +229,7 @@ func TestOptOutByBatchReason(t *testing.T) {
 		When:   time.Now(),
 	})
 
-	time.Sleep(50 * time.Millisecond)
-
-	if got := dispatched.Load(); got != 1 {
-		t.Fatalf("expected 1 dispatch for non-opt-out reason, got %d", got)
-	}
+	waitFor(t, 500*time.Millisecond, func() bool { return dispatched.Load() == 1 }, "expected 1 dispatch for non-opt-out reason")
 }
 
 func TestDifferentPathsDispatchIndependently(t *testing.T) {
@@ -257,11 +257,7 @@ func TestDifferentPathsDispatchIndependently(t *testing.T) {
 		When: time.Now(),
 	})
 
-	time.Sleep(50 * time.Millisecond)
-
-	if got := dispatched.Load(); got != 2 {
-		t.Fatalf("expected 2 dispatches for different paths, got %d", got)
-	}
+	waitFor(t, 500*time.Millisecond, func() bool { return dispatched.Load() == 2 }, "expected 2 dispatches for different paths")
 }
 
 func TestGlobPathMatcher(t *testing.T) {
@@ -334,6 +330,7 @@ func TestPathTraversalRejected(t *testing.T) {
 		})
 	}
 
+	// Negative assertion: sleep is acceptable for verifying non-dispatch.
 	time.Sleep(50 * time.Millisecond)
 
 	if got := dispatched.Load(); got != 0 {
@@ -381,6 +378,7 @@ func TestEmptyPathIgnored(t *testing.T) {
 		When: time.Now(),
 	})
 
+	// Negative assertion: sleep is acceptable for verifying non-dispatch.
 	time.Sleep(50 * time.Millisecond)
 
 	if got := dispatched.Load(); got != 0 {
@@ -427,6 +425,7 @@ func TestCloseStopsPendingTimers(t *testing.T) {
 
 	// Close before debounce fires.
 	hook.Close()
+	// Negative assertion: sleep is acceptable for verifying non-dispatch.
 	time.Sleep(300 * time.Millisecond)
 
 	if got := dispatched.Load(); got != 0 {

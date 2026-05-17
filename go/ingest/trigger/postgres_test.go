@@ -62,7 +62,7 @@ func TestPostgresBridgeValidPayload(t *testing.T) {
 	})
 	defer bridge.Close()
 
-	wg.Wait()
+	waitWithTimeout(t, &wg, 5*time.Second)
 	if got := received.Load(); got != 1 {
 		t.Fatalf("expected 1 event, got %d", got)
 	}
@@ -120,7 +120,7 @@ func TestPostgresBridgeInvalidJSON(t *testing.T) {
 		Logger:   logger,
 	})
 
-	wg.Wait()
+	waitWithTimeout(t, &wg, 5*time.Second)
 	bridge.Close()
 
 	if got := warnings.Load(); got < 1 {
@@ -159,7 +159,7 @@ func TestPostgresBridgeReconnects(t *testing.T) {
 	})
 	defer bridge.Close()
 
-	wg.Wait()
+	waitWithTimeout(t, &wg, 5*time.Second)
 	if got := received.Load(); got != 1 {
 		t.Fatalf("expected 1 event after reconnect, got %d", got)
 	}

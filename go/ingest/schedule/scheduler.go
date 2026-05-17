@@ -65,20 +65,26 @@ func (s *Scheduler) Start() {
 		s.mu.Unlock()
 		return
 	}
-	s.started = true
-	s.mu.Unlock()
-
 	ctx, cancel := context.WithCancel(context.Background())
 	s.cancel = cancel
 	s.wg.Add(1)
+	s.started = true
+	s.mu.Unlock()
+
 	go s.poll(ctx)
 }
 
 // Stop signals the scheduler to stop and waits for the current poll to
 // complete.
 func (s *Scheduler) Stop() error {
-	if s.cancel != nil {
-		s.cancel()
+	s.mu.Lock()
+	cancel := s.cancel
+	s.cancel = nil
+	s.started = false
+	s.mu.Unlock()
+
+	if cancel != nil {
+		cancel()
 	}
 	s.wg.Wait()
 	return nil
