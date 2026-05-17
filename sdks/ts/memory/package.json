@@ -102,6 +102,10 @@
       "import": "./dist/ratelimit/index.js",
       "types": "./dist/ratelimit/index.d.ts"
     },
+    "./connector": {
+      "import": "./dist/connector/index.js",
+      "types": "./dist/connector/index.d.ts"
+    },
     "./package.json": "./package.json"
   },
   "bin": {
