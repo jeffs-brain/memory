@@ -23,6 +23,9 @@ export {
   computeBackoff,
   validateIdentifier,
   advisoryLockKey,
+  parseJobStatus,
+  ENV_POSTGRES_URL,
+  ENV_INGEST_WORKER_INTERVAL_MS,
 } from './types.js'
 
 export { createPostgresQueue, type PostgresQueueOptions, type PgClient, type PgListenClient } from './postgres.js'

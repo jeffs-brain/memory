@@ -181,21 +181,9 @@ func TestNewPostgresQueue_NilDB(t *testing.T) {
 	}
 }
 
-func TestNewPostgresQueue_InvalidSchema(t *testing.T) {
-	t.Parallel()
-
-	// Cannot test with real DB here, but we can verify schema validation
-	// fires before any DB call would happen. We pass a nil DB but the
-	// schema validation should fire first... actually it checks DB first.
-	// So we test validateIdentifier directly (tested above).
-}
-
-func TestNewPostgresQueue_InvalidTable(t *testing.T) {
-	t.Parallel()
-
-	// validateIdentifier is tested above. This confirms the constructor
-	// path wires the validation correctly via the error message.
-}
+// Constructor validation tests with a real mock DB are in adapter_test.go
+// (TestNewPostgresQueue_InvalidSchemaWithMockDB and
+// TestNewPostgresQueue_InvalidTableWithMockDB).
 
 // --- qualifiedTable tests ---
 

@@ -16,239 +16,7 @@ import {
 } from './types.js'
 import { type PgClient, createPostgresQueue } from './postgres.js'
 import type { QueueAdapter, QueueJobPayload } from './types.js'
-
-// --- Mock PgClient ---
-
-/** Row store entry for the mock database. */
-type MockRow = {
-  id: string
-  brain_id: string
-  status: string
-  payload: string
-  retry_count: number
-  max_retries: number
-  error: string | null
-  claimed_by: string | null
-  claimed_at: Date | null
-  last_heartbeat: Date | null
-  next_retry_at: Date | null
-  created_at: Date
-  updated_at: Date
-  completed_at: Date | null
-  metadata: string | null
-  group_id: string | null
-  idempotency_key: string | null
-}
-
-/**
- * Create a mock PgClient that simulates core PostgreSQL operations
- * in-memory. This exercises the adapter's SQL generation and row
- * mapping without requiring a real database.
- */
-const createMockPgClient = (): PgClient & { rows: MockRow[] } => {
-  let idCounter = 0
-  const rows: MockRow[] = []
-
-  const query = async <R = Record<string, unknown>>(
-    text: string,
-    values?: ReadonlyArray<unknown>,
-  ): Promise<{ readonly rows: readonly R[]; readonly rowCount: number }> => {
-    const normalised = text.replace(/\s+/g, ' ').trim()
-    const vals = values ?? []
-
-    // INSERT INTO ... RETURNING
-    if (normalised.includes('INSERT INTO')) {
-      idCounter++
-      const now = new Date()
-      const newRow: MockRow = {
-        id: `mock-${idCounter}`,
-        brain_id: vals[0] as string,
-        status: vals[1] as string,
-        payload: vals[2] as string,
-        retry_count: 0,
-        max_retries: vals[3] as number,
-        error: null,
-        claimed_by: null,
-        claimed_at: null,
-        last_heartbeat: null,
-        next_retry_at: null,
-        created_at: now,
-        updated_at: now,
-        completed_at: null,
-        metadata: vals[4] as string | null,
-        group_id: vals[5] as string | null,
-        idempotency_key: vals[6] as string | null,
-      }
-
-      // Check idempotency constraint.
-      const existing = rows.find(
-        (r) =>
-          r.idempotency_key === newRow.idempotency_key &&
-          newRow.idempotency_key !== null &&
-          !['dead_letter', 'completed', 'failed'].includes(r.status),
-      )
-      if (existing !== undefined) {
-        throw new Error('idx_ingest_queue_idempotency')
-      }
-
-      rows.push(newRow)
-      return { rows: [newRow as unknown as R], rowCount: 1 }
-    }
-
-    // SELECT for idempotency lookup
-    if (normalised.includes('idempotency_key = $1') && normalised.includes('SELECT')) {
-      const key = vals[0] as string
-      const found = rows.filter(
-        (r) =>
-          r.idempotency_key === key &&
-          !['dead_letter', 'completed', 'failed'].includes(r.status),
-      )
-      return { rows: found as unknown as R[], rowCount: found.length }
-    }
-
-    // SELECT for fail lookup (retry_count, max_retries, brain_id)
-    if (normalised.includes('SELECT retry_count')) {
-      const jobId = vals[0] as string
-      const status = vals[1] as string
-      const found = rows.filter((r) => r.id === jobId && r.status === status)
-      return { rows: found as unknown as R[], rowCount: found.length }
-    }
-
-    // UPDATE ... SET status ... FOR UPDATE SKIP LOCKED (claim)
-    if (normalised.includes('FOR UPDATE SKIP LOCKED')) {
-      const workerName = vals[1] as string
-      const batchSize = vals[2] as number
-      const now = new Date()
-      const pending = rows
-        .filter(
-          (r) =>
-            r.status === 'pending' &&
-            (r.next_retry_at === null || r.next_retry_at <= now),
-        )
-        .sort((a, b) => a.created_at.getTime() - b.created_at.getTime())
-        .slice(0, batchSize)
-
-      for (const row of pending) {
-        row.status = 'processing'
-        row.claimed_by = workerName
-        row.claimed_at = now
-        row.last_heartbeat = now
-        row.updated_at = now
-      }
-
-      return { rows: pending as unknown as R[], rowCount: pending.length }
-    }
-
-    // UPDATE heartbeat
-    if (normalised.includes('last_heartbeat = NOW()') && normalised.includes('WHERE id = $1')) {
-      const jobId = vals[0] as string
-      const status = vals[1] as string
-      const now = new Date()
-      let count = 0
-      for (const row of rows) {
-        if (row.id === jobId && row.status === status) {
-          row.last_heartbeat = now
-          row.updated_at = now
-          count++
-        }
-      }
-      return { rows: [] as unknown as R[], rowCount: count }
-    }
-
-    // UPDATE complete
-    if (normalised.includes('completed_at = NOW()')) {
-      const jobId = vals[1] as string
-      const status = vals[3] as string
-      const now = new Date()
-      const found: MockRow[] = []
-      for (const row of rows) {
-        if (row.id === jobId && row.status === status) {
-          row.status = 'completed'
-          row.completed_at = now
-          row.updated_at = now
-          if (vals[2] !== null) {
-            row.metadata = vals[2] as string
-          }
-          found.push(row)
-        }
-      }
-      return { rows: found as unknown as R[], rowCount: found.length }
-    }
-
-    // UPDATE fail
-    if (normalised.includes('retry_count = $2') && normalised.includes('error = $3')) {
-      const newStatus = vals[0] as string
-      const retryCount = vals[1] as number
-      const errorMsg = vals[2] as string
-      const nextRetry = vals[3] as Date | null
-      const jobId = vals[4] as string
-      for (const row of rows) {
-        if (row.id === jobId) {
-          row.status = newStatus
-          row.retry_count = retryCount
-          row.error = errorMsg
-          row.next_retry_at = nextRetry
-          row.claimed_by = null
-          row.claimed_at = null
-          row.last_heartbeat = null
-          row.updated_at = new Date()
-        }
-      }
-      return { rows: [] as unknown as R[], rowCount: 1 }
-    }
-
-    // UPDATE recover stale
-    if (normalised.includes('last_heartbeat <')) {
-      const threshold = parseInt((vals[2] as string).split(' ')[0]!, 10)
-      const cutoff = new Date(Date.now() - threshold * 1000)
-      let count = 0
-      for (const row of rows) {
-        if (
-          row.status === 'processing' &&
-          row.last_heartbeat !== null &&
-          row.last_heartbeat < cutoff
-        ) {
-          row.status = 'pending'
-          row.claimed_by = null
-          row.claimed_at = null
-          row.last_heartbeat = null
-          row.updated_at = new Date()
-          count++
-        }
-      }
-      return { rows: [] as unknown as R[], rowCount: count }
-    }
-
-    // SELECT count by status
-    if (normalised.includes('COUNT(*)')) {
-      const statusCounts: Record<string, number> = {}
-      const brainFilter = vals.length > 0 ? (vals[0] as string) : undefined
-      for (const row of rows) {
-        if (brainFilter !== undefined && row.brain_id !== brainFilter) continue
-        statusCounts[row.status] = (statusCounts[row.status] ?? 0) + 1
-      }
-      const resultRows = Object.entries(statusCounts).map(([status, count]) => ({
-        status,
-        count: String(count),
-      }))
-      return { rows: resultRows as unknown as R[], rowCount: resultRows.length }
-    }
-
-    // Advisory lock operations (no-op in mock)
-    if (normalised.includes('pg_try_advisory_lock') || normalised.includes('pg_advisory_unlock')) {
-      return { rows: [] as unknown as R[], rowCount: 0 }
-    }
-
-    // LISTEN (no-op in mock)
-    if (normalised.startsWith('LISTEN')) {
-      return { rows: [] as unknown as R[], rowCount: 0 }
-    }
-
-    return { rows: [] as unknown as R[], rowCount: 0 }
-  }
-
-  return { query, rows }
-}
+import { type MockRow, createMockPgClient } from './queue.mock.js'
 
 // --- Pure function tests ---
 
@@ -424,6 +192,71 @@ describe('createPostgresQueue', () => {
         idempotencyKey: 'unique-op-1',
       })
       expect(second.id).toBe(first.id)
+    })
+
+    it('handles idempotency race condition via constraint violation fallback', async () => {
+      // Simulate the race condition where the pre-check finds nothing
+      // but the INSERT hits the unique constraint because another
+      // process inserted between the check and the INSERT.
+      const mockClient = createMockPgClient()
+
+      // Pre-insert a row directly into the mock store to simulate
+      // the race: the idempotency lookup will find nothing (because
+      // we insert *after* the lookup intercept), but the INSERT will
+      // hit the constraint. Then the fallback lookup succeeds.
+      let lookupCount = 0
+      const originalQuery = mockClient.query.bind(mockClient)
+      const racyQuery = async <R = Record<string, unknown>>(
+        text: string,
+        values?: ReadonlyArray<unknown>,
+      ): Promise<{ readonly rows: readonly R[]; readonly rowCount: number }> => {
+        const normalised = text.replace(/\s+/g, ' ').trim()
+        // On the FIRST idempotency lookup, return empty (simulating the
+        // race window). The INSERT will then throw the constraint error,
+        // and the fallback lookup will find the pre-existing row.
+        if (normalised.includes('idempotency_key = $1') && normalised.includes('SELECT') && lookupCount === 0) {
+          lookupCount++
+          // Inject a row directly so the fallback lookup finds it.
+          mockClient.rows.push({
+            id: 'race-winner',
+            brain_id: 'brain-1',
+            status: 'pending',
+            payload: JSON.stringify(samplePayload),
+            retry_count: 0,
+            max_retries: 3,
+            error: null,
+            claimed_by: null,
+            claimed_at: null,
+            last_heartbeat: null,
+            next_retry_at: null,
+            created_at: new Date(),
+            updated_at: new Date(),
+            completed_at: null,
+            metadata: null,
+            group_id: null,
+            idempotency_key: 'race-key-1',
+          })
+          return { rows: [] as unknown as R[], rowCount: 0 }
+        }
+        return originalQuery(text, values)
+      }
+
+      const racyClient = { ...mockClient, query: racyQuery }
+      const adapter = createPostgresQueue({
+        client: racyClient,
+        heartbeatIntervalMs: 60_000,
+      })
+      adapters.push(adapter)
+
+      const job = await adapter.enqueue({
+        brainId: 'brain-1',
+        payload: samplePayload,
+        idempotencyKey: 'race-key-1',
+      })
+
+      // The adapter should have fallen back to the existing row
+      // inserted by the "race winner".
+      expect(job.id).toBe('race-winner')
     })
   })
 

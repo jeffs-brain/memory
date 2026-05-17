@@ -7,9 +7,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"hash/fnv"
-	"math"
-	"math/rand/v2"
 	"strings"
 	"sync"
 	"time"
@@ -34,6 +31,17 @@ type PostgresOptions struct {
 	// NotifyChannel is the LISTEN/NOTIFY channel name.
 	// Defaults to "ingest_queue_new_job".
 	NotifyChannel string
+	// ListenConn is an optional dedicated *sql.Conn for LISTEN/NOTIFY.
+	// When provided, the adapter subscribes for immediate wake on new
+	// jobs. This should be a dedicated connection, not from the pool.
+	ListenConn *sql.Conn
+	// OnNotify is called when a LISTEN notification arrives with the
+	// job ID payload. Only used when ListenConn is provided.
+	OnNotify func(jobID string)
+	// MaxQueueDepth sets a backpressure limit. When the number of
+	// pending jobs exceeds this value, Enqueue returns an error.
+	// Zero means no limit.
+	MaxQueueDepth int
 }
 
 // defaultHeartbeatInterval is the heartbeat refresh cadence.
@@ -65,6 +73,9 @@ type PostgresQueue struct {
 	staleThresh   time.Duration
 	log           Logger
 	notifyChannel string
+	listenConn    *sql.Conn
+	onNotify      func(jobID string)
+	maxQueueDepth int
 
 	mu       sync.Mutex
 	closed   bool
@@ -79,7 +90,8 @@ type PostgresQueue struct {
 
 // NewPostgresQueue constructs a PostgreSQL-backed queue adapter.
 // It validates that the connection is reachable and starts the
-// heartbeat goroutine.
+// heartbeat goroutine. When a ListenConn is provided, it also
+// starts the LISTEN/NOTIFY consumer goroutine.
 func NewPostgresQueue(opts PostgresOptions) (*PostgresQueue, error) {
 	if opts.DB == nil {
 		return nil, fmt.Errorf("ingest: queue requires a non-nil *sql.DB")
@@ -115,6 +127,9 @@ func NewPostgresQueue(opts PostgresOptions) (*PostgresQueue, error) {
 	if notifyCh == "" {
 		notifyCh = defaultNotifyChannel
 	}
+	if err := validateIdentifier(notifyCh); err != nil {
+		return nil, fmt.Errorf("ingest: invalid notify channel name: %w", err)
+	}
 
 	q := &PostgresQueue{
 		db:            opts.DB,
@@ -124,12 +139,21 @@ func NewPostgresQueue(opts PostgresOptions) (*PostgresQueue, error) {
 		staleThresh:   staleThresh,
 		log:           log,
 		notifyChannel: notifyCh,
+		listenConn:    opts.ListenConn,
+		onNotify:      opts.OnNotify,
+		maxQueueDepth: opts.MaxQueueDepth,
 		stopCh:        make(chan struct{}),
 		claimedJobs:   make(map[string]struct{}),
 	}
 
 	q.activeWg.Add(1)
 	go q.heartbeatLoop()
+
+	// Start LISTEN/NOTIFY consumer when a dedicated connection is provided.
+	if opts.ListenConn != nil {
+		q.activeWg.Add(1)
+		go q.listenLoop()
+	}
 
 	return q, nil
 }
@@ -144,6 +168,19 @@ func (q *PostgresQueue) qualifiedTable() string {
 func (q *PostgresQueue) Enqueue(ctx context.Context, input EnqueueInput) (Job, error) {
 	if err := q.ensureOpen(); err != nil {
 		return Job{}, err
+	}
+
+	// Backpressure: reject enqueue when the pending queue exceeds depth limit.
+	if q.maxQueueDepth > 0 {
+		tbl := q.qualifiedTable()
+		var pendingCount int
+		row := q.db.QueryRowContext(ctx,
+			fmt.Sprintf("SELECT COUNT(*) FROM %s WHERE status = $1", tbl),
+			string(StatusPending),
+		)
+		if err := row.Scan(&pendingCount); err == nil && pendingCount >= q.maxQueueDepth {
+			return Job{}, fmt.Errorf("ingest: queue depth limit reached (%d pending jobs)", pendingCount)
+		}
 	}
 
 	maxRetries := input.MaxRetries
@@ -279,14 +316,20 @@ func (q *PostgresQueue) Claim(ctx context.Context, opts ClaimOptions) ([]Job, er
 		return nil, fmt.Errorf("ingest: scanning claimed jobs: %w", err)
 	}
 
-	// Track claimed jobs for heartbeat refresh and attempt advisory locks.
+	// Track claimed jobs for heartbeat refresh and acquire advisory locks.
+	// Batch all advisory lock acquisitions into a single query to reduce
+	// round-trips from O(k) to O(1) where k = batch size.
 	for i := range jobs {
 		q.trackClaimed(jobs[i].ID)
-		lockKey := advisoryLockKey(jobs[i].BrainID)
-		q.tryAdvisoryLock(ctx, lockKey)
 	}
 
 	if len(jobs) > 0 {
+		lockKeys := make([]int64, len(jobs))
+		for i := range jobs {
+			lockKeys[i] = advisoryLockKey(jobs[i].BrainID)
+		}
+		q.tryBatchAdvisoryLock(ctx, lockKeys)
+
 		q.log.Info("ingest: claimed jobs",
 			"count", len(jobs), "worker_id", opts.WorkerID)
 	}
@@ -322,7 +365,10 @@ func (q *PostgresQueue) Heartbeat(ctx context.Context, jobID string) error {
 }
 
 // Complete marks a job as successfully finished and releases its
-// advisory lock.
+// advisory lock. Uses a transaction-level advisory lock release via
+// pg_advisory_xact_lock within the same transaction that updates the
+// job, ensuring the lock is always released when the transaction commits
+// regardless of which pooled connection handles the query.
 func (q *PostgresQueue) Complete(ctx context.Context, jobID string, result map[string]string) error {
 	if err := q.ensureOpen(); err != nil {
 		return err
@@ -338,6 +384,13 @@ func (q *PostgresQueue) Complete(ctx context.Context, jobID string, result map[s
 	}
 
 	tbl := q.qualifiedTable()
+
+	tx, err := q.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("ingest: begin tx for complete: %w", err)
+	}
+	defer tx.Rollback() //nolint:errcheck
+
 	query := fmt.Sprintf(`
 		UPDATE %s
 		SET status = $1,
@@ -349,7 +402,7 @@ func (q *PostgresQueue) Complete(ctx context.Context, jobID string, result map[s
 		tbl)
 
 	var brainID string
-	err := q.db.QueryRowContext(ctx, query,
+	err = tx.QueryRowContext(ctx, query,
 		string(StatusCompleted),
 		jobID,
 		nullableBytes(resultJSON),
@@ -359,9 +412,16 @@ func (q *PostgresQueue) Complete(ctx context.Context, jobID string, result map[s
 		return fmt.Errorf("ingest: complete job %s: %w", jobID, err)
 	}
 
-	q.untrackClaimed(jobID)
-	q.tryAdvisoryUnlock(ctx, advisoryLockKey(brainID))
+	// Release the advisory lock within the transaction so it runs on
+	// the same connection that holds the lock.
+	lockKey := advisoryLockKey(brainID)
+	_, _ = tx.ExecContext(ctx, "SELECT pg_advisory_unlock($1)", lockKey)
 
+	if err = tx.Commit(); err != nil {
+		return fmt.Errorf("ingest: complete commit for job %s: %w", jobID, err)
+	}
+
+	q.untrackClaimed(jobID)
 	q.log.Info("ingest: job completed", "job_id", jobID, "brain_id", brainID)
 	return nil
 }
@@ -433,17 +493,69 @@ func (q *PostgresQueue) Fail(ctx context.Context, jobID string, errMsg string, r
 		return fmt.Errorf("ingest: fail update job %s: %w", jobID, err)
 	}
 
+	// Release the advisory lock within the transaction so it runs on
+	// the same connection that acquired it.
+	lockKey := advisoryLockKey(brainID)
+	_, _ = tx.ExecContext(ctx, "SELECT pg_advisory_unlock($1)", lockKey)
+
 	if err = tx.Commit(); err != nil {
 		return fmt.Errorf("ingest: fail commit for job %s: %w", jobID, err)
 	}
 
 	q.untrackClaimed(jobID)
-	q.tryAdvisoryUnlock(ctx, advisoryLockKey(brainID))
 
 	q.log.Info("ingest: job failed",
 		"job_id", jobID, "status", string(nextStatus),
 		"retry_count", newRetry, "retryable", canRetry)
 
+	return nil
+}
+
+// Requeue returns a claimed job to pending status without incrementing
+// the retry count. The advisory lock is released within the same
+// transaction to prevent stale locks on pooled connections.
+func (q *PostgresQueue) Requeue(ctx context.Context, jobID string) error {
+	if err := q.ensureOpen(); err != nil {
+		return err
+	}
+
+	tbl := q.qualifiedTable()
+
+	tx, err := q.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("ingest: begin tx for requeue: %w", err)
+	}
+	defer tx.Rollback() //nolint:errcheck
+
+	query := fmt.Sprintf(`
+		UPDATE %s
+		SET status = $1,
+			claimed_by = NULL,
+			claimed_at = NULL,
+			last_heartbeat = NULL,
+			updated_at = NOW()
+		WHERE id = $2 AND status = $3
+		RETURNING brain_id`, tbl)
+
+	var brainID string
+	err = tx.QueryRowContext(ctx, query,
+		string(StatusPending),
+		jobID,
+		string(StatusProcessing),
+	).Scan(&brainID)
+	if err != nil {
+		return fmt.Errorf("ingest: requeue job %s: %w", jobID, err)
+	}
+
+	lockKey := advisoryLockKey(brainID)
+	_, _ = tx.ExecContext(ctx, "SELECT pg_advisory_unlock($1)", lockKey)
+
+	if err = tx.Commit(); err != nil {
+		return fmt.Errorf("ingest: requeue commit for job %s: %w", jobID, err)
+	}
+
+	q.untrackClaimed(jobID)
+	q.log.Info("ingest: job requeued", "job_id", jobID, "brain_id", brainID)
 	return nil
 }
 
@@ -530,7 +642,8 @@ func (q *PostgresQueue) CountByStatus(ctx context.Context, brainID string) (map[
 	return counts, rows.Err()
 }
 
-// Close stops the heartbeat goroutine and releases resources.
+// Close stops the heartbeat goroutine, the listen goroutine (if active),
+// and releases resources.
 func (q *PostgresQueue) Close() error {
 	q.mu.Lock()
 	if q.closed {
@@ -584,31 +697,6 @@ func (q *PostgresQueue) claimedIDs() []string {
 	return ids
 }
 
-// heartbeatLoop periodically refreshes the heartbeat for all claimed
-// jobs until the adapter is closed.
-func (q *PostgresQueue) heartbeatLoop() {
-	defer q.activeWg.Done()
-	ticker := time.NewTicker(q.heartbeatInt)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-q.stopCh:
-			return
-		case <-ticker.C:
-			ids := q.claimedIDs()
-			for _, id := range ids {
-				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-				if err := q.Heartbeat(ctx, id); err != nil {
-					q.log.Warn("ingest: heartbeat refresh failed",
-						"job_id", id, "error", err.Error())
-				}
-				cancel()
-			}
-		}
-	}
-}
-
 // findByIdempotencyKey looks up an active job with the given key.
 func (q *PostgresQueue) findByIdempotencyKey(ctx context.Context, key string) (*Job, error) {
 	tbl := q.qualifiedTable()
@@ -632,155 +720,18 @@ func (q *PostgresQueue) findByIdempotencyKey(ctx context.Context, key string) (*
 	return &job, nil
 }
 
-// tryAdvisoryLock attempts to acquire a session-level advisory lock for
-// the given key. Non-blocking; returns silently on failure.
-func (q *PostgresQueue) tryAdvisoryLock(ctx context.Context, key int64) {
-	_, err := q.db.ExecContext(ctx, "SELECT pg_try_advisory_lock($1)", key)
+// tryBatchAdvisoryLock acquires advisory locks for multiple keys in a
+// single database round-trip using unnest. This reduces claim-path
+// latency from O(k) round-trips to O(1) where k is the batch size.
+func (q *PostgresQueue) tryBatchAdvisoryLock(ctx context.Context, keys []int64) {
+	if len(keys) == 0 {
+		return
+	}
+	_, err := q.db.ExecContext(ctx,
+		"SELECT pg_try_advisory_lock(k) FROM unnest($1::bigint[]) AS k",
+		pq64Array(keys))
 	if err != nil {
-		q.log.Debug("ingest: advisory lock acquisition failed", "key", key, "error", err.Error())
+		q.log.Debug("ingest: batch advisory lock acquisition failed", "count", len(keys), "error", err.Error())
 	}
 }
 
-// tryAdvisoryUnlock releases a session-level advisory lock.
-func (q *PostgresQueue) tryAdvisoryUnlock(ctx context.Context, key int64) {
-	_, err := q.db.ExecContext(ctx, "SELECT pg_advisory_unlock($1)", key)
-	if err != nil {
-		q.log.Debug("ingest: advisory lock release failed", "key", key, "error", err.Error())
-	}
-}
-
-// advisoryLockKey computes a stable int64 lock key from a brain ID
-// using FNV-1a hashing.
-func advisoryLockKey(brainID string) int64 {
-	h := fnv.New64a()
-	h.Write([]byte(brainID))
-	return int64(h.Sum64())
-}
-
-// computeBackoff calculates the next retry time using exponential
-// backoff with jitter: baseDelay * 2^retryCount * random(0.5, 1.5).
-func computeBackoff(retryCount int) time.Time {
-	multiplier := math.Pow(2, float64(retryCount))
-	jitter := backoffJitterMin + rand.Float64()*(backoffJitterMax-backoffJitterMin)
-	delay := time.Duration(float64(backoffBaseDelay) * multiplier * jitter)
-	return time.Now().Add(delay)
-}
-
-// validateIdentifier rejects SQL identifiers that contain characters
-// outside the safe set [a-zA-Z0-9_]. This is a path traversal defence
-// for schema and table name injection.
-func validateIdentifier(s string) error {
-	if s == "" {
-		return fmt.Errorf("identifier must not be empty")
-	}
-	for _, c := range s {
-		valid := (c >= 'a' && c <= 'z') ||
-			(c >= 'A' && c <= 'Z') ||
-			(c >= '0' && c <= '9') ||
-			c == '_'
-		if !valid {
-			return fmt.Errorf("identifier contains invalid character %q", c)
-		}
-	}
-	return nil
-}
-
-// nullableBytes returns nil when b is empty, otherwise returns b.
-// Used for optional JSONB columns.
-func nullableBytes(b []byte) *[]byte {
-	if len(b) == 0 {
-		return nil
-	}
-	return &b
-}
-
-// scanJob reads a single job row from a *sql.Row.
-type rowScanner interface {
-	Scan(dest ...any) error
-}
-
-func scanJob(row rowScanner) (Job, error) {
-	var j Job
-	var payloadJSON, metadataJSON []byte
-	var status string
-	var errStr, claimedBy, groupID, idempKey sql.NullString
-	var claimedAt, lastHB, nextRetry, completedAt sql.NullTime
-
-	err := row.Scan(
-		&j.ID,
-		&j.BrainID,
-		&status,
-		&payloadJSON,
-		&j.RetryCount,
-		&j.MaxRetries,
-		&errStr,
-		&claimedBy,
-		&claimedAt,
-		&lastHB,
-		&nextRetry,
-		&j.CreatedAt,
-		&j.UpdatedAt,
-		&completedAt,
-		&metadataJSON,
-		&groupID,
-		&idempKey,
-	)
-	if err != nil {
-		return Job{}, err
-	}
-
-	j.Status = JobStatus(status)
-	if errStr.Valid {
-		j.Error = errStr.String
-	}
-	if claimedBy.Valid {
-		j.ClaimedBy = claimedBy.String
-	}
-	if claimedAt.Valid {
-		t := claimedAt.Time
-		j.ClaimedAt = &t
-	}
-	if lastHB.Valid {
-		t := lastHB.Time
-		j.LastHeartbeat = &t
-	}
-	if nextRetry.Valid {
-		t := nextRetry.Time
-		j.NextRetryAt = &t
-	}
-	if completedAt.Valid {
-		t := completedAt.Time
-		j.CompletedAt = &t
-	}
-	if groupID.Valid {
-		j.GroupID = groupID.String
-	}
-	if idempKey.Valid {
-		j.IdempotencyKey = idempKey.String
-	}
-
-	if err := json.Unmarshal(payloadJSON, &j.Payload); err != nil {
-		return Job{}, fmt.Errorf("ingest: unmarshalling payload: %w", err)
-	}
-	if len(metadataJSON) > 0 {
-		j.Metadata = make(map[string]string)
-		if err := json.Unmarshal(metadataJSON, &j.Metadata); err != nil {
-			return Job{}, fmt.Errorf("ingest: unmarshalling metadata: %w", err)
-		}
-	}
-
-	return j, nil
-}
-
-// scanJobs reads multiple job rows from *sql.Rows.
-func scanJobs(rows *sql.Rows) ([]Job, error) {
-	var jobs []Job
-	for rows.Next() {
-		j, err := scanJob(rows)
-		if err != nil {
-			return nil, err
-		}
-		jobs = append(jobs, j)
-	}
-	return jobs, rows.Err()
-}
