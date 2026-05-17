@@ -3,21 +3,27 @@
 /**
  * Video extraction via FFmpeg + AudioExtractor delegation. Extracts the
  * audio track from a video file, transcribes it via faster-whisper, and
- * returns timestamped text. The video is never fully buffered in a JS
- * Buffer when streaming — the source is piped directly to FFmpeg via
- * stdin or read from a temp file.
+ * returns timestamped text. Implements the canonical Extractor interface
+ * from P1-5.
  */
 
 import { type ChildProcess, spawn } from 'node:child_process'
 import { createWriteStream } from 'node:fs'
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, rm, writeFile as fsWriteFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { Readable } from 'node:stream'
+import { Transform, type Readable } from 'node:stream'
+import { pipeline } from 'node:stream/promises'
 
 import type { AudioExtractor } from './audio.js'
-import { checkBinaryAvailable, runSubprocess } from './subprocess.js'
-import type { ExtractOptions, ExtractionResult, Extractor, ExtractorCapability } from './types.js'
+import {
+  extractKeyframes,
+  formatKeyframeText,
+  mergeKeyframeMetadata,
+  resolveKeyframeConfig,
+} from './keyframe.js'
+import { checkBinaryAvailable } from './subprocess.js'
+import type { ExtractOptions, ExtractResult, Extractor, ExtractorCapability } from './types.js'
 
 // ---- Configuration ----
 
@@ -29,6 +35,7 @@ export type VideoExtractorConfig = {
   readonly keyframeExtraction?: boolean
   readonly maxKeyframes?: number
   readonly audioExtractor: AudioExtractor
+  readonly ocrExtractor?: Extractor
 }
 
 export type VideoMetadata = {
@@ -76,6 +83,7 @@ type ResolvedConfig = {
   readonly keyframeExtraction: boolean
   readonly maxKeyframes: number
   readonly audioExtractor: AudioExtractor
+  readonly ocrExtractor?: Extractor
 }
 
 const resolveConfig = (cfg: VideoExtractorConfig): ResolvedConfig => ({
@@ -86,6 +94,7 @@ const resolveConfig = (cfg: VideoExtractorConfig): ResolvedConfig => ({
   keyframeExtraction: cfg.keyframeExtraction ?? false,
   maxKeyframes: cfg.maxKeyframes ?? DEFAULT_MAX_KEYFRAMES,
   audioExtractor: cfg.audioExtractor,
+  ocrExtractor: cfg.ocrExtractor,
 })
 
 // ---- Helpers ----
@@ -135,13 +144,18 @@ const buildVideoMetadata = (probe: FFprobeOutput): VideoMetadata => {
 
 const mergeMetadata = (
   video: VideoMetadata,
-  audio: Readonly<Record<string, unknown>>,
-): Record<string, unknown> => {
-  const merged: Record<string, unknown> = {}
+  audio: Readonly<Record<string, string>>,
+): Record<string, string> => {
+  const merged: Record<string, string> = {}
   for (const [k, v] of Object.entries(audio)) {
     merged[k] = v
   }
-  merged['video_info'] = video
+  merged['video_duration_seconds'] = String(video.duration_seconds.toFixed(2))
+  merged['video_has_audio'] = String(video.has_audio)
+  if (video.width !== undefined) merged['video_width'] = String(video.width)
+  if (video.height !== undefined) merged['video_height'] = String(video.height)
+  if (video.codec !== undefined) merged['video_codec'] = video.codec
+  if (video.frame_rate !== undefined) merged['video_frame_rate'] = video.frame_rate.toFixed(3)
   return merged
 }
 
@@ -158,10 +172,51 @@ const overrideTimeout = (): number | undefined => {
   return Number.isNaN(ms) ? undefined : ms
 }
 
+/** Collects all chunks from a Readable into a Buffer, respecting an optional byte limit. */
+const bufferStream = async (source: Readable, maxBytes?: number): Promise<Buffer> => {
+  const chunks: Buffer[] = []
+  let totalBytes = 0
+
+  for await (const chunk of source) {
+    const buf = Buffer.isBuffer(chunk)
+      ? chunk
+      : typeof chunk === 'string'
+        ? Buffer.from(chunk)
+        : chunk instanceof Uint8Array
+          ? Buffer.from(chunk)
+          : Buffer.from(String(chunk))
+    if (maxBytes !== undefined && maxBytes > 0) {
+      const remaining = maxBytes - totalBytes
+      if (remaining <= 0) break
+      chunks.push(buf.subarray(0, remaining))
+      totalBytes += Math.min(buf.length, remaining)
+      if (totalBytes >= maxBytes) break
+    } else {
+      chunks.push(buf)
+      totalBytes += buf.length
+    }
+  }
+
+  return Buffer.concat(chunks)
+}
+
+/** Video content types handled by this extractor. */
+const videoContentTypes: readonly string[] = [
+  'video/mp4',
+  'video/x-msvideo',
+  'video/x-matroska',
+  'video/quicktime',
+  'video/webm',
+  'video/x-ms-wmv',
+  'video/x-flv',
+]
+
 // ---- Video extractor ----
 
 export class VideoExtractor implements Extractor {
   readonly name = 'video-ffmpeg' as const
+
+  readonly contentTypes = videoContentTypes
 
   private readonly cfg: ResolvedConfig
 
@@ -169,18 +224,10 @@ export class VideoExtractor implements Extractor {
     this.cfg = resolveConfig(config)
   }
 
-  get capability(): ExtractorCapability {
+  capability(): ExtractorCapability {
     return {
-      extensions: new Set(['.mp4', '.avi', '.mkv', '.mov', '.webm', '.wmv', '.flv', '.m4v']),
-      mimeTypes: new Set([
-        'video/mp4',
-        'video/x-msvideo',
-        'video/x-matroska',
-        'video/quicktime',
-        'video/webm',
-        'video/x-ms-wmv',
-        'video/x-flv',
-      ]),
+      extensions: ['.mp4', '.avi', '.mkv', '.mov', '.webm', '.wmv', '.flv', '.m4v'],
+      mimeTypes: [...videoContentTypes],
       magicBytes: [
         { offset: 4, bytes: new Uint8Array([0x66, 0x74, 0x79, 0x70]) }, // MP4/MOV ftyp
         { offset: 0, bytes: new Uint8Array([0x1a, 0x45, 0xdf, 0xa3]) }, // MKV/WebM (EBML)
@@ -200,56 +247,36 @@ export class VideoExtractor implements Extractor {
   }
 
   /**
-   * Extract content from a video provided as a Buffer. For large
-   * files, prefer extractStream to avoid holding the entire video in
-   * memory.
+   * Extract content from a video provided as a Buffer.
    */
-  async extract(input: Buffer, opts: ExtractOptions): Promise<ExtractionResult> {
+  async extract(input: Buffer, opts: ExtractOptions): Promise<ExtractResult> {
     if (input.length > this.cfg.maxFileSizeBytes) {
       throw new Error(
-        `extract: video file size ${input.length} exceeds maximum ${this.cfg.maxFileSizeBytes} bytes`,
+        `ingest: video file size ${input.length} exceeds maximum ${this.cfg.maxFileSizeBytes} bytes`,
       )
     }
     return this.extractFromBuffer(input, opts)
   }
 
   /**
-   * Extract content from a video stream without buffering the full
-   * file in a JS Buffer. The stream is written to a temp file (for
-   * FFprobe compatibility) with a size limit enforced during the copy.
+   * Extract content from a video stream by buffering into extract().
    */
   async extractStream(
-    input: Readable,
-    sizeBound: number | undefined,
+    source: Readable,
     opts: ExtractOptions,
-  ): Promise<ExtractionResult> {
-    if (sizeBound !== undefined && sizeBound > this.cfg.maxFileSizeBytes) {
-      throw new Error(
-        `extract: video file size ${sizeBound} exceeds maximum ${this.cfg.maxFileSizeBytes} bytes`,
-      )
-    }
-    return this.extractFromStream(input, opts)
+  ): Promise<ExtractResult> {
+    const raw = await bufferStream(source, opts.maxBytes)
+    return this.extract(raw, opts)
   }
 
   // ---- Private implementation ----
 
-  private async extractFromBuffer(input: Buffer, opts: ExtractOptions): Promise<ExtractionResult> {
+  private async extractFromBuffer(input: Buffer, opts: ExtractOptions): Promise<ExtractResult> {
     const tmpDir = await mkdtemp(join(tmpdir(), 'memory-video-'))
     try {
       const tmpVideoPath = join(tmpDir, 'input.video')
-      await writeFile(tmpVideoPath, input)
-      return this.processVideoFile(tmpVideoPath, input.length, opts)
-    } finally {
-      await rm(tmpDir, { recursive: true, force: true }).catch(() => {})
-    }
-  }
-
-  private async extractFromStream(input: Readable, opts: ExtractOptions): Promise<ExtractionResult> {
-    const tmpDir = await mkdtemp(join(tmpdir(), 'memory-video-'))
-    try {
-      const tmpVideoPath = join(tmpDir, 'input.video')
-      const written = await writeStreamToFile(tmpVideoPath, input, this.cfg.maxFileSizeBytes)
-      return this.processVideoFile(tmpVideoPath, written, opts)
+      await fsWriteFile(tmpVideoPath, input, { mode: 0o600 })
+      return this.processVideoFile(tmpVideoPath, tmpDir, input.length, opts)
     } finally {
       await rm(tmpDir, { recursive: true, force: true }).catch(() => {})
     }
@@ -257,41 +284,90 @@ export class VideoExtractor implements Extractor {
 
   private async processVideoFile(
     videoPath: string,
+    tmpDir: string,
     sourceBytes: number,
     opts: ExtractOptions,
-  ): Promise<ExtractionResult> {
+  ): Promise<ExtractResult> {
     // Probe metadata.
     const videoMeta = await this.probeMetadata(videoPath, opts.signal)
 
     if (!videoMeta.has_audio) {
       return {
-        content: 'Video contains no audio track.',
-        mime: 'text/plain',
-        metadata: { video_info: videoMeta },
+        text: 'Video contains no audio track.',
+        contentType: 'text/plain',
+        encoding: 'UTF-8',
+        metadata: {
+          video_duration_seconds: String(videoMeta.duration_seconds.toFixed(2)),
+          video_has_audio: 'false',
+          ...(videoMeta.width !== undefined ? { video_width: String(videoMeta.width) } : {}),
+          ...(videoMeta.height !== undefined ? { video_height: String(videoMeta.height) } : {}),
+          ...(videoMeta.codec !== undefined ? { video_codec: videoMeta.codec } : {}),
+        },
+        pages: 0,
+        language: '',
+        confidence: 0,
+        skipped: false,
       }
     }
 
-    // Extract audio via FFmpeg.
-    const wavData = await this.extractAudioTrack(videoPath, videoMeta.duration_seconds, opts.signal)
+    // Extract audio via FFmpeg to a temp WAV file instead of buffering
+    // the entire WAV payload in memory (~230 MB for a 2-hour video).
+    const wavPath = await this.extractAudioToFile(videoPath, tmpDir, videoMeta.duration_seconds, opts.signal)
+
+    // Read the WAV file for the AudioExtractor.
+    const { readFile } = await import('node:fs/promises')
+    const wavData = await readFile(wavPath)
 
     // Delegate transcription to AudioExtractor.
-    const audioResult = await this.cfg.audioExtractor.extractFromBuffer(Buffer.from(wavData), opts)
+    const audioOpts: ExtractOptions = {
+      contentType: 'audio/wav',
+      fileName: 'extracted.wav',
+      ...(opts.language !== undefined ? { language: opts.language } : {}),
+    }
+    const audioResult = await this.cfg.audioExtractor.extract(wavData, audioOpts)
 
     const metadata = mergeMetadata(videoMeta, audioResult.metadata)
-    metadata['source_bytes'] = sourceBytes
+    metadata['source_bytes'] = String(sourceBytes)
+
+    let resultText = audioResult.text
+
+    if (this.cfg.keyframeExtraction) {
+      const kfCfg = resolveKeyframeConfig({
+        ffmpegBinary: this.cfg.ffmpegBinary,
+        maxKeyframes: this.cfg.maxKeyframes,
+        ocrExtractor: this.cfg.ocrExtractor,
+        timeout: this.cfg.extractionTimeout,
+      })
+
+      try {
+        const keyframes = await extractKeyframes(videoPath, tmpDir, kfCfg, opts.signal)
+        const kfText = formatKeyframeText(keyframes)
+        if (kfText.length > 0) {
+          resultText += kfText
+        }
+        mergeKeyframeMetadata(metadata, keyframes)
+      } catch (kfErr: unknown) {
+        metadata['keyframe_error'] =
+          kfErr instanceof Error ? kfErr.message : String(kfErr)
+      }
+    }
 
     return {
-      content: audioResult.content,
-      mime: 'text/plain',
+      text: resultText,
+      contentType: 'text/plain',
+      encoding: 'UTF-8',
       metadata,
-      ...(audioResult.language !== undefined ? { language: audioResult.language } : {}),
-      ...(audioResult.confidence !== undefined ? { confidence: audioResult.confidence } : {}),
+      pages: 0,
+      language: audioResult.language,
+      confidence: audioResult.confidence,
+      skipped: false,
     }
   }
 
   private async probeMetadata(videoPath: string, signal?: AbortSignal): Promise<VideoMetadata> {
     const timeout = overrideTimeout() ?? FFPROBE_TIMEOUT
 
+    const { runSubprocess } = await import('./subprocess.js')
     const result = await runSubprocess(
       this.cfg.ffprobeBinary,
       ['-v', 'quiet', '-print_format', 'json', '-show_format', '-show_streams', videoPath],
@@ -300,44 +376,46 @@ export class VideoExtractor implements Extractor {
     )
 
     if (result.exitCode !== 0) {
-      throw new Error(`extract: ffprobe failed (exit ${result.exitCode}): ${result.stderr}`)
+      throw new Error(`ingest: ffprobe failed (exit ${result.exitCode}): ${result.stderr}`)
     }
 
     const probe = JSON.parse(result.stdout.toString('utf8')) as FFprobeOutput
     return buildVideoMetadata(probe)
   }
 
-  private async extractAudioTrack(
+  /**
+   * Extracts the audio track to a temp WAV file instead of buffering
+   * the entire WAV payload in memory. For a 2-hour video, the WAV data
+   * can be ~230 MB; writing to disk avoids that allocation.
+   */
+  private async extractAudioToFile(
     videoPath: string,
+    tmpDir: string,
     durationSeconds: number,
     signal?: AbortSignal,
-  ): Promise<Buffer> {
+  ): Promise<string> {
     const timeout = computeExtractionTimeout(durationSeconds, this.cfg.extractionTimeout)
+    const wavPath = join(tmpDir, 'extracted.wav')
 
-    return new Promise<Buffer>((resolve, reject) => {
+    return new Promise<string>((resolve, reject) => {
       const ffmpeg: ChildProcess = spawn(
         this.cfg.ffmpegBinary,
-        ['-i', videoPath, '-vn', '-acodec', 'pcm_s16le', '-ar', '16000', '-ac', '1', '-f', 'wav', 'pipe:1'],
-        { stdio: ['ignore', 'pipe', 'pipe'] },
+        ['-i', videoPath, '-vn', '-acodec', 'pcm_s16le', '-ar', '16000', '-ac', '1', '-y', wavPath],
+        { stdio: ['ignore', 'ignore', 'pipe'] },
       )
 
-      const chunks: Buffer[] = []
       let stderrText = ''
 
       const timer = setTimeout(() => {
         ffmpeg.kill('SIGKILL')
-        reject(new Error(`extract: ffmpeg audio extraction timed out after ${timeout}ms`))
+        reject(new Error(`ingest: ffmpeg audio extraction timed out after ${timeout}ms`))
       }, timeout)
 
       const onSignalAbort = (): void => {
         ffmpeg.kill('SIGKILL')
-        reject(new Error('extract: ffmpeg audio extraction aborted'))
+        reject(new Error('ingest: ffmpeg audio extraction aborted'))
       }
       signal?.addEventListener('abort', onSignalAbort, { once: true })
-
-      ffmpeg.stdout?.on('data', (chunk: Buffer) => {
-        chunks.push(chunk)
-      })
 
       ffmpeg.stderr?.on('data', (chunk: Buffer) => {
         stderrText += chunk.toString('utf8')
@@ -346,17 +424,17 @@ export class VideoExtractor implements Extractor {
       ffmpeg.on('error', (err: Error) => {
         clearTimeout(timer)
         signal?.removeEventListener('abort', onSignalAbort)
-        reject(new Error(`extract: ffmpeg failed: ${err.message}`))
+        reject(new Error(`ingest: ffmpeg failed: ${err.message}`))
       })
 
       ffmpeg.on('close', (code: number | null) => {
         clearTimeout(timer)
         signal?.removeEventListener('abort', onSignalAbort)
         if (code !== 0) {
-          reject(new Error(`extract: ffmpeg exited ${code}: ${stderrText}`))
+          reject(new Error(`ingest: ffmpeg exited ${code}: ${stderrText}`))
           return
         }
-        resolve(Buffer.concat(chunks))
+        resolve(wavPath)
       })
     })
   }
@@ -368,35 +446,24 @@ export class VideoExtractor implements Extractor {
  * Write a Readable stream to a file, enforcing a maximum size limit.
  * Returns the number of bytes written.
  */
-const writeStreamToFile = (filePath: string, input: Readable, maxSize: number): Promise<number> =>
-  new Promise<number>((resolve, reject) => {
-    const out = createWriteStream(filePath)
-    let written = 0
+const writeStreamToFile = async (filePath: string, input: Readable, maxSize: number): Promise<number> => {
+  const out = createWriteStream(filePath, { mode: 0o600 })
+  let written = 0
 
-    input.on('data', (chunk: Buffer) => {
+  const sizeEnforcer = new Transform({
+    transform(chunk: Buffer, _encoding, callback) {
       written += chunk.length
       if (written > maxSize) {
-        input.destroy()
-        out.destroy()
-        reject(new Error(`extract: video stream exceeds maximum ${maxSize} bytes`))
+        callback(new Error(`ingest: video stream exceeds maximum ${maxSize} bytes`))
         return
       }
-      out.write(chunk)
-    })
-
-    input.on('end', () => {
-      out.end(() => resolve(written))
-    })
-
-    input.on('error', (err: Error) => {
-      out.destroy()
-      reject(new Error(`extract: reading video stream: ${err.message}`))
-    })
-
-    out.on('error', (err: Error) => {
-      reject(new Error(`extract: writing video file: ${err.message}`))
-    })
+      callback(null, chunk)
+    },
   })
+
+  await pipeline(input, sizeEnforcer, out)
+  return written
+}
 
 // ---- Exported for testing ----
 

@@ -5,7 +5,7 @@
  */
 
 export type {
-  ExtractionResult,
+  ExtractResult,
   Extractor,
   ExtractOptions,
   ExtractorCapability,
@@ -23,5 +23,15 @@ export {
   type VideoExtractorConfig,
   type VideoMetadata,
 } from './video.js'
+
+export {
+  extractKeyframes,
+  formatKeyframeText,
+  formatKeyframeTimestamp,
+  mergeKeyframeMetadata,
+  resolveKeyframeConfig,
+  type KeyframeConfig,
+  type KeyframeResult,
+} from './keyframe.js'
 
 export { checkBinaryAvailable, runSubprocess, resetBinaryCache } from './subprocess.js'
