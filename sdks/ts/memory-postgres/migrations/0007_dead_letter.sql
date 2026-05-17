@@ -10,6 +10,7 @@ CREATE TABLE IF NOT EXISTS memory.ingest_dead_letter (
   payload         JSONB NOT NULL,
   failure_reason  TEXT NOT NULL,
   last_error      TEXT,
+  error_history   JSONB,
   retry_count     INTEGER NOT NULL DEFAULT 0,
   metadata        JSONB,
   group_id        TEXT,

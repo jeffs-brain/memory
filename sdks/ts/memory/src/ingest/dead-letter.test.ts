@@ -13,6 +13,7 @@ import {
   DeadLetterAlreadyResolvedError,
   type DeadLetterAdapter,
   type DeadLetterEntry,
+  type ReEnqueueFn,
 } from './dead-letter.js'
 
 const makeEntry = (overrides: Partial<DeadLetterEntry> = {}): DeadLetterEntry => ({
@@ -194,6 +195,41 @@ describe('InMemoryDeadLetterAdapter', () => {
       await expect(adapter.retry('dlq-001', 'operator-2'))
         .rejects.toThrow(DeadLetterAlreadyResolvedError)
     })
+
+    it('calls reEnqueue callback with resolved entry', async () => {
+      await adapter.move(makeEntry())
+
+      let enqueuedEntry: DeadLetterEntry | undefined
+      const reEnqueue: ReEnqueueFn = async (entry) => {
+        enqueuedEntry = entry
+      }
+
+      const resolved = await adapter.retry('dlq-001', 'operator', reEnqueue)
+      expect(resolved.resolvedAt).toBeDefined()
+      expect(enqueuedEntry).toBeDefined()
+      expect(enqueuedEntry?.id).toBe('dlq-001')
+      expect(enqueuedEntry?.payload.documentHash).toBe(makeEntry().payload.documentHash)
+    })
+
+    it('does not resolve entry when reEnqueue throws', async () => {
+      await adapter.move(makeEntry())
+
+      const failingReEnqueue: ReEnqueueFn = async () => {
+        throw new Error('queue is full')
+      }
+
+      await expect(adapter.retry('dlq-001', 'operator', failingReEnqueue))
+        .rejects.toThrow('queue is full')
+
+      const got = await adapter.get('dlq-001')
+      expect(got?.resolvedAt).toBeUndefined()
+    })
+
+    it('defaults resolvedBy to system when omitted', async () => {
+      await adapter.move(makeEntry())
+      const resolved = await adapter.retry('dlq-001')
+      expect(resolved.resolvedBy).toBe('system')
+    })
   })
 
   describe('purge', () => {
@@ -301,6 +337,30 @@ describe('InMemoryDeadLetterAdapter', () => {
       expect(got?.metadata?.source).toBe('webhook')
       expect(got?.metadata?.requestId).toBe('req-12345')
       expect(got?.groupId).toBe('batch-001')
+    })
+  })
+
+  describe('error history', () => {
+    it('preserves error history array', async () => {
+      await adapter.move(makeEntry({
+        errorHistory: [
+          'attempt 1: connection refused',
+          'attempt 2: timeout after 30s',
+          'attempt 3: context deadline exceeded',
+        ],
+      }))
+
+      const got = await adapter.get('dlq-001')
+      expect(got?.errorHistory).toHaveLength(3)
+      expect(got?.errorHistory?.[0]).toBe('attempt 1: connection refused')
+      expect(got?.errorHistory?.[2]).toBe('attempt 3: context deadline exceeded')
+    })
+
+    it('round-trips entries without error history', async () => {
+      await adapter.move(makeEntry())
+
+      const got = await adapter.get('dlq-001')
+      expect(got?.errorHistory).toBeUndefined()
     })
   })
 })
