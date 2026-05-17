@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -688,16 +689,22 @@ func TestNotionConnector_CursorUpdatedAfterSync(t *testing.T) {
 }
 
 func TestNotionConnector_RateLimit429Handling(t *testing.T) {
-	pageResp := `{
-		"id": "page-rl", "url": "https://notion.so/page-rl",
-		"last_edited_time": "2026-05-10T14:00:00.000Z",
-		"properties": {"Title": {"type": "title", "title": [{"plain_text": "RL Page"}]}},
-		"parent": {"type": "workspace"}
-	}`
+	// Provide enough 429 responses to exhaust all retries
+	// (notionMaxRetryAttempts + 1 = 6).
+	rateLimitResp := mockResponse{
+		statusCode: 429,
+		body:       `{"message": "rate limited"}`,
+		headers:    http.Header{"Retry-After": []string{"0"}},
+	}
 
 	mock := &mockHTTPClient{
 		responses: []mockResponse{
-			{statusCode: 429, body: `{"message": "rate limited"}`, headers: http.Header{"Retry-After": []string{"1"}}},
+			rateLimitResp,
+			rateLimitResp,
+			rateLimitResp,
+			rateLimitResp,
+			rateLimitResp,
+			rateLimitResp,
 		},
 	}
 
@@ -707,8 +714,8 @@ func TestNotionConnector_RateLimit429Handling(t *testing.T) {
 	docsCh, errsCh := conn.FetchAll(context.Background())
 	_, errs := collectDocs(docsCh, errsCh)
 
-	// The connector should report a rate limit error.
-	_ = pageResp // Used for documentation; the mock returns 429 first.
+	// The connector should report a rate limit error after exhausting
+	// retries.
 	hasRateLimitErr := false
 	for _, err := range errs {
 		if strings.Contains(err.Error(), "429") || strings.Contains(err.Error(), "rate limited") {
@@ -1102,6 +1109,300 @@ func TestNotionConnector_ContextCancellation(t *testing.T) {
 	// Just verify it doesn't hang.
 }
 
+func TestNotionConnector_NestedBlockChildrenRendering(t *testing.T) {
+	pageResp := `{
+		"id": "nested-page",
+		"url": "https://notion.so/nested-page",
+		"last_edited_time": "2026-05-10T14:00:00.000Z",
+		"properties": {
+			"Title": {"type": "title", "title": [{"plain_text": "Nested"}]}
+		},
+		"parent": {"type": "workspace"}
+	}`
+	// Parent list item with has_children=true.
+	blocksResp := `{
+		"results": [
+			{
+				"id": "parent-list",
+				"type": "bulleted_list_item",
+				"has_children": true,
+				"bulleted_list_item": {
+					"rich_text": [{"type": "text", "plain_text": "Parent item"}]
+				}
+			}
+		],
+		"has_more": false
+	}`
+	// Child blocks of the parent list item.
+	childBlocksResp := `{
+		"results": [
+			{
+				"id": "child-para",
+				"type": "paragraph",
+				"has_children": false,
+				"paragraph": {
+					"rich_text": [{"type": "text", "plain_text": "Nested paragraph"}]
+				}
+			},
+			{
+				"id": "child-list",
+				"type": "bulleted_list_item",
+				"has_children": false,
+				"bulleted_list_item": {
+					"rich_text": [{"type": "text", "plain_text": "Nested list item"}]
+				}
+			}
+		],
+		"has_more": false
+	}`
+	// No children for the page.
+	pageChildBlocks := `{"results": [], "has_more": false}`
+
+	mock := &mockHTTPClient{
+		responses: []mockResponse{
+			{statusCode: 200, body: pageResp},
+			{statusCode: 404, body: `{"message": "not found"}`},
+			{statusCode: 200, body: blocksResp},
+			{statusCode: 200, body: childBlocksResp},
+			{statusCode: 200, body: pageChildBlocks},
+		},
+	}
+
+	conn := newTestConnector(mock)
+	conn.config.RootPageIDs = []string{"nested-page"}
+	conn.config.IncludeChildPages = true
+
+	docsCh, errsCh := conn.FetchAll(context.Background())
+	docs, errs := collectDocs(docsCh, errsCh)
+
+	if len(errs) > 0 {
+		t.Fatalf("unexpected errors: %v", errs)
+	}
+	if len(docs) != 1 {
+		t.Fatalf("expected 1 document, got %d", len(docs))
+	}
+
+	content := string(docs[0].Content)
+	if !strings.Contains(content, "- Parent item") {
+		t.Errorf("expected parent list item, got %q", content)
+	}
+	// Child content of a list block should be indented with two spaces.
+	if !strings.Contains(content, "  Nested paragraph") {
+		t.Errorf("expected indented nested paragraph, got %q", content)
+	}
+	if !strings.Contains(content, "  - Nested list item") {
+		t.Errorf("expected indented nested list item, got %q", content)
+	}
+}
+
+func TestNotionConnector_SyncedBlockRendering(t *testing.T) {
+	pageResp := `{
+		"id": "sync-page",
+		"url": "https://notion.so/sync-page",
+		"last_edited_time": "2026-05-10T14:00:00.000Z",
+		"properties": {
+			"Title": {"type": "title", "title": [{"plain_text": "Synced"}]}
+		},
+		"parent": {"type": "workspace"}
+	}`
+	blocksResp := `{
+		"results": [
+			{
+				"id": "synced-1",
+				"type": "synced_block",
+				"has_children": false,
+				"synced_block": {
+					"synced_from": {"block_id": "original-block-123"}
+				}
+			},
+			{
+				"id": "para-1",
+				"type": "paragraph",
+				"has_children": false,
+				"paragraph": {
+					"rich_text": [{"type": "text", "plain_text": "After synced block"}]
+				}
+			}
+		],
+		"has_more": false
+	}`
+	childBlocks := `{"results": [], "has_more": false}`
+
+	mock := &mockHTTPClient{
+		responses: []mockResponse{
+			{statusCode: 200, body: pageResp},
+			{statusCode: 404, body: `{"message": "not found"}`},
+			{statusCode: 200, body: blocksResp},
+			{statusCode: 200, body: childBlocks},
+		},
+	}
+
+	conn := newTestConnector(mock)
+	conn.config.RootPageIDs = []string{"sync-page"}
+	conn.config.IncludeChildPages = true
+
+	docsCh, errsCh := conn.FetchAll(context.Background())
+	docs, errs := collectDocs(docsCh, errsCh)
+
+	if len(errs) > 0 {
+		t.Fatalf("unexpected errors: %v", errs)
+	}
+	if len(docs) != 1 {
+		t.Fatalf("expected 1 document, got %d", len(docs))
+	}
+
+	content := string(docs[0].Content)
+	// synced_block renders as empty; only the paragraph should appear.
+	if !strings.Contains(content, "After synced block") {
+		t.Errorf("expected paragraph after synced block, got %q", content)
+	}
+	// The synced_from reference should not appear in output.
+	if strings.Contains(content, "original-block-123") {
+		t.Errorf("synced_from reference should not leak into content: %q", content)
+	}
+}
+
+func TestNotionConnector_EquationBlockRendering(t *testing.T) {
+	conn := newTestConnector(nil)
+
+	block := makeBlock("equation", `{"expression": "E = mc^2"}`)
+	result := conn.blockToMarkdown(block)
+
+	expected := "$$\nE = mc^2\n$$\n"
+	if result != expected {
+		t.Errorf("expected %q, got %q", expected, result)
+	}
+}
+
+func TestNotionConnector_ImageBlockRendering(t *testing.T) {
+	conn := newTestConnector(nil)
+
+	// Image with caption.
+	block := makeBlock("image", `{
+		"caption": [{"type": "text", "plain_text": "My photo"}],
+		"file": {"url": "https://example.com/photo.png"}
+	}`)
+	result := conn.blockToMarkdown(block)
+	expected := "![My photo](https://example.com/photo.png)\n"
+	if result != expected {
+		t.Errorf("expected %q, got %q", expected, result)
+	}
+
+	// Image without caption.
+	block2 := makeBlock("image", `{
+		"caption": [],
+		"external": {"url": "https://example.com/ext.jpg"}
+	}`)
+	result2 := conn.blockToMarkdown(block2)
+	expected2 := "![](https://example.com/ext.jpg)\n"
+	if result2 != expected2 {
+		t.Errorf("expected %q, got %q", expected2, result2)
+	}
+}
+
+func TestNotionConnector_FileBlockRendering(t *testing.T) {
+	conn := newTestConnector(nil)
+
+	block := makeBlock("file", `{
+		"caption": [{"type": "text", "plain_text": "Document"}],
+		"file": {"url": "https://example.com/doc.pdf"}
+	}`)
+	result := conn.blockToMarkdown(block)
+	expected := "[Document](https://example.com/doc.pdf)\n"
+	if result != expected {
+		t.Errorf("expected %q, got %q", expected, result)
+	}
+}
+
+func TestNotionConnector_BlockTypeFilter(t *testing.T) {
+	conn := newTestConnector(nil)
+	conn.config.BlockTypeFilter = map[string]struct{}{
+		"heading_1": {},
+	}
+
+	// heading_1 is allowed.
+	h1Block := makeBlock("heading_1", `{
+		"rich_text": [{"type": "text", "plain_text": "Allowed Heading"}]
+	}`)
+	result := conn.blockToMarkdown(h1Block)
+	if result != "# Allowed Heading\n" {
+		t.Errorf("expected heading, got %q", result)
+	}
+
+	// paragraph is not in the filter, should be excluded.
+	paraBlock := makeBlock("paragraph", `{
+		"rich_text": [{"type": "text", "plain_text": "Filtered out"}]
+	}`)
+	result2 := conn.blockToMarkdown(paraBlock)
+	if result2 != "" {
+		t.Errorf("expected empty for filtered block, got %q", result2)
+	}
+}
+
+func TestNotionConnector_RetryAfterHandling(t *testing.T) {
+	pageResp := `{
+		"id": "retry-page",
+		"url": "https://notion.so/retry-page",
+		"last_edited_time": "2026-05-10T14:00:00.000Z",
+		"properties": {
+			"Title": {"type": "title", "title": [{"plain_text": "Retry"}]}
+		},
+		"parent": {"type": "workspace"}
+	}`
+	md := `{"markdown": "retried content"}`
+	childBlocks := `{"results": [], "has_more": false}`
+
+	mock := &mockHTTPClient{
+		responses: []mockResponse{
+			// First call returns 429 with Retry-After header.
+			{
+				statusCode: 429,
+				body:       `{"message": "rate limited"}`,
+				headers:    http.Header{"Retry-After": []string{"1"}},
+			},
+			// Retry succeeds.
+			{statusCode: 200, body: pageResp},
+			{statusCode: 200, body: md},
+			{statusCode: 200, body: childBlocks},
+		},
+	}
+
+	conn := newTestConnector(mock)
+	conn.config.RootPageIDs = []string{"retry-page"}
+	conn.config.IncludeChildPages = true
+
+	docsCh, errsCh := conn.FetchAll(context.Background())
+	docs, errs := collectDocs(docsCh, errsCh)
+
+	if len(errs) > 0 {
+		t.Fatalf("unexpected errors: %v", errs)
+	}
+	if len(docs) != 1 {
+		t.Fatalf("expected 1 document after retry, got %d", len(docs))
+	}
+	if docs[0].Title != "Retry" {
+		t.Errorf("expected title 'Retry', got %q", docs[0].Title)
+	}
+	content := string(docs[0].Content)
+	if !strings.Contains(content, "retried content") {
+		t.Errorf("expected retried content, got %q", content)
+	}
+}
+
+func TestNotionConnector_DefaultRateLimiter(t *testing.T) {
+	// Verify that a connector created without a rate limiter in deps
+	// gets a default one.
+	deps := ConnectorConfig{
+		Name:    "notion",
+		BrainID: "test-brain",
+		// No RateLimiter set.
+	}
+	conn := NewNotionConnector(deps, nil)
+	if conn.rateLimiter == nil {
+		t.Fatal("expected default rate limiter to be created")
+	}
+}
+
 // makeBlock constructs a notionBlock with RawData for testing.
 func makeBlock(blockType, blockDataJSON string) notionBlock {
 	raw := map[string]json.RawMessage{
@@ -1167,4 +1468,245 @@ func (t *capturingTransport) RoundTrip(req *http.Request) (*http.Response, error
 		t.captureReq(req)
 	}
 	return t.response, nil
+}
+
+// mockNotionTokenExchanger implements NotionTokenExchanger for testing.
+type mockNotionTokenExchanger struct {
+	refreshFn func(ctx context.Context, refreshToken string) (NotionRefreshedToken, error)
+}
+
+func (m *mockNotionTokenExchanger) Refresh(ctx context.Context, refreshToken string) (NotionRefreshedToken, error) {
+	return m.refreshFn(ctx, refreshToken)
+}
+
+func TestNotionConnector_TokenRefreshOnExpiry(t *testing.T) {
+	refreshCalled := false
+	exchanger := &mockNotionTokenExchanger{
+		refreshFn: func(_ context.Context, rt string) (NotionRefreshedToken, error) {
+			refreshCalled = true
+			if rt != "test-refresh-token" {
+				t.Errorf("unexpected refresh token: %s", rt)
+			}
+			return NotionRefreshedToken{
+				AccessToken:  "refreshed-notion-token",
+				RefreshToken: "test-refresh-token",
+				ExpiresAt:    time.Now().Add(time.Hour),
+			}, nil
+		},
+	}
+
+	pageResp := `{
+		"id": "page-1",
+		"url": "https://notion.so/page-1",
+		"last_edited_time": "2026-05-10T14:00:00.000Z",
+		"properties": {
+			"Title": {"type": "title", "title": [{"plain_text": "Refreshed Page"}]}
+		},
+		"parent": {"type": "workspace"}
+	}`
+	md := `{"markdown": "content after refresh"}`
+	childBlocks := `{"results": [], "has_more": false}`
+
+	mock := &mockHTTPClient{
+		responses: []mockResponse{
+			{statusCode: 200, body: pageResp},
+			{statusCode: 200, body: md},
+			{statusCode: 200, body: childBlocks},
+		},
+	}
+
+	deps := ConnectorConfig{
+		Name:    "notion",
+		BrainID: "test-brain",
+	}
+	conn := NewNotionConnector(deps, mock)
+	err := conn.Configure(map[string]any{
+		"apiToken":           "expired-token",
+		"rootPageIds":        []any{"page-1"},
+		"oauth2_client_id":   "client-id",
+		"oauth2_client_secret": "client-secret",
+		"refresh_token":      "test-refresh-token",
+		"token_expires_at":   time.Now().Add(-time.Hour).Format(time.RFC3339),
+		"token_exchanger":    exchanger,
+	})
+	if err != nil {
+		t.Fatalf("Configure() failed: %v", err)
+	}
+
+	docsCh, errsCh := conn.FetchAll(context.Background())
+	docs, errs := collectDocs(docsCh, errsCh)
+
+	if len(errs) > 0 {
+		t.Fatalf("unexpected errors: %v", errs)
+	}
+	if len(docs) != 1 {
+		t.Fatalf("expected 1 document, got %d", len(docs))
+	}
+	if !refreshCalled {
+		t.Error("expected token refresh to be called for expired token")
+	}
+}
+
+func TestNotionConnector_TokenRefreshFailurePropagates(t *testing.T) {
+	exchanger := &mockNotionTokenExchanger{
+		refreshFn: func(_ context.Context, _ string) (NotionRefreshedToken, error) {
+			return NotionRefreshedToken{}, fmt.Errorf("invalid_grant: token revoked")
+		},
+	}
+
+	mock := &mockHTTPClient{
+		responses: []mockResponse{},
+	}
+
+	deps := ConnectorConfig{
+		Name:    "notion",
+		BrainID: "test-brain",
+	}
+	conn := NewNotionConnector(deps, mock)
+	err := conn.Configure(map[string]any{
+		"apiToken":             "expired-token",
+		"rootPageIds":          []any{"page-1"},
+		"oauth2_client_id":    "client-id",
+		"oauth2_client_secret": "client-secret",
+		"refresh_token":        "revoked-token",
+		"token_expires_at":     time.Now().Add(-time.Hour).Format(time.RFC3339),
+		"token_exchanger":      exchanger,
+	})
+	if err != nil {
+		t.Fatalf("Configure() failed: %v", err)
+	}
+
+	docsCh, errsCh := conn.FetchAll(context.Background())
+	_, errs := collectDocs(docsCh, errsCh)
+
+	if len(errs) == 0 {
+		t.Fatal("expected error when token refresh fails")
+	}
+
+	hasRefreshErr := false
+	for _, e := range errs {
+		if strings.Contains(e.Error(), "token refresh failed") {
+			hasRefreshErr = true
+			break
+		}
+	}
+	if !hasRefreshErr {
+		t.Errorf("expected token refresh error, got: %v", errs)
+	}
+}
+
+func TestNotionConnector_NoRefreshForIntegrationToken(t *testing.T) {
+	// Internal integration tokens do not have OAuth2 config or
+	// refresh tokens, so no refresh should happen.
+	pageResp := `{
+		"id": "page-int",
+		"url": "https://notion.so/page-int",
+		"last_edited_time": "2026-05-10T14:00:00.000Z",
+		"properties": {
+			"Title": {"type": "title", "title": [{"plain_text": "Int Token Page"}]}
+		},
+		"parent": {"type": "workspace"}
+	}`
+	md := `{"markdown": "internal token content"}`
+	childBlocks := `{"results": [], "has_more": false}`
+
+	mock := &mockHTTPClient{
+		responses: []mockResponse{
+			{statusCode: 200, body: pageResp},
+			{statusCode: 200, body: md},
+			{statusCode: 200, body: childBlocks},
+		},
+	}
+
+	conn := newTestConnector(mock)
+	conn.config.RootPageIDs = []string{"page-int"}
+
+	docsCh, errsCh := conn.FetchAll(context.Background())
+	docs, errs := collectDocs(docsCh, errsCh)
+
+	if len(errs) > 0 {
+		t.Fatalf("unexpected errors: %v", errs)
+	}
+	if len(docs) != 1 {
+		t.Fatalf("expected 1 document, got %d", len(docs))
+	}
+}
+
+func TestNotionConnector_RefreshWithinBuffer(t *testing.T) {
+	refreshCalled := false
+	exchanger := &mockNotionTokenExchanger{
+		refreshFn: func(_ context.Context, _ string) (NotionRefreshedToken, error) {
+			refreshCalled = true
+			return NotionRefreshedToken{
+				AccessToken:  "refreshed-token",
+				RefreshToken: "test-refresh-token",
+				ExpiresAt:    time.Now().Add(time.Hour),
+			}, nil
+		},
+	}
+
+	mock := &mockHTTPClient{
+		responses: []mockResponse{
+			{statusCode: 200, body: `{
+				"id": "page-buf",
+				"url": "https://notion.so/page-buf",
+				"last_edited_time": "2026-05-10T14:00:00.000Z",
+				"properties": {"Title": {"type": "title", "title": [{"plain_text": "Buffer"}]}},
+				"parent": {"type": "workspace"}
+			}`},
+			{statusCode: 200, body: `{"markdown": "content"}`},
+			{statusCode: 200, body: `{"results": [], "has_more": false}`},
+		},
+	}
+
+	deps := ConnectorConfig{Name: "notion", BrainID: "test-brain"}
+	conn := NewNotionConnector(deps, mock)
+	// Token expires in 3 minutes -- within the 5-minute buffer.
+	err := conn.Configure(map[string]any{
+		"apiToken":             "expiring-token",
+		"rootPageIds":          []any{"page-buf"},
+		"oauth2_client_id":    "client-id",
+		"oauth2_client_secret": "client-secret",
+		"refresh_token":        "test-refresh-token",
+		"token_expires_at":     time.Now().Add(3 * time.Minute).Format(time.RFC3339),
+		"token_exchanger":      exchanger,
+	})
+	if err != nil {
+		t.Fatalf("Configure() failed: %v", err)
+	}
+
+	docsCh, errsCh := conn.FetchAll(context.Background())
+	_, errs := collectDocs(docsCh, errsCh)
+
+	if len(errs) > 0 {
+		t.Fatalf("unexpected errors: %v", errs)
+	}
+	if !refreshCalled {
+		t.Error("expected refresh for token within expiry buffer")
+	}
+}
+
+func TestNotionConnector_Health(t *testing.T) {
+	conn := NewNotionConnector(ConnectorConfig{}, nil)
+
+	// Before configuration.
+	health := conn.Health()
+	if health.Status != StatusDisconnected {
+		t.Errorf("Health().Status = %q, want %q", health.Status, StatusDisconnected)
+	}
+	if health.Message == "" {
+		t.Error("Health().Message should describe unconfigured state")
+	}
+
+	// After configuration.
+	_ = conn.Configure(map[string]any{
+		"apiToken": "secret_test_token",
+	})
+	health = conn.Health()
+	if health.Status != StatusConnected {
+		t.Errorf("Health().Status = %q, want %q", health.Status, StatusConnected)
+	}
+	if health.RateLimitRemaining != -1 {
+		t.Errorf("Health().RateLimitRemaining = %d, want -1", health.RateLimitRemaining)
+	}
 }

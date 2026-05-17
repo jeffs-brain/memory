@@ -6,42 +6,46 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
-	"sort"
 	"strings"
 	"sync"
 	"time"
 )
 
-// notionAPIVersion is the Notion API version header value.
-const notionAPIVersion = "2022-06-28"
-
-// notionBaseURL is the root endpoint for the Notion API.
-const notionBaseURL = "https://api.notion.com/v1"
-
-// notionDefaultMaxDepth caps recursive page traversal.
-const notionDefaultMaxDepth = 10
-
-// notionDefaultPollInterval is the default continuous sync interval.
-const notionDefaultPollInterval = 15 * time.Minute
-
-// notionDefaultTimeout is the per-request HTTP timeout for Notion
-// API calls.
-const notionDefaultTimeout = 30 * time.Second
-
-// notionDefaultPageSize is the default page size for paginated
-// Notion API requests.
-const notionDefaultPageSize = 100
+const (
+	notionAPIVersion        = "2022-06-28"
+	notionBaseURL           = "https://api.notion.com/v1"
+	notionDefaultMaxDepth   = 10
+	notionDefaultPollInterval = 15 * time.Minute
+	notionDefaultTimeout    = 30 * time.Second
+	notionDefaultPageSize   = 100
+	notionDefaultRateLimit  = 3
+	notionMaxRetryAttempts  = 5
+	notionMaxResponseSize   = 10 * 1024 * 1024 // 10 MiB
+)
 
 // NotionConnectorConfig holds Notion-specific configuration.
 type NotionConnectorConfig struct {
 	APIToken          string
 	RootPageIDs       []string
 	DatabaseIDs       []string
-	IncludeChildPages bool // default: true
-	IncludeDatabases  bool // default: true
-	MaxDepth          int  // default: 10
+	IncludeChildPages bool              // default: true
+	IncludeDatabases  bool              // default: true
+	MaxDepth          int               // default: 10
+	BlockTypeFilter   map[string]struct{} // when non-empty, only these block types are rendered
+
+	// OAuth2 fields: used when the connector authenticates via
+	// Notion's public OAuth integration rather than an internal
+	// integration token (which does not expire).
+	OAuth2         *NotionOAuth2Config
+	RefreshToken   string
+	TokenExpiresAt time.Time
+}
+
+// NotionOAuth2Config holds Notion OAuth2-specific credentials.
+type NotionOAuth2Config struct {
+	ClientID     string
+	ClientSecret string
 }
 
 // NotionPage represents a Notion page object from the API.
@@ -53,66 +57,6 @@ type NotionPage struct {
 	ParentID       string
 }
 
-// notionSearchResponse models the Notion search API response.
-type notionSearchResponse struct {
-	Results    []json.RawMessage `json:"results"`
-	NextCursor string            `json:"next_cursor"`
-	HasMore    bool              `json:"has_more"`
-}
-
-// notionDatabaseQueryResponse models the database query response.
-type notionDatabaseQueryResponse struct {
-	Results    []json.RawMessage `json:"results"`
-	NextCursor string            `json:"next_cursor"`
-	HasMore    bool              `json:"has_more"`
-}
-
-// notionBlockChildrenResponse models the block children response.
-type notionBlockChildrenResponse struct {
-	Results    []notionBlock `json:"results"`
-	NextCursor string       `json:"next_cursor"`
-	HasMore    bool         `json:"has_more"`
-}
-
-// notionBlock represents a single Notion block.
-type notionBlock struct {
-	ID          string          `json:"id"`
-	Type        string          `json:"type"`
-	HasChildren bool            `json:"has_children"`
-	RawData     json.RawMessage `json:"-"`
-}
-
-// UnmarshalJSON implements custom unmarshalling for notionBlock to
-// capture the full raw data alongside parsed fields.
-func (b *notionBlock) UnmarshalJSON(data []byte) error {
-	type alias notionBlock
-	var a alias
-	if err := json.Unmarshal(data, &a); err != nil {
-		return err
-	}
-	a.RawData = data
-	*b = notionBlock(a)
-	return nil
-}
-
-// notionRichText represents a Notion rich text object.
-type notionRichText struct {
-	Type      string                 `json:"type"`
-	PlainText string                 `json:"plain_text"`
-	Href      string                 `json:"href"`
-	Annotations notionAnnotations    `json:"annotations"`
-}
-
-// notionAnnotations contains formatting flags for rich text.
-type notionAnnotations struct {
-	Bold          bool   `json:"bold"`
-	Italic        bool   `json:"italic"`
-	Strikethrough bool   `json:"strikethrough"`
-	Underline     bool   `json:"underline"`
-	Code          bool   `json:"code"`
-	Colour        string `json:"color"`
-}
-
 // NotionHTTPClient abstracts HTTP calls so tests can inject a mock.
 type NotionHTTPClient interface {
 	Do(req *http.Request) (*http.Response, error)
@@ -120,31 +64,75 @@ type NotionHTTPClient interface {
 
 // NotionConnector implements [Connector] for Notion workspaces.
 type NotionConnector struct {
-	deps        ConnectorConfig
-	config      NotionConnectorConfig
-	httpClient  NotionHTTPClient
-	stopCh      chan struct{}
-	stopOnce    sync.Once
-	configured  bool
+	deps         ConnectorConfig
+	config       NotionConnectorConfig
+	httpClient   NotionHTTPClient
+	rateLimiter  *RateLimiter
+	stopCh       chan struct{}
+	stopOnce     sync.Once
+	configured   bool
+	oauth2Client *NotionOAuth2Client
+	tokenStore   TokenStore
+	mu           sync.Mutex
+	lastSyncAt   time.Time
+	errorCount   int64
 }
 
 // NewNotionConnector creates a Notion connector with the given base
-// dependencies and an HTTP client for API calls.
+// dependencies and an HTTP client for API calls. A default rate
+// limiter of 3 req/sec is created if none is provided via deps.
 func NewNotionConnector(deps ConnectorConfig, httpClient NotionHTTPClient) *NotionConnector {
 	if httpClient == nil {
 		httpClient = &http.Client{Timeout: notionDefaultTimeout}
 	}
+
+	rl := deps.RateLimiter
+	if rl == nil {
+		rl = NewRateLimiter(RateLimiterConfig{
+			MaxTokens:  notionDefaultRateLimit,
+			RefillRate: notionDefaultRateLimit,
+		})
+	}
+
 	return &NotionConnector{
-		deps:       deps,
-		httpClient: httpClient,
-		stopCh:     make(chan struct{}),
+		deps:        deps,
+		httpClient:  httpClient,
+		rateLimiter: rl,
+		stopCh:      make(chan struct{}),
 	}
 }
 
 // Name returns "notion".
 func (c *NotionConnector) Name() string { return "notion" }
 
+// parseBlockTypeFilter converts a raw config value to a block type filter set.
+func parseBlockTypeFilter(raw any) map[string]struct{} {
+	if raw == nil {
+		return nil
+	}
+	if strs, ok := raw.([]string); ok && len(strs) > 0 {
+		m := make(map[string]struct{}, len(strs))
+		for _, s := range strs {
+			m[s] = struct{}{}
+		}
+		return m
+	}
+	if arr, ok := raw.([]any); ok && len(arr) > 0 {
+		m := make(map[string]struct{}, len(arr))
+		for _, v := range arr {
+			if s, ok := v.(string); ok {
+				m[s] = struct{}{}
+			}
+		}
+		if len(m) > 0 {
+			return m
+		}
+	}
+	return nil
+}
+
 // Configure validates and stores Notion-specific configuration.
+// Accepts map[string]any to match the P5-1 Connector interface.
 func (c *NotionConnector) Configure(config map[string]any) error {
 	token, _ := config["apiToken"].(string)
 	if strings.TrimSpace(token) == "" {
@@ -193,8 +181,46 @@ func (c *NotionConnector) Configure(config map[string]any) error {
 		cfg.MaxDepth = int(v)
 	}
 
+	cfg.BlockTypeFilter = parseBlockTypeFilter(config["blockTypeFilter"])
+
+	// OAuth2: Notion public integrations use OAuth2 tokens that expire.
+	// Internal integration tokens do not expire.
+	if clientID, ok := config["oauth2_client_id"].(string); ok && clientID != "" {
+		clientSecret, _ := config["oauth2_client_secret"].(string)
+		cfg.OAuth2 = &NotionOAuth2Config{
+			ClientID:     clientID,
+			ClientSecret: clientSecret,
+		}
+	}
+	if rt, ok := config["refresh_token"].(string); ok && rt != "" {
+		cfg.RefreshToken = rt
+	}
+	if expiresAt, ok := config["token_expires_at"].(string); ok && expiresAt != "" {
+		if parsed, parseErr := time.Parse(time.RFC3339, expiresAt); parseErr == nil {
+			cfg.TokenExpiresAt = parsed
+		}
+	}
+
 	c.config = cfg
 	c.configured = true
+
+	// Set up OAuth2Client for token refresh when credentials are complete.
+	if cfg.OAuth2 != nil && cfg.RefreshToken != "" {
+		exchanger, _ := config["token_exchanger"].(NotionTokenExchanger)
+		if exchanger == nil {
+			exchanger = &notionHTTPTokenExchanger{
+				clientID:     cfg.OAuth2.ClientID,
+				clientSecret: cfg.OAuth2.ClientSecret,
+				httpClient:   c.httpClient,
+			}
+		}
+		c.oauth2Client = NewNotionOAuth2Client(cfg.OAuth2.ClientID, cfg.OAuth2.ClientSecret, exchanger)
+	}
+
+	if ts, ok := config["token_store"].(TokenStore); ok {
+		c.tokenStore = ts
+	}
+
 	return nil
 }
 
@@ -209,6 +235,11 @@ func (c *NotionConnector) FetchAll(ctx context.Context) (<-chan ConnectorDocumen
 
 		if !c.configured {
 			errs <- fmt.Errorf("connector/notion: not configured, call Configure first")
+			return
+		}
+
+		if err := c.ensureValidToken(ctx); err != nil {
+			errs <- err
 			return
 		}
 
@@ -231,6 +262,11 @@ func (c *NotionConnector) FetchSince(ctx context.Context, cursor SyncCursor) (<-
 
 		if !c.configured {
 			errs <- fmt.Errorf("connector/notion: not configured, call Configure first")
+			return
+		}
+
+		if err := c.ensureValidToken(ctx); err != nil {
+			errs <- err
 			return
 		}
 
@@ -285,6 +321,87 @@ func (c *NotionConnector) Stop() error {
 	return nil
 }
 
+// ensureValidToken checks whether the current OAuth2 token is expired
+// (or within the 5-minute buffer) and refreshes it if an OAuth2Client
+// is configured. For internal integration tokens (which do not expire),
+// this is a no-op. Thread-safe: concurrent calls are deduplicated by
+// the NotionOAuth2Client's pendingRefresh mechanism.
+func (c *NotionConnector) ensureValidToken(ctx context.Context) error {
+	c.mu.Lock()
+	client := c.oauth2Client
+	refreshToken := c.config.RefreshToken
+	expiresAt := c.config.TokenExpiresAt
+	c.mu.Unlock()
+
+	// No OAuth2 client means internal integration token -- never expires.
+	if client == nil {
+		return nil
+	}
+
+	// Check if token is still valid (with 5-minute buffer).
+	if time.Now().Add(tokenExpiryBuffer).Before(expiresAt) {
+		return nil
+	}
+
+	// Token expired or within buffer -- refresh.
+	refreshed, err := client.RefreshToken(ctx, refreshToken)
+	if err != nil {
+		c.mu.Lock()
+		c.errorCount++
+		c.mu.Unlock()
+		return fmt.Errorf("connector/notion: token refresh failed: %w", err)
+	}
+
+	c.mu.Lock()
+	c.config.APIToken = refreshed.AccessToken
+	c.config.TokenExpiresAt = refreshed.ExpiresAt
+	if refreshed.RefreshToken != "" {
+		c.config.RefreshToken = refreshed.RefreshToken
+	}
+	c.mu.Unlock()
+
+	// Persist refreshed token if a token store is available.
+	if c.tokenStore != nil {
+		tok := OAuth2Token{
+			AccessToken:  refreshed.AccessToken,
+			RefreshToken: refreshed.RefreshToken,
+			ExpiresAt:    refreshed.ExpiresAt,
+			TokenType:    "Bearer",
+		}
+		if storeErr := c.tokenStore.Save(ctx, "notion", c.deps.BrainID, tok); storeErr != nil {
+			// Log-and-continue: failure to persist is not fatal.
+			_ = storeErr
+		}
+	}
+
+	return nil
+}
+
+// Health returns the current health status of the connector.
+func (c *NotionConnector) Health() HealthStatus {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	status := StatusConnected
+	var message string
+
+	if !c.configured {
+		status = StatusDisconnected
+		message = "connector not configured"
+	} else if c.errorCount > 0 {
+		status = StatusDegraded
+		message = fmt.Sprintf("%d errors since last successful sync", c.errorCount)
+	}
+
+	return HealthStatus{
+		Status:             status,
+		LastSyncAt:         c.lastSyncAt,
+		ErrorCount:         c.errorCount,
+		RateLimitRemaining: -1,
+		Message:            message,
+	}
+}
+
 // syncPages fetches pages and databases, optionally filtering by
 // sinceISO for incremental sync.
 func (c *NotionConnector) syncPages(ctx context.Context, sinceISO string, docs chan<- ConnectorDocument, errs chan<- error) error {
@@ -316,27 +433,56 @@ func (c *NotionConnector) syncPages(ctx context.Context, sinceISO string, docs c
 	return nil
 }
 
+// notionSearchRequestBody is the typed request body for the Notion
+// search API endpoint.
+type notionSearchRequestBody struct {
+	PageSize    int               `json:"page_size"`
+	Sort        *notionSearchSort `json:"sort,omitempty"`
+	StartCursor string            `json:"start_cursor,omitempty"`
+}
+
+// notionSearchSort represents the sort parameter for search requests.
+type notionSearchSort struct {
+	Direction string `json:"direction"`
+	Timestamp string `json:"timestamp"`
+}
+
+// notionDatabaseQueryBody is the typed request body for the Notion
+// database query API endpoint.
+type notionDatabaseQueryBody struct {
+	PageSize    int                       `json:"page_size"`
+	StartCursor string                    `json:"start_cursor,omitempty"`
+	Filter      *notionDatabaseTimeFilter `json:"filter,omitempty"`
+}
+
+// notionDatabaseTimeFilter represents a last_edited_time filter.
+type notionDatabaseTimeFilter struct {
+	Timestamp      string                   `json:"timestamp"`
+	LastEditedTime notionTimestampCondition  `json:"last_edited_time"`
+}
+
+// notionTimestampCondition holds the condition for timestamp filters.
+type notionTimestampCondition struct {
+	OnOrAfter string `json:"on_or_after,omitempty"`
+}
+
 // searchWorkspace uses the Notion search API to discover all
 // accessible pages and databases.
 func (c *NotionConnector) searchWorkspace(ctx context.Context, sinceISO string, visited map[string]struct{}, docs chan<- ConnectorDocument, errs chan<- error) error {
 	var cursor string
 
 	for {
-		if err := c.acquireRateLimit(ctx); err != nil {
-			return err
-		}
-
-		body := map[string]any{
-			"page_size": notionDefaultPageSize,
+		body := notionSearchRequestBody{
+			PageSize: notionDefaultPageSize,
 		}
 		if sinceISO != "" {
-			body["sort"] = map[string]string{
-				"direction": "descending",
-				"timestamp": "last_edited_time",
+			body.Sort = &notionSearchSort{
+				Direction: "descending",
+				Timestamp: "last_edited_time",
 			}
 		}
 		if cursor != "" {
-			body["start_cursor"] = cursor
+			body.StartCursor = cursor
 		}
 
 		respBody, err := c.doNotionRequest(ctx, http.MethodPost, "/search", body)
@@ -409,17 +555,13 @@ func (c *NotionConnector) fetchPageTree(ctx context.Context, pageID string, dept
 	visited[pageID] = struct{}{}
 
 	// Fetch page metadata.
-	if err := c.acquireRateLimit(ctx); err != nil {
-		return err
-	}
-
 	respBody, err := c.doNotionRequest(ctx, http.MethodGet, "/pages/"+pageID, nil)
 	if err != nil {
 		errs <- fmt.Errorf("connector/notion: fetching page %s: %w", pageID, err)
 		return nil
 	}
 
-	page, err := c.parsePageResponse(respBody)
+	page, err := parsePageResponse(respBody)
 	if err != nil {
 		errs <- fmt.Errorf("connector/notion: parsing page %s: %w", pageID, err)
 		return nil
@@ -481,10 +623,6 @@ func (c *NotionConnector) fetchPageTree(ctx context.Context, pageID string, dept
 // API first, falls back to block-by-block reconstruction.
 func (c *NotionConnector) fetchPageContent(ctx context.Context, pageID string) (string, error) {
 	// Try Markdown API.
-	if err := c.acquireRateLimit(ctx); err != nil {
-		return "", err
-	}
-
 	content, err := c.fetchMarkdownAPI(ctx, pageID)
 	if err == nil {
 		return content, nil
@@ -512,21 +650,14 @@ func (c *NotionConnector) fetchMarkdownAPI(ctx context.Context, pageID string) (
 	return mdResp.Markdown, nil
 }
 
-// fetchBlocksAsMarkdown retrieves all block children and converts
-// them to markdown recursively.
-func (c *NotionConnector) fetchBlocksAsMarkdown(ctx context.Context, blockID string, depth int) (string, error) {
-	if depth > c.config.MaxDepth {
-		return "", nil
-	}
-
+// fetchBlockChildren paginates through all block children of the
+// given block ID. This is the shared pagination helper used by both
+// fetchBlocksAsMarkdown and fetchChildPageIDs to avoid duplication.
+func (c *NotionConnector) fetchBlockChildren(ctx context.Context, blockID string) ([]notionBlock, error) {
 	var allBlocks []notionBlock
 	var cursor string
 
 	for {
-		if err := c.acquireRateLimit(ctx); err != nil {
-			return "", err
-		}
-
 		endpoint := fmt.Sprintf("/blocks/%s/children?page_size=%d", blockID, notionDefaultPageSize)
 		if cursor != "" {
 			endpoint += "&start_cursor=" + cursor
@@ -534,12 +665,12 @@ func (c *NotionConnector) fetchBlocksAsMarkdown(ctx context.Context, blockID str
 
 		respBody, err := c.doNotionRequest(ctx, http.MethodGet, endpoint, nil)
 		if err != nil {
-			return "", fmt.Errorf("connector/notion: fetching blocks for %s: %w", blockID, err)
+			return nil, fmt.Errorf("connector/notion: fetching blocks for %s: %w", blockID, err)
 		}
 
 		var blockResp notionBlockChildrenResponse
 		if err := json.Unmarshal(respBody, &blockResp); err != nil {
-			return "", fmt.Errorf("connector/notion: parsing blocks: %w", err)
+			return nil, fmt.Errorf("connector/notion: parsing blocks: %w", err)
 		}
 
 		allBlocks = append(allBlocks, blockResp.Results...)
@@ -548,6 +679,21 @@ func (c *NotionConnector) fetchBlocksAsMarkdown(ctx context.Context, blockID str
 			break
 		}
 		cursor = blockResp.NextCursor
+	}
+
+	return allBlocks, nil
+}
+
+// fetchBlocksAsMarkdown retrieves all block children and converts
+// them to markdown recursively.
+func (c *NotionConnector) fetchBlocksAsMarkdown(ctx context.Context, blockID string, depth int) (string, error) {
+	if depth > c.config.MaxDepth {
+		return "", nil
+	}
+
+	allBlocks, err := c.fetchBlockChildren(ctx, blockID)
+	if err != nil {
+		return "", err
 	}
 
 	var builder strings.Builder
@@ -562,8 +708,8 @@ func (c *NotionConnector) fetchBlocksAsMarkdown(ctx context.Context, blockID str
 
 		// Recursively fetch children of blocks that have them.
 		if block.HasChildren {
-			childContent, err := c.fetchBlocksAsMarkdown(ctx, block.ID, depth+1)
-			if err != nil {
+			childContent, childErr := c.fetchBlocksAsMarkdown(ctx, block.ID, depth+1)
+			if childErr != nil {
 				continue
 			}
 			if childContent != "" {
@@ -583,112 +729,22 @@ func (c *NotionConnector) fetchBlocksAsMarkdown(ctx context.Context, blockID str
 	return builder.String(), nil
 }
 
-// blockToMarkdown converts a single Notion block to its markdown
-// representation.
-func (c *NotionConnector) blockToMarkdown(block notionBlock) string {
-	var raw map[string]json.RawMessage
-	if err := json.Unmarshal(block.RawData, &raw); err != nil {
-		return ""
+// fetchChildPageIDs returns the IDs of child pages within a block.
+// Uses the shared fetchBlockChildren helper to avoid duplicating
+// the pagination loop.
+func (c *NotionConnector) fetchChildPageIDs(ctx context.Context, blockID string) ([]string, error) {
+	allBlocks, err := c.fetchBlockChildren(ctx, blockID)
+	if err != nil {
+		return nil, err
 	}
 
-	blockData, ok := raw[block.Type]
-	if !ok {
-		return ""
+	var childIDs []string
+	for _, block := range allBlocks {
+		if block.Type == "child_page" || block.Type == "child_database" {
+			childIDs = append(childIDs, block.ID)
+		}
 	}
-
-	var typed struct {
-		RichText []notionRichText `json:"rich_text"`
-		Caption  []notionRichText `json:"caption"`
-		Language string           `json:"language"`
-		URL      string           `json:"url"`
-		Checked  bool             `json:"checked"`
-		Expression string         `json:"expression"`
-	}
-	if err := json.Unmarshal(blockData, &typed); err != nil {
-		return ""
-	}
-
-	text := renderRichText(typed.RichText)
-
-	blockRenderers := map[string]func() string{
-		"paragraph":          func() string { return text + "\n" },
-		"heading_1":          func() string { return "# " + text + "\n" },
-		"heading_2":          func() string { return "## " + text + "\n" },
-		"heading_3":          func() string { return "### " + text + "\n" },
-		"bulleted_list_item": func() string { return "- " + text },
-		"numbered_list_item": func() string { return "1. " + text },
-		"to_do": func() string {
-			marker := "[ ]"
-			if typed.Checked {
-				marker = "[x]"
-			}
-			return "- " + marker + " " + text
-		},
-		"toggle":    func() string { return "- " + text },
-		"quote":     func() string { return "> " + text + "\n" },
-		"callout":   func() string { return "> " + text + "\n" },
-		"divider":   func() string { return "---\n" },
-		"code": func() string {
-			lang := typed.Language
-			return "```" + lang + "\n" + text + "\n```\n"
-		},
-		"equation": func() string {
-			return "$$\n" + typed.Expression + "\n$$\n"
-		},
-		"image": func() string {
-			caption := renderRichText(typed.Caption)
-			url := extractFileURL(blockData)
-			if caption != "" {
-				return fmt.Sprintf("![%s](%s)\n", caption, url)
-			}
-			return fmt.Sprintf("![](%s)\n", url)
-		},
-		"file": func() string {
-			url := extractFileURL(blockData)
-			caption := renderRichText(typed.Caption)
-			if caption == "" {
-				caption = "file"
-			}
-			return fmt.Sprintf("[%s](%s)\n", caption, url)
-		},
-		"bookmark": func() string {
-			caption := renderRichText(typed.Caption)
-			if typed.URL != "" {
-				if caption != "" {
-					return fmt.Sprintf("[%s](%s)\n", caption, typed.URL)
-				}
-				return typed.URL + "\n"
-			}
-			return ""
-		},
-		"embed": func() string {
-			if typed.URL != "" {
-				return typed.URL + "\n"
-			}
-			return ""
-		},
-		"table_of_contents": func() string { return "" },
-		"breadcrumb":        func() string { return "" },
-		"column_list":       func() string { return "" },
-		"column":            func() string { return "" },
-		"child_page":        func() string { return "" },
-		"child_database":    func() string { return "" },
-		"synced_block":      func() string { return "" },
-		"link_preview": func() string {
-			if typed.URL != "" {
-				return typed.URL + "\n"
-			}
-			return ""
-		},
-		"table":     func() string { return "" },
-		"table_row": func() string { return renderTableRow(blockData) },
-	}
-
-	renderer, found := blockRenderers[block.Type]
-	if !found {
-		return text
-	}
-	return renderer()
+	return childIDs, nil
 }
 
 // fetchDatabaseEntries queries a database and yields each entry as
@@ -697,22 +753,18 @@ func (c *NotionConnector) fetchDatabaseEntries(ctx context.Context, dbID string,
 	var cursor string
 
 	for {
-		if err := c.acquireRateLimit(ctx); err != nil {
-			return err
-		}
-
-		body := map[string]any{
-			"page_size": notionDefaultPageSize,
+		body := notionDatabaseQueryBody{
+			PageSize: notionDefaultPageSize,
 		}
 		if cursor != "" {
-			body["start_cursor"] = cursor
+			body.StartCursor = cursor
 		}
 
 		// For incremental sync, filter by last_edited_time.
 		if sinceISO != "" {
-			body["filter"] = map[string]any{
-				"timestamp":        "last_edited_time",
-				"last_edited_time": map[string]string{"on_or_after": sinceISO},
+			body.Filter = &notionDatabaseTimeFilter{
+				Timestamp:      "last_edited_time",
+				LastEditedTime: notionTimestampCondition{OnOrAfter: sinceISO},
 			}
 		}
 
@@ -727,7 +779,7 @@ func (c *NotionConnector) fetchDatabaseEntries(ctx context.Context, dbID string,
 		}
 
 		for _, raw := range queryResp.Results {
-			entry, parseErr := c.parseDatabaseEntry(raw)
+			entry, parseErr := parseDatabaseEntry(raw)
 			if parseErr != nil {
 				errs <- fmt.Errorf("connector/notion: parsing database entry: %w", parseErr)
 				continue
@@ -781,439 +833,3 @@ func (c *NotionConnector) fetchDatabaseEntries(ctx context.Context, dbID string,
 	return nil
 }
 
-// databaseEntryParsed holds parsed fields from a database entry.
-type databaseEntryParsed struct {
-	pageID             string
-	title              string
-	url                string
-	lastEditedTime     time.Time
-	propertiesMarkdown string
-}
-
-// parseDatabaseEntry extracts structured data from a raw database
-// entry JSON.
-func (c *NotionConnector) parseDatabaseEntry(raw json.RawMessage) (databaseEntryParsed, error) {
-	var entry struct {
-		ID             string                     `json:"id"`
-		URL            string                     `json:"url"`
-		LastEditedTime string                     `json:"last_edited_time"`
-		Properties     map[string]json.RawMessage `json:"properties"`
-	}
-	if err := json.Unmarshal(raw, &entry); err != nil {
-		return databaseEntryParsed{}, err
-	}
-
-	editedTime, _ := time.Parse(time.RFC3339, entry.LastEditedTime)
-
-	title := ""
-	var propLines []string
-
-	// Sort property keys for deterministic output.
-	keys := make([]string, 0, len(entry.Properties))
-	for k := range entry.Properties {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-
-	for _, key := range keys {
-		propRaw := entry.Properties[key]
-		val := extractPropertyValue(propRaw)
-
-		// Detect title property.
-		var propType struct {
-			Type string `json:"type"`
-		}
-		if err := json.Unmarshal(propRaw, &propType); err == nil && propType.Type == "title" {
-			title = val
-			continue
-		}
-
-		if val != "" {
-			propLines = append(propLines, fmt.Sprintf("- **%s**: %s", key, val))
-		}
-	}
-
-	var builder strings.Builder
-	if title != "" {
-		builder.WriteString("## " + title + "\n\n")
-	}
-	if len(propLines) > 0 {
-		builder.WriteString(strings.Join(propLines, "\n"))
-		builder.WriteString("\n")
-	}
-
-	return databaseEntryParsed{
-		pageID:             entry.ID,
-		title:              title,
-		url:                entry.URL,
-		lastEditedTime:     editedTime,
-		propertiesMarkdown: builder.String(),
-	}, nil
-}
-
-// fetchChildPageIDs returns the IDs of child pages within a block.
-func (c *NotionConnector) fetchChildPageIDs(ctx context.Context, blockID string) ([]string, error) {
-	var childIDs []string
-	var cursor string
-
-	for {
-		if err := c.acquireRateLimit(ctx); err != nil {
-			return nil, err
-		}
-
-		endpoint := fmt.Sprintf("/blocks/%s/children?page_size=%d", blockID, notionDefaultPageSize)
-		if cursor != "" {
-			endpoint += "&start_cursor=" + cursor
-		}
-
-		respBody, err := c.doNotionRequest(ctx, http.MethodGet, endpoint, nil)
-		if err != nil {
-			return nil, err
-		}
-
-		var blockResp notionBlockChildrenResponse
-		if err := json.Unmarshal(respBody, &blockResp); err != nil {
-			return nil, fmt.Errorf("connector/notion: parsing block children: %w", err)
-		}
-
-		for _, block := range blockResp.Results {
-			if block.Type == "child_page" || block.Type == "child_database" {
-				childIDs = append(childIDs, block.ID)
-			}
-		}
-
-		if !blockResp.HasMore || blockResp.NextCursor == "" {
-			break
-		}
-		cursor = blockResp.NextCursor
-	}
-
-	return childIDs, nil
-}
-
-// parsePageResponse extracts page metadata from a Notion page API
-// response.
-func (c *NotionConnector) parsePageResponse(data []byte) (NotionPage, error) {
-	var resp struct {
-		ID             string                     `json:"id"`
-		URL            string                     `json:"url"`
-		LastEditedTime string                     `json:"last_edited_time"`
-		Properties     map[string]json.RawMessage `json:"properties"`
-		Parent         struct {
-			Type   string `json:"type"`
-			PageID string `json:"page_id"`
-		} `json:"parent"`
-	}
-	if err := json.Unmarshal(data, &resp); err != nil {
-		return NotionPage{}, fmt.Errorf("parsing page: %w", err)
-	}
-
-	editedTime, _ := time.Parse(time.RFC3339, resp.LastEditedTime)
-
-	// Extract title from properties.
-	title := extractTitleFromProperties(resp.Properties)
-
-	return NotionPage{
-		ID:             resp.ID,
-		Title:          title,
-		URL:            resp.URL,
-		LastEditedTime: editedTime,
-		ParentID:       resp.Parent.PageID,
-	}, nil
-}
-
-// doNotionRequest performs a single Notion API request with proper
-// headers and timeout. Returns the response body or an error.
-func (c *NotionConnector) doNotionRequest(ctx context.Context, method, path string, body any) ([]byte, error) {
-	var bodyReader io.Reader
-	if body != nil {
-		data, err := json.Marshal(body)
-		if err != nil {
-			return nil, fmt.Errorf("connector/notion: marshalling request body: %w", err)
-		}
-		bodyReader = strings.NewReader(string(data))
-	}
-
-	url := notionBaseURL + path
-	// Override base URL if set via context (for tests).
-	if baseURL, ok := ctx.Value(notionBaseURLKey{}).(string); ok {
-		url = baseURL + path
-	}
-
-	reqCtx, cancel := context.WithTimeout(ctx, notionDefaultTimeout)
-	defer cancel()
-
-	req, err := http.NewRequestWithContext(reqCtx, method, url, bodyReader)
-	if err != nil {
-		return nil, fmt.Errorf("connector/notion: creating request: %w", err)
-	}
-
-	req.Header.Set("Authorization", "Bearer "+c.config.APIToken)
-	req.Header.Set("Notion-Version", notionAPIVersion)
-	if body != nil {
-		req.Header.Set("Content-Type", "application/json")
-	}
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("connector/notion: request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	respBody, err := io.ReadAll(io.LimitReader(resp.Body, 10*1024*1024))
-	if err != nil {
-		return nil, fmt.Errorf("connector/notion: reading response: %w", err)
-	}
-
-	if resp.StatusCode == http.StatusTooManyRequests {
-		return nil, fmt.Errorf("connector/notion: rate limited (429)")
-	}
-
-	if resp.StatusCode == http.StatusNotFound {
-		return nil, fmt.Errorf("connector/notion: not found (404)")
-	}
-
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("connector/notion: HTTP %d: %s", resp.StatusCode, string(respBody))
-	}
-
-	return respBody, nil
-}
-
-// acquireRateLimit acquires a single rate limit token, or returns
-// immediately if no rate limiter is configured.
-func (c *NotionConnector) acquireRateLimit(ctx context.Context) error {
-	if c.deps.RateLimiter == nil {
-		return nil
-	}
-	return c.deps.RateLimiter.Acquire(ctx, 1)
-}
-
-// notionBaseURLKey is a context key for overriding the Notion API
-// base URL in tests.
-type notionBaseURLKey struct{}
-
-// WithNotionBaseURL returns a context with an overridden Notion API
-// base URL.
-func WithNotionBaseURL(ctx context.Context, baseURL string) context.Context {
-	return context.WithValue(ctx, notionBaseURLKey{}, baseURL)
-}
-
-// ---------- Helper functions ----------
-
-// renderRichText converts a slice of Notion rich text objects to a
-// markdown string with formatting annotations.
-func renderRichText(texts []notionRichText) string {
-	var builder strings.Builder
-	for _, t := range texts {
-		text := t.PlainText
-
-		if t.Annotations.Code {
-			text = "`" + text + "`"
-		}
-		if t.Annotations.Bold {
-			text = "**" + text + "**"
-		}
-		if t.Annotations.Italic {
-			text = "*" + text + "*"
-		}
-		if t.Annotations.Strikethrough {
-			text = "~~" + text + "~~"
-		}
-
-		if t.Href != "" {
-			text = "[" + text + "](" + t.Href + ")"
-		}
-
-		builder.WriteString(text)
-	}
-	return builder.String()
-}
-
-// extractFileURL pulls the URL from a file-type block's JSON data.
-func extractFileURL(data json.RawMessage) string {
-	var fileBlock struct {
-		External struct {
-			URL string `json:"url"`
-		} `json:"external"`
-		File struct {
-			URL string `json:"url"`
-		} `json:"file"`
-	}
-	if err := json.Unmarshal(data, &fileBlock); err != nil {
-		return ""
-	}
-	if fileBlock.File.URL != "" {
-		return fileBlock.File.URL
-	}
-	return fileBlock.External.URL
-}
-
-// extractTitleFromProperties finds the title property in a page's
-// properties map and returns its plain text value.
-func extractTitleFromProperties(properties map[string]json.RawMessage) string {
-	for _, propRaw := range properties {
-		var prop struct {
-			Type  string `json:"type"`
-			Title []struct {
-				PlainText string `json:"plain_text"`
-			} `json:"title"`
-		}
-		if err := json.Unmarshal(propRaw, &prop); err != nil {
-			continue
-		}
-		if prop.Type == "title" && len(prop.Title) > 0 {
-			var parts []string
-			for _, t := range prop.Title {
-				parts = append(parts, t.PlainText)
-			}
-			return strings.Join(parts, "")
-		}
-	}
-	return ""
-}
-
-// extractPropertyValue converts a Notion property value to its
-// string representation.
-func extractPropertyValue(raw json.RawMessage) string {
-	var prop struct {
-		Type           string           `json:"type"`
-		Title          []notionRichText `json:"title"`
-		RichText       []notionRichText `json:"rich_text"`
-		Number         *float64         `json:"number"`
-		Select         *struct {
-			Name string `json:"name"`
-		} `json:"select"`
-		MultiSelect []struct {
-			Name string `json:"name"`
-		} `json:"multi_select"`
-		Date *struct {
-			Start string `json:"start"`
-			End   string `json:"end"`
-		} `json:"date"`
-		Checkbox bool `json:"checkbox"`
-		URL      string `json:"url"`
-		Email    string `json:"email"`
-		Phone    string `json:"phone_number"`
-		Status   *struct {
-			Name string `json:"name"`
-		} `json:"status"`
-		People []struct {
-			Name string `json:"name"`
-		} `json:"people"`
-		Relation []struct {
-			ID string `json:"id"`
-		} `json:"relation"`
-	}
-	if err := json.Unmarshal(raw, &prop); err != nil {
-		return ""
-	}
-
-	renderers := map[string]func() string{
-		"title":    func() string { return renderPlainRichText(prop.Title) },
-		"rich_text": func() string { return renderPlainRichText(prop.RichText) },
-		"number": func() string {
-			if prop.Number == nil {
-				return ""
-			}
-			return fmt.Sprintf("%g", *prop.Number)
-		},
-		"select": func() string {
-			if prop.Select == nil {
-				return ""
-			}
-			return prop.Select.Name
-		},
-		"multi_select": func() string {
-			names := make([]string, 0, len(prop.MultiSelect))
-			for _, ms := range prop.MultiSelect {
-				names = append(names, ms.Name)
-			}
-			return strings.Join(names, ", ")
-		},
-		"date": func() string {
-			if prop.Date == nil {
-				return ""
-			}
-			if prop.Date.End != "" {
-				return prop.Date.Start + " to " + prop.Date.End
-			}
-			return prop.Date.Start
-		},
-		"checkbox": func() string {
-			if prop.Checkbox {
-				return "true"
-			}
-			return "false"
-		},
-		"url":          func() string { return prop.URL },
-		"email":        func() string { return prop.Email },
-		"phone_number": func() string { return prop.Phone },
-		"status": func() string {
-			if prop.Status == nil {
-				return ""
-			}
-			return prop.Status.Name
-		},
-		"people": func() string {
-			names := make([]string, 0, len(prop.People))
-			for _, p := range prop.People {
-				names = append(names, p.Name)
-			}
-			return strings.Join(names, ", ")
-		},
-		"relation": func() string {
-			ids := make([]string, 0, len(prop.Relation))
-			for _, r := range prop.Relation {
-				ids = append(ids, r.ID)
-			}
-			return strings.Join(ids, ", ")
-		},
-	}
-
-	renderer, found := renderers[prop.Type]
-	if !found {
-		return ""
-	}
-	return renderer()
-}
-
-// renderPlainRichText extracts plain text from a rich text array
-// without formatting.
-func renderPlainRichText(texts []notionRichText) string {
-	var parts []string
-	for _, t := range texts {
-		parts = append(parts, t.PlainText)
-	}
-	return strings.Join(parts, "")
-}
-
-// isListBlock returns true if the block type is a list item.
-func isListBlock(blockType string) bool {
-	listTypes := map[string]struct{}{
-		"bulleted_list_item": {},
-		"numbered_list_item": {},
-		"to_do":              {},
-		"toggle":             {},
-	}
-	_, ok := listTypes[blockType]
-	return ok
-}
-
-// renderTableRow converts a table_row block to a markdown table
-// row.
-func renderTableRow(data json.RawMessage) string {
-	var row struct {
-		Cells [][]notionRichText `json:"cells"`
-	}
-	if err := json.Unmarshal(data, &row); err != nil {
-		return ""
-	}
-
-	cells := make([]string, 0, len(row.Cells))
-	for _, cell := range row.Cells {
-		cells = append(cells, renderRichText(cell))
-	}
-
-	return "| " + strings.Join(cells, " | ") + " |"
-}

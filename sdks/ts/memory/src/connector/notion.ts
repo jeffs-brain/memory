@@ -11,9 +11,33 @@ import type {
   Connector,
   ConnectorConfig,
   ConnectorDocument,
-  RateLimiter,
   SyncCursor,
 } from './types.js'
+import { RateLimiter } from './types.js'
+import {
+  blockToMarkdown,
+  isListBlock,
+  type NotionBlock,
+} from './notion-blocks.js'
+import {
+  parseDatabaseEntry,
+  parsePageResponse,
+} from './notion-properties.js'
+import {
+  combineSignals,
+  globalFetch,
+  interruptibleSleep,
+  parseBlockTypeFilter,
+  parseRetryAfterHeader,
+  parseStringArray,
+  readResponseWithLimit,
+  type NotionHTTPFetcher,
+} from './notion-utils.js'
+
+// Re-export types that consumers may need.
+export type { NotionBlock } from './notion-blocks.js'
+export type { NotionRichText } from './notion-blocks.js'
+export type { NotionHTTPFetcher } from './notion-utils.js'
 
 // ---------- Constants ----------
 
@@ -23,6 +47,9 @@ const NOTION_DEFAULT_MAX_DEPTH = 10
 const NOTION_DEFAULT_POLL_INTERVAL = 15 * 60 * 1000
 const NOTION_DEFAULT_TIMEOUT = 30_000
 const NOTION_DEFAULT_PAGE_SIZE = 100
+const NOTION_DEFAULT_RATE_LIMIT = 3
+const NOTION_MAX_RETRY_ATTEMPTS = 5
+const NOTION_MAX_RESPONSE_BYTES = 10 * 1024 * 1024
 
 // ---------- Types ----------
 
@@ -36,38 +63,7 @@ export type NotionConnectorConfig = {
   readonly includeChildPages?: boolean | undefined // default: true
   readonly includeDatabases?: boolean | undefined // default: true
   readonly maxDepth?: number | undefined // default: 10
-}
-
-/**
- * Notion rich text object.
- */
-type NotionRichText = {
-  readonly type: string
-  readonly plain_text: string
-  readonly href?: string
-  readonly annotations?: NotionAnnotations
-}
-
-/**
- * Notion text formatting annotations.
- */
-type NotionAnnotations = {
-  readonly bold?: boolean
-  readonly italic?: boolean
-  readonly strikethrough?: boolean
-  readonly underline?: boolean
-  readonly code?: boolean
-  readonly color?: string
-}
-
-/**
- * Notion block object from the blocks API.
- */
-type NotionBlock = {
-  readonly id: string
-  readonly type: string
-  readonly has_children: boolean
-  readonly [key: string]: unknown
+  readonly blockTypeFilter?: ReadonlySet<string> | undefined
 }
 
 /**
@@ -78,35 +74,6 @@ type NotionPaginatedResponse = {
   readonly next_cursor: string | null
   readonly has_more: boolean
 }
-
-/**
- * Parsed page metadata.
- */
-type ParsedPage = {
-  readonly id: string
-  readonly title: string
-  readonly url: string
-  readonly lastEditedTime: Date
-}
-
-/**
- * Parsed database entry.
- */
-type ParsedDatabaseEntry = {
-  readonly pageId: string
-  readonly title: string
-  readonly url: string
-  readonly lastEditedTime: Date
-  readonly propertiesMarkdown: string
-}
-
-/**
- * HTTP fetcher interface for dependency injection in tests.
- */
-export type NotionHTTPFetcher = (
-  url: string,
-  options: RequestInit,
-) => Promise<Response>
 
 /**
  * Options for creating a Notion connector.
@@ -120,6 +87,8 @@ export type NotionConnectorOptions = {
 
 /**
  * Creates a Notion connector that implements the Connector interface.
+ * A default rate limiter of 3 req/sec is created if none is provided
+ * via deps.rateLimiter.
  */
 export const createNotionConnector = (
   deps: ConnectorConfig,
@@ -129,7 +98,10 @@ export const createNotionConnector = (
   let abortController: AbortController | undefined
   const baseUrl = options?.baseUrl ?? NOTION_DEFAULT_BASE_URL
   const fetcher: NotionHTTPFetcher = options?.fetcher ?? globalFetch
-  const rateLimiter: RateLimiter | undefined = deps.rateLimiter
+  const rateLimiter = deps.rateLimiter ?? new RateLimiter({
+    maxTokens: NOTION_DEFAULT_RATE_LIMIT,
+    refillRate: NOTION_DEFAULT_RATE_LIMIT,
+  })
 
   const ensureConfigured = (): NotionConnectorConfig => {
     if (config === undefined) {
@@ -139,20 +111,69 @@ export const createNotionConnector = (
   }
 
   const acquireRateLimit = async (signal: AbortSignal): Promise<void> => {
-    if (rateLimiter !== undefined) {
-      await rateLimiter.acquire(signal, 1)
-    }
+    await rateLimiter.acquire(signal, 1)
   }
 
+  /**
+   * Performs a single HTTP request to the Notion API. Retries on 429
+   * responses using the Retry-After header with exponential backoff.
+   */
   const doRequest = async (
     signal: AbortSignal,
     method: string,
     path: string,
     body?: Record<string, unknown>,
   ): Promise<unknown> => {
-    const cfg = ensureConfigured()
+    for (let attempt = 0; attempt <= NOTION_MAX_RETRY_ATTEMPTS; attempt++) {
+      await acquireRateLimit(signal)
 
-    await acquireRateLimit(signal)
+      const { data, retryAfterSeconds, error } = await doSingleRequest(
+        signal,
+        method,
+        path,
+        body,
+      )
+
+      if (error === undefined) {
+        return data
+      }
+
+      // Only retry on 429.
+      if (retryAfterSeconds === undefined) {
+        throw error
+      }
+
+      if (attempt >= NOTION_MAX_RETRY_ATTEMPTS) {
+        throw error
+      }
+
+      const waitMs = retryAfterSeconds >= 0
+        ? retryAfterSeconds * 1000
+        : rateLimiter.backoffDuration(attempt)
+
+      await interruptibleSleep(signal, waitMs)
+    }
+
+    throw new Error(
+      `connector/notion: exhausted retries for ${method} ${path}`,
+    )
+  }
+
+  /**
+   * Executes a single HTTP request. Returns the parsed body on
+   * success, or an error with optional retryAfterSeconds for 429.
+   */
+  const doSingleRequest = async (
+    signal: AbortSignal,
+    method: string,
+    path: string,
+    body?: Record<string, unknown>,
+  ): Promise<{
+    data?: unknown
+    retryAfterSeconds?: number
+    error?: Error
+  }> => {
+    const cfg = ensureConfigured()
 
     const timeoutController = new AbortController()
     const timeoutId = setTimeout(
@@ -182,44 +203,79 @@ export const createNotionConnector = (
       const response = await fetcher(`${baseUrl}${path}`, init)
 
       if (response.status === 429) {
-        throw new Error('connector/notion: rate limited (429)')
+        const retryHeader = response.headers.get('Retry-After')
+        const retryAfterSeconds = parseRetryAfterHeader(retryHeader)
+        return {
+          retryAfterSeconds,
+          error: new Error('connector/notion: rate limited (429)'),
+        }
       }
 
       if (response.status === 404) {
-        throw new Error('connector/notion: not found (404)')
+        return {
+          error: new Error('connector/notion: not found (404)'),
+        }
       }
 
       if (response.status < 200 || response.status >= 300) {
         const text = await response.text()
-        throw new Error(
-          `connector/notion: HTTP ${String(response.status)}: ${text}`,
-        )
+        return {
+          error: new Error(
+            `connector/notion: HTTP ${String(response.status)}: ${text}`,
+          ),
+        }
       }
 
-      return (await response.json()) as unknown
+      // Enforce response body size limit (10 MiB).
+      const text = await readResponseWithLimit(response, NOTION_MAX_RESPONSE_BYTES)
+      const data = JSON.parse(text) as unknown
+      return { data }
+    } catch (err) {
+      if (err instanceof Error && err.message.startsWith('connector/notion:')) {
+        return { error: err }
+      }
+      return { error: err instanceof Error ? err : new Error(String(err)) }
     } finally {
       clearTimeout(timeoutId)
     }
   }
 
-  // ---------- Page fetching ----------
+  // ---------- Block children pagination ----------
 
-  const parsePageResponse = (data: Record<string, unknown>): ParsedPage => {
-    const properties = (data.properties ?? {}) as Record<
-      string,
-      Record<string, unknown>
-    >
-    const title = extractTitleFromProperties(properties)
-    const lastEditedStr = data.last_edited_time as string
-    const lastEditedTime = new Date(lastEditedStr)
+  /**
+   * Shared pagination helper for fetching all block children.
+   * Used by both fetchBlocksAsMarkdown and fetchChildPageIds.
+   */
+  const fetchBlockChildren = async (
+    signal: AbortSignal,
+    blockId: string,
+  ): Promise<readonly NotionBlock[]> => {
+    const allBlocks: NotionBlock[] = []
+    let cursor: string | undefined
 
-    return {
-      id: data.id as string,
-      title,
-      url: data.url as string,
-      lastEditedTime,
+    while (!signal.aborted) {
+      let endpoint = `/blocks/${blockId}/children?page_size=${String(NOTION_DEFAULT_PAGE_SIZE)}`
+      if (cursor !== undefined) {
+        endpoint += `&start_cursor=${cursor}`
+      }
+
+      const resp = (await doRequest(
+        signal,
+        'GET',
+        endpoint,
+      )) as NotionPaginatedResponse
+      for (const result of resp.results) {
+        allBlocks.push(result as unknown as NotionBlock)
+      }
+
+      if (!resp.has_more || resp.next_cursor === null) break
+      cursor = resp.next_cursor
     }
+
+    return allBlocks
   }
+
+  // ---------- Page fetching ----------
 
   const fetchPageContent = async (
     signal: AbortSignal,
@@ -251,32 +307,11 @@ export const createNotionConnector = (
   ): Promise<string> => {
     if (depth > maxDepth) return ''
 
-    const allBlocks: NotionBlock[] = []
-    let cursor: string | undefined
-
-    while (!signal.aborted) {
-      let endpoint = `/blocks/${blockId}/children?page_size=${String(NOTION_DEFAULT_PAGE_SIZE)}`
-      if (cursor !== undefined) {
-        endpoint += `&start_cursor=${cursor}`
-      }
-
-      const resp = (await doRequest(
-        signal,
-        'GET',
-        endpoint,
-      )) as NotionPaginatedResponse
-      for (const result of resp.results) {
-        allBlocks.push(result as unknown as NotionBlock)
-      }
-
-      if (!resp.has_more || resp.next_cursor === null) break
-      cursor = resp.next_cursor
-    }
-
+    const allBlocks = await fetchBlockChildren(signal, blockId)
     const parts: string[] = []
 
     for (const block of allBlocks) {
-      const md = blockToMarkdown(block)
+      const md = blockToMarkdown(block, config?.blockTypeFilter)
       if (md !== '') {
         parts.push(md)
       }
@@ -305,32 +340,13 @@ export const createNotionConnector = (
     signal: AbortSignal,
     blockId: string,
   ): Promise<readonly string[]> => {
+    const allBlocks = await fetchBlockChildren(signal, blockId)
     const childIds: string[] = []
-    let cursor: string | undefined
-
-    while (!signal.aborted) {
-      let endpoint = `/blocks/${blockId}/children?page_size=${String(NOTION_DEFAULT_PAGE_SIZE)}`
-      if (cursor !== undefined) {
-        endpoint += `&start_cursor=${cursor}`
+    for (const block of allBlocks) {
+      if (block.type === 'child_page' || block.type === 'child_database') {
+        childIds.push(block.id)
       }
-
-      const resp = (await doRequest(
-        signal,
-        'GET',
-        endpoint,
-      )) as NotionPaginatedResponse
-
-      for (const result of resp.results) {
-        const block = result as unknown as NotionBlock
-        if (block.type === 'child_page' || block.type === 'child_database') {
-          childIds.push(block.id)
-        }
-      }
-
-      if (!resp.has_more || resp.next_cursor === null) break
-      cursor = resp.next_cursor
     }
-
     return childIds
   }
 
@@ -355,7 +371,7 @@ export const createNotionConnector = (
         'GET',
         `/pages/${pageId}`,
       )) as Record<string, unknown>
-    } catch (err) {
+    } catch {
       return
     }
 
@@ -571,6 +587,7 @@ export const createNotionConnector = (
         includeChildPages: (rawConfig.includeChildPages as boolean) ?? true,
         includeDatabases: (rawConfig.includeDatabases as boolean) ?? true,
         maxDepth: (rawConfig.maxDepth as number) ?? NOTION_DEFAULT_MAX_DEPTH,
+        blockTypeFilter: parseBlockTypeFilter(rawConfig.blockTypeFilter),
       }
     },
 
@@ -600,7 +617,7 @@ export const createNotionConnector = (
           // Documents consumed by the sync loop.
         }
 
-        await new Promise<void>((resolve, reject) => {
+        await new Promise<void>((resolve) => {
           const timer = setTimeout(resolve, interval)
           const onAbort = (): void => {
             clearTimeout(timer)
@@ -620,301 +637,3 @@ export const createNotionConnector = (
   }
 }
 
-// ---------- Helper functions ----------
-
-/**
- * Renders a Notion rich text array to markdown with formatting.
- */
-const renderRichText = (texts: readonly NotionRichText[]): string => {
-  const parts: string[] = []
-
-  for (const t of texts) {
-    let text = t.plain_text
-
-    if (t.annotations?.code === true) {
-      text = '`' + text + '`'
-    }
-    if (t.annotations?.bold === true) {
-      text = '**' + text + '**'
-    }
-    if (t.annotations?.italic === true) {
-      text = '*' + text + '*'
-    }
-    if (t.annotations?.strikethrough === true) {
-      text = '~~' + text + '~~'
-    }
-
-    if (t.href !== undefined && t.href !== '') {
-      text = `[${text}](${t.href})`
-    }
-
-    parts.push(text)
-  }
-
-  return parts.join('')
-}
-
-/**
- * Extracts plain text from rich text without formatting.
- */
-const renderPlainRichText = (texts: readonly NotionRichText[]): string =>
-  texts.map((t) => t.plain_text).join('')
-
-/**
- * Converts a single Notion block to markdown.
- */
-const blockToMarkdown = (block: NotionBlock): string => {
-  const blockData = block[block.type] as Record<string, unknown> | undefined
-  if (blockData === undefined) return ''
-
-  const richText = (blockData.rich_text ?? []) as readonly NotionRichText[]
-  const text = renderRichText(richText)
-  const caption = (blockData.caption ?? []) as readonly NotionRichText[]
-
-  const renderers: Readonly<Record<string, () => string>> = {
-    paragraph: () => `${text}\n`,
-    heading_1: () => `# ${text}\n`,
-    heading_2: () => `## ${text}\n`,
-    heading_3: () => `### ${text}\n`,
-    bulleted_list_item: () => `- ${text}`,
-    numbered_list_item: () => `1. ${text}`,
-    to_do: () => {
-      const checked = blockData.checked === true
-      const marker = checked ? '[x]' : '[ ]'
-      return `- ${marker} ${text}`
-    },
-    toggle: () => `- ${text}`,
-    quote: () => `> ${text}\n`,
-    callout: () => `> ${text}\n`,
-    divider: () => '---\n',
-    code: () => {
-      const lang = (blockData.language as string) ?? ''
-      return '```' + lang + '\n' + text + '\n```\n'
-    },
-    equation: () => {
-      const expression = (blockData.expression as string) ?? ''
-      return `$$\n${expression}\n$$\n`
-    },
-    image: () => {
-      const capText = renderRichText(caption)
-      const url = extractFileUrl(blockData)
-      return capText !== ''
-        ? `![${capText}](${url})\n`
-        : `![](${url})\n`
-    },
-    file: () => {
-      const url = extractFileUrl(blockData)
-      const capText = renderRichText(caption)
-      const label = capText !== '' ? capText : 'file'
-      return `[${label}](${url})\n`
-    },
-    bookmark: () => {
-      const capText = renderRichText(caption)
-      const url = blockData.url as string | undefined
-      if (url !== undefined) {
-        return capText !== '' ? `[${capText}](${url})\n` : `${url}\n`
-      }
-      return ''
-    },
-    embed: () => {
-      const url = blockData.url as string | undefined
-      return url !== undefined ? `${url}\n` : ''
-    },
-    table_of_contents: () => '',
-    breadcrumb: () => '',
-    column_list: () => '',
-    column: () => '',
-    child_page: () => '',
-    child_database: () => '',
-    synced_block: () => '',
-    link_preview: () => {
-      const url = blockData.url as string | undefined
-      return url !== undefined ? `${url}\n` : ''
-    },
-    table: () => '',
-    table_row: () => {
-      const cells = (blockData.cells ?? []) as readonly (readonly NotionRichText[])[]
-      const rendered = cells.map((cell) => renderRichText(cell))
-      return `| ${rendered.join(' | ')} |`
-    },
-  }
-
-  const renderer = renderers[block.type]
-  return renderer !== undefined ? renderer() : text
-}
-
-/**
- * Extracts the title from a page's properties map.
- */
-const extractTitleFromProperties = (
-  properties: Record<string, Record<string, unknown>>,
-): string => {
-  for (const prop of Object.values(properties)) {
-    if (prop.type === 'title') {
-      const titleArr = (prop.title ?? []) as readonly NotionRichText[]
-      return renderPlainRichText(titleArr)
-    }
-  }
-  return ''
-}
-
-/**
- * Converts a Notion property to its string representation.
- */
-const extractPropertyValue = (
-  prop: Record<string, unknown>,
-): string => {
-  const propType = prop.type as string
-
-  const renderers: Readonly<Record<string, () => string>> = {
-    title: () =>
-      renderPlainRichText((prop.title ?? []) as readonly NotionRichText[]),
-    rich_text: () =>
-      renderPlainRichText(
-        (prop.rich_text ?? []) as readonly NotionRichText[],
-      ),
-    number: () => {
-      const num = prop.number as number | null
-      return num !== null && num !== undefined ? String(num) : ''
-    },
-    select: () => {
-      const sel = prop.select as { name: string } | null
-      return sel?.name ?? ''
-    },
-    multi_select: () => {
-      const items = (prop.multi_select ?? []) as readonly { name: string }[]
-      return items.map((i) => i.name).join(', ')
-    },
-    date: () => {
-      const d = prop.date as { start: string; end?: string } | null
-      if (d === null || d === undefined) return ''
-      return d.end !== undefined && d.end !== ''
-        ? `${d.start} to ${d.end}`
-        : d.start
-    },
-    checkbox: () => (prop.checkbox === true ? 'true' : 'false'),
-    url: () => (prop.url as string) ?? '',
-    email: () => (prop.email as string) ?? '',
-    phone_number: () => (prop.phone_number as string) ?? '',
-    status: () => {
-      const st = prop.status as { name: string } | null
-      return st?.name ?? ''
-    },
-    people: () => {
-      const people = (prop.people ?? []) as readonly { name: string }[]
-      return people.map((p) => p.name).join(', ')
-    },
-    relation: () => {
-      const rels = (prop.relation ?? []) as readonly { id: string }[]
-      return rels.map((r) => r.id).join(', ')
-    },
-  }
-
-  const renderer = renderers[propType]
-  return renderer !== undefined ? renderer() : ''
-}
-
-/**
- * Parses a database entry from the query response.
- */
-const parseDatabaseEntry = (
-  raw: Record<string, unknown>,
-): ParsedDatabaseEntry => {
-  const properties = (raw.properties ?? {}) as Record<
-    string,
-    Record<string, unknown>
-  >
-  const lastEditedStr = raw.last_edited_time as string
-  const lastEditedTime = new Date(lastEditedStr)
-
-  let title = ''
-  const propLines: string[] = []
-
-  // Sort keys for deterministic output.
-  const sortedKeys = Object.keys(properties).sort()
-
-  for (const key of sortedKeys) {
-    const prop = properties[key]
-    if (prop === undefined) continue
-    const val = extractPropertyValue(prop)
-
-    if (prop.type === 'title') {
-      title = val
-      continue
-    }
-
-    if (val !== '') {
-      propLines.push(`- **${key}**: ${val}`)
-    }
-  }
-
-  let markdown = ''
-  if (title !== '') {
-    markdown += `## ${title}\n\n`
-  }
-  if (propLines.length > 0) {
-    markdown += propLines.join('\n') + '\n'
-  }
-
-  return {
-    pageId: raw.id as string,
-    title,
-    url: raw.url as string,
-    lastEditedTime,
-    propertiesMarkdown: markdown,
-  }
-}
-
-/**
- * Extracts a file URL from a file-type block's data.
- */
-const extractFileUrl = (data: Record<string, unknown>): string => {
-  const file = data.file as { url?: string } | undefined
-  const external = data.external as { url?: string } | undefined
-  return file?.url ?? external?.url ?? ''
-}
-
-/**
- * Checks whether a block type is a list item.
- */
-const isListBlock = (blockType: string): boolean => {
-  const listTypes = new Set([
-    'bulleted_list_item',
-    'numbered_list_item',
-    'to_do',
-    'toggle',
-  ])
-  return listTypes.has(blockType)
-}
-
-/**
- * Parses a value that might be a string array or undefined.
- */
-const parseStringArray = (
-  value: unknown,
-): readonly string[] | undefined => {
-  if (value === undefined || value === null) return undefined
-  if (Array.isArray(value)) {
-    return value.filter((v): v is string => typeof v === 'string')
-  }
-  return undefined
-}
-
-/**
- * Combines two abort signals into one that fires when either fires.
- */
-const combineSignals = (a: AbortSignal, b: AbortSignal): AbortSignal => {
-  if (a.aborted) return a
-  if (b.aborted) return b
-
-  const controller = new AbortController()
-  const onAbort = (): void => controller.abort()
-  a.addEventListener('abort', onAbort, { once: true })
-  b.addEventListener('abort', onAbort, { once: true })
-  return controller.signal
-}
-
-/**
- * Global fetch wrapper for the default HTTP fetcher.
- */
-const globalFetch: NotionHTTPFetcher = (url, options) => fetch(url, options)
