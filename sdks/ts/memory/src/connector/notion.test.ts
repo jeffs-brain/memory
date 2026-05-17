@@ -515,9 +515,19 @@ describe('NotionConnector', () => {
     })
 
     it('handles rate limit 429 responses', async () => {
-      const { fetcher } = createMockFetcher([
-        { status: 429, body: '{"message": "rate limited"}' },
-      ])
+      // Provide enough 429 responses (with Retry-After: 0 for fast
+      // retries) to exhaust all retries (6 total).
+      let callIndex = 0
+      const fetcher: NotionHTTPFetcher = async (url, options) => {
+        callIndex++
+        return new Response('{"message": "rate limited"}', {
+          status: 429,
+          headers: {
+            'Content-Type': 'application/json',
+            'Retry-After': '0',
+          },
+        })
+      }
 
       const conn = createNotionConnector(testDeps(), { fetcher })
       await conn.configure({
@@ -525,7 +535,7 @@ describe('NotionConnector', () => {
         rootPageIds: ['page-rl'],
       })
 
-      const signal = AbortSignal.timeout(5000)
+      const signal = AbortSignal.timeout(15000)
       // The fetch should not throw but skip the page due to the error.
       const docs = await collectDocs(conn.fetchAll(signal))
       expect(docs).toHaveLength(0) // Page skipped due to error
@@ -1000,6 +1010,391 @@ describe('NotionConnector', () => {
       const content = String(docs[0].content)
       expect(content).toContain('**bold**')
       expect(content).toContain('*italic*')
+    })
+  })
+
+  describe('nested block children rendering', () => {
+    it('renders nested blocks with indentation', async () => {
+      const pageResp = JSON.stringify({
+        id: 'nested-page',
+        url: 'https://notion.so/nested-page',
+        last_edited_time: '2026-05-10T14:00:00.000Z',
+        properties: {
+          Title: { type: 'title', title: [{ plain_text: 'Nested' }] },
+        },
+        parent: { type: 'workspace' },
+      })
+      // Parent list item with has_children: true
+      const blocksResp = JSON.stringify({
+        results: [
+          {
+            id: 'parent-list',
+            type: 'bulleted_list_item',
+            has_children: true,
+            bulleted_list_item: {
+              rich_text: [{ type: 'text', plain_text: 'Parent item' }],
+            },
+          },
+        ],
+        has_more: false,
+      })
+      // Child blocks of the parent list item
+      const childBlocksResp = JSON.stringify({
+        results: [
+          {
+            id: 'child-para',
+            type: 'paragraph',
+            has_children: false,
+            paragraph: {
+              rich_text: [
+                { type: 'text', plain_text: 'Nested paragraph' },
+              ],
+            },
+          },
+          {
+            id: 'child-list',
+            type: 'bulleted_list_item',
+            has_children: false,
+            bulleted_list_item: {
+              rich_text: [
+                { type: 'text', plain_text: 'Nested list item' },
+              ],
+            },
+          },
+        ],
+        has_more: false,
+      })
+      // No children for page itself
+      const pageChildBlocks = JSON.stringify({
+        results: [],
+        has_more: false,
+      })
+
+      const { fetcher } = createMockFetcher([
+        { status: 200, body: pageResp },
+        { status: 404, body: '{}' }, // markdown API not available
+        { status: 200, body: blocksResp },
+        { status: 200, body: childBlocksResp },
+        { status: 200, body: pageChildBlocks },
+      ])
+
+      const conn = createNotionConnector(testDeps(), { fetcher })
+      await conn.configure({
+        apiToken: 'secret_test',
+        rootPageIds: ['nested-page'],
+      })
+
+      const signal = AbortSignal.timeout(5000)
+      const docs = await collectDocs(conn.fetchAll(signal))
+
+      expect(docs).toHaveLength(1)
+      const content = String(docs[0].content)
+      // The parent item should be present.
+      expect(content).toContain('- Parent item')
+      // Child content should be indented (list block gets "  " prefix).
+      expect(content).toContain('  Nested paragraph')
+      expect(content).toContain('  - Nested list item')
+    })
+  })
+
+  describe('synced_block rendering', () => {
+    it('returns empty string for synced_block type', async () => {
+      const pageResp = JSON.stringify({
+        id: 'sync-page',
+        url: 'https://notion.so/sync-page',
+        last_edited_time: '2026-05-10T14:00:00.000Z',
+        properties: {
+          Title: { type: 'title', title: [{ plain_text: 'Synced' }] },
+        },
+        parent: { type: 'workspace' },
+      })
+      const blocksResp = JSON.stringify({
+        results: [
+          {
+            id: 'synced-1',
+            type: 'synced_block',
+            has_children: false,
+            synced_block: {
+              synced_from: { block_id: 'original-block-123' },
+            },
+          },
+          {
+            id: 'para-1',
+            type: 'paragraph',
+            has_children: false,
+            paragraph: {
+              rich_text: [
+                { type: 'text', plain_text: 'After synced block' },
+              ],
+            },
+          },
+        ],
+        has_more: false,
+      })
+      const childBlocks = JSON.stringify({
+        results: [],
+        has_more: false,
+      })
+
+      const { fetcher } = createMockFetcher([
+        { status: 200, body: pageResp },
+        { status: 404, body: '{}' },
+        { status: 200, body: blocksResp },
+        { status: 200, body: childBlocks },
+      ])
+
+      const conn = createNotionConnector(testDeps(), { fetcher })
+      await conn.configure({
+        apiToken: 'secret_test',
+        rootPageIds: ['sync-page'],
+      })
+
+      const signal = AbortSignal.timeout(5000)
+      const docs = await collectDocs(conn.fetchAll(signal))
+
+      expect(docs).toHaveLength(1)
+      const content = String(docs[0].content)
+      // synced_block renders as empty string, so only the paragraph
+      // after it should appear.
+      expect(content).toContain('After synced block')
+      // The synced_from reference should not leak into output.
+      expect(content).not.toContain('original-block-123')
+    })
+  })
+
+  describe('equation block rendering', () => {
+    it('renders equation blocks with $$ delimiters', async () => {
+      const pageResp = JSON.stringify({
+        id: 'eq-page',
+        url: 'https://notion.so/eq-page',
+        last_edited_time: '2026-05-10T14:00:00.000Z',
+        properties: {
+          Title: { type: 'title', title: [{ plain_text: 'Equations' }] },
+        },
+        parent: { type: 'workspace' },
+      })
+      const blocksResp = JSON.stringify({
+        results: [
+          {
+            id: 'eq-1',
+            type: 'equation',
+            has_children: false,
+            equation: {
+              expression: 'E = mc^2',
+            },
+          },
+        ],
+        has_more: false,
+      })
+      const childBlocks = JSON.stringify({
+        results: [],
+        has_more: false,
+      })
+
+      const { fetcher } = createMockFetcher([
+        { status: 200, body: pageResp },
+        { status: 404, body: '{}' },
+        { status: 200, body: blocksResp },
+        { status: 200, body: childBlocks },
+      ])
+
+      const conn = createNotionConnector(testDeps(), { fetcher })
+      await conn.configure({
+        apiToken: 'secret_test',
+        rootPageIds: ['eq-page'],
+      })
+
+      const signal = AbortSignal.timeout(5000)
+      const docs = await collectDocs(conn.fetchAll(signal))
+
+      expect(docs).toHaveLength(1)
+      const content = String(docs[0].content)
+      expect(content).toContain('$$')
+      expect(content).toContain('E = mc^2')
+    })
+  })
+
+  describe('image/file block rendering via block fallback', () => {
+    it('renders image blocks with alt text', async () => {
+      const pageResp = JSON.stringify({
+        id: 'img-page',
+        url: 'https://notion.so/img-page',
+        last_edited_time: '2026-05-10T14:00:00.000Z',
+        properties: {
+          Title: { type: 'title', title: [{ plain_text: 'Images' }] },
+        },
+        parent: { type: 'workspace' },
+      })
+      const blocksResp = JSON.stringify({
+        results: [
+          {
+            id: 'img-1',
+            type: 'image',
+            has_children: false,
+            image: {
+              caption: [{ type: 'text', plain_text: 'My photo' }],
+              file: { url: 'https://example.com/photo.png' },
+            },
+          },
+          {
+            id: 'file-1',
+            type: 'file',
+            has_children: false,
+            file: {
+              caption: [{ type: 'text', plain_text: 'Document' }],
+              file: { url: 'https://example.com/doc.pdf' },
+            },
+          },
+        ],
+        has_more: false,
+      })
+      const childBlocks = JSON.stringify({
+        results: [],
+        has_more: false,
+      })
+
+      const { fetcher } = createMockFetcher([
+        { status: 200, body: pageResp },
+        { status: 404, body: '{}' },
+        { status: 200, body: blocksResp },
+        { status: 200, body: childBlocks },
+      ])
+
+      const conn = createNotionConnector(testDeps(), { fetcher })
+      await conn.configure({
+        apiToken: 'secret_test',
+        rootPageIds: ['img-page'],
+      })
+
+      const signal = AbortSignal.timeout(5000)
+      const docs = await collectDocs(conn.fetchAll(signal))
+
+      expect(docs).toHaveLength(1)
+      const content = String(docs[0].content)
+      expect(content).toContain('![My photo](https://example.com/photo.png)')
+      expect(content).toContain('[Document](https://example.com/doc.pdf)')
+    })
+  })
+
+  describe('block type filter', () => {
+    it('filters out non-allowed block types', async () => {
+      const pageResp = JSON.stringify({
+        id: 'filter-page',
+        url: 'https://notion.so/filter-page',
+        last_edited_time: '2026-05-10T14:00:00.000Z',
+        properties: {
+          Title: { type: 'title', title: [{ plain_text: 'Filtered' }] },
+        },
+        parent: { type: 'workspace' },
+      })
+      const blocksResp = JSON.stringify({
+        results: [
+          {
+            id: 'h1',
+            type: 'heading_1',
+            has_children: false,
+            heading_1: {
+              rich_text: [{ type: 'text', plain_text: 'Allowed Heading' }],
+            },
+          },
+          {
+            id: 'p1',
+            type: 'paragraph',
+            has_children: false,
+            paragraph: {
+              rich_text: [
+                { type: 'text', plain_text: 'Filtered paragraph' },
+              ],
+            },
+          },
+        ],
+        has_more: false,
+      })
+      const childBlocks = JSON.stringify({
+        results: [],
+        has_more: false,
+      })
+
+      const { fetcher } = createMockFetcher([
+        { status: 200, body: pageResp },
+        { status: 404, body: '{}' },
+        { status: 200, body: blocksResp },
+        { status: 200, body: childBlocks },
+      ])
+
+      const conn = createNotionConnector(testDeps(), { fetcher })
+      await conn.configure({
+        apiToken: 'secret_test',
+        rootPageIds: ['filter-page'],
+        blockTypeFilter: ['heading_1'],
+      })
+
+      const signal = AbortSignal.timeout(5000)
+      const docs = await collectDocs(conn.fetchAll(signal))
+
+      expect(docs).toHaveLength(1)
+      const content = String(docs[0].content)
+      expect(content).toContain('# Allowed Heading')
+      expect(content).not.toContain('Filtered paragraph')
+    })
+  })
+
+  describe('retry-after handling on 429', () => {
+    it('retries after receiving 429 with Retry-After header', async () => {
+      const pageResp = JSON.stringify({
+        id: 'retry-page',
+        url: 'https://notion.so/retry-page',
+        last_edited_time: '2026-05-10T14:00:00.000Z',
+        properties: {
+          Title: { type: 'title', title: [{ plain_text: 'Retry' }] },
+        },
+        parent: { type: 'workspace' },
+      })
+      const md = JSON.stringify({ markdown: 'retried content' })
+      const childBlocks = JSON.stringify({
+        results: [],
+        has_more: false,
+      })
+
+      // Custom fetcher that returns 429 with Retry-After on first call,
+      // then succeeds.
+      let callIndex = 0
+      const responses = [
+        { status: 429, body: '{"message":"rate limited"}', retryAfter: '1' },
+        { status: 200, body: pageResp, retryAfter: undefined },
+        { status: 200, body: md, retryAfter: undefined },
+        { status: 200, body: childBlocks, retryAfter: undefined },
+      ]
+
+      const fetcher: NotionHTTPFetcher = async (url, options) => {
+        const idx = callIndex++
+        const resp = idx < responses.length
+          ? responses[idx]
+          : { status: 200, body: '{}', retryAfter: undefined }
+
+        const headers = new Headers({ 'Content-Type': 'application/json' })
+        if (resp.retryAfter !== undefined) {
+          headers.set('Retry-After', resp.retryAfter)
+        }
+
+        return new Response(resp.body, {
+          status: resp.status,
+          headers,
+        })
+      }
+
+      const conn = createNotionConnector(testDeps(), { fetcher })
+      await conn.configure({
+        apiToken: 'secret_test',
+        rootPageIds: ['retry-page'],
+      })
+
+      const signal = AbortSignal.timeout(10000)
+      const docs = await collectDocs(conn.fetchAll(signal))
+
+      expect(docs).toHaveLength(1)
+      expect(docs[0].title).toBe('Retry')
+      expect(String(docs[0].content)).toContain('retried content')
     })
   })
 

@@ -78,3 +78,21 @@ export {
   type NotionConnectorOptions,
   type NotionHTTPFetcher,
 } from './notion.js'
+
+export {
+  blockToMarkdown,
+  isListBlock,
+  renderPlainRichText,
+  renderRichText,
+  type NotionBlock,
+  type NotionRichText,
+} from './notion-blocks.js'
+
+export {
+  extractPropertyValue,
+  extractTitleFromProperties,
+  parseDatabaseEntry,
+  parsePageResponse,
+  type ParsedDatabaseEntry,
+  type ParsedPage,
+} from './notion-properties.js'
