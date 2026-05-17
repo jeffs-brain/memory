@@ -142,3 +142,17 @@ export {
 } from './migrate-hash.js'
 
 export * from './queue/index.js'
+
+export {
+  createInMemoryDeadLetterAdapter,
+  DeadLetterNotFoundError,
+  DeadLetterAlreadyResolvedError,
+  DEFAULT_MAX_ATTEMPTS,
+  DEFAULT_RETENTION_DAYS,
+  type DeadLetterAdapter,
+  type DeadLetterEntry,
+  type DeadLetterListOptions,
+  type DeadLetterListResult,
+  type JobPayload as DeadLetterJobPayload,
+  type PurgeOptions as DeadLetterPurgeOptions,
+} from './dead-letter.js'
