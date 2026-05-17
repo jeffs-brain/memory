@@ -46,6 +46,11 @@ export * from './ingest/index.js'
 // Access-control primitives (RBAC, OpenFGA adapter, Store wrapper).
 export * from './acl/index.js'
 
+// Connector framework (OAuth2, SecureTokenStore, registry, pagination,
+// rate limiting, sync state). Consumers can also import directly from
+// '@jeffs-brain/memory/connector'.
+export * as connector from './connector/index.js'
+
 export {
   createHttpSearchIndex,
   type HttpSearchIndex,
