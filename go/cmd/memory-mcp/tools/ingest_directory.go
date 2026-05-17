@@ -103,6 +103,7 @@ func registerIngestDirectoryWithOpts(server *mcp.Server, client MemoryClient, op
 
 		// Async mode: publish events to the trigger bus and return immediately.
 		if opts.TriggerBus != nil {
+			queued := 0
 			for _, file := range enumerated {
 				evt := trigger.IngestTriggerEvent{
 					ID:      uuid.New().String(),
@@ -118,12 +119,14 @@ func registerIngestDirectoryWithOpts(server *mcp.Server, client MemoryClient, op
 				if pubErr := opts.TriggerBus.Publish(evt); pubErr != nil {
 					// Log but continue — partial dispatch is better than none.
 					skipped = append(skipped, fmt.Sprintf("%s: bus publish failed: %s", file.Path, pubErr.Error()))
+				} else {
+					queued++
 				}
 			}
 
 			payload := directoryResult{
 				JobGroupID:     jobGroupId,
-				FilesQueued:    total,
+				FilesQueued:    queued,
 				FilesSkipped:   len(skipped),
 				SkippedReasons: skipped,
 				Async:          true,

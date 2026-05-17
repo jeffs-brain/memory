@@ -54,7 +54,7 @@ const normaliseOpts = (opts: ChunkOptions | undefined): Required<ChunkOptions> =
   const maxTokens = Math.max(MIN_MAX_TOKENS, opts?.maxTokens ?? DEFAULT_MAX_TOKENS)
   const rawOverlap = opts?.overlapTokens ?? DEFAULT_OVERLAP_TOKENS
   const overlapTokens = Math.max(0, Math.min(rawOverlap, Math.floor(maxTokens / 2)))
-  const minTokens = Math.max(0, opts?.minTokens ?? DEFAULT_MIN_TOKENS)
+  const minTokens = Math.max(0, Math.min(opts?.minTokens ?? DEFAULT_MIN_TOKENS, maxTokens - 1))
   return { maxTokens, overlapTokens, minTokens }
 }
 
@@ -322,14 +322,18 @@ export const chunkMarkdown = (text: string, opts?: ChunkOptions): readonly Chunk
       })
     }
   }
-  return mergeSmallChunks(raw, minTokens)
+  return mergeSmallChunks(raw, minTokens, maxTokens)
 }
 
 /**
  * Merge chunks below the minTokens threshold into their predecessor.
  * Recomputes ordinals after merging so they remain contiguous.
  */
-const mergeSmallChunks = (chunks: Chunk[], minTokens: number): readonly Chunk[] => {
+const mergeSmallChunks = (
+  chunks: Chunk[],
+  minTokens: number,
+  maxTokens: number,
+): readonly Chunk[] => {
   if (chunks.length === 0 || minTokens <= 0) return chunks
   const out: Chunk[] = []
   for (const c of chunks) {
@@ -340,13 +344,18 @@ const mergeSmallChunks = (chunks: Chunk[], minTokens: number): readonly Chunk[] 
         continue
       }
       const merged = prev.content + '\n\n' + c.content
+      const mergedTokens = countTokens(merged)
+      if (mergedTokens > maxTokens) {
+        out.push(c)
+        continue
+      }
       out[out.length - 1] = {
         content: merged,
         ordinal: prev.ordinal,
         headingPath: prev.headingPath,
         startLine: prev.startLine,
         endLine: c.endLine,
-        tokens: countTokens(merged),
+        tokens: mergedTokens,
       }
       continue
     }

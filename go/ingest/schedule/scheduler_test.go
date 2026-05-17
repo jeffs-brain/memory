@@ -87,29 +87,42 @@ func TestStoreCRUD(t *testing.T) {
 
 func TestFindDueReturnsOnlyEnabledDueJobs(t *testing.T) {
 	db := openTestDB(t)
-	store, _ := NewSQLiteStore(db)
+	store, err := NewSQLiteStore(db)
+	if err != nil {
+		t.Fatalf("new store: %v", err)
+	}
 
 	// Create a due job.
-	job1, _ := store.Create(context.Background(), CreateInput{
+	job1, err := store.Create(context.Background(), CreateInput{
 		BrainID:        "brain-1",
 		Name:           "due job",
 		CronExpression: "* * * * *",
 		Target:         Target{Kind: "file", Path: "/data/a.md"},
 	})
+	if err != nil {
+		t.Fatalf("create job1: %v", err)
+	}
 
 	// Force next_run_at to the past.
 	past := time.Now().UTC().Add(-1 * time.Hour)
-	store.MarkRun(context.Background(), job1.ID, past.Add(-2*time.Hour), past)
+	if err := store.MarkRun(context.Background(), job1.ID, past.Add(-2*time.Hour), past); err != nil {
+		t.Fatalf("mark run job1: %v", err)
+	}
 
 	// Create a disabled job.
-	job2, _ := store.Create(context.Background(), CreateInput{
+	job2, err := store.Create(context.Background(), CreateInput{
 		BrainID:        "brain-1",
 		Name:           "disabled job",
 		CronExpression: "* * * * *",
 		Target:         Target{Kind: "file", Path: "/data/b.md"},
 	})
+	if err != nil {
+		t.Fatalf("create job2: %v", err)
+	}
 	enabled := false
-	store.Update(context.Background(), job2.ID, UpdatePatch{Enabled: &enabled})
+	if _, err := store.Update(context.Background(), job2.ID, UpdatePatch{Enabled: &enabled}); err != nil {
+		t.Fatalf("update job2: %v", err)
+	}
 
 	due, err := store.FindDue(context.Background(), time.Now().UTC())
 	if err != nil {
@@ -360,8 +373,14 @@ func TestSchedulerStartStop(t *testing.T) {
 	}
 
 	scheduler.Start()
-	// Give the immediate poll time to fire.
-	time.Sleep(100 * time.Millisecond)
+	// Wait until at least one dispatch occurs (bounded to prevent CI stalls).
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if dispatched.Load() > 0 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 	err := scheduler.Stop()
 	if err != nil {
 		t.Fatalf("stop: %v", err)

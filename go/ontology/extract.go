@@ -229,9 +229,17 @@ func parseExtractionResponse(text string) (ExtractionResult, error) {
 		return emptyExtractionResult(), fmt.Errorf("ontology: missing required field 'domain'")
 	}
 
+	confidence := raw.Confidence
+	if confidence < 0 {
+		confidence = 0
+	}
+	if confidence > 1 {
+		confidence = 1
+	}
+
 	result := ExtractionResult{
 		Domain:             raw.Domain,
-		Confidence:         raw.Confidence,
+		Confidence:         confidence,
 		NodeTypes:          make([]TypeEntry, 0, len(raw.NodeTypes)),
 		EdgeTypes:          make([]TypeEntry, 0, len(raw.EdgeTypes)),
 		BusinessCategories: make([]string, 0, len(raw.BusinessCategories)),
@@ -708,7 +716,8 @@ func isTabularContent(content string) bool {
 		line := lines[i]
 		commas := strings.Count(line, ",")
 		pipes := strings.Count(line, "|")
-		if commas >= 2 || pipes >= 2 {
+		tabs := strings.Count(line, "\t")
+		if commas >= 2 || pipes >= 2 || tabs >= 2 {
 			tabularLines++
 		}
 	}

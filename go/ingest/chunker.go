@@ -127,11 +127,8 @@ func (r *ChunkerRegistry) Chunk(ctx context.Context, content string, contentType
 	return chunks, nil
 }
 
-// estimateTokens approximates the token count of text using the chars/4
-// heuristic. Monotonic in text length.
+// estimateTokens delegates to the exported EstimateTokens in chunk_config.go
+// to avoid duplicating the chars/4 heuristic.
 func estimateTokens(text string) int {
-	if len(text) == 0 {
-		return 0
-	}
-	return (len(text) + 3) / 4
+	return EstimateTokens(text)
 }
