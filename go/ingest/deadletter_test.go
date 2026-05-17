@@ -4,7 +4,9 @@ package ingest
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -13,7 +15,10 @@ import (
 
 func setupTestDB(t *testing.T) *sql.DB {
 	t.Helper()
-	db, err := sql.Open("sqlite", ":memory:")
+	// Use shared-cache mode so all connections within the pool see the
+	// same in-memory database. Required for concurrent tests.
+	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())
+	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		t.Fatalf("open test db: %v", err)
 	}
@@ -302,7 +307,7 @@ func TestSqliteDeadLetter_Retry(t *testing.T) {
 		t.Fatalf("move: %v", err)
 	}
 
-	resolved, err := adapter.Retry(ctx, entry.ID, "admin@example.com")
+	resolved, err := adapter.Retry(ctx, entry.ID, "admin@example.com", nil)
 	if err != nil {
 		t.Fatalf("retry: %v", err)
 	}
@@ -323,12 +328,76 @@ func TestSqliteDeadLetter_Retry(t *testing.T) {
 	}
 }
 
+func TestSqliteDeadLetter_RetryCallsReEnqueue(t *testing.T) {
+	t.Parallel()
+	adapter := setupAdapter(t)
+	ctx := context.Background()
+
+	entry := makeTestEntry()
+	if _, err := adapter.Move(ctx, entry); err != nil {
+		t.Fatalf("move: %v", err)
+	}
+
+	var enqueued DeadLetterEntry
+	reEnqueue := func(_ context.Context, e DeadLetterEntry) error {
+		enqueued = e
+		return nil
+	}
+
+	resolved, err := adapter.Retry(ctx, entry.ID, "operator", reEnqueue)
+	if err != nil {
+		t.Fatalf("retry: %v", err)
+	}
+	if resolved.ResolvedAt == nil {
+		t.Fatal("expected resolvedAt to be set")
+	}
+	if enqueued.ID != entry.ID {
+		t.Errorf("expected re-enqueue callback to receive entry %q, got %q", entry.ID, enqueued.ID)
+	}
+	if enqueued.Payload.DocumentHash != entry.Payload.DocumentHash {
+		t.Errorf("expected re-enqueue payload hash %q, got %q", entry.Payload.DocumentHash, enqueued.Payload.DocumentHash)
+	}
+}
+
+func TestSqliteDeadLetter_RetryReEnqueueFailureRollsBack(t *testing.T) {
+	t.Parallel()
+	adapter := setupAdapter(t)
+	ctx := context.Background()
+
+	entry := makeTestEntry()
+	if _, err := adapter.Move(ctx, entry); err != nil {
+		t.Fatalf("move: %v", err)
+	}
+
+	reEnqueueErr := errors.New("queue is full")
+	failingReEnqueue := func(_ context.Context, _ DeadLetterEntry) error {
+		return reEnqueueErr
+	}
+
+	_, err := adapter.Retry(ctx, entry.ID, "operator", failingReEnqueue)
+	if err == nil {
+		t.Fatal("expected error from failing re-enqueue")
+	}
+	if !errors.Is(err, reEnqueueErr) {
+		t.Errorf("expected wrapped queue error, got %v", err)
+	}
+
+	// Entry should still be unresolved because the transaction rolled back.
+	got, err := adapter.Get(ctx, entry.ID)
+	if err != nil {
+		t.Fatalf("get after failed retry: %v", err)
+	}
+	if got.ResolvedAt != nil {
+		t.Error("expected entry to remain unresolved after failed re-enqueue")
+	}
+}
+
 func TestSqliteDeadLetter_RetryNonExistent(t *testing.T) {
 	t.Parallel()
 	adapter := setupAdapter(t)
 	ctx := context.Background()
 
-	_, err := adapter.Retry(ctx, "nonexistent", "operator")
+	_, err := adapter.Retry(ctx, "nonexistent", "operator", nil)
 	if err != ErrDeadLetterNotFound {
 		t.Errorf("expected ErrDeadLetterNotFound, got %v", err)
 	}
@@ -343,13 +412,61 @@ func TestSqliteDeadLetter_DoubleRetryFails(t *testing.T) {
 	if _, err := adapter.Move(ctx, entry); err != nil {
 		t.Fatalf("move: %v", err)
 	}
-	if _, err := adapter.Retry(ctx, entry.ID, "operator-1"); err != nil {
+	if _, err := adapter.Retry(ctx, entry.ID, "operator-1", nil); err != nil {
 		t.Fatalf("first retry: %v", err)
 	}
 
-	_, err := adapter.Retry(ctx, entry.ID, "operator-2")
+	_, err := adapter.Retry(ctx, entry.ID, "operator-2", nil)
 	if err != ErrDeadLetterAlreadyResolved {
 		t.Errorf("expected ErrDeadLetterAlreadyResolved, got %v", err)
+	}
+}
+
+func TestSqliteDeadLetter_RetryConcurrent(t *testing.T) {
+	t.Parallel()
+	adapter := setupAdapter(t)
+	ctx := context.Background()
+
+	entry := makeTestEntry()
+	if _, err := adapter.Move(ctx, entry); err != nil {
+		t.Fatalf("move: %v", err)
+	}
+
+	const goroutines = 5
+	results := make(chan error, goroutines)
+	var wg sync.WaitGroup
+	wg.Add(goroutines)
+
+	for i := 0; i < goroutines; i++ {
+		go func(idx int) {
+			defer wg.Done()
+			_, retryErr := adapter.Retry(ctx, entry.ID, fmt.Sprintf("operator-%d", idx), nil)
+			results <- retryErr
+		}(i)
+	}
+
+	wg.Wait()
+	close(results)
+
+	var successes, alreadyResolved, notFound int
+	for err := range results {
+		switch {
+		case err == nil:
+			successes++
+		case errors.Is(err, ErrDeadLetterAlreadyResolved):
+			alreadyResolved++
+		case errors.Is(err, ErrDeadLetterNotFound):
+			notFound++
+		default:
+			t.Errorf("unexpected error: %v", err)
+		}
+	}
+
+	if successes != 1 {
+		t.Errorf("expected exactly 1 successful retry, got %d", successes)
+	}
+	if alreadyResolved+notFound != goroutines-1 {
+		t.Errorf("expected %d already-resolved/not-found errors, got %d", goroutines-1, alreadyResolved+notFound)
 	}
 }
 
@@ -374,6 +491,20 @@ func TestSqliteDeadLetter_PurgeByID(t *testing.T) {
 	_, err = adapter.Get(ctx, entry.ID)
 	if err != ErrDeadLetterNotFound {
 		t.Errorf("expected not found after purge, got %v", err)
+	}
+}
+
+func TestSqliteDeadLetter_PurgeNonExistent(t *testing.T) {
+	t.Parallel()
+	adapter := setupAdapter(t)
+	ctx := context.Background()
+
+	count, err := adapter.Purge(ctx, PurgeOptions{Kind: PurgeByID, ID: "nonexistent"})
+	if err != nil {
+		t.Fatalf("purge: %v", err)
+	}
+	if count != 0 {
+		t.Errorf("expected 0 purged for non-existent, got %d", count)
 	}
 }
 
@@ -532,7 +663,7 @@ func TestSqliteDeadLetter_Count(t *testing.T) {
 	}
 
 	// Resolve one entry.
-	if _, err := adapter.Retry(ctx, "dlq-count-a-0", "operator"); err != nil {
+	if _, err := adapter.Retry(ctx, "dlq-count-a-0", "operator", nil); err != nil {
 		t.Fatalf("retry: %v", err)
 	}
 
@@ -629,3 +760,76 @@ func TestSqliteDeadLetter_PayloadRoundTrip(t *testing.T) {
 	}
 }
 
+func TestSqliteDeadLetter_ErrorHistoryRoundTrip(t *testing.T) {
+	t.Parallel()
+	adapter := setupAdapter(t)
+	ctx := context.Background()
+
+	entry := makeTestEntry(func(e *DeadLetterEntry) {
+		e.ErrorHistory = []string{
+			"attempt 1: connection refused",
+			"attempt 2: timeout after 30s",
+			"attempt 3: context deadline exceeded",
+		}
+	})
+	if _, err := adapter.Move(ctx, entry); err != nil {
+		t.Fatalf("move: %v", err)
+	}
+
+	got, err := adapter.Get(ctx, entry.ID)
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if len(got.ErrorHistory) != 3 {
+		t.Fatalf("expected 3 error history entries, got %d", len(got.ErrorHistory))
+	}
+	if got.ErrorHistory[0] != "attempt 1: connection refused" {
+		t.Errorf("expected first error %q, got %q", "attempt 1: connection refused", got.ErrorHistory[0])
+	}
+	if got.ErrorHistory[2] != "attempt 3: context deadline exceeded" {
+		t.Errorf("expected third error %q, got %q", "attempt 3: context deadline exceeded", got.ErrorHistory[2])
+	}
+}
+
+func TestSqliteDeadLetter_ErrorHistoryEmptyRoundTrip(t *testing.T) {
+	t.Parallel()
+	adapter := setupAdapter(t)
+	ctx := context.Background()
+
+	entry := makeTestEntry()
+	if _, err := adapter.Move(ctx, entry); err != nil {
+		t.Fatalf("move: %v", err)
+	}
+
+	got, err := adapter.Get(ctx, entry.ID)
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if len(got.ErrorHistory) != 0 {
+		t.Errorf("expected empty error history, got %d entries", len(got.ErrorHistory))
+	}
+}
+
+func TestSqliteDeadLetter_ErrorHistoryViaList(t *testing.T) {
+	t.Parallel()
+	adapter := setupAdapter(t)
+	ctx := context.Background()
+
+	entry := makeTestEntry(func(e *DeadLetterEntry) {
+		e.ErrorHistory = []string{"err-1", "err-2"}
+	})
+	if _, err := adapter.Move(ctx, entry); err != nil {
+		t.Fatalf("move: %v", err)
+	}
+
+	result, err := adapter.List(ctx, DeadLetterListOptions{})
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(result.Entries) != 1 {
+		t.Fatalf("expected 1 entry, got %d", len(result.Entries))
+	}
+	if len(result.Entries[0].ErrorHistory) != 2 {
+		t.Errorf("expected 2 error history entries in list, got %d", len(result.Entries[0].ErrorHistory))
+	}
+}

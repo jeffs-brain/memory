@@ -155,4 +155,5 @@ export {
   type DeadLetterListResult,
   type JobPayload as DeadLetterJobPayload,
   type PurgeOptions as DeadLetterPurgeOptions,
+  type ReEnqueueFn as DeadLetterReEnqueueFn,
 } from './dead-letter.js'

@@ -31,6 +31,7 @@ export type DeadLetterEntry = {
   readonly payload: JobPayload
   readonly failureReason: string
   readonly lastError: string
+  readonly errorHistory?: readonly string[]
   readonly retryCount: number
   readonly metadata?: Readonly<Record<string, string>>
   readonly groupId?: string
@@ -60,6 +61,14 @@ export type PurgeOptions =
   | { readonly kind: 'older-than'; readonly days: number }
   | { readonly kind: 'all-resolved' }
 
+/**
+ * Callback that creates a new queue job in the main queue from a dead
+ * letter entry. The implementation is responsible for resetting the
+ * retry count and assigning a new job ID. Returning a rejected promise
+ * prevents the DLQ entry from being marked as resolved.
+ */
+export type ReEnqueueFn = (entry: DeadLetterEntry) => Promise<void>
+
 /** Interface for dead letter queue operations. */
 export type DeadLetterAdapter = {
   /** Move a failed job to the dead letter queue. */
@@ -71,8 +80,13 @@ export type DeadLetterAdapter = {
   /** Get a single entry by ID. Returns undefined when not found. */
   readonly get: (id: string) => Promise<DeadLetterEntry | undefined>
 
-  /** Mark an entry as resolved for retry. Returns the resolved entry. */
-  readonly retry: (id: string, resolvedBy?: string) => Promise<DeadLetterEntry>
+  /**
+   * Mark an entry as resolved for retry. If reEnqueue is provided, it
+   * is called with the entry to create a new queue job before the
+   * entry is committed as resolved. If reEnqueue throws, the entry
+   * remains unresolved.
+   */
+  readonly retry: (id: string, resolvedBy?: string, reEnqueue?: ReEnqueueFn) => Promise<DeadLetterEntry>
 
   /** Purge entries matching the given options. Returns count removed. */
   readonly purge: (opts: PurgeOptions) => Promise<number>
@@ -159,7 +173,7 @@ export const createInMemoryDeadLetterAdapter = (): DeadLetterAdapter => {
     return store.get(id)
   }
 
-  const retry = async (id: string, resolvedBy?: string): Promise<DeadLetterEntry> => {
+  const retry = async (id: string, resolvedBy?: string, reEnqueue?: ReEnqueueFn): Promise<DeadLetterEntry> => {
     const entry = store.get(id)
     if (entry === undefined) {
       throw new DeadLetterNotFoundError(id)
@@ -173,6 +187,11 @@ export const createInMemoryDeadLetterAdapter = (): DeadLetterAdapter => {
       resolvedAt: new Date(),
       resolvedBy: resolvedBy ?? 'system',
     }
+
+    if (reEnqueue !== undefined) {
+      await reEnqueue(resolved)
+    }
+
     store.set(id, resolved)
     return resolved
   }
