@@ -19,11 +19,11 @@ linters:
   settings:
     misspell:
       locale: UK
-issues:
-  exclude-dirs:
-    - testdata
-    - vendor
-  exclude-rules:
-    - path: _test\.go
-      linters:
-        - unparam
+  exclusions:
+    paths:
+      - testdata
+      - vendor
+    rules:
+      - path: _test\.go
+        linters:
+          - unparam
