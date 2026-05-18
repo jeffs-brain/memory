@@ -23,7 +23,7 @@ class GoRunner(SdkRunner):
 
     @property
     def workdir(self) -> Path:
-        return REPO_ROOT / "sdks" / "go"
+        return REPO_ROOT / "go"
 
     def build_command(self, port: int) -> list[str]:
         return ["go", "run", "./cmd/memory", "serve", "--addr", f"127.0.0.1:{port}"]
