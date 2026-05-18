@@ -19,7 +19,7 @@ Types representing real-world entities in the business domain.
 | `entity.person` | Named individuals, contacts, employees, or stakeholders |
 | `entity.document` | Documents, files, templates, forms, contracts, or certificates |
 
-### Rule Types (13)
+### Rule Types (12)
 
 Types representing business rules, constraints, and logic.
 
@@ -37,7 +37,8 @@ Types representing business rules, constraints, and logic.
 | `rule.fallback` | Default or backup rules applied when primary rules do not match |
 | `rule.priority` | Rules that establish ordering, ranking, or precedence |
 | `rule.requirement` | Mandatory conditions, prerequisites, or dependencies |
-| `rule.combined` | Composite rules that combine multiple rule types |
+
+> **Note:** Combined rules (formerly `rule.combined`) should be expressed as multiple individual rules connected by `extends` or `derived_from` edges.
 
 ### Exception Types (3)
 
@@ -72,9 +73,9 @@ Types representing workflows, procedures, and operational sequences.
 | `process.integration` | Integration points, API connections, or external system interactions |
 | `process.subworkflow` | Nested workflows, reusable process fragments, or child processes |
 
-**Total: 31 built-in node types.**
+**Total: 30 built-in node types.**
 
-## Edge Types (19)
+## Edge Types (29)
 
 Edge types represent relationships between nodes. They use `snake_case` identifiers without a prefix.
 
@@ -99,6 +100,16 @@ Edge types represent relationships between nodes. They use `snake_case` identifi
 | `feeds_into` | Source provides input data or context to target |
 | `enables` | Source makes target possible or available |
 | `validates` | Source checks or confirms the correctness of target |
+| `applies_to` | Source rule or policy governs or targets the destination entity |
+| `contains` | Source is the parent or container of target (composition relationship) |
+| `assigned_to` | Source task, document, or responsibility is assigned to target person or team |
+| `implements` | Source concrete process or system realises target abstract rule or policy |
+| `created_by` | Source entity was authored or created by target person or system |
+| `supersedes` | Source is the newer version that replaces target |
+| `derived_from` | Source entity was created or generated from target entity |
+| `governs` | Source policy or rule controls target domain or scope |
+| `requires` | Source entity needs target as a dependency or prerequisite |
+| `maps_to` | Source entity in one system corresponds to target entity in another system |
 
 ## Business Categories (8)
 
@@ -157,7 +168,7 @@ Types are resolved through a four-level scope hierarchy. Higher scopes override 
 
 Resolution order (lowest to highest priority):
 
-1. **built-in** -- The 31 node types + 19 edge types defined in this spec
+1. **built-in** -- The 30 node types + 29 edge types defined in this spec
 2. **organisation** -- Custom types defined at the organisation level
 3. **project** -- Custom types scoped to a specific project
 4. **brain** -- Custom types specific to a single brain
@@ -176,14 +187,14 @@ When resolving the full ontology:
 
 A string is a valid node type if it satisfies ANY of these conditions:
 
-1. It exactly matches one of the 31 built-in node types
+1. It exactly matches one of the 30 built-in node types
 2. It starts with a valid prefix (`entity.`, `rule.`, `exception.`, `decision.`, `process.`) AND has at least one character after the dot AND the name portion matches `^[a-z][a-z0-9]*(_[a-z0-9]+)*$`
 
 ### Edge Type Validation
 
 A string is a valid edge type if it satisfies ANY of these conditions:
 
-1. It exactly matches one of the 19 built-in edge types
+1. It exactly matches one of the 29 built-in edge types
 2. It matches the pattern `^[a-z][a-z0-9]*(_[a-z0-9]+)*$` (lowercase snake_case starting with a letter)
 
 ### Business Category Validation

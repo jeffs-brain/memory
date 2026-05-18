@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Package ontology defines the built-in type catalogue for the memory
-// knowledge graph. It provides the 31 node types, 19 edge types, 8 business
+// knowledge graph. It provides the 30 node types, 29 edge types, 8 business
 // categories, and 5 node type prefixes that form the core ontology schema.
 //
 // All validation functions accept both built-in types and custom types that

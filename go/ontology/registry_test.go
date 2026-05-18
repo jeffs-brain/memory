@@ -153,11 +153,11 @@ func TestRegistryResolve_BuiltInOnly(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
-	if len(resolved.NodeTypes) != 31 {
-		t.Fatalf("expected 31 node types, got %d", len(resolved.NodeTypes))
+	if len(resolved.NodeTypes) != 30 {
+		t.Fatalf("expected 30 node types, got %d", len(resolved.NodeTypes))
 	}
-	if len(resolved.EdgeTypes) != 19 {
-		t.Fatalf("expected 19 edge types, got %d", len(resolved.EdgeTypes))
+	if len(resolved.EdgeTypes) != 29 {
+		t.Fatalf("expected 29 edge types, got %d", len(resolved.EdgeTypes))
 	}
 	if len(resolved.BusinessCategories) != 8 {
 		t.Fatalf("expected 8 business categories, got %d", len(resolved.BusinessCategories))

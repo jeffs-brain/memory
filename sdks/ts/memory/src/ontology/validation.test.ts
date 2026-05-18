@@ -19,7 +19,7 @@ import {
 } from './validation.js'
 
 describe('isValidNodeType', () => {
-  it('accepts all 31 built-in node types', () => {
+  it('accepts all 30 built-in node types', () => {
     for (const typ of BUILT_IN_NODE_TYPES) {
       expect(isValidNodeType(typ)).toBe(true)
     }
@@ -54,7 +54,7 @@ describe('isValidNodeType', () => {
 })
 
 describe('isValidEdgeType', () => {
-  it('accepts all 19 built-in edge types', () => {
+  it('accepts all 29 built-in edge types', () => {
     for (const typ of BUILT_IN_EDGE_TYPES) {
       expect(isValidEdgeType(typ)).toBe(true)
     }

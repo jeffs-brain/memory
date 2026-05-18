@@ -25,7 +25,6 @@ const BUILT_IN_NODE_TYPE_DESCRIPTIONS: Readonly<Record<string, string>> = {
   'rule.fallback': 'Default or backup rules applied when primary rules do not match',
   'rule.priority': 'Rules that establish ordering, ranking, or precedence',
   'rule.requirement': 'Mandatory conditions, prerequisites, or dependencies',
-  'rule.combined': 'Composite rules that combine multiple rule types',
   'exception.workaround': 'Temporary solutions or manual interventions to bypass issues',
   'exception.override': 'Deliberate overrides of existing rules by authorised personnel',
   'exception.special_case': 'Unique or one-off handling for specific scenarios',
@@ -60,6 +59,16 @@ const BUILT_IN_EDGE_TYPE_DESCRIPTIONS: Readonly<Record<string, string>> = {
   feeds_into: 'Source provides input data or context to target',
   enables: 'Source makes target possible or available',
   validates: 'Source checks or confirms the correctness of target',
+  applies_to: 'Source rule or policy governs or targets the destination entity',
+  contains: 'Source is the parent or container of target (composition relationship)',
+  assigned_to: 'Source task, document, or responsibility is assigned to target person or team',
+  implements: 'Source concrete process or system realises target abstract rule or policy',
+  created_by: 'Source entity was authored or created by target person or system',
+  supersedes: 'Source is the newer version that replaces target',
+  derived_from: 'Source entity was created or generated from target entity',
+  governs: 'Source policy or rule controls target domain or scope',
+  requires: 'Source entity needs target as a dependency or prerequisite',
+  maps_to: 'Source entity in one system corresponds to target entity in another system',
 }
 
 /**

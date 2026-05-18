@@ -11,7 +11,6 @@ func TestIsValidNodeType(t *testing.T) {
 		isValid bool
 	}{
 		{"built-in entity.customer", "entity.customer", true},
-		{"built-in rule.combined", "rule.combined", true},
 		{"built-in exception.special_case", "exception.special_case", true},
 		{"built-in decision.table", "decision.table", true},
 		{"built-in process.subworkflow", "process.subworkflow", true},
