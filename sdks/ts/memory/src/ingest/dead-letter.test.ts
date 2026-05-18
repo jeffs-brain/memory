@@ -340,6 +340,79 @@ describe('InMemoryDeadLetterAdapter', () => {
     })
   })
 
+  describe('input validation', () => {
+    it('rejects negative limit', async () => {
+      await expect(adapter.list({ limit: -1 }))
+        .rejects.toThrow(RangeError)
+    })
+
+    it('rejects negative offset', async () => {
+      await expect(adapter.list({ offset: -1 }))
+        .rejects.toThrow(RangeError)
+    })
+
+    it('rejects negative days in purge', async () => {
+      await expect(adapter.purge({ kind: 'older-than', days: -5 }))
+        .rejects.toThrow(RangeError)
+    })
+  })
+
+  describe('deep clone isolation', () => {
+    it('move returns a clone that does not affect the store', async () => {
+      const entry = makeEntry({
+        metadata: { key: 'original' },
+        errorHistory: ['err-1'],
+      })
+      const result = await adapter.move(entry)
+
+      // Mutate the returned value.
+      ;(result as Record<string, unknown>).failureReason = 'tampered'
+      ;(result.metadata as Record<string, string>).key = 'tampered'
+      ;(result.errorHistory as string[]).push('tampered')
+
+      const stored = await adapter.get(entry.id)
+      expect(stored?.failureReason).toBe('embedding provider returned 500')
+      expect(stored?.metadata?.key).toBe('original')
+      expect(stored?.errorHistory).toHaveLength(1)
+    })
+
+    it('get returns a clone that does not affect the store', async () => {
+      await adapter.move(makeEntry({ metadata: { key: 'original' } }))
+
+      const got = await adapter.get('dlq-001')
+      ;(got as Record<string, unknown>).failureReason = 'tampered'
+      ;(got?.metadata as Record<string, string>).key = 'tampered'
+
+      const fresh = await adapter.get('dlq-001')
+      expect(fresh?.failureReason).toBe('embedding provider returned 500')
+      expect(fresh?.metadata?.key).toBe('original')
+    })
+
+    it('list returns clones that do not affect the store', async () => {
+      await adapter.move(makeEntry({ metadata: { key: 'original' } }))
+
+      const result = await adapter.list()
+      ;(result.entries[0] as Record<string, unknown>).failureReason = 'tampered'
+      ;(result.entries[0].metadata as Record<string, string>).key = 'tampered'
+
+      const fresh = await adapter.get('dlq-001')
+      expect(fresh?.failureReason).toBe('embedding provider returned 500')
+      expect(fresh?.metadata?.key).toBe('original')
+    })
+
+    it('retry returns a clone that does not affect the store', async () => {
+      await adapter.move(makeEntry({ metadata: { key: 'original' } }))
+
+      const resolved = await adapter.retry('dlq-001', 'op')
+      ;(resolved as Record<string, unknown>).failureReason = 'tampered'
+      ;(resolved.metadata as Record<string, string>).key = 'tampered'
+
+      const stored = await adapter.get('dlq-001')
+      expect(stored?.failureReason).toBe('embedding provider returned 500')
+      expect(stored?.metadata?.key).toBe('original')
+    })
+  })
+
   describe('error history', () => {
     it('preserves error history array', async () => {
       await adapter.move(makeEntry({

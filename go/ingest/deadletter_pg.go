@@ -184,7 +184,7 @@ func (a *PostgresDeadLetterAdapter) Retry(ctx context.Context, id string, resolv
 			// Distinguish between not-found and already-resolved.
 			var exists int
 			checkQuery := fmt.Sprintf("SELECT 1 FROM %s WHERE id = $1", a.table())
-			checkErr := a.db.QueryRowContext(ctx, checkQuery, id).Scan(&exists)
+			checkErr := tx.QueryRowContext(ctx, checkQuery, id).Scan(&exists)
 			if checkErr != nil {
 				return DeadLetterEntry{}, ErrDeadLetterNotFound
 			}

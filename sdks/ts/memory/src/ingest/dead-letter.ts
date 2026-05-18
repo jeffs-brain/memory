@@ -132,6 +132,16 @@ const DEFAULT_LIST_LIMIT = 50
 // In-memory adapter (testing / local use)
 // ---------------------------------------------------------------------------
 
+/** Deep-clone a dead letter entry so the in-memory store never exposes mutable references. */
+const cloneEntry = (entry: DeadLetterEntry): DeadLetterEntry => ({
+  ...entry,
+  payload: { ...entry.payload },
+  movedAt: new Date(entry.movedAt.getTime()),
+  ...(entry.errorHistory !== undefined ? { errorHistory: [...entry.errorHistory] } : {}),
+  ...(entry.metadata !== undefined ? { metadata: { ...entry.metadata } } : {}),
+  ...(entry.resolvedAt !== undefined ? { resolvedAt: new Date(entry.resolvedAt.getTime()) } : {}),
+})
+
 /**
  * Creates an in-memory dead letter adapter. Useful for testing and
  * local/embedded deployments that do not need persistent storage.
@@ -145,13 +155,17 @@ export const createInMemoryDeadLetterAdapter = (): DeadLetterAdapter => {
       id: entry.id || randomUUID(),
       movedAt: entry.movedAt ?? new Date(),
     }
-    store.set(resolved.id, resolved)
-    return resolved
+    store.set(resolved.id, cloneEntry(resolved))
+    return cloneEntry(resolved)
   }
 
   const list = async (opts?: DeadLetterListOptions): Promise<DeadLetterListResult> => {
     const limit = opts?.limit ?? DEFAULT_LIST_LIMIT
     const offset = opts?.offset ?? 0
+
+    if (limit < 0) throw new RangeError('limit must not be negative')
+    if (offset < 0) throw new RangeError('offset must not be negative')
+
     const includeResolved = opts?.includeResolved ?? false
     const brainId = opts?.brainId
 
@@ -165,12 +179,13 @@ export const createInMemoryDeadLetterAdapter = (): DeadLetterAdapter => {
     filtered.sort((a, b) => b.movedAt.getTime() - a.movedAt.getTime())
 
     const total = filtered.length
-    const entries = filtered.slice(offset, offset + limit)
+    const entries = filtered.slice(offset, offset + limit).map(cloneEntry)
     return { entries, total }
   }
 
   const get = async (id: string): Promise<DeadLetterEntry | undefined> => {
-    return store.get(id)
+    const entry = store.get(id)
+    return entry !== undefined ? cloneEntry(entry) : undefined
   }
 
   const retry = async (id: string, resolvedBy?: string, reEnqueue?: ReEnqueueFn): Promise<DeadLetterEntry> => {
@@ -189,11 +204,11 @@ export const createInMemoryDeadLetterAdapter = (): DeadLetterAdapter => {
     }
 
     if (reEnqueue !== undefined) {
-      await reEnqueue(resolved)
+      await reEnqueue(cloneEntry(resolved))
     }
 
-    store.set(id, resolved)
-    return resolved
+    store.set(id, cloneEntry(resolved))
+    return cloneEntry(resolved)
   }
 
   const purge = async (opts: PurgeOptions): Promise<number> => {
@@ -215,6 +230,7 @@ export const createInMemoryDeadLetterAdapter = (): DeadLetterAdapter => {
       },
       'older-than': () => {
         const optsOlder = opts as { readonly kind: 'older-than'; readonly days: number }
+        if (optsOlder.days < 0) throw new RangeError('days must not be negative')
         const cutoff = new Date()
         cutoff.setDate(cutoff.getDate() - optsOlder.days)
         let removed = 0
