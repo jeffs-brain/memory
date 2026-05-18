@@ -2,7 +2,7 @@
 
 /**
  * Core ontology type definitions for the memory knowledge graph.
- * Defines the 31 built-in node types, 19 edge types, 8 business categories,
+ * Defines the 30 built-in node types, 29 edge types, 8 business categories,
  * and 5 node type prefixes that form the ontology schema.
  *
  * Port of packages/intelligence-database/src/types.ts.
@@ -27,7 +27,6 @@ export const BUILT_IN_NODE_TYPES = [
   'rule.fallback',
   'rule.priority',
   'rule.requirement',
-  'rule.combined',
   'exception.workaround',
   'exception.override',
   'exception.special_case',
@@ -136,6 +135,16 @@ export const BUILT_IN_EDGE_TYPES = [
   'feeds_into',
   'enables',
   'validates',
+  'applies_to',
+  'contains',
+  'assigned_to',
+  'implements',
+  'created_by',
+  'supersedes',
+  'derived_from',
+  'governs',
+  'requires',
+  'maps_to',
 ] as const
 
 export type BuiltInEdgeType = (typeof BUILT_IN_EDGE_TYPES)[number]

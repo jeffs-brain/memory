@@ -160,9 +160,9 @@ describe('FileOntologyStore', () => {
   })
 
   describe('listTypes', () => {
-    it('lists all 50 built-in types', async () => {
+    it('lists all 59 built-in types', async () => {
       const types = await ontologyStore.listTypes('built-in')
-      expect(types).toHaveLength(50)
+      expect(types).toHaveLength(59)
     })
 
     it('filters built-in types by prefix', async () => {
@@ -195,8 +195,8 @@ describe('FileOntologyStore', () => {
   describe('getResolvedOntology', () => {
     it('returns all built-in types when store is empty', async () => {
       const resolved = await ontologyStore.getResolvedOntology('brain-1', 'proj-1', 'org-1')
-      expect(resolved.nodeTypes).toHaveLength(31)
-      expect(resolved.edgeTypes).toHaveLength(19)
+      expect(resolved.nodeTypes).toHaveLength(30)
+      expect(resolved.edgeTypes).toHaveLength(29)
       expect(resolved.businessCategories).toHaveLength(8)
     })
 

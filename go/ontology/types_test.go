@@ -5,15 +5,15 @@ import "testing"
 
 func TestBuiltInNodeTypeCount(t *testing.T) {
 	t.Parallel()
-	if got := len(BuiltInNodeTypes); got != 31 {
-		t.Fatalf("expected 31 built-in node types, got %d", got)
+	if got := len(BuiltInNodeTypes); got != 30 {
+		t.Fatalf("expected 30 built-in node types, got %d", got)
 	}
 }
 
 func TestBuiltInEdgeTypeCount(t *testing.T) {
 	t.Parallel()
-	if got := len(BuiltInEdgeTypes); got != 19 {
-		t.Fatalf("expected 19 built-in edge types, got %d", got)
+	if got := len(BuiltInEdgeTypes); got != 29 {
+		t.Fatalf("expected 29 built-in edge types, got %d", got)
 	}
 }
 

@@ -100,8 +100,8 @@ describe('Registry', () => {
   describe('resolve', () => {
     it('returns all built-in types when store is empty', async () => {
       const resolved = await registry.resolve('brain-1', 'proj-1', 'org-1')
-      expect(resolved.nodeTypes).toHaveLength(31)
-      expect(resolved.edgeTypes).toHaveLength(19)
+      expect(resolved.nodeTypes).toHaveLength(30)
+      expect(resolved.edgeTypes).toHaveLength(29)
       expect(resolved.businessCategories).toHaveLength(8)
     })
 
@@ -116,7 +116,7 @@ describe('Registry', () => {
       await registry.registerType('brain', def)
 
       const resolved = await registry.resolve('brain-1', 'proj-1', 'org-1')
-      expect(resolved.nodeTypes).toHaveLength(32)
+      expect(resolved.nodeTypes).toHaveLength(31)
     })
   })
 })

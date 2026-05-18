@@ -14,8 +14,8 @@ import {
 import { hasPrefix, isValidNodeType } from './validation.js'
 
 describe('BUILT_IN_NODE_TYPES', () => {
-  it('has exactly 31 entries', () => {
-    expect(BUILT_IN_NODE_TYPES).toHaveLength(31)
+  it('has exactly 30 entries', () => {
+    expect(BUILT_IN_NODE_TYPES).toHaveLength(30)
   })
 
   it('contains no duplicates', () => {
@@ -39,8 +39,8 @@ describe('BUILT_IN_NODE_TYPES', () => {
 })
 
 describe('BUILT_IN_EDGE_TYPES', () => {
-  it('has exactly 19 entries', () => {
-    expect(BUILT_IN_EDGE_TYPES).toHaveLength(19)
+  it('has exactly 29 entries', () => {
+    expect(BUILT_IN_EDGE_TYPES).toHaveLength(29)
   })
 
   it('contains no duplicates', () => {
@@ -106,7 +106,6 @@ describe('cross-SDK parity with Go constants', () => {
       'rule.fallback',
       'rule.priority',
       'rule.requirement',
-      'rule.combined',
       'exception.workaround',
       'exception.override',
       'exception.special_case',
@@ -144,6 +143,16 @@ describe('cross-SDK parity with Go constants', () => {
       'feeds_into',
       'enables',
       'validates',
+      'applies_to',
+      'contains',
+      'assigned_to',
+      'implements',
+      'created_by',
+      'supersedes',
+      'derived_from',
+      'governs',
+      'requires',
+      'maps_to',
     ]
     expect([...BUILT_IN_EDGE_TYPES]).toEqual(expectedEdgeTypes)
   })

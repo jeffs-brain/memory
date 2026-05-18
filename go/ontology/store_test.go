@@ -225,8 +225,8 @@ func TestListTypes_BuiltIn(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListTypes(built-in) = %v", err)
 	}
-	if len(types) != 50 {
-		t.Fatalf("expected 50 built-in types (31 nodes + 19 edges), got %d", len(types))
+	if len(types) != 59 {
+		t.Fatalf("expected 59 built-in types (30 nodes + 29 edges), got %d", len(types))
 	}
 }
 
@@ -296,11 +296,11 @@ func TestGetResolvedOntology_BuiltInOnly(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetResolvedOntology = %v", err)
 	}
-	if len(resolved.NodeTypes) != 31 {
-		t.Fatalf("expected 31 node types, got %d", len(resolved.NodeTypes))
+	if len(resolved.NodeTypes) != 30 {
+		t.Fatalf("expected 30 node types, got %d", len(resolved.NodeTypes))
 	}
-	if len(resolved.EdgeTypes) != 19 {
-		t.Fatalf("expected 19 edge types, got %d", len(resolved.EdgeTypes))
+	if len(resolved.EdgeTypes) != 29 {
+		t.Fatalf("expected 29 edge types, got %d", len(resolved.EdgeTypes))
 	}
 	if len(resolved.BusinessCategories) != 8 {
 		t.Fatalf("expected 8 categories, got %d", len(resolved.BusinessCategories))

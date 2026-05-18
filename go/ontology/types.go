@@ -6,8 +6,8 @@ import (
 	"sync"
 )
 
-// BuiltInNodeTypes is the authoritative list of 31 built-in node types.
-var BuiltInNodeTypes = [31]string{
+// BuiltInNodeTypes is the authoritative list of 30 built-in node types.
+var BuiltInNodeTypes = [30]string{
 	"entity.customer",
 	"entity.supplier",
 	"entity.product",
@@ -26,7 +26,6 @@ var BuiltInNodeTypes = [31]string{
 	"rule.fallback",
 	"rule.priority",
 	"rule.requirement",
-	"rule.combined",
 	"exception.workaround",
 	"exception.override",
 	"exception.special_case",
@@ -41,8 +40,8 @@ var BuiltInNodeTypes = [31]string{
 	"process.subworkflow",
 }
 
-// BuiltInEdgeTypes is the authoritative list of 19 built-in edge types.
-var BuiltInEdgeTypes = [19]string{
+// BuiltInEdgeTypes is the authoritative list of 29 built-in edge types.
+var BuiltInEdgeTypes = [29]string{
 	"triggers",
 	"requires_approval_from",
 	"exception_for",
@@ -62,6 +61,16 @@ var BuiltInEdgeTypes = [19]string{
 	"feeds_into",
 	"enables",
 	"validates",
+	"applies_to",
+	"contains",
+	"assigned_to",
+	"implements",
+	"created_by",
+	"supersedes",
+	"derived_from",
+	"governs",
+	"requires",
+	"maps_to",
 }
 
 // BusinessCategories is the authoritative list of 8 built-in categories.
