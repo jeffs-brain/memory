@@ -146,7 +146,7 @@ func (e *notionHTTPTokenExchanger) Refresh(ctx context.Context, refreshToken str
 	if err != nil {
 		return NotionRefreshedToken{}, fmt.Errorf("executing refresh request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, notionMaxResponseSize))
 	if err != nil {
