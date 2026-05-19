@@ -127,7 +127,7 @@ func (a *PostgresDeadLetterAdapter) List(ctx context.Context, opts DeadLetterLis
 	if err != nil {
 		return DeadLetterListResult{}, fmt.Errorf("ingest: pg dead letter list: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	entries := make([]DeadLetterEntry, 0, deadLetterListCap)
 	for rows.Next() {
