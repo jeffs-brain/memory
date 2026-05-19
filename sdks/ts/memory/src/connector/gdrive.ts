@@ -423,7 +423,7 @@ export class GDriveConnector implements Connector {
     const maxSize = cfg.maxFileSize
 
     if (fileSize > maxSize && !GOOGLE_NATIVE_FORMATS.has(file.mimeType)) {
-      this.deps.logger.warn('gdrive: file exceeds size limit, skipping', {
+      this.deps.logger?.warn('gdrive: file exceeds size limit, skipping', {
         fileId: file.id,
         name: file.name,
         size: fileSize,
@@ -541,7 +541,7 @@ export class GDriveConnector implements Connector {
           if (rateLimitErr.isRateLimit && attempt < RATE_LIMIT_MAX_RETRIES) {
             const retryAfterHeader = resp.headers?.get?.('Retry-After')
             const backoff = calculateBackoff(attempt, retryAfterHeader)
-            this.deps.logger.warn('gdrive: rate limited, retrying', {
+            this.deps.logger?.warn('gdrive: rate limited, retrying', {
               attempt: attempt + 1,
               maxRetries: RATE_LIMIT_MAX_RETRIES,
               backoffMs: backoff,

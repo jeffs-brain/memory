@@ -393,7 +393,7 @@ func TestExtractJSONL_Empty(t *testing.T) {
 // Encoding Detection Tests
 // -------------------------------------------------------------------
 
-func TestDetectEncoding_UTF8(t *testing.T) {
+func TestDetectEncoding_UTF8_Structured(t *testing.T) {
 	input := []byte("hello world")
 	text, enc, err := detectEncoding(input)
 	if err != nil {
@@ -407,7 +407,7 @@ func TestDetectEncoding_UTF8(t *testing.T) {
 	}
 }
 
-func TestDetectEncoding_UTF8BOM(t *testing.T) {
+func TestDetectEncoding_UTF8BOM_Structured(t *testing.T) {
 	input := append([]byte{0xEF, 0xBB, 0xBF}, []byte("hello")...)
 	text, enc, err := detectEncoding(input)
 	if err != nil {
@@ -421,7 +421,7 @@ func TestDetectEncoding_UTF8BOM(t *testing.T) {
 	}
 }
 
-func TestDetectEncoding_Latin1(t *testing.T) {
+func TestDetectEncoding_Latin1_Structured(t *testing.T) {
 	// 0x80 is not valid start of UTF-8 sequence.
 	input := []byte{0x80, 0x81, 0x82}
 	_, enc, err := detectEncoding(input)

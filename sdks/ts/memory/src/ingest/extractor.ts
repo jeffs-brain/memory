@@ -17,6 +17,7 @@ import {
   extractJSON,
   extractJSONL,
 } from './structured.js'
+export type { ExtractResult } from './structured.js'
 import { type XmlExtractorConfig, extractXML } from './xml.js'
 
 /** Identifies a file format by magic bytes at a given offset. */

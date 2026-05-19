@@ -43,13 +43,16 @@ export const resolveKeyframeConfig = (partial: Partial<KeyframeConfig>): Keyfram
     }
   }
 
-  return {
+  const base: KeyframeConfig = {
     ffmpegBinary: partial.ffmpegBinary ?? process.env['MEMORY_FFMPEG_PATH'] ?? 'ffmpeg',
     intervalSecs,
     maxKeyframes: partial.maxKeyframes ?? 20,
-    ocrExtractor: partial.ocrExtractor,
     timeout: partial.timeout ?? 60_000,
   }
+  if (partial.ocrExtractor !== undefined) {
+    return { ...base, ocrExtractor: partial.ocrExtractor }
+  }
+  return base
 }
 
 /**

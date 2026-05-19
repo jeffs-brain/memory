@@ -77,15 +77,6 @@ func (c *VideoExtractorConfig) applyDefaults() {
 	}
 }
 
-// envOrDefault returns the value of the named environment variable, or
-// the fallback when the variable is empty or unset.
-func envOrDefault(key, fallback string) string {
-	if v := os.Getenv(key); v != "" {
-		return v
-	}
-	return fallback
-}
-
 // VideoMetadata holds the structural properties of a video file as
 // reported by FFprobe.
 type VideoMetadata struct {

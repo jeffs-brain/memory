@@ -14,33 +14,33 @@ import (
 	"time"
 )
 
-// mockHTTPClient captures requests and returns canned responses.
-type mockHTTPClient struct {
-	responses []mockResponse
-	calls     []capturedRequest
+// notionMockHTTPClient captures requests and returns canned responses.
+type notionMockHTTPClient struct {
+	responses []notionMockResponse
+	calls     []notionCapturedRequest
 	callIndex int
 }
 
-type mockResponse struct {
+type notionMockResponse struct {
 	statusCode int
 	body       string
 	headers    http.Header
 }
 
-type capturedRequest struct {
+type notionCapturedRequest struct {
 	method string
 	url    string
 	body   string
 }
 
-func (m *mockHTTPClient) Do(req *http.Request) (*http.Response, error) {
+func (m *notionMockHTTPClient) Do(req *http.Request) (*http.Response, error) {
 	var bodyStr string
 	if req.Body != nil {
 		data, _ := io.ReadAll(req.Body)
 		bodyStr = string(data)
 	}
 
-	m.calls = append(m.calls, capturedRequest{
+	m.calls = append(m.calls, notionCapturedRequest{
 		method: req.Method,
 		url:    req.URL.String(),
 		body:   bodyStr,
@@ -70,9 +70,9 @@ func (m *mockHTTPClient) Do(req *http.Request) (*http.Response, error) {
 	}, nil
 }
 
-// newTestConnector creates a NotionConnector with the given mock
+// newNotionTestConnector creates a NotionConnector with the given mock
 // client and a pre-configured API token.
-func newTestConnector(mock *mockHTTPClient) *NotionConnector {
+func newNotionTestConnector(mock *notionMockHTTPClient) *NotionConnector {
 	deps := ConnectorConfig{
 		Name:    "notion",
 		BrainID: "test-brain",
@@ -186,15 +186,15 @@ func TestNotionConnector_FetchPageViaMarkdownAPI(t *testing.T) {
 	markdownResp := `{"markdown": "# Test Page\n\nThis is test content."}`
 	childBlocksResp := `{"results": [], "has_more": false}`
 
-	mock := &mockHTTPClient{
-		responses: []mockResponse{
+	mock := &notionMockHTTPClient{
+		responses: []notionMockResponse{
 			{statusCode: 200, body: pageResp},
 			{statusCode: 200, body: markdownResp},
 			{statusCode: 200, body: childBlocksResp},
 		},
 	}
 
-	conn := newTestConnector(mock)
+	conn := newNotionTestConnector(mock)
 	conn.config.RootPageIDs = []string{"page-123"}
 	conn.config.IncludeChildPages = true
 
@@ -265,8 +265,8 @@ func TestNotionConnector_FetchPageFallbackToBlocks(t *testing.T) {
 	}`
 	childBlocksResp := `{"results": [], "has_more": false}`
 
-	mock := &mockHTTPClient{
-		responses: []mockResponse{
+	mock := &notionMockHTTPClient{
+		responses: []notionMockResponse{
 			{statusCode: 200, body: pageResp},
 			{statusCode: 404, body: markdownNotFound},
 			{statusCode: 200, body: blocksResp},
@@ -274,7 +274,7 @@ func TestNotionConnector_FetchPageFallbackToBlocks(t *testing.T) {
 		},
 	}
 
-	conn := newTestConnector(mock)
+	conn := newNotionTestConnector(mock)
 	conn.config.RootPageIDs = []string{"page-456"}
 	conn.config.IncludeChildPages = true
 
@@ -341,8 +341,8 @@ func TestNotionConnector_DatabaseQuery(t *testing.T) {
 	entryMarkdown1 := `{"markdown": "Details for entry one."}`
 	entryMarkdown2 := `{"markdown": "Details for entry two."}`
 
-	mock := &mockHTTPClient{
-		responses: []mockResponse{
+	mock := &notionMockHTTPClient{
+		responses: []notionMockResponse{
 			{statusCode: 200, body: dbQueryResp},
 			// Content for entry-1
 			{statusCode: 200, body: entryMarkdown1},
@@ -351,7 +351,7 @@ func TestNotionConnector_DatabaseQuery(t *testing.T) {
 		},
 	}
 
-	conn := newTestConnector(mock)
+	conn := newNotionTestConnector(mock)
 	conn.config.DatabaseIDs = []string{"db-test"}
 	conn.config.RootPageIDs = nil
 
@@ -411,8 +411,8 @@ func TestNotionConnector_PaginatedDatabaseQuery(t *testing.T) {
 	}`
 	entryMD := `{"markdown": "content"}`
 
-	mock := &mockHTTPClient{
-		responses: []mockResponse{
+	mock := &notionMockHTTPClient{
+		responses: []notionMockResponse{
 			{statusCode: 200, body: page1},
 			{statusCode: 200, body: entryMD},
 			{statusCode: 200, body: page2},
@@ -420,7 +420,7 @@ func TestNotionConnector_PaginatedDatabaseQuery(t *testing.T) {
 		},
 	}
 
-	conn := newTestConnector(mock)
+	conn := newNotionTestConnector(mock)
 	conn.config.DatabaseIDs = []string{"db-paginated"}
 
 	docsCh, errsCh := conn.FetchAll(context.Background())
@@ -466,8 +466,8 @@ func TestNotionConnector_RecursiveChildPages(t *testing.T) {
 	childMD := `{"markdown": "Child content"}`
 	childChildren := `{"results": [], "has_more": false}`
 
-	mock := &mockHTTPClient{
-		responses: []mockResponse{
+	mock := &notionMockHTTPClient{
+		responses: []notionMockResponse{
 			{statusCode: 200, body: rootPageResp},
 			{statusCode: 200, body: rootMD},
 			{statusCode: 200, body: rootChildren},
@@ -477,7 +477,7 @@ func TestNotionConnector_RecursiveChildPages(t *testing.T) {
 		},
 	}
 
-	conn := newTestConnector(mock)
+	conn := newNotionTestConnector(mock)
 	conn.config.RootPageIDs = []string{"root"}
 	conn.config.IncludeChildPages = true
 
@@ -517,8 +517,8 @@ func TestNotionConnector_MaxDepthEnforcement(t *testing.T) {
 		"has_more": false
 	}`
 
-	mock := &mockHTTPClient{
-		responses: []mockResponse{
+	mock := &notionMockHTTPClient{
+		responses: []notionMockResponse{
 			{statusCode: 200, body: rootPage},
 			{statusCode: 200, body: rootMD},
 			{statusCode: 200, body: rootChildren},
@@ -529,7 +529,7 @@ func TestNotionConnector_MaxDepthEnforcement(t *testing.T) {
 		},
 	}
 
-	conn := newTestConnector(mock)
+	conn := newNotionTestConnector(mock)
 	conn.config.RootPageIDs = []string{"root"}
 	conn.config.MaxDepth = 1
 
@@ -570,8 +570,8 @@ func TestNotionConnector_CycleDetection(t *testing.T) {
 		"has_more": false
 	}`
 
-	mock := &mockHTTPClient{
-		responses: []mockResponse{
+	mock := &notionMockHTTPClient{
+		responses: []notionMockResponse{
 			{statusCode: 200, body: pageA},
 			{statusCode: 200, body: pageMD},
 			{statusCode: 200, body: childrenA},
@@ -582,7 +582,7 @@ func TestNotionConnector_CycleDetection(t *testing.T) {
 		},
 	}
 
-	conn := newTestConnector(mock)
+	conn := newNotionTestConnector(mock)
 	conn.config.RootPageIDs = []string{"page-a"}
 	conn.config.IncludeChildPages = true
 
@@ -613,14 +613,14 @@ func TestNotionConnector_IncrementalSyncViaTimestamp(t *testing.T) {
 	}`
 	entryMD := `{"markdown": "updated content"}`
 
-	mock := &mockHTTPClient{
-		responses: []mockResponse{
+	mock := &notionMockHTTPClient{
+		responses: []notionMockResponse{
 			{statusCode: 200, body: dbQueryResp},
 			{statusCode: 200, body: entryMD},
 		},
 	}
 
-	conn := newTestConnector(mock)
+	conn := newNotionTestConnector(mock)
 	conn.config.DatabaseIDs = []string{"db-incremental"}
 
 	cursor := SyncCursor{
@@ -660,14 +660,14 @@ func TestNotionConnector_CursorUpdatedAfterSync(t *testing.T) {
 	}`
 	entryMD := `{"markdown": "content"}`
 
-	mock := &mockHTTPClient{
-		responses: []mockResponse{
+	mock := &notionMockHTTPClient{
+		responses: []notionMockResponse{
 			{statusCode: 200, body: dbResp},
 			{statusCode: 200, body: entryMD},
 		},
 	}
 
-	conn := newTestConnector(mock)
+	conn := newNotionTestConnector(mock)
 	conn.config.DatabaseIDs = []string{"db-cursor"}
 
 	docsCh, errsCh := conn.FetchAll(context.Background())
@@ -691,14 +691,14 @@ func TestNotionConnector_CursorUpdatedAfterSync(t *testing.T) {
 func TestNotionConnector_RateLimit429Handling(t *testing.T) {
 	// Provide enough 429 responses to exhaust all retries
 	// (notionMaxRetryAttempts + 1 = 6).
-	rateLimitResp := mockResponse{
+	rateLimitResp := notionMockResponse{
 		statusCode: 429,
 		body:       `{"message": "rate limited"}`,
 		headers:    http.Header{"Retry-After": []string{"0"}},
 	}
 
-	mock := &mockHTTPClient{
-		responses: []mockResponse{
+	mock := &notionMockHTTPClient{
+		responses: []notionMockResponse{
 			rateLimitResp,
 			rateLimitResp,
 			rateLimitResp,
@@ -708,7 +708,7 @@ func TestNotionConnector_RateLimit429Handling(t *testing.T) {
 		},
 	}
 
-	conn := newTestConnector(mock)
+	conn := newNotionTestConnector(mock)
 	conn.config.RootPageIDs = []string{"page-rl"}
 
 	docsCh, errsCh := conn.FetchAll(context.Background())
@@ -739,15 +739,15 @@ func TestNotionConnector_FileBlockDownload(t *testing.T) {
 	markdownResp := `{"markdown": "![image](https://example.com/image.png)\n\nSome text."}`
 	childBlocksResp := `{"results": [], "has_more": false}`
 
-	mock := &mockHTTPClient{
-		responses: []mockResponse{
+	mock := &notionMockHTTPClient{
+		responses: []notionMockResponse{
 			{statusCode: 200, body: pageResp},
 			{statusCode: 200, body: markdownResp},
 			{statusCode: 200, body: childBlocksResp},
 		},
 	}
 
-	conn := newTestConnector(mock)
+	conn := newNotionTestConnector(mock)
 	conn.config.RootPageIDs = []string{"page-file"}
 
 	docsCh, errsCh := conn.FetchAll(context.Background())
@@ -769,13 +769,13 @@ func TestNotionConnector_FileBlockDownload(t *testing.T) {
 func TestNotionConnector_EmptyWorkspace(t *testing.T) {
 	searchResp := `{"results": [], "has_more": false}`
 
-	mock := &mockHTTPClient{
-		responses: []mockResponse{
+	mock := &notionMockHTTPClient{
+		responses: []notionMockResponse{
 			{statusCode: 200, body: searchResp},
 		},
 	}
 
-	conn := newTestConnector(mock)
+	conn := newNotionTestConnector(mock)
 	// No rootPageIds or databaseIds, triggers workspace search.
 
 	docsCh, errsCh := conn.FetchAll(context.Background())
@@ -809,8 +809,8 @@ func TestNotionConnector_WorkspaceSearch(t *testing.T) {
 	pageMD := `{"markdown": "workspace page content"}`
 	childBlocks := `{"results": [], "has_more": false}`
 
-	mock := &mockHTTPClient{
-		responses: []mockResponse{
+	mock := &notionMockHTTPClient{
+		responses: []notionMockResponse{
 			{statusCode: 200, body: searchResp},
 			{statusCode: 200, body: pageResp},
 			{statusCode: 200, body: pageMD},
@@ -818,7 +818,7 @@ func TestNotionConnector_WorkspaceSearch(t *testing.T) {
 		},
 	}
 
-	conn := newTestConnector(mock)
+	conn := newNotionTestConnector(mock)
 
 	docsCh, errsCh := conn.FetchAll(context.Background())
 	docs, errs := collectDocs(docsCh, errsCh)
@@ -835,7 +835,7 @@ func TestNotionConnector_WorkspaceSearch(t *testing.T) {
 }
 
 func TestNotionConnector_BlockToMarkdown_RichText(t *testing.T) {
-	conn := newTestConnector(nil)
+	conn := newNotionTestConnector(nil)
 
 	tests := []struct {
 		name     string
@@ -1052,8 +1052,8 @@ func TestNotionConnector_Stop(t *testing.T) {
 }
 
 func TestNotionConnector_AuthHeader(t *testing.T) {
-	mock := &mockHTTPClient{
-		responses: []mockResponse{
+	mock := &notionMockHTTPClient{
+		responses: []notionMockResponse{
 			{statusCode: 200, body: `{
 				"id": "p1", "url": "https://notion.so/p1",
 				"last_edited_time": "2026-05-10T14:00:00.000Z",
@@ -1065,7 +1065,7 @@ func TestNotionConnector_AuthHeader(t *testing.T) {
 		},
 	}
 
-	conn := newTestConnector(mock)
+	conn := newNotionTestConnector(mock)
 	conn.config.RootPageIDs = []string{"p1"}
 
 	docsCh, errsCh := conn.FetchAll(context.Background())
@@ -1085,8 +1085,8 @@ func TestNotionConnector_AuthHeader(t *testing.T) {
 
 func TestNotionConnector_ContextCancellation(t *testing.T) {
 	// Create a slow mock that would block.
-	mock := &mockHTTPClient{
-		responses: []mockResponse{
+	mock := &notionMockHTTPClient{
+		responses: []notionMockResponse{
 			{statusCode: 200, body: `{
 				"id": "p1", "url": "https://notion.so/p1",
 				"last_edited_time": "2026-05-10T14:00:00.000Z",
@@ -1098,7 +1098,7 @@ func TestNotionConnector_ContextCancellation(t *testing.T) {
 		},
 	}
 
-	conn := newTestConnector(mock)
+	conn := newNotionTestConnector(mock)
 	conn.config.RootPageIDs = []string{"p1"}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -1158,8 +1158,8 @@ func TestNotionConnector_NestedBlockChildrenRendering(t *testing.T) {
 	// No children for the page.
 	pageChildBlocks := `{"results": [], "has_more": false}`
 
-	mock := &mockHTTPClient{
-		responses: []mockResponse{
+	mock := &notionMockHTTPClient{
+		responses: []notionMockResponse{
 			{statusCode: 200, body: pageResp},
 			{statusCode: 404, body: `{"message": "not found"}`},
 			{statusCode: 200, body: blocksResp},
@@ -1168,7 +1168,7 @@ func TestNotionConnector_NestedBlockChildrenRendering(t *testing.T) {
 		},
 	}
 
-	conn := newTestConnector(mock)
+	conn := newNotionTestConnector(mock)
 	conn.config.RootPageIDs = []string{"nested-page"}
 	conn.config.IncludeChildPages = true
 
@@ -1228,8 +1228,8 @@ func TestNotionConnector_SyncedBlockRendering(t *testing.T) {
 	}`
 	childBlocks := `{"results": [], "has_more": false}`
 
-	mock := &mockHTTPClient{
-		responses: []mockResponse{
+	mock := &notionMockHTTPClient{
+		responses: []notionMockResponse{
 			{statusCode: 200, body: pageResp},
 			{statusCode: 404, body: `{"message": "not found"}`},
 			{statusCode: 200, body: blocksResp},
@@ -1237,7 +1237,7 @@ func TestNotionConnector_SyncedBlockRendering(t *testing.T) {
 		},
 	}
 
-	conn := newTestConnector(mock)
+	conn := newNotionTestConnector(mock)
 	conn.config.RootPageIDs = []string{"sync-page"}
 	conn.config.IncludeChildPages = true
 
@@ -1263,7 +1263,7 @@ func TestNotionConnector_SyncedBlockRendering(t *testing.T) {
 }
 
 func TestNotionConnector_EquationBlockRendering(t *testing.T) {
-	conn := newTestConnector(nil)
+	conn := newNotionTestConnector(nil)
 
 	block := makeBlock("equation", `{"expression": "E = mc^2"}`)
 	result := conn.blockToMarkdown(block)
@@ -1275,7 +1275,7 @@ func TestNotionConnector_EquationBlockRendering(t *testing.T) {
 }
 
 func TestNotionConnector_ImageBlockRendering(t *testing.T) {
-	conn := newTestConnector(nil)
+	conn := newNotionTestConnector(nil)
 
 	// Image with caption.
 	block := makeBlock("image", `{
@@ -1301,7 +1301,7 @@ func TestNotionConnector_ImageBlockRendering(t *testing.T) {
 }
 
 func TestNotionConnector_FileBlockRendering(t *testing.T) {
-	conn := newTestConnector(nil)
+	conn := newNotionTestConnector(nil)
 
 	block := makeBlock("file", `{
 		"caption": [{"type": "text", "plain_text": "Document"}],
@@ -1315,7 +1315,7 @@ func TestNotionConnector_FileBlockRendering(t *testing.T) {
 }
 
 func TestNotionConnector_BlockTypeFilter(t *testing.T) {
-	conn := newTestConnector(nil)
+	conn := newNotionTestConnector(nil)
 	conn.config.BlockTypeFilter = map[string]struct{}{
 		"heading_1": {},
 	}
@@ -1352,8 +1352,8 @@ func TestNotionConnector_RetryAfterHandling(t *testing.T) {
 	md := `{"markdown": "retried content"}`
 	childBlocks := `{"results": [], "has_more": false}`
 
-	mock := &mockHTTPClient{
-		responses: []mockResponse{
+	mock := &notionMockHTTPClient{
+		responses: []notionMockResponse{
 			// First call returns 429 with Retry-After header.
 			{
 				statusCode: 429,
@@ -1367,7 +1367,7 @@ func TestNotionConnector_RetryAfterHandling(t *testing.T) {
 		},
 	}
 
-	conn := newTestConnector(mock)
+	conn := newNotionTestConnector(mock)
 	conn.config.RootPageIDs = []string{"retry-page"}
 	conn.config.IncludeChildPages = true
 
@@ -1437,7 +1437,7 @@ func TestNotionConnector_doNotionRequest_SetsHeaders(t *testing.T) {
 		},
 	}
 
-	conn := newTestConnector(nil)
+	conn := newNotionTestConnector(nil)
 	conn.httpClient = &http.Client{Transport: transport}
 
 	ctx := WithNotionBaseURL(context.Background(), "http://localhost:9999")
@@ -1507,8 +1507,8 @@ func TestNotionConnector_TokenRefreshOnExpiry(t *testing.T) {
 	md := `{"markdown": "content after refresh"}`
 	childBlocks := `{"results": [], "has_more": false}`
 
-	mock := &mockHTTPClient{
-		responses: []mockResponse{
+	mock := &notionMockHTTPClient{
+		responses: []notionMockResponse{
 			{statusCode: 200, body: pageResp},
 			{statusCode: 200, body: md},
 			{statusCode: 200, body: childBlocks},
@@ -1554,8 +1554,8 @@ func TestNotionConnector_TokenRefreshFailurePropagates(t *testing.T) {
 		},
 	}
 
-	mock := &mockHTTPClient{
-		responses: []mockResponse{},
+	mock := &notionMockHTTPClient{
+		responses: []notionMockResponse{},
 	}
 
 	deps := ConnectorConfig{
@@ -1610,15 +1610,15 @@ func TestNotionConnector_NoRefreshForIntegrationToken(t *testing.T) {
 	md := `{"markdown": "internal token content"}`
 	childBlocks := `{"results": [], "has_more": false}`
 
-	mock := &mockHTTPClient{
-		responses: []mockResponse{
+	mock := &notionMockHTTPClient{
+		responses: []notionMockResponse{
 			{statusCode: 200, body: pageResp},
 			{statusCode: 200, body: md},
 			{statusCode: 200, body: childBlocks},
 		},
 	}
 
-	conn := newTestConnector(mock)
+	conn := newNotionTestConnector(mock)
 	conn.config.RootPageIDs = []string{"page-int"}
 
 	docsCh, errsCh := conn.FetchAll(context.Background())
@@ -1645,8 +1645,8 @@ func TestNotionConnector_RefreshWithinBuffer(t *testing.T) {
 		},
 	}
 
-	mock := &mockHTTPClient{
-		responses: []mockResponse{
+	mock := &notionMockHTTPClient{
+		responses: []notionMockResponse{
 			{statusCode: 200, body: `{
 				"id": "page-buf",
 				"url": "https://notion.so/page-buf",

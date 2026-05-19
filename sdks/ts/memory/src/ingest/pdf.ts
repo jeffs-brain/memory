@@ -153,7 +153,7 @@ export const createPDFExtractor = (config?: PDFExtractorConfig): Extractor => {
       const pageOpts: ExtractOptions = {
         contentType: 'image/png',
         fileName: imageFile,
-        language: opts.language,
+        ...(opts.language !== undefined ? { language: opts.language } : {}),
       }
 
       try {

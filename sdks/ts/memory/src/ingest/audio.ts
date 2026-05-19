@@ -336,7 +336,7 @@ export const createAudioExtractor = (config?: AudioExtractorConfig): Extractor =
 
     return {
       text,
-      contentType: opts.contentType,
+      contentType: opts.contentType ?? 'audio/wav',
       encoding: 'UTF-8',
       metadata,
       pages: 0,
@@ -360,7 +360,7 @@ export const createAudioExtractor = (config?: AudioExtractorConfig): Extractor =
       if (raw.length === 0) {
         return {
           text: '',
-          contentType: opts.contentType,
+          contentType: opts.contentType ?? 'audio/wav',
           encoding: 'UTF-8',
           metadata: {},
           pages: 0,
@@ -372,7 +372,7 @@ export const createAudioExtractor = (config?: AudioExtractorConfig): Extractor =
       }
 
       // Write audio to a temp file for faster-whisper.
-      const ext = extensionFromContentType(opts.contentType, opts.fileName)
+      const ext = extensionFromContentType(opts.contentType ?? 'audio/wav', opts.fileName)
       const tmpDir = await mkdtemp(join(tmpdir(), 'memory-audio-'))
       const tmpPath = join(tmpDir, `audio${ext}`)
 
@@ -393,7 +393,7 @@ export const createAudioExtractor = (config?: AudioExtractorConfig): Extractor =
     ): Promise<ExtractResult> {
       // Stream directly to a temp file instead of buffering the entire
       // audio payload in memory. Critical for large files (100 MB+).
-      const ext = extensionFromContentType(opts.contentType, opts.fileName)
+      const ext = extensionFromContentType(opts.contentType ?? 'audio/wav', opts.fileName)
       const tmpDir = await mkdtemp(join(tmpdir(), 'memory-audio-stream-'))
       const tmpPath = join(tmpDir, `audio${ext}`)
 
@@ -419,7 +419,7 @@ export const createAudioExtractor = (config?: AudioExtractorConfig): Extractor =
         if (written === 0) {
           return {
             text: '',
-            contentType: opts.contentType,
+            contentType: opts.contentType ?? 'audio/wav',
             encoding: 'UTF-8',
             metadata: {},
             pages: 0,

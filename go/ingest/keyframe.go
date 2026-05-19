@@ -168,12 +168,6 @@ func formatKeyframeTimestamp(seconds float64) string {
 	return fmt.Sprintf("%02d:%02d", mins, secs)
 }
 
-// formatConfidence formats a float64 confidence value as a string with
-// 4 decimal places.
-func formatConfidence(conf float64) string {
-	return strconv.FormatFloat(conf, 'f', 4, 64)
-}
-
 // mergeKeyframeMetadata adds keyframe-related metadata entries to the
 // provided metadata map. Mutates the map in place.
 func mergeKeyframeMetadata(metadata map[string]string, results []KeyframeResult) {

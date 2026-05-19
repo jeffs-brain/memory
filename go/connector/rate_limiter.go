@@ -182,6 +182,21 @@ func (rl *RateLimiter) AdjustFromHeaders(headers http.Header) {
 	}
 }
 
+// BackoffDuration computes the backoff duration for the given attempt
+// without blocking. The duration is: min(baseDelay * 2^attempt + jitter, maxDelay).
+// Jitter is random between 0 and 500ms.
+func (rl *RateLimiter) BackoffDuration(attempt int) time.Duration {
+	base := rl.config.BaseBackoff
+	multiplier := math.Pow(2, float64(attempt))
+	delay := time.Duration(float64(base) * multiplier)
+	jitter := time.Duration(rand.Int63n(int64(500 * time.Millisecond)))
+	delay += jitter
+	if delay > rl.config.MaxBackoff {
+		delay = rl.config.MaxBackoff
+	}
+	return delay
+}
+
 // Backoff sleeps for an exponentially increasing duration based on the
 // attempt number. The delay is: min(baseDelay * 2^attempt + jitter, maxDelay).
 // Jitter is random between 0 and 500ms.

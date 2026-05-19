@@ -201,7 +201,7 @@ func TestMergeKeyframeMetadata_WithResults(t *testing.T) {
 	}
 }
 
-func TestFormatConfidence(t *testing.T) {
+func TestFormatConfidence_Keyframe(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
 		input    float64

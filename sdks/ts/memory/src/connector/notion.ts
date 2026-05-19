@@ -13,7 +13,7 @@ import type {
   ConnectorDocument,
   SyncCursor,
 } from './types.js'
-import { RateLimiter } from './types.js'
+import { createRateLimiter } from './rate-limiter.js'
 import {
   blockToMarkdown,
   isListBlock,
@@ -98,7 +98,7 @@ export const createNotionConnector = (
   let abortController: AbortController | undefined
   const baseUrl = options?.baseUrl ?? NOTION_DEFAULT_BASE_URL
   const fetcher: NotionHTTPFetcher = options?.fetcher ?? globalFetch
-  const rateLimiter = deps.rateLimiter ?? new RateLimiter({
+  const rateLimiter = deps.rateLimiter ?? createRateLimiter({
     maxTokens: NOTION_DEFAULT_RATE_LIMIT,
     refillRate: NOTION_DEFAULT_RATE_LIMIT,
   })
@@ -111,7 +111,7 @@ export const createNotionConnector = (
   }
 
   const acquireRateLimit = async (signal: AbortSignal): Promise<void> => {
-    await rateLimiter.acquire(signal, 1)
+    await rateLimiter.acquire(1, signal)
   }
 
   /**
@@ -149,7 +149,7 @@ export const createNotionConnector = (
 
       const waitMs = retryAfterSeconds >= 0
         ? retryAfterSeconds * 1000
-        : rateLimiter.backoffDuration(attempt)
+        : Math.min(1000 * Math.pow(2, attempt) + Math.random() * 500, 60_000)
 
       await interruptibleSleep(signal, waitMs)
     }
