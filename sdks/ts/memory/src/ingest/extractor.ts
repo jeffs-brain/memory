@@ -136,7 +136,7 @@ export type Extractor = {
  * Collects all chunks from a Readable into a Buffer, respecting an
  * optional byte limit.
  */
-const bufferStream = async (source: Readable, maxBytes?: number): Promise<Buffer> => {
+export const bufferStream = async (source: Readable, maxBytes?: number): Promise<Buffer> => {
   const chunks: Buffer[] = []
   let totalBytes = 0
 
