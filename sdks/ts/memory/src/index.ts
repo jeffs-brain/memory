@@ -42,6 +42,7 @@ export {
 export * from './knowledge/index.js'
 export * from './memory/index.js'
 export * from './ingest/index.js'
+export * from './connector/index.js'
 
 // Access-control primitives (RBAC, OpenFGA adapter, Store wrapper).
 export * from './acl/index.js'
