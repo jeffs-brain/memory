@@ -107,14 +107,14 @@ func (idx *Index) DeleteChunks(ctx context.Context, chunkIDs []string) error {
 		_ = tx.Rollback()
 		return fmt.Errorf("search: preparing chunk delete: %w", err)
 	}
-	defer ftsStmt.Close()
+	defer func() { _ = ftsStmt.Close() }()
 
 	metaStmt, err := tx.PrepareContext(ctx, "DELETE FROM knowledge_chunk_metadata WHERE chunk_id = ?")
 	if err != nil {
 		_ = tx.Rollback()
 		return fmt.Errorf("search: preparing chunk metadata delete: %w", err)
 	}
-	defer metaStmt.Close()
+	defer func() { _ = metaStmt.Close() }()
 
 	for _, id := range chunkIDs {
 		if id == "" {
@@ -157,12 +157,12 @@ func (idx *Index) DeleteByDocPath(ctx context.Context, path string) error {
 	for rows.Next() {
 		var id string
 		if err := rows.Scan(&id); err != nil {
-			rows.Close()
+			_ = rows.Close()
 			return fmt.Errorf("search: scanning chunk ID for document %s: %w", path, err)
 		}
 		chunkIDs = append(chunkIDs, id)
 	}
-	rows.Close()
+	_ = rows.Close()
 	if err := rows.Err(); err != nil {
 		return fmt.Errorf("search: iterating chunk IDs for document %s: %w", path, err)
 	}
@@ -195,7 +195,7 @@ func (idx *Index) deleteChunkMetadataBatch(ctx context.Context, chunkIDs []strin
 		_ = tx.Rollback()
 		return fmt.Errorf("search: preparing chunk metadata delete: %w", err)
 	}
-	defer stmt.Close()
+	defer func() { _ = stmt.Close() }()
 
 	for _, id := range chunkIDs {
 		if _, err := stmt.ExecContext(ctx, id); err != nil {

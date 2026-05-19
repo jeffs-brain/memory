@@ -426,7 +426,7 @@ func (idx *Index) SearchRaw(expr string, opts SearchOpts) ([]SearchResult, error
 	if err != nil {
 		return nil, fmt.Errorf("executing FTS5 search: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var results []SearchResult
 	for rows.Next() {
@@ -1157,7 +1157,7 @@ func (idx *Index) RowCountByScope(ctx context.Context) (map[string]int, error) {
 	if err != nil {
 		return nil, fmt.Errorf("counting FTS rows by scope: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	out := map[string]int{}
 	for rows.Next() {
@@ -1645,7 +1645,7 @@ func (idx *Index) allIndexedPaths() ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var paths []string
 	for rows.Next() {
@@ -1673,7 +1673,7 @@ func (idx *Index) IndexedChecksums() (map[string]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	out := map[string]string{}
 	for rows.Next() {

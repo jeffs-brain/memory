@@ -276,7 +276,7 @@ func (p *provider) post(ctx context.Context, endpoint string, body any, out any)
 	if err != nil {
 		return &RequestError{Endpoint: endpoint, Cause: err}
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 
 	respBody, readErr := io.ReadAll(res.Body)
 	if res.StatusCode < 200 || res.StatusCode >= 300 {

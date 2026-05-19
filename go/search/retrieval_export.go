@@ -98,7 +98,7 @@ func (idx *Index) LookupRows(ctx context.Context, paths []string) ([]IndexedRow,
 	if err != nil {
 		return nil, fmt.Errorf("search: LookupRows query: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	out := make([]IndexedRow, 0, len(paths))
 	for rows.Next() {
@@ -152,7 +152,7 @@ func (idx *Index) SessionRows(ctx context.Context, sessionIDs []string) ([]Index
 	if err != nil {
 		return nil, fmt.Errorf("search: SessionRows query: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	out := make([]IndexedRow, 0)
 	for rows.Next() {
@@ -190,7 +190,7 @@ func (idx *Index) AllRows(ctx context.Context) ([]IndexedRow, error) {
 	if err != nil {
 		return nil, fmt.Errorf("search: AllRows query: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	out := make([]IndexedRow, 0)
 	for rows.Next() {
@@ -222,7 +222,7 @@ func (idx *Index) AllMetadataRows(ctx context.Context) ([]IndexedRow, error) {
 	if err != nil {
 		return nil, fmt.Errorf("search: AllMetadataRows query: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	out := make([]IndexedRow, 0)
 	for rows.Next() {

@@ -52,7 +52,7 @@ func SlackReport(ctx context.Context, webhookURL string, result *LMEResult, mani
 	if err != nil {
 		return fmt.Errorf("lme slack: post: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode >= 300 {
 		respBody, _ := io.ReadAll(resp.Body)

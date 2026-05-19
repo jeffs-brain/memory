@@ -137,7 +137,7 @@ func (p *anthropicProvider) Complete(ctx context.Context, req CompleteRequest) (
 	if err != nil {
 		return CompleteResponse{}, fmt.Errorf("llm: anthropic request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	raw, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return CompleteResponse{}, err
@@ -197,12 +197,12 @@ func (p *anthropicProvider) CompleteStream(ctx context.Context, req CompleteRequ
 	}
 	if resp.StatusCode >= 400 {
 		raw, _ := io.ReadAll(resp.Body)
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		return nil, anthropicParseError(resp.StatusCode, raw)
 	}
 	out := make(chan StreamChunk, 16)
 	go func() {
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 		defer close(out)
 		anthropicStreamLoop(ctx, resp.Body, out)
 	}()

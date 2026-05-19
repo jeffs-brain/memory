@@ -1069,7 +1069,7 @@ func (c *hostedClient) doJSONRaw(ctx context.Context, method, path string, body 
 	if err != nil {
 		return nil, fmt.Errorf("memory-mcp: %s %s: %w", method, path, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 32*1024*1024))
 	if resp.StatusCode >= 300 {
 		return nil, fmt.Errorf("memory-mcp: %s %s: HTTP %d: %s", method, path, resp.StatusCode, truncate(string(raw), 256))
@@ -1247,7 +1247,7 @@ func (c *hostedClient) IngestFile(ctx context.Context, args IngestFileArgs, prog
 	if err != nil {
 		return nil, fmt.Errorf("memory_ingest_file: post: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	rawResp, _ := io.ReadAll(io.LimitReader(resp.Body, 4*1024*1024))
 	if resp.StatusCode >= 300 {
 		return nil, fmt.Errorf("memory_ingest_file: HTTP %d: %s", resp.StatusCode, truncate(string(rawResp), 256))

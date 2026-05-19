@@ -169,7 +169,7 @@ func (v *VectorIndex) columnSet(ctx context.Context) (map[string]struct{}, error
 	if err != nil {
 		return nil, fmt.Errorf("reading knowledge_embeddings columns: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	set := make(map[string]struct{})
 	for rows.Next() {
@@ -226,7 +226,7 @@ func (v *VectorIndex) StoreBatch(ctx context.Context, entries []VectorEntry) err
 		_ = tx.Rollback()
 		return fmt.Errorf("preparing vector upsert: %w", err)
 	}
-	defer stmt.Close()
+	defer func() { _ = stmt.Close() }()
 
 	affectedModels := make(map[string]struct{}, 1)
 	for i := range entries {
@@ -295,7 +295,7 @@ func (v *VectorIndex) LoadAll(ctx context.Context, model string) ([]VectorEntry,
 	if err != nil {
 		return nil, fmt.Errorf("querying knowledge_embeddings: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var out []VectorEntry
 	for rows.Next() {
@@ -550,7 +550,7 @@ func (v *VectorIndex) DeleteByPaths(ctx context.Context, model string, paths []s
 		_ = tx.Rollback()
 		return 0, fmt.Errorf("preparing vector delete: %w", err)
 	}
-	defer stmt.Close()
+	defer func() { _ = stmt.Close() }()
 
 	var deleted int64
 	for _, path := range paths {

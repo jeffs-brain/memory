@@ -210,10 +210,10 @@ func (c *Contextualiser) callProvider(ctx context.Context, sessionSummary, factB
 // cacheKey computes a deterministic fingerprint.
 func (c *Contextualiser) cacheKey(sessionID, factBody string) string {
 	h := sha256.New()
-	fmt.Fprintf(h, "v1\n")
-	fmt.Fprintf(h, "model=%s\n", c.ModelName())
-	fmt.Fprintf(h, "session=%s\n", sessionID)
-	fmt.Fprintf(h, "body=%s", factBody)
+	_, _ = fmt.Fprintf(h, "v1\n")
+	_, _ = fmt.Fprintf(h, "model=%s\n", c.ModelName())
+	_, _ = fmt.Fprintf(h, "session=%s\n", sessionID)
+	_, _ = fmt.Fprintf(h, "body=%s", factBody)
 	return hex.EncodeToString(h.Sum(nil))
 }
 

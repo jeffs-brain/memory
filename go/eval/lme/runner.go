@@ -1202,7 +1202,7 @@ func callActorRetrieve(
 	if err != nil {
 		return "", diagnostics, fmt.Errorf("lme actor retrieve: post: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	diagnostics.Response.HTTPStatus = resp.StatusCode
 	if resp.StatusCode >= 400 {
 		buf := make([]byte, 512)
@@ -1633,7 +1633,7 @@ func callActorEndpoint(ctx context.Context, endpoint, brainID, question, questio
 	if err != nil {
 		return "", Usage{}, fmt.Errorf("lme actor: post: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode >= 400 {
 		buf := make([]byte, 512)
 		n, _ := resp.Body.Read(buf)
