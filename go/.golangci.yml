@@ -3,6 +3,10 @@ version: "2"
 run:
   timeout: 5m
   go: '1.25'
+formatters:
+  enable:
+    - gofmt
+    - goimports
 linters:
   enable:
     - errcheck
@@ -14,8 +18,6 @@ linters:
     - misspell
     - unconvert
     - unparam
-    - gofmt
-    - goimports
   settings:
     misspell:
       locale: UK
