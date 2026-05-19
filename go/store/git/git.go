@@ -55,11 +55,11 @@ const (
 	defaultAuthor = "jeffs-brain"
 	defaultEmail  = "noreply@jeffsbrain.com"
 
-	autostashMarker      = "memory-sync-autostash"
-	initCommitMessage    = "[init] memory gitstore initialised"
-	defaultRemoteName    = "origin"
-	defaultCommitLogTag  = "memory: gitstore"
-	readmeForEmptyInit   = "# memory\n\nGitstore-initialised brain.\n"
+	autostashMarker     = "memory-sync-autostash"
+	initCommitMessage   = "[init] memory gitstore initialised"
+	defaultRemoteName   = "origin"
+	defaultCommitLogTag = "memory: gitstore"
+	readmeForEmptyInit  = "# memory\n\nGitstore-initialised brain.\n"
 )
 
 // Options controls how a [Store] is created.

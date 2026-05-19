@@ -302,8 +302,8 @@ func TestCountSignificantTerms(t *testing.T) {
 		{"the is a", 0},
 		{"kubernetes deployment rollback", 3},
 		{"I want to deploy the application", 3}, // want, deploy, application
-		{"what is kubernetes?", 1},               // kubernetes
-		{"error: panic in goroutine", 3},         // error, panic, goroutine
+		{"what is kubernetes?", 1},              // kubernetes
+		{"error: panic in goroutine", 3},        // error, panic, goroutine
 	}
 	for _, tt := range tests {
 		got := countSignificantTerms(tt.input)

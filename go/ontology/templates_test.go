@@ -62,11 +62,11 @@ func TestGetTemplate_NotFound(t *testing.T) {
 
 func TestTemplateCounts(t *testing.T) {
 	cases := []struct {
-		name       string
-		key        string
-		nodeCount  int
-		edgeCount  int
-		catCount   int
+		name      string
+		key       string
+		nodeCount int
+		edgeCount int
+		catCount  int
 	}{
 		{"server_hardware", "server_hardware", 9, 6, 1},
 		{"insurance", "insurance", 20, 10, 7},

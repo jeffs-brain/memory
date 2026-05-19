@@ -105,20 +105,20 @@ func PreprocessText(text string) string {
 func isZeroWidthChar(r rune) bool {
 	switch r {
 	case
-		'​', // zero-width space
-		'‌', // zero-width non-joiner
-		'‍', // zero-width joiner
-		'‎', // left-to-right mark
-		'‏', // right-to-left mark
-		'⁠', // word joiner
-		'⁡', // function application
-		'⁢', // invisible times
-		'⁣', // invisible separator
-		'⁤', // invisible plus
+		'​',      // zero-width space
+		'‌',      // zero-width non-joiner
+		'‍',      // zero-width joiner
+		'‎',      // left-to-right mark
+		'‏',      // right-to-left mark
+		'⁠',      // word joiner
+		'⁡',      // function application
+		'⁢',      // invisible times
+		'⁣',      // invisible separator
+		'⁤',      // invisible plus
 		'\ufeff', // zero-width no-break space (BOM)
-		'­', // soft hyphen
-		' ', // en quad (thin space, often abused)
-		' ': // em quad
+		'­',      // soft hyphen
+		' ',      // en quad (thin space, often abused)
+		' ':      // em quad
 		return true
 	}
 	// Catch any remaining characters in the General_Category=Format class

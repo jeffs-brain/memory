@@ -10,12 +10,12 @@ import "time"
 // IngestTriggerEvent represents a request to ingest a document. Events
 // are published to the bus and delivered to all registered handlers.
 type IngestTriggerEvent struct {
-	ID        string            `json:"id"`
-	BrainID   string            `json:"brainId"`
-	Source    TriggerSource     `json:"source"`
-	Payload   TriggerPayload    `json:"payload"`
-	Metadata  map[string]any    `json:"metadata,omitempty"`
-	Timestamp time.Time         `json:"timestamp"`
+	ID        string         `json:"id"`
+	BrainID   string         `json:"brainId"`
+	Source    TriggerSource  `json:"source"`
+	Payload   TriggerPayload `json:"payload"`
+	Metadata  map[string]any `json:"metadata,omitempty"`
+	Timestamp time.Time      `json:"timestamp"`
 }
 
 // TriggerSource identifies where a trigger event originated.

@@ -77,7 +77,7 @@ type Job struct {
 type EnqueueInput struct {
 	BrainID        string
 	Payload        JobPayload
-	MaxRetries     int               // default 3 when zero
+	MaxRetries     int // default 3 when zero
 	IdempotencyKey string
 	GroupID        string
 	Metadata       map[string]string

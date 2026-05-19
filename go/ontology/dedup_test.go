@@ -164,7 +164,7 @@ func TestDedup_SemanticReviewZone(t *testing.T) {
 	// cosine([0.8, 0.4, 0.2], [0.5, 0.7, 0.5]) ~ 0.855
 	embedder := newFakeEmbedder(3, map[string][]float32{
 		"Workflow: A workflow process": {0.8, 0.4, 0.2},
-		"Pipeline: A pipeline stage":  {0.5, 0.7, 0.5},
+		"Pipeline: A pipeline stage":   {0.5, 0.7, 0.5},
 	})
 	dedup := NewDeduplicator(embedder)
 
@@ -345,7 +345,7 @@ func TestDeduplicateType_SemanticReview(t *testing.T) {
 	// cosine([0.8, 0.4, 0.2], [0.5, 0.7, 0.5]) ~ 0.855
 	embedder := newFakeEmbedder(3, map[string][]float32{
 		"Workflow: A workflow process": {0.8, 0.4, 0.2},
-		"Pipeline: A pipeline stage":  {0.5, 0.7, 0.5},
+		"Pipeline: A pipeline stage":   {0.5, 0.7, 0.5},
 	})
 	candidate := TypeDefinition{Type: "process.workflow", Label: "Workflow", Description: "A workflow process"}
 	existing := []TypeDefinition{

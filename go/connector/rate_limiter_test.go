@@ -143,7 +143,7 @@ func TestRateLimiter_AdjustFromHeaders(t *testing.T) {
 func TestRateLimiter_Backoff_Timing(t *testing.T) {
 	rl := connector.NewRateLimiter(connector.RateLimiterConfig{
 		MaxTokens:   10,
-		RefillRate:   1,
+		RefillRate:  1,
 		BaseBackoff: 10 * time.Millisecond,
 		MaxBackoff:  200 * time.Millisecond,
 	})
@@ -165,7 +165,7 @@ func TestRateLimiter_Backoff_Timing(t *testing.T) {
 func TestRateLimiter_Backoff_MaxCap(t *testing.T) {
 	rl := connector.NewRateLimiter(connector.RateLimiterConfig{
 		MaxTokens:   10,
-		RefillRate:   1,
+		RefillRate:  1,
 		BaseBackoff: 10 * time.Millisecond,
 		MaxBackoff:  50 * time.Millisecond,
 	})

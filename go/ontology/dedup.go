@@ -102,11 +102,11 @@ type DeduplicatorConfig struct {
 // within the same prefix group, and semantic embedding match via
 // cosine similarity.
 type Deduplicator struct {
-	embedder       llm.Embedder
-	fuzzyThreshold float64
-	autoMerge      float64
+	embedder        llm.Embedder
+	fuzzyThreshold  float64
+	autoMerge       float64
 	reviewThreshold float64
-	similarity     SimilarityFunc
+	similarity      SimilarityFunc
 }
 
 // NewDeduplicator creates a deduplicator. Pass nil for embedder to

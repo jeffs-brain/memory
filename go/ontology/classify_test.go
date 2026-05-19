@@ -208,7 +208,7 @@ func TestDetermineCategory_WithOntology(t *testing.T) {
 			{TypeDefinition: ontology.TypeDefinition{
 				Type: "entity.customer", Label: "Customer",
 				Description: "Customer entity for customer management",
-				CreatedAt: "2026-01-01T00:00:00Z", Status: "active",
+				CreatedAt:   "2026-01-01T00:00:00Z", Status: "active",
 			}},
 		},
 		BusinessCategories: []string{"customer", "order", "general"},

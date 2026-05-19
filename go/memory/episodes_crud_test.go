@@ -30,7 +30,7 @@ func makeEpisode(sessionID string) EpisodeRecord {
 		Outcome:             EpisodeOutcomeSuccess,
 		RetryFeedback:       "",
 		ShouldRecordEpisode: true,
-		OpenQuestions:        []string{},
+		OpenQuestions:       []string{},
 		Heuristics: []EpisodeHeuristic{
 			{
 				Rule:       "Check token expiry before refreshing",
@@ -605,7 +605,7 @@ func testRoundTripPreservesFields(t *testing.T, store *BrainEpisodeStore) {
 		Outcome:             EpisodeOutcomePartial,
 		RetryFeedback:       "Try using a different approach next time",
 		ShouldRecordEpisode: true,
-		OpenQuestions:        []string{"Should we cache the result?", "Is the timeout too short?"},
+		OpenQuestions:       []string{"Should we cache the result?", "Is the timeout too short?"},
 		Heuristics: []EpisodeHeuristic{
 			{
 				Rule:        "Always validate input before processing",

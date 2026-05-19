@@ -128,7 +128,7 @@ func ExtractJSON(raw []byte, cfg JsonExtractorConfig) (ExtractResult, error) {
 	return ExtractResult{
 		Text:        content,
 		ContentType: "application/json",
-		Metadata: meta,
+		Metadata:    meta,
 	}, nil
 }
 
@@ -165,7 +165,7 @@ func extractJSONArrayStreaming(decoder *json.Decoder, cfg JsonExtractorConfig, e
 	return ExtractResult{
 		Text:        content,
 		ContentType: "application/json",
-		Metadata: meta,
+		Metadata:    meta,
 	}, nil
 }
 

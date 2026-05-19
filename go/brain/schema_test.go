@@ -114,7 +114,7 @@ func (s *fakeStore) Batch(ctx context.Context, opts BatchOptions, fn func(Batch)
 }
 
 func (s *fakeStore) Subscribe(sink EventSink) func() { return func() {} }
-func (s *fakeStore) LocalPath(p Path) (string, bool)  { return "", false }
+func (s *fakeStore) LocalPath(p Path) (string, bool) { return "", false }
 func (s *fakeStore) Close() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()

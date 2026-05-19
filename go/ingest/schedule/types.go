@@ -13,16 +13,16 @@ import (
 
 // Job represents a scheduled ingestion job.
 type Job struct {
-	ID             string         `json:"id"`
-	BrainID        string         `json:"brainId"`
-	Name           string         `json:"name"`
-	CronExpression string         `json:"cronExpression"`
-	Target         Target         `json:"target"`
-	Enabled        bool           `json:"enabled"`
-	LastRunAt      *time.Time     `json:"lastRunAt,omitempty"`
-	NextRunAt      time.Time      `json:"nextRunAt"`
-	CreatedAt      time.Time      `json:"createdAt"`
-	UpdatedAt      time.Time      `json:"updatedAt"`
+	ID             string            `json:"id"`
+	BrainID        string            `json:"brainId"`
+	Name           string            `json:"name"`
+	CronExpression string            `json:"cronExpression"`
+	Target         Target            `json:"target"`
+	Enabled        bool              `json:"enabled"`
+	LastRunAt      *time.Time        `json:"lastRunAt,omitempty"`
+	NextRunAt      time.Time         `json:"nextRunAt"`
+	CreatedAt      time.Time         `json:"createdAt"`
+	UpdatedAt      time.Time         `json:"updatedAt"`
 	Metadata       map[string]string `json:"metadata,omitempty"`
 }
 

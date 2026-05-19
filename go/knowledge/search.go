@@ -286,4 +286,3 @@ func tokeniseQuery(q string) []string {
 	}
 	return out
 }
-

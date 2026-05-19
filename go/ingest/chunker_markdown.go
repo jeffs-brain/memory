@@ -196,4 +196,3 @@ func splitSectionWithOverlap(text string, cfg ChunkConfig) []string {
 	}
 	return result
 }
-

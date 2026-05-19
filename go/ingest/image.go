@@ -106,13 +106,13 @@ var imageExtensions = []string{
 // imageMagicBytes contains magic byte signatures for supported image
 // formats.
 var imageMagicBytes = []MagicSignature{
-	{Offset: 0, Bytes: []byte{0x89, 0x50, 0x4E, 0x47}},             // PNG
-	{Offset: 0, Bytes: []byte{0xFF, 0xD8, 0xFF}},                    // JPEG
-	{Offset: 0, Bytes: []byte{0x49, 0x49, 0x2A, 0x00}},              // TIFF (little-endian)
-	{Offset: 0, Bytes: []byte{0x4D, 0x4D, 0x00, 0x2A}},              // TIFF (big-endian)
-	{Offset: 0, Bytes: []byte{0x42, 0x4D}},                          // BMP
-	{Offset: 0, Bytes: []byte{0x52, 0x49, 0x46, 0x46}},              // WebP (RIFF header)
-	{Offset: 8, Bytes: []byte{0x57, 0x45, 0x42, 0x50}},              // WebP (WEBP at offset 8)
+	{Offset: 0, Bytes: []byte{0x89, 0x50, 0x4E, 0x47}}, // PNG
+	{Offset: 0, Bytes: []byte{0xFF, 0xD8, 0xFF}},       // JPEG
+	{Offset: 0, Bytes: []byte{0x49, 0x49, 0x2A, 0x00}}, // TIFF (little-endian)
+	{Offset: 0, Bytes: []byte{0x4D, 0x4D, 0x00, 0x2A}}, // TIFF (big-endian)
+	{Offset: 0, Bytes: []byte{0x42, 0x4D}},             // BMP
+	{Offset: 0, Bytes: []byte{0x52, 0x49, 0x46, 0x46}}, // WebP (RIFF header)
+	{Offset: 8, Bytes: []byte{0x57, 0x45, 0x42, 0x50}}, // WebP (WEBP at offset 8)
 }
 
 // Name returns the extractor identifier.

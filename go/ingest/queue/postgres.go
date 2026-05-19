@@ -734,4 +734,3 @@ func (q *PostgresQueue) tryBatchAdvisoryLock(ctx context.Context, keys []int64) 
 		q.log.Debug("ingest: batch advisory lock acquisition failed", "count", len(keys), "error", err.Error())
 	}
 }
-

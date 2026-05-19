@@ -159,7 +159,7 @@ func structuredResult(payload any) (*mcp.CallToolResult, any, error) {
 		return nil, nil, fmt.Errorf("memory-mcp: marshalling result: %w", err)
 	}
 	return &mcp.CallToolResult{
-		Content: []mcp.Content{&mcp.TextContent{Text: string(body)}},
+		Content:           []mcp.Content{&mcp.TextContent{Text: string(body)}},
 		StructuredContent: payload,
 	}, payload, nil
 }

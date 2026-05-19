@@ -62,14 +62,14 @@ func TestQueryParserGolden(t *testing.T) {
 // spec/fixtures/query-parser/cases.json. Names match the fixture
 // keys one-for-one.
 type goldenFixture struct {
-	Description  string          `json:"description"`
+	Description  string              `json:"description"`
 	Cases        []goldenParseCase   `json:"cases"`
 	CompileToFTS []goldenCompileCase `json:"compileToFTS"`
 }
 
 type goldenParseCase struct {
-	Name        string   `json:"name"`
-	Input       string   `json:"input"`
+	Name        string    `json:"name"`
+	Input       string    `json:"input"`
 	ExpectedAST goldenAST `json:"expectedAst"`
 }
 
