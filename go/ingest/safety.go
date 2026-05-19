@@ -194,11 +194,11 @@ func ScanAndWrap(
 
 	var scanResult ScanResult
 	if scanner.Available() {
-		scanResult, err = scanner.Scan(ctx, preprocessed)
-		if err != nil {
+		var scanErr error
+		scanResult, scanErr = scanner.Scan(ctx, preprocessed)
+		if scanErr != nil {
 			// Graceful degradation: log via caller, do not block ingestion
 			scanResult = ScanResult{InjectionDetected: false, Confidence: 0}
-			err = nil
 		}
 	}
 
