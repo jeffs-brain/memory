@@ -157,3 +157,37 @@ export {
   type PurgeOptions as DeadLetterPurgeOptions,
   type ReEnqueueFn as DeadLetterReEnqueueFn,
 } from './dead-letter.js'
+
+export {
+  createExtractorRegistry,
+  createPlainTextExtractor,
+  sanitizeArgs,
+  detectEncoding,
+  transcodeToUTF8,
+  type Extractor,
+  type ExtractOptions,
+  type ExtractResult,
+  type ExtractorCapability,
+  type ExtractorRegistry,
+  type MagicSignature,
+} from './extractor.js'
+
+export {
+  createImageExtractor,
+  parsePaddleOCROutput,
+  type ImageExtractorConfig,
+} from './image.js'
+
+export {
+  createPDFExtractor,
+  isSubstantialText,
+  type PDFExtractorConfig,
+} from './pdf.js'
+
+export {
+  runSubprocess,
+  checkBinaryAvailable,
+  resetBinaryCache,
+  type SubprocessResult,
+  type SubprocessOptions,
+} from './subprocess.js'
