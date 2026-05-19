@@ -68,3 +68,6 @@ export {
   validateDownloadURL,
   readResponseWithLimit,
 } from './slack_helpers.js'
+
+export { GDriveConnector, createGDriveConnector } from './gdrive.js'
+export type { GDriveConnectorConfig } from './gdrive.js'
