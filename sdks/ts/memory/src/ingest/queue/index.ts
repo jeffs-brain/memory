@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Barrel export for the ingest queue module.
+ * Barrel export for the ingest queue module, worker pool, backpressure
+ * detection, and queue adapter contract.
  */
 
 export {
@@ -29,3 +30,18 @@ export {
 } from './types.js'
 
 export { createPostgresQueue, type PostgresQueueOptions, type PgClient, type PgListenClient } from './postgres.js'
+
+export type { Logger } from './adapter.js'
+export { noopLogger } from './adapter.js'
+
+export type { BackpressureChecker } from './backpressure.js'
+export { createBackpressureChecker } from './backpressure.js'
+
+export type {
+  JobProcessor,
+  StopResult,
+  WorkerPool,
+  WorkerPoolMetrics,
+  WorkerPoolOptions,
+} from './worker-pool.js'
+export { createWorkerPool } from './worker-pool.js'
