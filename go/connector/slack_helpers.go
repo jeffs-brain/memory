@@ -55,7 +55,7 @@ func (c *SlackConnector) fetchUserName(userID string) string {
 	if err != nil {
 		return userID
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return userID

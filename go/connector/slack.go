@@ -485,7 +485,7 @@ func (c *SlackConnector) downloadFile(
 	if err != nil {
 		return ConnectorDocument{}, fmt.Errorf("download file: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return ConnectorDocument{}, fmt.Errorf("download file: HTTP %d", resp.StatusCode)
