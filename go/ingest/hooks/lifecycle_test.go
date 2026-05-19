@@ -14,20 +14,20 @@ type testLogger struct {
 	infos []string
 }
 
-func (l *testLogger) Debug(_ string, _ ...map[string]string) {}
-func (l *testLogger) Info(msg string, _ ...map[string]string)  { l.infos = append(l.infos, msg) }
-func (l *testLogger) Warn(msg string, _ ...map[string]string)  { l.warns = append(l.warns, msg) }
-func (l *testLogger) Error(_ string, _ ...map[string]string) {}
+func (l *testLogger) Debug(_ string, _ ...map[string]string)  {}
+func (l *testLogger) Info(msg string, _ ...map[string]string) { l.infos = append(l.infos, msg) }
+func (l *testLogger) Warn(msg string, _ ...map[string]string) { l.warns = append(l.warns, msg) }
+func (l *testLogger) Error(_ string, _ ...map[string]string)  {}
 
 // orderPlugin records its invocation order and allows configurable returns.
 type orderPlugin struct {
 	BaseIngestPlugin
-	order           *[]string
-	detectReturn    bool
-	detectErr       error
-	startReturn     bool
-	startErr        error
-	endErr          error
+	order        *[]string
+	detectReturn bool
+	detectErr    error
+	startReturn  bool
+	startErr     error
+	endErr       error
 }
 
 func (p *orderPlugin) OnDocumentDetected(_ context.Context, _ DocumentDetectedEvent) (bool, error) {

@@ -18,7 +18,7 @@ type DocumentDetectedEvent struct {
 
 // DetectedReference represents a single URL or file path found in content.
 type DetectedReference struct {
-	Kind       string  // "url" or "file"
+	Kind       string // "url" or "file"
 	Value      string
 	Confidence float64
 }

@@ -346,9 +346,9 @@ func TestPrefixPathMatcherBoundary(t *testing.T) {
 		match bool
 	}{
 		{"custom/data.json", true},
-		{"custom/", false},    // bare prefix must not match
-		{"custom", false},     // shorter than prefix
-		{"", false},           // empty path
+		{"custom/", false}, // bare prefix must not match
+		{"custom", false},  // shorter than prefix
+		{"", false},        // empty path
 	}
 
 	for _, tt := range tests {
