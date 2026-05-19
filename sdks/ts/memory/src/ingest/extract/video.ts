@@ -86,16 +86,21 @@ type ResolvedConfig = {
   readonly ocrExtractor?: Extractor
 }
 
-const resolveConfig = (cfg: VideoExtractorConfig): ResolvedConfig => ({
-  ffmpegBinary: cfg.ffmpegBinary ?? process.env['MEMORY_FFMPEG_PATH'] ?? 'ffmpeg',
-  ffprobeBinary: cfg.ffprobeBinary ?? process.env['MEMORY_FFPROBE_PATH'] ?? 'ffprobe',
-  maxFileSizeBytes: cfg.maxFileSizeBytes ?? DEFAULT_MAX_VIDEO_SIZE,
-  extractionTimeout: cfg.extractionTimeout ?? DEFAULT_EXTRACTION_TIMEOUT,
-  keyframeExtraction: cfg.keyframeExtraction ?? false,
-  maxKeyframes: cfg.maxKeyframes ?? DEFAULT_MAX_KEYFRAMES,
-  audioExtractor: cfg.audioExtractor,
-  ocrExtractor: cfg.ocrExtractor,
-})
+const resolveConfig = (cfg: VideoExtractorConfig): ResolvedConfig => {
+  const base: ResolvedConfig = {
+    ffmpegBinary: cfg.ffmpegBinary ?? process.env['MEMORY_FFMPEG_PATH'] ?? 'ffmpeg',
+    ffprobeBinary: cfg.ffprobeBinary ?? process.env['MEMORY_FFPROBE_PATH'] ?? 'ffprobe',
+    maxFileSizeBytes: cfg.maxFileSizeBytes ?? DEFAULT_MAX_VIDEO_SIZE,
+    extractionTimeout: cfg.extractionTimeout ?? DEFAULT_EXTRACTION_TIMEOUT,
+    keyframeExtraction: cfg.keyframeExtraction ?? false,
+    maxKeyframes: cfg.maxKeyframes ?? DEFAULT_MAX_KEYFRAMES,
+    audioExtractor: cfg.audioExtractor,
+  }
+  if (cfg.ocrExtractor !== undefined) {
+    return { ...base, ocrExtractor: cfg.ocrExtractor }
+  }
+  return base
+}
 
 // ---- Helpers ----
 
@@ -335,7 +340,7 @@ export class VideoExtractor implements Extractor {
       const kfCfg = resolveKeyframeConfig({
         ffmpegBinary: this.cfg.ffmpegBinary,
         maxKeyframes: this.cfg.maxKeyframes,
-        ocrExtractor: this.cfg.ocrExtractor,
+        ...(this.cfg.ocrExtractor !== undefined ? { ocrExtractor: this.cfg.ocrExtractor } : {}),
         timeout: this.cfg.extractionTimeout,
       })
 

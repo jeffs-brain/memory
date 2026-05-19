@@ -9,6 +9,8 @@ export type {
   ConnectorDocument,
   Connector,
   ConnectorFactory,
+  DocumentDispatcher,
+  HTTPClient,
   SyncCursor,
   RateLimiterConfig,
   RateLimitHeaders,

@@ -160,22 +160,18 @@ export {
 
 export {
   bufferStream,
-  createExtractorRegistry,
-  createPlainTextExtractor,
   createCSVExtractor,
   createJSONExtractor,
   createJSONLExtractor,
   createXMLExtractor,
-  sanitizeArgs,
-  detectEncoding,
-  transcodeToUTF8,
   type Extractor,
   type ExtractOptions,
   type ExtractResult,
   type ExtractorCapability,
-  type ExtractorRegistry,
   type MagicSignature,
 } from './extractor.js'
+
+export { detectEncoding } from './encoding.js'
 
 export {
   createImageExtractor,
@@ -207,7 +203,7 @@ export {
 
 export {
   extractCSV,
-  extractJSON,
+  extractJSON as extractStructuredJSON,
   extractJSONL,
   type CsvExtractorConfig,
   type JsonExtractorConfig,

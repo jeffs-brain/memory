@@ -173,6 +173,14 @@ type Connector interface {
 	Health() HealthStatus
 }
 
+// DocumentDispatcher sends a connector document into the ingestion
+// pipeline. Used by push-based connectors (e.g. webhook).
+type DocumentDispatcher interface {
+	// Dispatch sends the document for ingestion and returns the assigned
+	// internal document ID.
+	Dispatch(doc ConnectorDocument) (string, error)
+}
+
 // ConnectorFactory is a function that creates a new Connector instance
 // with the given shared configuration.
 type ConnectorFactory func(cfg ConnectorConfig) Connector

@@ -11,7 +11,7 @@
  */
 
 import type { Connector, ConnectorDocument, SyncCursor } from './types.js'
-import { RateLimiter } from './types.js'
+import { createRateLimiter } from './rate-limiter.js'
 import {
   convertMrkdwn,
   formatDate,
@@ -100,7 +100,7 @@ export class SlackConnector implements Connector {
     pollIntervalMs: DEFAULT_POLL_INTERVAL_MS,
   }
 
-  private readonly rateLimiter = new RateLimiter({
+  private readonly rateLimiter = createRateLimiter({
     maxTokens: 50,
     refillRate: 50 / 60, // ~0.833 tokens/sec for Tier 3
   })

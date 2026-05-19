@@ -3,9 +3,13 @@
 package connector
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"net/http"
 	"net/url"
 	"strings"
 	"sync"
@@ -43,7 +47,7 @@ type OAuth2Config struct {
 
 // Validate checks that all required fields are set.
 func (c OAuth2Config) Validate() error {
-	missing := make([]string, 0, 6)
+	missing := make([]string, 0, 4)
 	if c.ClientID == "" {
 		missing = append(missing, "ClientID")
 	}
@@ -56,9 +60,8 @@ func (c OAuth2Config) Validate() error {
 	if c.TokenURL == "" {
 		missing = append(missing, "TokenURL")
 	}
-	if c.RedirectURI == "" {
-		missing = append(missing, "RedirectURI")
-	}
+	// RedirectURI is only required for the authorization code flow,
+	// not for token refresh. Validated at AuthorisationURL call-site.
 	if len(missing) > 0 {
 		return fmt.Errorf("%w: missing fields: %s", ErrInvalidOAuth2Config, strings.Join(missing, ", "))
 	}
@@ -204,4 +207,79 @@ func (c *OAuth2Client) ValidToken(ctx context.Context, token OAuth2Token) (OAuth
 // Config returns the OAuth2 configuration for inspection (read-only).
 func (c *OAuth2Client) Config() OAuth2Config {
 	return c.config
+}
+
+// httpTokenExchanger implements TokenExchanger using real HTTP calls
+// via an HTTPClient. Used as the default exchanger when no mock is
+// injected via the config map.
+type httpTokenExchanger struct {
+	tokenURL     string
+	clientID     string
+	clientSecret string
+	httpClient   HTTPClient
+}
+
+// Exchange trades an authorization code for a token pair via the token
+// endpoint.
+func (e *httpTokenExchanger) Exchange(ctx context.Context, code string) (OAuth2Token, error) {
+	form := url.Values{
+		"grant_type":    {"authorization_code"},
+		"code":          {code},
+		"client_id":     {e.clientID},
+		"client_secret": {e.clientSecret},
+	}
+	return e.post(ctx, form)
+}
+
+// Refresh uses a refresh token to obtain a new access token from the
+// token endpoint.
+func (e *httpTokenExchanger) Refresh(ctx context.Context, refreshToken string) (OAuth2Token, error) {
+	form := url.Values{
+		"grant_type":    {"refresh_token"},
+		"refresh_token": {refreshToken},
+		"client_id":     {e.clientID},
+		"client_secret": {e.clientSecret},
+	}
+	return e.post(ctx, form)
+}
+
+func (e *httpTokenExchanger) post(ctx context.Context, form url.Values) (OAuth2Token, error) {
+	body := form.Encode()
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, e.tokenURL, bytes.NewBufferString(body))
+	if err != nil {
+		return OAuth2Token{}, fmt.Errorf("oauth2: build request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	resp, err := e.httpClient.Do(req)
+	if err != nil {
+		return OAuth2Token{}, fmt.Errorf("oauth2: token request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return OAuth2Token{}, fmt.Errorf("oauth2: read response: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return OAuth2Token{}, fmt.Errorf("oauth2: token endpoint returned %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	var tokenResp struct {
+		AccessToken  string `json:"access_token"`
+		RefreshToken string `json:"refresh_token"`
+		ExpiresIn    int64  `json:"expires_in"`
+		TokenType    string `json:"token_type"`
+	}
+	if err := json.Unmarshal(respBody, &tokenResp); err != nil {
+		return OAuth2Token{}, fmt.Errorf("oauth2: parse token response: %w", err)
+	}
+
+	return OAuth2Token{
+		AccessToken:  tokenResp.AccessToken,
+		RefreshToken: tokenResp.RefreshToken,
+		ExpiresAt:    time.Now().Add(time.Duration(tokenResp.ExpiresIn) * time.Second),
+		TokenType:    tokenResp.TokenType,
+	}, nil
 }

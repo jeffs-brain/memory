@@ -143,7 +143,10 @@ func NewSlackConnector(cfg SlackConnectorConfig) *SlackConnector {
 	return &SlackConnector{
 		config: cfg,
 		// Slack Tier 3: ~50 requests per minute = ~0.833 per second
-		rateLimiter:  NewRateLimiter(50, 50.0/60.0),
+		rateLimiter: NewRateLimiter(RateLimiterConfig{
+			MaxTokens:  50,
+			RefillRate: 50.0 / 60.0,
+		}),
 		userCache:    make(map[string]string),
 		stopCh:       make(chan struct{}),
 		logger:       cfg.Logger,
@@ -636,4 +639,24 @@ func (c *SlackConnector) callSlackAPI(
 	}
 
 	return slackResponse{}, fmt.Errorf("slack API: exhausted all %d retry attempts", maxAPIRetries)
+}
+
+// Health returns the current health status of the Slack connector.
+func (sc *SlackConnector) Health() HealthStatus {
+	sc.mu.Lock()
+	defer sc.mu.Unlock()
+
+	status := StatusConnected
+	var message string
+
+	if sc.config.BotToken == "" {
+		status = StatusDisconnected
+		message = "connector not configured"
+	}
+
+	return HealthStatus{
+		Status:             status,
+		RateLimitRemaining: -1,
+		Message:            message,
+	}
 }

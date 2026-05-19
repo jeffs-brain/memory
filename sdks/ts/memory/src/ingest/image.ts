@@ -152,8 +152,10 @@ const mapLanguageToTesseract = (lang: string): string => {
  * Determines the file extension from extract options.
  */
 const extensionFromOpts = (opts: ExtractOptions): string => {
-  const fromMime = CONTENT_TYPE_EXTENSION_MAP[opts.contentType]
-  if (fromMime !== undefined) return fromMime
+  if (opts.contentType !== undefined) {
+    const fromMime = CONTENT_TYPE_EXTENSION_MAP[opts.contentType]
+    if (fromMime !== undefined) return fromMime
+  }
 
   if (opts.fileName !== undefined) {
     const dotIdx = opts.fileName.lastIndexOf('.')
@@ -313,7 +315,7 @@ export const createImageExtractor = (config?: ImageExtractorConfig): Extractor =
 
       return {
         text: parsed.text,
-        contentType: opts.contentType,
+        contentType: opts.contentType ?? 'application/octet-stream',
         encoding: 'UTF-8',
         metadata: {
           ocr_engine: 'paddleocr',
@@ -358,7 +360,7 @@ export const createImageExtractor = (config?: ImageExtractorConfig): Extractor =
 
       return {
         text,
-        contentType: opts.contentType,
+        contentType: opts.contentType ?? 'application/octet-stream',
         encoding: 'UTF-8',
         metadata: {
           ocr_engine: 'tesseract',
@@ -383,7 +385,7 @@ export const createImageExtractor = (config?: ImageExtractorConfig): Extractor =
       if (raw.length === 0) {
         return {
           text: '',
-          contentType: opts.contentType,
+          contentType: opts.contentType ?? 'application/octet-stream',
           encoding: '',
           metadata: { ocr_engine: 'none' },
           pages: 0,

@@ -7,6 +7,24 @@
  */
 
 import type { Store } from '../store/index.js'
+import type { Logger } from '../llm/types.js'
+
+/**
+ * Minimal HTTP client contract used by connectors that need to call
+ * external REST APIs. Matches the subset of the Fetch API used by
+ * the GDrive connector.
+ */
+export type HTTPClient = {
+  fetch(url: string, init?: RequestInit): Promise<Response>
+}
+
+/**
+ * Dispatches a connector document into the ingestion pipeline.
+ * Used by push-based connectors (e.g. webhook).
+ */
+export type DocumentDispatcher = {
+  dispatch(doc: ConnectorDocument): Promise<{ documentId: string }>
+}
 
 /** Shared configuration injected into every connector instance. */
 export type ConnectorConfig = {
@@ -20,6 +38,8 @@ export type ConnectorConfig = {
   readonly store: Store
   /** Optional rate limiter for API calls. */
   readonly rateLimiter?: RateLimiter
+  /** Optional structured logger for diagnostics. */
+  readonly logger?: Logger
 }
 
 /** Default poll interval: 5 minutes. */
