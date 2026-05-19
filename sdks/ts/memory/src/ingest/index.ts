@@ -162,6 +162,10 @@ export {
   bufferStream,
   createExtractorRegistry,
   createPlainTextExtractor,
+  createCSVExtractor,
+  createJSONExtractor,
+  createJSONLExtractor,
+  createXMLExtractor,
   sanitizeArgs,
   detectEncoding,
   transcodeToUTF8,
@@ -200,3 +204,15 @@ export {
   type TranscriptionSegment,
   type TranscriptionWord,
 } from './audio.js'
+
+export {
+  extractCSV,
+  extractJSON,
+  extractJSONL,
+  type CsvExtractorConfig,
+  type JsonExtractorConfig,
+  type ExtractResult as StructuredExtractResult,
+} from './structured.js'
+
+export { extractXML, type XmlExtractorConfig } from './xml.js'
+
