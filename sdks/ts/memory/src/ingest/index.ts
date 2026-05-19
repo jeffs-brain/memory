@@ -159,6 +159,7 @@ export {
 } from './dead-letter.js'
 
 export {
+  bufferStream,
   createExtractorRegistry,
   createPlainTextExtractor,
   sanitizeArgs,
@@ -191,3 +192,11 @@ export {
   type SubprocessResult,
   type SubprocessOptions,
 } from './subprocess.js'
+
+export {
+  createAudioExtractor,
+  formatTranscription,
+  type AudioExtractorConfig,
+  type TranscriptionSegment,
+  type TranscriptionWord,
+} from './audio.js'
