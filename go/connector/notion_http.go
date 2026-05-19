@@ -108,7 +108,7 @@ func (c *NotionConnector) doSingleRequest(ctx context.Context, method, path stri
 	if err != nil {
 		return nil, notionNoRetry, fmt.Errorf("connector/notion: request failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	respBody, err := io.ReadAll(io.LimitReader(resp.Body, notionMaxResponseSize))
 	if err != nil {
