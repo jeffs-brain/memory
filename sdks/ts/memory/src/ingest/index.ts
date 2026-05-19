@@ -216,3 +216,4 @@ export {
 
 export { extractXML, type XmlExtractorConfig } from './xml.js'
 
+export * from './extract/index.js'
