@@ -118,15 +118,11 @@ func (b *fsBatch) effectiveContentUpto(ctx context.Context, p brain.Path, upto i
 			}
 		case opDelete:
 			if op.path == p {
-				have = true
-				buf = nil
 				return nil, false, false, nil
 			}
 		case opRename:
 			if op.src == p {
 				// Source has been renamed away, so p is now absent.
-				have = true
-				buf = nil
 				return nil, false, false, nil
 			}
 			if op.path == p {
@@ -138,8 +134,6 @@ func (b *fsBatch) effectiveContentUpto(ctx context.Context, p brain.Path, upto i
 					have = true
 					buf = append(buf[:0], sub...)
 				} else {
-					have = true
-					buf = nil
 					return nil, false, false, nil
 				}
 			}

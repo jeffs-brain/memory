@@ -52,10 +52,15 @@
         "memory": "./dist/cli.js",
       },
       "dependencies": {
+        "@noble/hashes": "^2.2.0",
         "@stackone/defender": "^0.6.3",
         "citty": "^0.1.6",
         "isomorphic-git": "^1.37.5",
+        "snowball-stemmers": "^0.6.0",
         "sqlite-vec": "^0.1.9",
+      },
+      "devDependencies": {
+        "@types/snowball-stemmers": "^0.6.2",
       },
       "optionalDependencies": {
         "@huggingface/transformers": "^4.2.0",
@@ -77,17 +82,21 @@
     },
     "sdks/ts/memory-pi": {
       "name": "@jeffs-brain/memory-pi",
-      "version": "0.1.0",
+      "version": "0.2.2",
       "dependencies": {
-        "@earendil-works/pi-coding-agent": "^0.74.0",
-        "@jeffs-brain/memory": "workspace:*",
-        "typebox": "^1.1.24",
+        "@jeffs-brain/memory": "^0.3.0",
         "zod": "^3",
       },
       "devDependencies": {
+        "@earendil-works/pi-coding-agent": "^0.74.0",
         "@types/node": "^22.10.5",
+        "typebox": "^1.1.24",
         "typescript": "^5.7.3",
         "vitest": "^2.1.8",
+      },
+      "peerDependencies": {
+        "@earendil-works/pi-coding-agent": "^0.74.0",
+        "typebox": "^1",
       },
     },
     "sdks/ts/memory-postgres": {
@@ -399,6 +408,8 @@
 
     "@modelcontextprotocol/sdk": ["@modelcontextprotocol/sdk@1.29.0", "", { "dependencies": { "@hono/node-server": "^1.19.9", "ajv": "^8.17.1", "ajv-formats": "^3.0.1", "content-type": "^1.0.5", "cors": "^2.8.5", "cross-spawn": "^7.0.5", "eventsource": "^3.0.2", "eventsource-parser": "^3.0.0", "express": "^5.2.1", "express-rate-limit": "^8.2.1", "hono": "^4.11.4", "jose": "^6.1.3", "json-schema-typed": "^8.0.2", "pkce-challenge": "^5.0.0", "raw-body": "^3.0.0", "zod": "^3.25 || ^4.0", "zod-to-json-schema": "^3.25.1" }, "peerDependencies": { "@cfworker/json-schema": "^4.1.1" }, "optionalPeers": ["@cfworker/json-schema"] }, "sha512-zo37mZA9hJWpULgkRpowewez1y6ML5GsXJPY8FI0tBBCd77HEvza4jDqRKOXgHNn867PVGCyTdzqpz0izu5ZjQ=="],
 
+    "@noble/hashes": ["@noble/hashes@2.2.0", "", {}, "sha512-IYqDGiTXab6FniAgnSdZwgWbomxpy9FtYvLKs7wCUs2a8RkITG+DFGO1DM9cr+E3/RgADRpFjrKVaJ1z6sjtEg=="],
+
     "@nodable/entities": ["@nodable/entities@2.1.0", "", {}, "sha512-nyT7T3nbMyBI/lvr6L5TyWbFJAI9FTgVRakNoBqCD+PmID8DzFrrNdLLtHMwMszOtqZa8PAOV24ZqDnQrhQINA=="],
 
     "@pkgjs/parseargs": ["@pkgjs/parseargs@0.11.0", "", {}, "sha512-+1VkjdD0QBLPodGrJUeqarH8VAIvQODIbwh9XpP5Syisf7YoQgsJKPNFoqqLQlu+VQ/tVSshMR6loPMn8U+dPg=="],
@@ -518,6 +529,8 @@
     "@types/node": ["@types/node@22.19.17", "", { "dependencies": { "undici-types": "~6.21.0" } }, "sha512-wGdMcf+vPYM6jikpS/qhg6WiqSV/OhG+jeeHT/KlVqxYfD40iYJf9/AE1uQxVWFvU7MipKRkRv8NSHiCGgPr8Q=="],
 
     "@types/retry": ["@types/retry@0.12.0", "", {}, "sha512-wWKOClTTiizcZhXnPY4wikVAwmdYHp8q6DmC+EJUzAMsycb7HB32Kh9RN4+0gExjmPmZSAQjgURXIGATPegAvA=="],
+
+    "@types/snowball-stemmers": ["@types/snowball-stemmers@0.6.2", "", {}, "sha512-ihEXPKPKfIP/Ht8FN+UPqqg1kPNrV+Uo+eQtqB+K4sLmTBll3OM1bKj7OlsN4v12qk4O7D0MjczJG7NPAxgpyQ=="],
 
     "@types/ssh2": ["@types/ssh2@1.15.5", "", { "dependencies": { "@types/node": "^18.11.18" } }, "sha512-N1ASjp/nXH3ovBHddRJpli4ozpk6UdDYIX4RJWFa9L1YKnzdhTlVmiGHm4DZnj/jLbqZpes4aeR30EFGQtvhQQ=="],
 
@@ -1150,6 +1163,8 @@
     "simple-get": ["simple-get@4.0.1", "", { "dependencies": { "decompress-response": "^6.0.0", "once": "^1.3.1", "simple-concat": "^1.0.0" } }, "sha512-brv7p5WgH0jmQJr1ZDDfKDOSeWWg+OVypG99A/5vYGPqJ6pxiaHLy8nxtFjBA7oMa01ebA9gfh1uMCFqOuXxvA=="],
 
     "smart-buffer": ["smart-buffer@4.2.0", "", {}, "sha512-94hK0Hh8rPqQl2xXc3HsaBoOXKV20MToPkcXvwbISWLEs+64sBq5kFgn2kJDHb1Pry9yrP0dxrCI9RRci7RXKg=="],
+
+    "snowball-stemmers": ["snowball-stemmers@0.6.0", "", {}, "sha512-47VTJvsZzEme3VxhbUFc9wR0CX8fYKNMgL7AiBdJcHUrwbmN7htFroeX+8ESIAaoNgwEgwI2wnv1HIcqQqAdcA=="],
 
     "socks": ["socks@2.8.9", "", { "dependencies": { "ip-address": "^10.1.1", "smart-buffer": "^4.2.0" } }, "sha512-LJhUYUvItdQ0LkJTmPeaEObWXAqFyfmP85x0tch/ez9cahmhlBBLbIqDFnvBnUJGagb0JbIQrkBs1wJ+yRYpEw=="],
 

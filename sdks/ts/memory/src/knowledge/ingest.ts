@@ -6,7 +6,7 @@
  * apps/jeff/internal/knowledge/ingest.go (the ingestInBatch helper).
  */
 
-import { createHash } from 'node:crypto'
+import { hashDocument as blake3HashDocument } from '../ingest/hash.js'
 import type { Logger } from '../llm/index.js'
 import { type Path, type Store, joinPath } from '../store/index.js'
 import { appendLogInBatch } from './log.js'
@@ -14,7 +14,7 @@ import type { IngestOptions, IngestResult } from './types.js'
 
 export const RAW_DOCUMENTS_PREFIX = 'raw/documents'
 
-export const hashContent = (buf: Buffer): string => createHash('sha256').update(buf).digest('hex')
+export const hashContent = (buf: Buffer): string => blake3HashDocument(buf)
 
 export const rawDocumentPath = (hashOrName: string): Path =>
   joinPath(RAW_DOCUMENTS_PREFIX, `${hashOrName}.md`)

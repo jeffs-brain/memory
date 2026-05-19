@@ -13,8 +13,9 @@ func registerIngestURL(server *mcp.Server, client MemoryClient) {
 	schema := &jsonschema.Schema{
 		Type: "object",
 		Properties: map[string]*jsonschema.Schema{
-			"url":   {Type: "string", Format: "uri"},
-			"brain": {Type: "string"},
+			"url":     {Type: "string", Format: "uri"},
+			"brain":   {Type: "string"},
+			"extract": {Type: "boolean"},
 		},
 		Required: []string{"url"},
 	}
@@ -28,6 +29,34 @@ func registerIngestURL(server *mcp.Server, client MemoryClient) {
 		if err != nil {
 			return nil, nil, err
 		}
-		return structuredResult(result)
+
+		if !args.Extract {
+			return structuredResult(result)
+		}
+
+		// Read the stored content from the ingest result (populated by
+		// the local client from the brain store). No URL re-fetch needed.
+		content := result.DocumentContent
+
+		extraction := &ExtractAfterIngestResult{
+			FactsExtracted: 0,
+			Memories:       []ExtractedMemory{},
+		}
+		if content != "" {
+			extracted, extractErr := client.ExtractAfterIngest(ctx, ExtractAfterIngestArgs{
+				Content:        content,
+				DocumentSource: args.URL,
+				Brain:          args.Brain,
+			})
+			if extractErr == nil {
+				extraction = extracted
+			}
+		}
+
+		combined := ingestURLWithExtractionResult{
+			Ingest:     result,
+			Extraction: extraction,
+		}
+		return structuredResult(combined)
 	})
 }

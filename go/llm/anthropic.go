@@ -15,9 +15,9 @@ import (
 
 // AnthropicConfig configures [NewAnthropic].
 type AnthropicConfig struct {
-	APIKey     string
-	BaseURL    string
-	Version    string
+	APIKey  string
+	BaseURL string
+	Version string
 	// Model is the default completion model used when CompleteRequest.Model is
 	// empty. If unset here too, requests without a model will fail at the API.
 	Model      string
@@ -101,12 +101,12 @@ type anthropicError struct {
 }
 
 type anthropicEvent struct {
-	Type         string             `json:"type"`
-	Index        int                `json:"index"`
-	Delta        anthropicDelta     `json:"delta"`
-	ContentBlock anthropicContent   `json:"content_block"`
-	Message      anthropicResponse  `json:"message"`
-	Usage        *anthropicUsage    `json:"usage"`
+	Type         string            `json:"type"`
+	Index        int               `json:"index"`
+	Delta        anthropicDelta    `json:"delta"`
+	ContentBlock anthropicContent  `json:"content_block"`
+	Message      anthropicResponse `json:"message"`
+	Usage        *anthropicUsage   `json:"usage"`
 }
 
 type anthropicDelta struct {
@@ -137,7 +137,7 @@ func (p *anthropicProvider) Complete(ctx context.Context, req CompleteRequest) (
 	if err != nil {
 		return CompleteResponse{}, fmt.Errorf("llm: anthropic request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	raw, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return CompleteResponse{}, err
@@ -197,12 +197,12 @@ func (p *anthropicProvider) CompleteStream(ctx context.Context, req CompleteRequ
 	}
 	if resp.StatusCode >= 400 {
 		raw, _ := io.ReadAll(resp.Body)
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		return nil, anthropicParseError(resp.StatusCode, raw)
 	}
 	out := make(chan StreamChunk, 16)
 	go func() {
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 		defer close(out)
 		anthropicStreamLoop(ctx, resp.Body, out)
 	}()
@@ -282,7 +282,8 @@ func mapAnthropicStop(s string) StopReason {
 
 // streamToolState tracks the current content block during SSE streaming.
 // State transitions: idle -> text (content_block_start type=text) -> idle (content_block_stop)
-//                    idle -> tool_use (content_block_start type=tool_use) -> idle (content_block_stop)
+//
+//	idle -> tool_use (content_block_start type=tool_use) -> idle (content_block_stop)
 type streamToolState struct {
 	blockType string // "text" or "tool_use"; empty when idle
 	toolID    string

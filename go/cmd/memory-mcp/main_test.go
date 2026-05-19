@@ -100,9 +100,9 @@ func callTool(t *testing.T, session *mcp.ClientSession, name string, args map[st
 	return out
 }
 
-// TestListToolsReturnsElevenTools verifies the tool surface matches the
+// TestListToolsReturnsTwelveTools verifies the tool surface matches the
 // canonical spec.
-func TestListToolsReturnsElevenTools(t *testing.T) {
+func TestListToolsReturnsTwelveTools(t *testing.T) {
 	home := t.TempDir()
 	session := newInMemoryServer(t, home)
 
@@ -121,6 +121,8 @@ func TestListToolsReturnsElevenTools(t *testing.T) {
 		"memory_recall",
 		"memory_search",
 		"memory_ask",
+		"memory_ingest_batch",
+		"memory_ingest_directory",
 		"memory_ingest_file",
 		"memory_ingest_url",
 		"memory_extract",

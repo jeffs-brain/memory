@@ -124,17 +124,21 @@ Ingest a local file (<= 25 MB) into the brain via the file-ingest endpoint.
 
 ```
 {
-  path:   string                       # absolute or relative local path
-  brain?: string
-  as?:    'markdown' | 'text' | 'pdf' | 'json'
+  path:     string                       # absolute or relative local path
+  brain?:   string
+  as?:      'markdown' | 'text' | 'pdf' | 'json'
+  extract?: boolean                      # run extractor after ingest (default: false)
 }
 ```
 
 Content type is inferred from the extension when `as` is omitted. Files over 25 MiB are rejected with code `file_too_large`.
 
+When `extract` is `true`, the document content is passed through the memory extractor after successful ingestion. Both the raw document and any extracted facts are persisted. Extraction failure is non-fatal: the ingest result is always returned.
+
 **Output shape**
 
 ```
+# without extract (default)
 {
   status:      'queued' | 'ingested',
   path:        string,
@@ -142,6 +146,15 @@ Content type is inferred from the extension when `as` is omitted. Files over 25 
   chunk_count?: number,
   reused?:     boolean,
   ...
+}
+
+# with extract: true
+{
+  ingest: { status, path, chunk_count, ... },
+  extraction: {
+    factsExtracted: number,
+    memories: Array<{ filename: string, content: string }>
+  }
 }
 ```
 
@@ -157,8 +170,9 @@ Fetch a URL and ingest its content. Uses the server-side `/ingest/url` when the 
 
 ```
 {
-  url:    string (must be a valid URL)
-  brain?: string
+  url:      string (must be a valid URL)
+  brain?:   string
+  extract?: boolean                      # run extractor after ingest (default: false)
 }
 ```
 
@@ -173,6 +187,100 @@ Local fallback caps the fetched body at 5 MiB and records `path: 'fallback'` in 
 # fallback path
 { path: 'fallback', document: DocumentRecord }
 ```
+
+---
+
+## `memory_ingest_batch`
+
+Ingest up to 50 local files in a single call with per-file error isolation. Returns a structured result array with individual outcomes.
+
+**Description**: "Ingest up to 50 local files in a single call. Returns per-file results."
+
+---
+
+## `memory_ingest_directory`
+
+Recursively ingest files from a directory with optional glob filtering and .gitignore support.
+
+**Description**: "Ingest files from a directory. Walks recursively, respects .gitignore, and supports glob filtering."
+
+**Input schema**
+
+```
+{
+  files: Array<{
+    path:   string   # absolute or relative local path (min 1 char)
+    as?:    'markdown' | 'text' | 'pdf' | 'json'
+  }>  # min 1, max 50 items
+  brain?: string
+}
+```
+
+Each file entry is processed sequentially. A failure in file N does not prevent file N+1 from processing. Files over 25 MiB are rejected per-file with `file_too_large`.
+
+**Output shape**
+
+```
+{
+  total:      number,
+  succeeded:  number,
+  failed:     number,
+  results: Array<{
+    path:        string,
+    status:      'success' | 'error',
+    documentId?: string,
+    hash?:       string,
+    bytes?:      number,
+    error?:      string,
+  }>
+}
+```
+
+**Progress**: When `progressToken` is present, emits one `notifications/progress` per file processed. Counter increments from 0 to `total - 1`. Message format: `"{completed}/{total} {currentFile}"`.
+
+---
+
+## `memory_ingest_directory`
+
+Recursively ingest files from a directory with optional glob filtering and .gitignore support.
+
+**Description**: "Ingest files from a directory. Walks recursively, respects .gitignore, and supports glob filtering."
+
+**Input schema**
+
+```
+{
+  directory: string            # absolute path to directory
+  glob?:     string            # glob pattern filter (e.g. "**/*.md")
+  brain?:    string
+  recursive?: boolean          # default true
+  maxFiles?: number            # max files to process (1-500, default 100)
+}
+```
+
+Hidden files (dot-prefix) are excluded by default. Symlinks are not followed. Files exceeding 25 MiB individually are skipped with a reason.
+
+**Output shape**
+
+```
+{
+  total:         number,
+  succeeded:     number,
+  failed:        number,
+  skipped:       number,
+  skippedReasons: string[],
+  results: Array<{
+    path:        string,
+    status:      'success' | 'error' | 'skipped',
+    documentId?: string,
+    hash?:       string,
+    bytes?:      number,
+    error?:      string,
+  }>
+}
+```
+
+**Progress**: When `progressToken` is present, emits one `notifications/progress` per file processed. Message format: `"{completed}/{total} {currentFile}"`.
 
 ---
 
@@ -556,6 +664,8 @@ Long-running tools emit MCP progress notifications using the standard `notificat
 | `memory_ask` | Yes, when `progressToken` present. | Number of `answer_delta` SSE frames received. | The delta text for that frame. |
 | `memory_ingest_file` | **Reserved.** The v1.0 TS implementation does not emit `notifications/progress` frames; the tool runs synchronously end-to-end and the final response carries a `status` of `queued` or `completed`. | n/a | n/a |
 | `memory_ingest_url` | **Reserved.** Same as `memory_ingest_file`. | n/a | n/a |
+| `memory_ingest_batch` | Yes, when `progressToken` present. | Number of files processed so far (0-indexed). | `"{completed}/{total} {currentFile}"` — completed count, total count, and current file path. |
+| `memory_ingest_directory` | Yes, when `progressToken` present. | Number of files processed so far (0-indexed). | `"{completed}/{total} {currentFile}"` — completed count, total count, and current file path. |
 | `memory_consolidate` | **Reserved.** Fire-and-forget; the tool returns whatever `brains.consolidate`/`brains.compile` resolves with. | n/a | n/a |
 | `memory_reflect` | No. Synchronous close + reflect; no progress stream. | n/a | n/a |
 | All other tools | No. | n/a | n/a |

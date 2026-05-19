@@ -308,3 +308,194 @@ If all five rungs produce zero hits, the retry ladder exits with `bmCandidates =
 - Trigrams are `$`-padded 3-grams over each space-separated word of the slug text. Words shorter than 3 characters after padding are dropped.
 - `jaccard(A, B) = |A ∩ B| / |A ∪ B|`. The threshold constant `TRIGRAM_JACCARD_THRESHOLD = 0.3` is fixed.
 - Candidates are sorted by similarity descending, ties broken by path ascending, and truncated to `candidateK`. The attempt row reports the joined query tokens as its `query` field.
+
+## Multi-Language Search
+
+This section documents the multi-language stemmer, language detection, and CJK trigram tokenizer utilities available for BM25 full-text search. These components are standalone functions (not yet wired into the FTS5 schema); integration requires a schema_version bump and full index rebuild (tracked as a follow-up).
+
+### Snowball Stemmers
+
+Both SDKs implement Snowball stemming algorithms for 15 languages. The Snowball project (snowballstem.org) provides deterministic, well-tested stemming rules generated from a domain-specific language.
+
+**Supported languages** (ISO 639-1 codes):
+
+| Code | Language   | Go package                        | TS package             |
+|------|------------|-----------------------------------|------------------------|
+| en   | English    | blevesearch/snowballstem/english   | snowball-stemmers      |
+| de   | German     | blevesearch/snowballstem/german    | snowball-stemmers      |
+| fr   | French     | blevesearch/snowballstem/french    | snowball-stemmers      |
+| es   | Spanish    | blevesearch/snowballstem/spanish   | snowball-stemmers      |
+| nl   | Dutch      | blevesearch/snowballstem/dutch     | snowball-stemmers      |
+| it   | Italian    | blevesearch/snowballstem/italian   | snowball-stemmers      |
+| pt   | Portuguese | blevesearch/snowballstem/portuguese| snowball-stemmers      |
+| sv   | Swedish    | blevesearch/snowballstem/swedish   | snowball-stemmers      |
+| no   | Norwegian  | blevesearch/snowballstem/norwegian | snowball-stemmers      |
+| da   | Danish     | blevesearch/snowballstem/danish    | snowball-stemmers      |
+| fi   | Finnish    | blevesearch/snowballstem/finnish   | snowball-stemmers      |
+| hu   | Hungarian  | blevesearch/snowballstem/hungarian | snowball-stemmers      |
+| tr   | Turkish    | blevesearch/snowballstem/turkish   | snowball-stemmers      |
+| ro   | Romanian   | blevesearch/snowballstem/romanian  | snowball-stemmers      |
+| ru   | Russian    | blevesearch/snowballstem/russian   | snowball-stemmers      |
+
+**Cross-SDK conformance**: Both SDKs use the official Snowball algorithms (Go: auto-generated from Snowball source; TS: jssnowball port). Given the same lowercased input, both produce identical stems. This is verified in the test suites.
+
+**Interface** (both SDKs):
+
+```
+Stemmer.Stem(word) -> stemmed_word
+Stemmer.Language() -> ISO 639-1 code
+NewStemmer(lang) -> Stemmer or error if unsupported
+```
+
+Input is lowercased before stemming. Empty input returns empty output.
+
+### Language Detection
+
+A lightweight bigram-frequency language detector selects the appropriate stemmer at index and query time.
+
+**Algorithm**:
+
+1. Extract alphabetic runs from text (lowercase, non-letters become spaces).
+2. Build a character bigram frequency vector (count / total).
+3. Compute cosine similarity against each language's reference profile (top-40 bigrams per language).
+4. The highest-scoring language wins.
+5. Confidence = min(1.0, raw_cosine_score * 2.0).
+6. If confidence < 0.5 OR text has fewer than 20 alphabetic characters, default to English.
+
+**Properties**:
+
+- Time: O(N) for bigram extraction, O(L * 40) for scoring against L language profiles.
+- No external dependencies (no ML model, no network call).
+- Handles Cyrillic script well (Russian bigrams share no overlap with Latin profiles).
+- Romance languages (FR/ES/IT/PT) may produce lower margins between best and second-best, but the correct language consistently scores highest.
+- CJK text is NOT detected via this mechanism; use `ContainsCJK()` / `containsCJK()` for script-level detection.
+
+### CJK Trigram Tokenizer
+
+Chinese, Japanese, and Korean (CJK) scripts do not use spaces to delimit words. The tokenizer produces overlapping 3-character trigrams from CJK runs, which serve as indexable tokens for BM25 search.
+
+**Algorithm**:
+
+```
+function TokenizeCJK(text):
+    tokens = []
+    for each run in text:
+        if run is CJK characters:
+            if len(run) < 3:
+                tokens.append(run)       # preserve short fragments
+            else:
+                for i in 0..len(run)-3:
+                    tokens.append(run[i:i+3])
+        else:
+            tokens.extend(whitespace_split(run).map(lowercase))
+    return tokens
+```
+
+**CJK detection ranges**:
+
+- CJK Unified Ideographs (U+4E00..U+9FFF)
+- CJK Extension A (U+3400..U+4DBF)
+- CJK Extension B (U+20000..U+2A6DF)
+- CJK Compatibility Ideographs (U+F900..U+FAFF)
+- Hiragana (U+3040..U+309F)
+- Katakana (U+30A0..U+30FF) including prolonged sound mark
+- Katakana Phonetic Extensions (U+31F0..U+31FF)
+- Hangul Syllables (U+AC00..U+D7AF)
+- Hangul Jamo (U+1100..U+11FF)
+- Hangul Compatibility Jamo (U+3130..U+318F)
+
+**Properties**:
+
+- Time: O(N) where N = codepoints in text.
+- Space: O(N) for output tokens.
+- Mixed CJK/Latin text is handled correctly: CJK runs produce trigrams, Latin runs produce whitespace-split tokens.
+- Short CJK runs (< 3 characters) are emitted as-is to avoid information loss.
+
+### FTS5 Integration (follow-up)
+
+Wiring these utilities into the FTS5 custom tokenizer requires:
+
+1. Bump `schema_version` in both Go and TS search index modules.
+2. Register a custom FTS5 tokenizer via `sqlite3_fts5_tokenizer` API (CGo for Go, native addon for TS).
+3. The tokenizer pipeline: detect language -> if CJK, trigram-tokenize; else stem with detected language's stemmer.
+4. Full index rebuild on schema version mismatch (detected at index open).
+5. Per-document language tag stored in `knowledge_chunks` metadata to avoid re-detection at query time.
+
+This is tracked separately and NOT implemented in this ticket.
+
+## Content Hashing
+
+All document and chunk content hashing uses BLAKE3 with a 256-bit output, hex-encoded to a 64-character lowercase string. BLAKE3 was selected for its combination of speed on x86-64 platforms (4-10x faster than SHA-256 on single-threaded workloads with AVX2/AVX-512), streaming support, and equivalent collision resistance to SHA-256.
+
+### Specification
+
+- **Algorithm**: BLAKE3
+- **Output**: 256-bit digest, lowercase hex-encoded (64 characters)
+- **Input**: Raw byte content (UTF-8 for text documents)
+- **Use cases**:
+  - Document deduplication: identical content produces identical hash regardless of path or metadata
+  - Chunk-level change detection: re-ingesting a modified document identifies which chunks changed
+  - Document ID derivation: content hash is the seed for deterministic document identifiers
+
+### Cross-SDK conformance
+
+All SDK implementations (Go, TypeScript) MUST produce identical hex output for identical byte input. The canonical test vector is:
+
+```
+Input (UTF-8): "jeff's brain memory system"
+BLAKE3-256:    e311e54b56b26bfef4e5c8501f04c708f1e02233106022f58a7e94b728b7265c
+```
+
+SDK conformance tests MUST assert this exact output. Any implementation that diverges from this value is non-conformant.
+
+### Derived hash functions
+
+Two derived functions produce truncated BLAKE3 digests for specific use cases:
+
+| Function | Output | Purpose |
+| --- | --- | --- |
+| `HashSlug` / `hashSlug` | 12 hex chars | Deterministic fallback slug when a human-readable slug is unavailable |
+| `HashDocumentID` / `hashDocumentId` | 16 hex chars | Stable, brain-scoped document identifier from `BLAKE3(brainID + ":" + contentHash)` |
+
+`HashDocumentID` is brain-scoped: different brain IDs with the same content hash produce different document identifiers. This ensures document IDs are unique per brain even when two brains ingest identical content.
+
+### Hasher interface
+
+The hash algorithm is pluggable via a `Hasher` interface. BLAKE3 is the default implementation; callers can swap to SHA-256 or a custom algorithm without changing call sites.
+
+**Go:**
+
+```go
+type Hasher interface {
+    Hash(content []byte) string
+    Name() string
+}
+
+// Default: BLAKE3Hasher{}
+var DefaultHasher Hasher = BLAKE3Hasher{}
+```
+
+**TypeScript:**
+
+```typescript
+type Hasher = {
+    hash(content: Buffer): string
+    name: string
+}
+
+// Default: blake3Hasher
+export const blake3Hasher: Hasher = { ... }
+```
+
+### Implementation references
+
+| SDK | Package | Function |
+| --- | --- | --- |
+| Go | `github.com/zeebo/blake3` | `ingest.HashDocument`, `ingest.HashChunk`, `ingest.HashString`, `ingest.HashSlug`, `ingest.HashDocumentID` |
+| TypeScript | `@noble/hashes/blake3` | `hashDocument`, `hashChunk`, `hashString`, `hashSlug`, `hashDocumentId` |
+
+### Performance notes
+
+- On x86-64 with AVX2/AVX-512: BLAKE3 is 4-10x faster than SHA-256 for inputs above 1KB.
+- On ARM64 (Apple Silicon): SHA-256 benefits from dedicated hardware instructions and may outperform the software BLAKE3 implementation. This is an acceptable trade-off because production workloads target AMD64 infrastructure.
+- Both algorithms are O(n) in input size with constant memory overhead (32 bytes for the digest).

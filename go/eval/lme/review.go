@@ -329,7 +329,7 @@ func (r *ReviewSession) Run(ctx context.Context) (ArbitrationResult, error) {
 	if err != nil {
 		return ArbitrationResult{}, fmt.Errorf("open arbitration.jsonl: %w", err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	var entries []ArbitrationEntry
 
@@ -435,18 +435,18 @@ func writeScratchpad(s scratchpad, attempt, idx, total int, lastErr error) (stri
 
 	body, err := yaml.Marshal(s)
 	if err != nil {
-		tmp.Close()
+		_ = tmp.Close()
 		cleanup()
 		return "", func() {}, fmt.Errorf("marshal scratchpad: %w", err)
 	}
 
 	if _, err := tmp.WriteString(header.String()); err != nil {
-		tmp.Close()
+		_ = tmp.Close()
 		cleanup()
 		return "", func() {}, fmt.Errorf("write header: %w", err)
 	}
 	if _, err := tmp.Write(body); err != nil {
-		tmp.Close()
+		_ = tmp.Close()
 		cleanup()
 		return "", func() {}, fmt.Errorf("write scratchpad: %w", err)
 	}
@@ -656,21 +656,21 @@ func atomicWrite(path string, data []byte) error {
 	}
 	tmpPath := tmp.Name()
 	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
-		os.Remove(tmpPath)
+		_ = tmp.Close()
+		_ = os.Remove(tmpPath)
 		return fmt.Errorf("write tmp: %w", err)
 	}
 	if err := tmp.Sync(); err != nil {
-		tmp.Close()
-		os.Remove(tmpPath)
+		_ = tmp.Close()
+		_ = os.Remove(tmpPath)
 		return fmt.Errorf("fsync tmp: %w", err)
 	}
 	if err := tmp.Close(); err != nil {
-		os.Remove(tmpPath)
+		_ = os.Remove(tmpPath)
 		return fmt.Errorf("close tmp: %w", err)
 	}
 	if err := os.Rename(tmpPath, path); err != nil {
-		os.Remove(tmpPath)
+		_ = os.Remove(tmpPath)
 		return fmt.Errorf("rename tmp: %w", err)
 	}
 	return nil

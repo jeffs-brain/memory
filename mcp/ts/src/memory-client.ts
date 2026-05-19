@@ -29,7 +29,7 @@ import {
   createSearchIndex,
   createStoreBackedCursorStore,
 } from '@jeffs-brain/memory'
-import { ingestDocument } from '@jeffs-brain/memory/ingest'
+import { ingestDocument, extractAfterIngest as sdkExtractAfterIngest } from '@jeffs-brain/memory/ingest'
 import { createRetrieval } from '@jeffs-brain/memory/retrieval'
 import type { ConfigMode, HostedConfig, LocalConfig } from './config.js'
 
@@ -108,6 +108,21 @@ export type CreateBrainArgs = {
  */
 export type ProgressEmitter = (progress: number, message?: string) => void
 
+export type ExtractAfterIngestArgs = {
+  /** Document content to extract from (provided directly, no re-fetch). */
+  readonly content: string
+  /** Human-readable source label for logging/prompts. */
+  readonly documentSource: string
+  readonly brain?: string | undefined
+  readonly actorId?: string | undefined
+  readonly sessionId?: string | undefined
+}
+
+export type ExtractAfterIngestResult = {
+  readonly factsExtracted: number
+  readonly memories: readonly { readonly filename: string; readonly content: string }[]
+}
+
 export type MemoryClient = {
   readonly mode: ConfigMode['kind']
   remember(args: RememberArgs): Promise<unknown>
@@ -117,6 +132,7 @@ export type MemoryClient = {
   ingestFile(args: IngestFileArgs, progress?: ProgressEmitter): Promise<unknown>
   ingestUrl(args: IngestUrlArgs, progress?: ProgressEmitter): Promise<unknown>
   extract(args: ExtractArgs, progress?: ProgressEmitter): Promise<unknown>
+  extractAfterIngest(args: ExtractAfterIngestArgs): Promise<ExtractAfterIngestResult>
   reflect(args: ReflectArgs, progress?: ProgressEmitter): Promise<unknown>
   consolidate(args: ConsolidateArgs, progress?: ProgressEmitter): Promise<unknown>
   createBrain(args: CreateBrainArgs): Promise<unknown>
@@ -127,6 +143,33 @@ export type MemoryClient = {
 // ---------------------------------------------------------------------
 // Local mode
 // ---------------------------------------------------------------------
+
+type BrainConfigFile = {
+  readonly slug?: string
+  readonly name?: string
+  readonly visibility?: string
+  readonly createdAt?: string
+}
+
+type BrainListItem = {
+  readonly id: string
+  readonly slug: string
+  readonly name: string
+  readonly visibility: string
+  readonly created_at: string | null
+}
+
+const parseBrainConfig = (raw: string): BrainConfigFile | undefined => {
+  const parsed: unknown = JSON.parse(raw)
+  if (typeof parsed !== 'object' || parsed === null) return undefined
+  const obj = parsed as { slug?: unknown; name?: unknown; visibility?: unknown; createdAt?: unknown }
+  return {
+    ...(typeof obj.slug === 'string' ? { slug: obj.slug } : {}),
+    ...(typeof obj.name === 'string' ? { name: obj.name } : {}),
+    ...(typeof obj.visibility === 'string' ? { visibility: obj.visibility } : {}),
+    ...(typeof obj.createdAt === 'string' ? { createdAt: obj.createdAt } : {}),
+  }
+}
 
 const OLLAMA_EMBED_MODEL = 'bge-m3'
 const OLLAMA_CHAT_MODEL = 'gemma3'
@@ -274,10 +317,29 @@ const deriveTitle = (content: string, fallback: string | undefined): string => {
   return firstLine ?? 'Untitled memory'
 }
 
-const buildFrontmatterBlock = (frontmatter: Record<string, unknown>): string => {
+type FrontmatterValue = string | number | boolean | readonly string[]
+
+type FrontmatterFields = {
+  readonly title: string
+  readonly scope: string
+  readonly type: string
+  readonly created: string
+  readonly modified: string
+  readonly tags?: readonly string[]
+}
+
+const buildFrontmatterBlock = (frontmatter: FrontmatterFields): string => {
   const lines: string[] = ['---']
-  for (const [key, value] of Object.entries(frontmatter)) {
-    if (value === undefined || value === null) continue
+  const entries: ReadonlyArray<readonly [string, FrontmatterValue | undefined]> = [
+    ['title', frontmatter.title],
+    ['scope', frontmatter.scope],
+    ['type', frontmatter.type],
+    ['created', frontmatter.created],
+    ['modified', frontmatter.modified],
+    ['tags', frontmatter.tags],
+  ]
+  for (const [key, value] of entries) {
+    if (value === undefined) continue
     if (Array.isArray(value)) {
       lines.push(`${key}: [${value.map((v) => JSON.stringify(String(v))).join(', ')}]`)
       continue
@@ -642,7 +704,9 @@ const createLocalClient = (cfg: LocalConfig): MemoryClient => {
       await ensureBootstrap()
       const brainId = resolveBrainId(cfg, args.brain)
       const brain = await openBrainResources(deps, brainId)
-      const resp = await fetch(args.url)
+      const resp = await fetch(args.url, {
+        signal: AbortSignal.timeout(30_000),
+      })
       if (!resp.ok) {
         throw new Error(`memory_ingest_url: fetch failed ${resp.status} ${resp.statusText}`)
       }
@@ -685,6 +749,7 @@ const createLocalClient = (cfg: LocalConfig): MemoryClient => {
             updated_at: new Date().toISOString(),
             deleted_at: null,
           },
+          _document_content: buffer.toString('utf8'),
         }
       }
       const result = await ingestDocument({
@@ -714,6 +779,7 @@ const createLocalClient = (cfg: LocalConfig): MemoryClient => {
           duration_ms: result.durationMs,
           reused: result.reused,
         },
+        _document_content: buffer.toString('utf8'),
       }
     },
 
@@ -844,26 +910,62 @@ const createLocalClient = (cfg: LocalConfig): MemoryClient => {
       )
       if (!exists) return { items: [] }
       const entries = await readdir(cfg.brainRoot, { withFileTypes: true })
-      const items: Array<Record<string, unknown>> = []
+      const items: BrainListItem[] = []
       for (const entry of entries) {
         if (!entry.isDirectory()) continue
         const configPath = join(cfg.brainRoot, entry.name, 'config.json')
-        let parsed: Record<string, unknown> = {}
+        let parsed: BrainConfigFile | undefined
         try {
           const raw = await readFile(configPath, 'utf8')
-          parsed = JSON.parse(raw) as Record<string, unknown>
+          parsed = parseBrainConfig(raw)
         } catch {
           // Brain without config — surface the directory name as the slug
         }
         items.push({
-          id: (parsed.slug as string | undefined) ?? entry.name,
-          slug: (parsed.slug as string | undefined) ?? entry.name,
-          name: (parsed.name as string | undefined) ?? entry.name,
-          visibility: (parsed.visibility as string | undefined) ?? 'private',
-          created_at: (parsed.createdAt as string | undefined) ?? null,
+          id: parsed?.slug ?? entry.name,
+          slug: parsed?.slug ?? entry.name,
+          name: parsed?.name ?? entry.name,
+          visibility: parsed?.visibility ?? 'private',
+          created_at: parsed?.createdAt ?? null,
         })
       }
       return { items }
+    },
+
+    async extractAfterIngest(args) {
+      await ensureBootstrap()
+      const emptyResult: ExtractAfterIngestResult = { factsExtracted: 0, memories: [] }
+
+      const provider = deps.provider
+      if (provider === undefined) {
+        return emptyResult
+      }
+
+      if (args.content.trim() === '') {
+        return emptyResult
+      }
+
+      const brainId = resolveBrainId(cfg, args.brain)
+      const brain = await openBrainResources(deps, brainId)
+      const memory = buildMemory(brain, provider as Provider)
+
+      // Delegate to the SDK extractAfterIngest (DRY).
+      const result = await sdkExtractAfterIngest({
+        brainId,
+        documentPath: args.documentSource,
+        documentContent: args.content,
+        memory,
+        ...(args.actorId !== undefined ? { actorId: args.actorId } : {}),
+        ...(args.sessionId !== undefined ? { sessionId: args.sessionId } : {}),
+      })
+
+      return {
+        factsExtracted: result.factsExtracted,
+        memories: result.memories.map((m) => ({
+          filename: m.filename,
+          content: m.content,
+        })),
+      }
     },
 
     async close() {
@@ -904,6 +1006,7 @@ const hostedFetch = async (
 ): Promise<unknown> => {
   const resp = await fetch(joinUrl(deps.endpoint, path), {
     ...init,
+    signal: init.signal ?? AbortSignal.timeout(30_000),
     headers: {
       authorization: `Bearer ${deps.token}`,
       'content-type': 'application/json',
@@ -982,6 +1085,7 @@ const createHostedClient = (cfg: HostedConfig): MemoryClient => {
         joinUrl(deps.endpoint, `/v1/brains/${encodeURIComponent(brain)}/documents/ingest/file`),
         {
           method: 'POST',
+          signal: AbortSignal.timeout(60_000),
           headers: { authorization: `Bearer ${deps.token}` },
           body: form,
         },
@@ -1061,6 +1165,32 @@ const createHostedClient = (cfg: HostedConfig): MemoryClient => {
     },
     async listBrains() {
       return hostedFetch(deps, '/v1/brains')
+    },
+    async extractAfterIngest(args) {
+      const emptyResult: ExtractAfterIngestResult = { factsExtracted: 0, memories: [] }
+
+      if (args.content.trim() === '') return emptyResult
+
+      const brain = hostedResolveBrain(deps, args.brain)
+      const content =
+        args.content.length > 128_000 ? args.content.slice(0, 128_000) : args.content
+
+      try {
+        const doc = await hostedFetch(deps, `/v1/brains/${encodeURIComponent(brain)}/documents`, {
+          method: 'POST',
+          body: JSON.stringify({
+            title: `Extraction from ${args.documentSource}`,
+            content: `Extract facts from ingested document "${args.documentSource}":\n\n<ingested-document>\n${content}\n</ingested-document>`,
+            source: 'extract-after-ingest',
+          }),
+        })
+        return {
+          factsExtracted: doc !== undefined ? 1 : 0,
+          memories: [],
+        }
+      } catch {
+        return emptyResult
+      }
     },
     async close() {
       /* no persistent connections */

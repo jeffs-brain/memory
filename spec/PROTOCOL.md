@@ -392,3 +392,124 @@ Reserved for v1.1:
 - `If-Match` preconditions on `PUT /documents` and `DELETE /documents` enabling optimistic concurrency via ETag.
 
 Clients MAY already send `If-None-Match` / `If-Match`; v1.0 servers MUST ignore them and respond as if they were absent.
+
+## Webhook receiver endpoint
+
+The webhook receiver provides a push-based ingestion path. External systems POST document payloads to the receiver, which validates authentication and schema before dispatching accepted documents to the ingestion pipeline.
+
+### `POST /webhook/ingest`
+
+Accept one or more documents for ingestion via push delivery.
+
+**Headers**
+
+| Header | Required | Description |
+| --- | --- | --- |
+| `Content-Type` | Yes | Must be `application/json`. |
+| `Authorization` | Conditional | `Bearer <token>` when the receiver is configured with bearer authentication. |
+| `X-Webhook-Signature` | Conditional | `sha256=<hex-encoded HMAC>` when the receiver is configured with HMAC authentication. The HMAC-SHA256 is computed over `<timestamp>.<body>` using the shared secret. |
+| `X-Webhook-Timestamp` | Conditional | Unix timestamp in seconds. Required when using HMAC authentication. The receiver rejects requests where `abs(now - timestamp)` exceeds the configured expiry window (default: 5 minutes). |
+| `X-Idempotency-Key` | No | Opaque string. When present and idempotency is enabled, the receiver caches the response and returns it on subsequent requests with the same key. Cached entries expire after 24 hours. |
+
+**Body**
+
+```json
+{
+  "documents": [
+    {
+      "externalId": "ext-123",
+      "content": "Document text or base64-encoded binary",
+      "encoding": "utf8",
+      "mime": "text/plain",
+      "title": "Optional title",
+      "url": "https://example.com/source",
+      "metadata": {
+        "author": "jane",
+        "source": "webhook"
+      }
+    }
+  ]
+}
+```
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `documents` | array | Yes | Non-empty array of documents. Maximum count is configurable (default: 50). |
+| `documents[].externalId` | string | Yes | Caller-assigned unique identifier for the document. |
+| `documents[].content` | string | Yes | Document content. Interpreted according to `encoding`. |
+| `documents[].encoding` | string | No | `"utf8"` (default) or `"base64"`. |
+| `documents[].mime` | string | No | MIME type. Defaults to `"text/plain"`. |
+| `documents[].title` | string | No | Human-readable title. |
+| `documents[].url` | string | No | Source URL for provenance tracking. |
+| `documents[].metadata` | object | No | Arbitrary key-value pairs. All values must be strings. |
+
+**Response** `200 OK`
+
+```json
+{
+  "accepted": 1,
+  "rejected": 0,
+  "results": [
+    {
+      "externalId": "ext-123",
+      "status": "accepted",
+      "documentId": "doc-1"
+    }
+  ]
+}
+```
+
+Each entry in `results` corresponds positionally to the input `documents` array.
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `accepted` | integer | Count of successfully dispatched documents. |
+| `rejected` | integer | Count of documents that failed validation or dispatch. |
+| `results[].externalId` | string | The `externalId` from the input document. |
+| `results[].status` | string | `"accepted"` or `"rejected"`. |
+| `results[].documentId` | string | Pipeline-assigned document ID. Present only when `status` is `"accepted"`. |
+| `results[].error` | string | Human-readable error description. Present only when `status` is `"rejected"`. |
+
+**Errors**
+
+| Status | Condition |
+| --- | --- |
+| `400` | Missing or invalid `Content-Type`, malformed JSON, empty `documents` array, document count exceeds maximum. |
+| `401` | Authentication failed or missing. Response body is empty to prevent information leakage. |
+| `405` | Request method is not `POST`. |
+| `413` | Payload exceeds the configured maximum size (default: 8 MiB). |
+| `429` | Rate limit exceeded. The receiver uses a token bucket (default: 60 tokens, 10/sec refill). |
+
+Error responses (except `401`) carry a `application/problem+json` body:
+
+```json
+{
+  "status": 413,
+  "title": "Payload Too Large",
+  "detail": "payload too large"
+}
+```
+
+### Authentication methods
+
+The receiver supports two authentication methods, configured per instance:
+
+**Bearer token** (`method: "bearer"`): The client sends `Authorization: Bearer <token>`. The receiver compares the token against the configured secret using a timing-safe comparison (SHA-256 hash of both sides followed by constant-time byte comparison) to prevent length-based side-channel attacks.
+
+**HMAC-SHA256** (`method: "hmac"`): The client computes `HMAC-SHA256(secret, "<timestamp>.<body>")` and sends it as `X-Webhook-Signature: sha256=<hex>`. The timestamp in `X-Webhook-Timestamp` binds the signature to a time window, preventing replay attacks beyond the configured expiry (default: 5 minutes). The receiver uses `hmac.Equal` (Go) or `timingSafeEqual` (TS) for constant-time comparison.
+
+### Size limits
+
+| Limit | Default | Description |
+| --- | --- | --- |
+| Maximum payload size | 8 MiB | Total request body size. Enforced at the wire level (streaming read with abort). |
+| Maximum document size | 10 MiB | Individual document content size after decoding. |
+| Maximum document count | 50 | Number of documents per request. |
+
+### Idempotency
+
+When `X-Idempotency-Key` is present and idempotency is enabled, the receiver caches the response for 24 hours. Subsequent requests with the same key return the cached response without re-processing. The in-memory idempotency store is bounded to 100,000 entries; when full, the oldest entry (by expiry time) is evicted. A background sweep removes expired entries every hour.
+
+### Rate limiting
+
+The receiver enforces a global token bucket rate limiter. Default configuration: 60 tokens maximum, refilling at 10 tokens per second. When the bucket is empty, requests receive `429 Too Many Requests`.

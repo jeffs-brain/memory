@@ -5,8 +5,6 @@ package knowledge
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
 	"io"
 	"net/http"
@@ -22,6 +20,7 @@ import (
 	pdfreader "github.com/ledongthuc/pdf"
 
 	"github.com/jeffs-brain/memory/go/brain"
+	"github.com/jeffs-brain/memory/go/ingest"
 )
 
 // Content-type constants for the supported raw formats. Used by the
@@ -79,7 +78,7 @@ func (defaultFetcher) Fetch(ctx context.Context, rawURL string) ([]byte, string,
 	if err != nil {
 		return nil, "", fmt.Errorf("knowledge: fetching %s: %w", rawURL, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return nil, "", fmt.Errorf("knowledge: fetch %s: HTTP %d", rawURL, resp.StatusCode)
 	}
@@ -114,7 +113,8 @@ func (k *kbase) Ingest(ctx context.Context, req IngestRequest) (IngestResponse, 
 	}
 
 	// Compile inline so the index reflects the ingest immediately.
-	chunks, err := k.chunkAndIndex(ctx, doc)
+	// Uses zero-valued ChunkConfig which triggers spec defaults.
+	chunks, err := k.chunkAndIndex(ctx, doc, ingest.ChunkConfig{})
 	if err != nil {
 		return IngestResponse{}, err
 	}
@@ -466,11 +466,11 @@ func deriveTitle(body, fallback string) string {
 	return base
 }
 
-// hashSlug is a deterministic fallback slug built from a SHA-256 sum
+// hashSlug is a deterministic fallback slug built from a BLAKE3 sum
 // truncated to 12 hex characters. Used when slugify collapses to empty.
+// Delegates to ingest.HashSlug for the BLAKE3 implementation.
 func hashSlug(data []byte) string {
-	sum := sha256.Sum256(data)
-	return hex.EncodeToString(sum[:])[:12]
+	return ingest.HashSlug(data)
 }
 
 // slugify mirrors jeff's helper: lowercase, hyphen-separated, capped at

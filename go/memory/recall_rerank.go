@@ -86,7 +86,7 @@ type rankedRecallHit struct {
 	baseScore       float64
 	originalScore   float64
 	timestamp       time.Time
-	hasTimestamp     bool
+	hasTimestamp    bool
 	recencyScore    float64
 	dateBucket      string
 	signatureTokens []string
@@ -341,7 +341,7 @@ func analyseHit(
 		baseScore:       baseScore,
 		originalScore:   score,
 		timestamp:       ts,
-		hasTimestamp:     hasTS,
+		hasTimestamp:    hasTS,
 		recencyScore:    recencyScore,
 		dateBucket:      bucket,
 		signatureTokens: sigTokens,

@@ -40,11 +40,11 @@ func goldenFixtureDir(t *testing.T) string {
 }
 
 type goldenQuery struct {
-	ID          string   `yaml:"id"`
-	Q           string   `yaml:"q"`
-	AnyOf       []string `yaml:"any_of"`
+	ID           string   `yaml:"id"`
+	Q            string   `yaml:"q"`
+	AnyOf        []string `yaml:"any_of"`
 	MustRetrieve []string `yaml:"must_retrieve"`
-	Notes       string   `yaml:"notes"`
+	Notes        string   `yaml:"notes"`
 }
 
 type goldenSet struct {

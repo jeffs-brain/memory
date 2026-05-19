@@ -87,13 +87,13 @@ type ollamaOptions struct {
 }
 
 type ollamaChatResponse struct {
-	Model         string        `json:"model"`
-	Message       ollamaMessage `json:"message"`
-	Done          bool          `json:"done"`
-	DoneReason    string        `json:"done_reason"`
-	PromptEval    int           `json:"prompt_eval_count"`
-	EvalCount     int           `json:"eval_count"`
-	Error         string        `json:"error,omitempty"`
+	Model      string        `json:"model"`
+	Message    ollamaMessage `json:"message"`
+	Done       bool          `json:"done"`
+	DoneReason string        `json:"done_reason"`
+	PromptEval int           `json:"prompt_eval_count"`
+	EvalCount  int           `json:"eval_count"`
+	Error      string        `json:"error,omitempty"`
 }
 
 func (p *ollamaProvider) Complete(ctx context.Context, req CompleteRequest) (CompleteResponse, error) {
@@ -116,7 +116,7 @@ func (p *ollamaProvider) Complete(ctx context.Context, req CompleteRequest) (Com
 	if err != nil {
 		return CompleteResponse{}, fmt.Errorf("llm: ollama request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	raw, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return CompleteResponse{}, err
@@ -161,12 +161,12 @@ func (p *ollamaProvider) CompleteStream(ctx context.Context, req CompleteRequest
 	}
 	if resp.StatusCode >= 400 {
 		raw, _ := io.ReadAll(resp.Body)
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		return nil, fmt.Errorf("llm: ollama %d: %s", resp.StatusCode, strings.TrimSpace(string(raw)))
 	}
 	out := make(chan StreamChunk, 16)
 	go func() {
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 		defer close(out)
 		scanner := bufio.NewScanner(resp.Body)
 		scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
@@ -271,7 +271,7 @@ func (e *ollamaEmbedder) Embed(ctx context.Context, texts []string) ([][]float32
 	if err != nil {
 		return nil, fmt.Errorf("llm: ollama embed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	raw, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, err

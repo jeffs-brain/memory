@@ -16,7 +16,7 @@ func versionCmd() *cobra.Command {
 		Use:   "version",
 		Short: "Print the SDK version",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			fmt.Fprintln(cmd.OutOrStdout(), version)
+			_, _ = fmt.Fprintln(cmd.OutOrStdout(), version)
 			return nil
 		},
 	}

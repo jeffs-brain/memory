@@ -15,6 +15,29 @@ export {
 } from './chunker.js'
 
 export {
+  hashChunk,
+  hashDocument,
+  hashDocumentId,
+  hashSlug,
+  hashString,
+  blake3Hasher,
+  type Hasher,
+} from './hash.js'
+
+export {
+  DEFAULT_CHUNK_CONFIG,
+  DEFAULT_MAX_TOKENS,
+  DEFAULT_MIN_TOKENS,
+  DEFAULT_OVERLAP_TOKENS,
+  DEFAULT_SEPARATORS,
+  DEFAULT_STRATEGY,
+  estimateTokens,
+  validateChunkConfig,
+  type ChunkConfig,
+  type Strategy,
+} from './chunk-config.js'
+
+export {
   ingestDocument,
   type IngestPipelineDeps,
   type IngestPipelineInput,
@@ -23,7 +46,54 @@ export {
   type IngestProgressStage,
 } from './pipeline.js'
 
+export {
+  createPipelineStateMachine,
+  isValidTransition,
+  migrateFromV1,
+  STAGE_ORDER,
+  type PipelineStage,
+  type PipelineStateEntry,
+  type PipelineStateStore,
+  type PipelineStateMachineConfig,
+  type TransitionCallback,
+  type V1PipelineStateEntry,
+} from './state-machine.js'
+
+export {
+  buildChunkManifest,
+  computeChunkDeltas,
+  hashChunk as hashChunkText,
+  readChunkManifest,
+  writeChunkManifest,
+  type ChunkDelta,
+  type ChunkManifest,
+  type ChunkManifestEntry,
+  type DeltaCategory,
+} from './delta.js'
+
+export {
+  ChunkConfigError,
+  createChunkConfig,
+  defaultChunkConfig,
+} from './chunk-config.js'
+
+export {
+  createChunkerRegistry,
+  type Chunk as RegistryChunk,
+  type Chunker,
+  type ChunkerDescriptor,
+  type ChunkerRegistry,
+} from './chunker-registry.js'
+
+export { codeChunker } from './chunkers/code.js'
+export { markdownChunker } from './chunkers/markdown.js'
+export { pageLevelChunker } from './chunkers/page-level.js'
+export { recursiveChunker } from './chunkers/recursive.js'
+export { tabularChunker } from './chunkers/tabular.js'
+
 export * from './sources/index.js'
+
+export * from './hooks/index.js'
 
 export {
   createSafetyScanner,
@@ -35,3 +105,111 @@ export {
   type SafetyMetadata,
   type IsolatedContent,
 } from './safety.js'
+
+export {
+  FilePipelineStateStore,
+  type FilePipelineStateStoreOptions,
+  type PipelineStage as FilePipelineStage,
+  type PipelineStateEntry as FilePipelineStateEntry,
+  type PipelineStateStore as FilePipelineStateStore_Contract,
+} from './state-store.js'
+
+export {
+  PostgresPipelineStateStore,
+  type PostgresPipelineStateStoreOptions,
+  type PgSql as PipelineStatePgSql,
+} from './state-store-pg.js'
+
+export * from './trigger/index.js'
+
+export {
+  extractAfterIngest,
+  type ExtractAfterIngestOptions,
+  type ExtractAfterIngestResult,
+} from './extract-after-ingest.js'
+
+export {
+  enumerateFiles,
+  type EnumerateOptions,
+  type EnumeratedFile,
+  type EnumerateResult,
+} from './directory.js'
+
+export {
+  createFileMigrationStateBackend,
+  type MigrationState,
+  type MigrationStateBackend,
+} from './migrate-hash.js'
+
+export * from './queue/index.js'
+
+export {
+  createInMemoryDeadLetterAdapter,
+  DeadLetterNotFoundError,
+  DeadLetterAlreadyResolvedError,
+  DEFAULT_MAX_ATTEMPTS,
+  DEFAULT_RETENTION_DAYS,
+  type DeadLetterAdapter,
+  type DeadLetterEntry,
+  type DeadLetterListOptions,
+  type DeadLetterListResult,
+  type JobPayload as DeadLetterJobPayload,
+  type PurgeOptions as DeadLetterPurgeOptions,
+  type ReEnqueueFn as DeadLetterReEnqueueFn,
+} from './dead-letter.js'
+
+export {
+  bufferStream,
+  createCSVExtractor,
+  createJSONExtractor,
+  createJSONLExtractor,
+  createXMLExtractor,
+  type Extractor,
+  type ExtractOptions,
+  type ExtractResult,
+  type ExtractorCapability,
+  type MagicSignature,
+} from './extractor.js'
+
+export { detectEncoding } from './encoding.js'
+
+export {
+  createImageExtractor,
+  parsePaddleOCROutput,
+  type ImageExtractorConfig,
+} from './image.js'
+
+export {
+  createPDFExtractor,
+  isSubstantialText,
+  type PDFExtractorConfig,
+} from './pdf.js'
+
+export {
+  runSubprocess,
+  checkBinaryAvailable,
+  resetBinaryCache,
+  type SubprocessResult,
+  type SubprocessOptions,
+} from './subprocess.js'
+
+export {
+  createAudioExtractor,
+  formatTranscription,
+  type AudioExtractorConfig,
+  type TranscriptionSegment,
+  type TranscriptionWord,
+} from './audio.js'
+
+export {
+  extractCSV,
+  extractJSON as extractStructuredJSON,
+  extractJSONL,
+  type CsvExtractorConfig,
+  type JsonExtractorConfig,
+  type ExtractResult as StructuredExtractResult,
+} from './structured.js'
+
+export { extractXML, type XmlExtractorConfig } from './xml.js'
+
+export * from './extract/index.js'

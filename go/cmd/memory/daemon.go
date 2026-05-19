@@ -13,6 +13,8 @@ import (
 	"sync"
 
 	"github.com/jeffs-brain/memory/go/brain"
+	"github.com/jeffs-brain/memory/go/ingest"
+	"github.com/jeffs-brain/memory/go/ingest/trigger"
 	"github.com/jeffs-brain/memory/go/knowledge"
 	"github.com/jeffs-brain/memory/go/llm"
 	"github.com/jeffs-brain/memory/go/memory"
@@ -136,6 +138,7 @@ type BrainResources struct {
 	Retriever retrieval.Retriever
 	Memory    *memory.Memory
 	Knowledge knowledge.Base
+	EventBus  trigger.Bus
 
 	// initialScan resolves once the first full index scan completes.
 	// Handlers that care about pre-seeded disk content (e.g. /search,
@@ -167,6 +170,11 @@ func (br *BrainResources) Close() error {
 		return nil
 	}
 	var firstErr error
+	if br.EventBus != nil {
+		if err := br.EventBus.Close(); err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
 	if br.Knowledge != nil {
 		if err := br.Knowledge.Close(); err != nil && firstErr == nil {
 			firstErr = err
@@ -367,6 +375,25 @@ func (bm *BrainManager) build(ctx context.Context, brainID string) (*BrainResour
 	}
 	_ = src
 
+	// Create the event bus and wire a default subscriber that persists
+	// each trigger event to the pipeline state store for crash recovery.
+	bus := trigger.NewBus(&trigger.BusOptions{
+		Logger: &slogTriggerLogger{log: bm.d.Logger},
+	})
+	stateStore := ingest.NewFilePipelineStateStore(store)
+	bus.Subscribe(func(event trigger.IngestTriggerEvent) error {
+		now := event.Timestamp
+		entry := ingest.PipelineStateEntry{
+			DocumentHash: event.ID,
+			BrainID:      event.BrainID,
+			Stage:        ingest.StageReceived,
+			CreatedAt:    now,
+			UpdatedAt:    now,
+		}
+		return stateStore.Set(context.Background(), entry)
+	})
+	_ = stateStore
+
 	return &BrainResources{
 		ID:          brainID,
 		Root:        root,
@@ -376,6 +403,7 @@ func (bm *BrainManager) build(ctx context.Context, brainID string) (*BrainResour
 		Retriever:   retr,
 		Memory:      mem,
 		Knowledge:   kbase,
+		EventBus:    bus,
 		initialScan: initialScan,
 	}, nil
 }
@@ -513,6 +541,38 @@ func buildLLMReranker(d *Daemon, log *slog.Logger) retrieval.Reranker {
 	}
 	model := strings.TrimSpace(os.Getenv("JB_RERANK_MODEL"))
 	return retrieval.NewLLMReranker(d.LLM, model)
+}
+
+// slogTriggerLogger adapts *slog.Logger to the trigger.Logger interface.
+type slogTriggerLogger struct {
+	log *slog.Logger
+}
+
+func (l *slogTriggerLogger) Debug(msg string, ctx ...map[string]string) {
+	l.log.Debug(msg, slogAttrs(ctx)...)
+}
+
+func (l *slogTriggerLogger) Info(msg string, ctx ...map[string]string) {
+	l.log.Info(msg, slogAttrs(ctx)...)
+}
+
+func (l *slogTriggerLogger) Warn(msg string, ctx ...map[string]string) {
+	l.log.Warn(msg, slogAttrs(ctx)...)
+}
+
+func (l *slogTriggerLogger) Error(msg string, ctx ...map[string]string) {
+	l.log.Error(msg, slogAttrs(ctx)...)
+}
+
+func slogAttrs(ctx []map[string]string) []any {
+	if len(ctx) == 0 {
+		return nil
+	}
+	attrs := make([]any, 0, len(ctx[0])*2)
+	for k, v := range ctx[0] {
+		attrs = append(attrs, k, v)
+	}
+	return attrs
 }
 
 func buildHTTPReranker(log *slog.Logger) retrieval.Reranker {

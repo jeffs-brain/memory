@@ -4,6 +4,8 @@ import { askTool } from './ask.js'
 import { consolidateTool } from './consolidate.js'
 import { createBrainTool } from './create-brain.js'
 import { extractTool } from './extract.js'
+import { ingestBatchTool } from './ingest-batch.js'
+import { ingestDirectoryTool } from './ingest-directory.js'
 import { ingestFileTool } from './ingest-file.js'
 import { ingestUrlTool } from './ingest-url.js'
 import { listBrainsTool } from './list-brains.js'
@@ -18,6 +20,8 @@ export const tools: readonly Tool[] = [
   recallTool,
   searchTool,
   askTool,
+  ingestBatchTool,
+  ingestDirectoryTool,
   ingestFileTool,
   ingestUrlTool,
   extractTool,

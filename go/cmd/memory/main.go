@@ -56,7 +56,7 @@ func stubCmd(use, short string) *cobra.Command {
 		Short:  short,
 		Hidden: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			fmt.Fprintf(cmd.OutOrStdout(), "%s: not yet implemented\n", use)
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s: not yet implemented\n", use)
 			return nil
 		},
 	}

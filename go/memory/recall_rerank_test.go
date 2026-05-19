@@ -231,8 +231,8 @@ func TestClassifyQuery_Timeline(t *testing.T) {
 
 func TestJaccardSimilarity(t *testing.T) {
 	tests := []struct {
-		name string
-		left []string
+		name  string
+		left  []string
 		right []string
 		want  float64
 	}{

@@ -659,7 +659,6 @@ func (s *sseSubscriber) waitForEvent(name string, timeout time.Duration) (string
 	for {
 		for i := cursor; i < len(s.events); i++ {
 			if s.events[i].Event == name {
-				cursor = i + 1
 				return s.events[i].Data, true
 			}
 		}

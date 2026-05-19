@@ -6,7 +6,21 @@ import { type Tool, jsonContent } from './types.js'
 const schema = z.object({
   url: z.string().url(),
   brain: z.string().optional(),
+  extract: z.boolean().optional().describe('Extract structured facts after ingestion.'),
 })
+
+/**
+ * Shape returned by MemoryClient.ingestUrl(). Both local and hosted
+ * implementations may include `_document_content` which is stripped
+ * before returning to the caller.
+ */
+type IngestUrlResponse = {
+  readonly _document_content?: string
+  readonly [key: string]: unknown
+}
+
+const isIngestUrlResponse = (value: unknown): value is IngestUrlResponse =>
+  typeof value === 'object' && value !== null
 
 export const ingestUrlTool: Tool<typeof schema> = {
   name: 'memory_ingest_url',
@@ -14,7 +28,42 @@ export const ingestUrlTool: Tool<typeof schema> = {
     'Fetch a URL and ingest its contents into the brain. Uses the server-side /ingest/url endpoint when available; otherwise fetches locally and creates a document.',
   inputSchema: schema,
   async handler(args, client, ctx) {
-    const result = await client.ingestUrl(args, ctx?.progress)
-    return jsonContent(result)
+    const raw = await client.ingestUrl(
+      { url: args.url, brain: args.brain },
+      ctx?.progress,
+    )
+
+    if (!isIngestUrlResponse(raw)) {
+      return jsonContent(raw)
+    }
+
+    const ingestResult = raw
+
+    if (args.extract !== true) {
+      // Strip internal field before returning to caller.
+      const { _document_content: _, ...cleanResult } = ingestResult
+      return jsonContent(cleanResult)
+    }
+
+    // Read document content from the ingest result (populated by the
+    // local client from the fetched buffer). No URL re-fetch needed.
+    const content = typeof ingestResult._document_content === 'string'
+      ? ingestResult._document_content
+      : ''
+    const { _document_content: _, ...cleanResult } = ingestResult
+
+    let extraction = { factsExtracted: 0, memories: [] as readonly { filename: string; content: string }[] }
+    if (content.length > 0) {
+      extraction = await client.extractAfterIngest({
+        content,
+        documentSource: args.url,
+        brain: args.brain,
+      })
+    }
+
+    return jsonContent({
+      ingest: cleanResult,
+      extraction,
+    })
   },
 }

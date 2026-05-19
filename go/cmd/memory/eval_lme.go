@@ -234,7 +234,7 @@ func evalLmeRunCmd() *cobra.Command {
 					if cfg.Contextualiser == nil {
 						return fmt.Errorf("build contextualiser: provider unavailable")
 					}
-					fmt.Fprintf(cmd.ErrOrStderr(), "memory contextualiser enabled (model=%s)\n", cfg.Contextualiser.ModelName())
+					_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "memory contextualiser enabled (model=%s)\n", cfg.Contextualiser.ModelName())
 				}
 			}
 
@@ -256,7 +256,7 @@ func evalLmeRunCmd() *cobra.Command {
 			}
 
 			if cfg.MaxCostUSD > 0 && result.CostAccounting.TotalUSD > cfg.MaxCostUSD {
-				fmt.Fprintf(cmd.ErrOrStderr(), "warning: run cost $%.2f exceeded cap $%.2f\n",
+				_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "warning: run cost $%.2f exceeded cap $%.2f\n",
 					result.CostAccounting.TotalUSD, cfg.MaxCostUSD)
 			}
 
@@ -271,12 +271,12 @@ func evalLmeRunCmd() *cobra.Command {
 				}
 				if slackWebhook != "" {
 					if err := lme.SlackReport(ctx, slackWebhook, result, &manifest); err != nil {
-						fmt.Fprintf(cmd.ErrOrStderr(), "slack report: %v\n", err)
+						_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "slack report: %v\n", err)
 					}
 				}
 			} else if slackWebhook != "" {
 				if err := lme.SlackReport(ctx, slackWebhook, result, nil); err != nil {
-					fmt.Fprintf(cmd.ErrOrStderr(), "slack report: %v\n", err)
+					_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "slack report: %v\n", err)
 				}
 			}
 
@@ -405,13 +405,13 @@ func writeResult(stdout io.Writer, outputPath string, result *lme.LMEResult) err
 }
 
 func printSummary(w io.Writer, result *lme.LMEResult) {
-	fmt.Fprintf(w, "\nLME summary:\n")
-	fmt.Fprintf(w, "  Questions run:   %d\n", result.QuestionsRun)
-	fmt.Fprintf(w, "  Overall score:   %.3f\n", result.OverallScore)
-	fmt.Fprintf(w, "  Task-avg score:  %.3f\n", result.TaskAvgScore)
-	fmt.Fprintf(w, "  Exact-match:     %.3f\n", result.ExactMatchScore)
-	fmt.Fprintf(w, "  Latency p50/p95: %dms / %dms\n", result.LatencyP50Ms, result.LatencyP95Ms)
-	fmt.Fprintf(w, "  Cost USD total:  $%.4f (ingest $%.4f / agent $%.4f / judge $%.4f)\n",
+	_, _ = fmt.Fprintf(w, "\nLME summary:\n")
+	_, _ = fmt.Fprintf(w, "  Questions run:   %d\n", result.QuestionsRun)
+	_, _ = fmt.Fprintf(w, "  Overall score:   %.3f\n", result.OverallScore)
+	_, _ = fmt.Fprintf(w, "  Task-avg score:  %.3f\n", result.TaskAvgScore)
+	_, _ = fmt.Fprintf(w, "  Exact-match:     %.3f\n", result.ExactMatchScore)
+	_, _ = fmt.Fprintf(w, "  Latency p50/p95: %dms / %dms\n", result.LatencyP50Ms, result.LatencyP95Ms)
+	_, _ = fmt.Fprintf(w, "  Cost USD total:  $%.4f (ingest $%.4f / agent $%.4f / judge $%.4f)\n",
 		result.CostAccounting.TotalUSD,
 		result.CostAccounting.IngestUSD,
 		result.CostAccounting.AgentUSD,

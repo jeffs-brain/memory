@@ -42,9 +42,15 @@ export {
 export * from './knowledge/index.js'
 export * from './memory/index.js'
 export * from './ingest/index.js'
+export * from './connector/index.js'
 
 // Access-control primitives (RBAC, OpenFGA adapter, Store wrapper).
 export * from './acl/index.js'
+
+// Connector framework (OAuth2, SecureTokenStore, registry, pagination,
+// rate limiting, sync state, webhook). Consumers can also import directly from
+// '@jeffs-brain/memory/connector'.
+export * as connector from './connector/index.js'
 
 export {
   createHttpSearchIndex,
@@ -52,3 +58,6 @@ export {
   type HttpSearchIndexOptions,
   type HttpSearchResult,
 } from './search/http.js'
+
+// Connector framework and concrete connectors.
+export * from './connector/index.js'
