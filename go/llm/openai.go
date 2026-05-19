@@ -206,7 +206,7 @@ func (p *openAIProvider) Complete(ctx context.Context, req CompleteRequest) (Com
 	if err != nil {
 		return CompleteResponse{}, fmt.Errorf("llm: openai request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	raw, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return CompleteResponse{}, err
@@ -265,12 +265,12 @@ func (p *openAIProvider) CompleteStream(ctx context.Context, req CompleteRequest
 	}
 	if resp.StatusCode >= 400 {
 		raw, _ := io.ReadAll(resp.Body)
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		return nil, openAIParseError(resp.StatusCode, raw)
 	}
 	out := make(chan StreamChunk, 16)
 	go func() {
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 		defer close(out)
 		scanner := bufio.NewScanner(resp.Body)
 		scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
@@ -471,7 +471,7 @@ func (e *openAIEmbedder) Embed(ctx context.Context, texts []string) ([][]float32
 	if err != nil {
 		return nil, fmt.Errorf("llm: openai embed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	raw, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, err

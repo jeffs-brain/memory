@@ -106,7 +106,7 @@ func (s *SQLiteStore) List(ctx context.Context, brainID string) ([]Job, error) {
 	if err != nil {
 		return nil, fmt.Errorf("schedule: list: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var jobs []Job
 	for rows.Next() {
@@ -189,7 +189,7 @@ func (s *SQLiteStore) FindDue(ctx context.Context, now time.Time) ([]Job, error)
 	if err != nil {
 		return nil, fmt.Errorf("schedule: findDue: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var jobs []Job
 	for rows.Next() {

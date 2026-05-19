@@ -53,7 +53,7 @@ func (idx *Index) SetChunkMetadata(ctx context.Context, chunkID string, meta map
 		_ = tx.Rollback()
 		return fmt.Errorf("search: preparing metadata upsert: %w", err)
 	}
-	defer stmt.Close()
+	defer func() { _ = stmt.Close() }()
 
 	for k, v := range meta {
 		if k == "" {
@@ -87,7 +87,7 @@ func (idx *Index) GetChunkMetadata(ctx context.Context, chunkID string) (map[str
 	if err != nil {
 		return nil, fmt.Errorf("search: querying metadata for chunk %s: %w", chunkID, err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	out := make(map[string]string)
 	for rows.Next() {
@@ -124,7 +124,7 @@ func (idx *Index) QueryByMetadata(ctx context.Context, key, value string, limit 
 	if err != nil {
 		return nil, fmt.Errorf("search: querying metadata by key=%s value=%s: %w", key, value, err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	out := make([]string, 0)
 	for rows.Next() {

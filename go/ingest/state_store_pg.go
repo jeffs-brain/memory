@@ -126,7 +126,7 @@ func (s *PostgresPipelineStateStore) ListIncomplete(ctx context.Context, brainID
 	if err != nil {
 		return nil, fmt.Errorf("ingest: pg state list incomplete: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	entries := make([]PipelineStateEntry, 0, listIncompleteInitialCap)
 	for rows.Next() {
