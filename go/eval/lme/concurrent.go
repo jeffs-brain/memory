@@ -102,7 +102,7 @@ func logQuestionProgress(done, total int, start time.Time, retriesBaseline int64
 	eta := "n/a"
 	remaining := total - done
 	if rate > 0 && remaining > 0 {
-		eta = time.Duration(float64(remaining)/rate * float64(time.Second)).Truncate(time.Second).String()
+		eta = time.Duration(float64(remaining) / rate * float64(time.Second)).Truncate(time.Second).String()
 	}
 	status := "ok"
 	if o.Error != "" {

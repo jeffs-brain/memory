@@ -159,4 +159,3 @@ func extractTrailingOverlap(text string, maxChars int) string {
 
 	return strings.TrimSpace(tail)
 }
-

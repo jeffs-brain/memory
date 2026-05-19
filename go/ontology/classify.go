@@ -449,4 +449,3 @@ func DetermineCategory(content string, ontology *ResolvedOntology) string {
 	counts := buildCategoryCounts(content, ontology)
 	return categoryWinner(counts)
 }
-

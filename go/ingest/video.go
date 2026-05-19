@@ -134,9 +134,9 @@ var videoExtensions = []string{
 
 // videoMagicBytes contains magic byte signatures for supported video formats.
 var videoMagicBytes = []MagicSignature{
-	{Offset: 4, Bytes: []byte{0x66, 0x74, 0x79, 0x70}},   // MP4/MOV ftyp
-	{Offset: 0, Bytes: []byte{0x1A, 0x45, 0xDF, 0xA3}},   // MKV/WebM (EBML)
-	{Offset: 0, Bytes: []byte{0x52, 0x49, 0x46, 0x46}},   // RIFF (AVI header)
+	{Offset: 4, Bytes: []byte{0x66, 0x74, 0x79, 0x70}}, // MP4/MOV ftyp
+	{Offset: 0, Bytes: []byte{0x1A, 0x45, 0xDF, 0xA3}}, // MKV/WebM (EBML)
+	{Offset: 0, Bytes: []byte{0x52, 0x49, 0x46, 0x46}}, // RIFF (AVI header)
 }
 
 // VideoExtractor extracts content from video files by separating the
@@ -247,10 +247,10 @@ func (e *VideoExtractor) extractFromReader(ctx context.Context, reader io.Reader
 			ContentType: "text/plain",
 			Metadata: map[string]string{
 				"video_duration_seconds": fmt.Sprintf("%.2f", videoMeta.DurationSeconds),
-				"video_width":           strconv.Itoa(videoMeta.Width),
-				"video_height":          strconv.Itoa(videoMeta.Height),
-				"video_codec":           videoMeta.Codec,
-				"video_has_audio":       "false",
+				"video_width":            strconv.Itoa(videoMeta.Width),
+				"video_height":           strconv.Itoa(videoMeta.Height),
+				"video_codec":            videoMeta.Codec,
+				"video_has_audio":        "false",
 			},
 		}, nil
 	}

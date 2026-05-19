@@ -19,10 +19,10 @@ const (
 	episodeTemperature = 0.2
 	episodeMinMessages = 8
 
-	episodesPrefix   = "episodes"
-	defaultListLimit = 50
+	episodesPrefix    = "episodes"
+	defaultListLimit  = 50
 	defaultQueryLimit = 20
-	maxLimit         = 200
+	maxLimit          = 200
 )
 
 // EpisodeOutcome enumerates the possible episode result states.
@@ -398,7 +398,7 @@ func (r *EpisodeRecorder) MaybeRecord(
 		Summary:             result.Summary,
 		Outcome:             normaliseOutcome(result.Outcome),
 		ShouldRecordEpisode: true,
-		OpenQuestions:        []string{},
+		OpenQuestions:       []string{},
 		Heuristics:          heuristicsFromStrings(result.Heuristics),
 		Tags:                result.Tags,
 		Signals:             detectSignals(messages),

@@ -31,8 +31,8 @@ const (
 // circuitStateNames maps states to human-readable labels for logging
 // and metrics.
 var circuitStateNames = map[CircuitState]string{
-	CircuitClosed:  "closed",
-	CircuitOpen:    "open",
+	CircuitClosed:   "closed",
+	CircuitOpen:     "open",
 	CircuitHalfOpen: "half_open",
 }
 
@@ -86,13 +86,13 @@ type CircuitBreakerOptions struct {
 // CircuitBreakerMetrics is a point-in-time snapshot of circuit breaker
 // state for monitoring.
 type CircuitBreakerMetrics struct {
-	State              CircuitState
+	State               CircuitState
 	ConsecutiveFailures int
-	TotalSuccesses     int64
-	TotalFailures      int64
-	TotalRejected      int64
-	LastFailureAt      time.Time
-	LastSuccessAt      time.Time
+	TotalSuccesses      int64
+	TotalFailures       int64
+	TotalRejected       int64
+	LastFailureAt       time.Time
+	LastSuccessAt       time.Time
 }
 
 // CircuitBreaker implements the Netflix Hystrix circuit breaker

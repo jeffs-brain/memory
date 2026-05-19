@@ -27,13 +27,13 @@ func TestVideoExtractor_ContentTypes(t *testing.T) {
 		t.Fatal("ContentTypes() returned empty slice")
 	}
 	wantTypes := map[string]bool{
-		"video/mp4":          true,
-		"video/x-msvideo":    true,
-		"video/x-matroska":   true,
-		"video/quicktime":    true,
-		"video/webm":         true,
-		"video/x-ms-wmv":     true,
-		"video/x-flv":        true,
+		"video/mp4":        true,
+		"video/x-msvideo":  true,
+		"video/x-matroska": true,
+		"video/quicktime":  true,
+		"video/webm":       true,
+		"video/x-ms-wmv":   true,
+		"video/x-flv":      true,
 	}
 	for _, ct := range types {
 		if !wantTypes[ct] {

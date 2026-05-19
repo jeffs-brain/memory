@@ -63,10 +63,10 @@ type HTTPDoer interface {
 // ---------------------------------------------------------------------------
 
 type slackResponse struct {
-	OK               bool             `json:"ok"`
-	Error            string           `json:"error"`
-	Messages         []slackMessage   `json:"messages"`
-	ResponseMetadata slackRespMeta    `json:"response_metadata"`
+	OK               bool           `json:"ok"`
+	Error            string         `json:"error"`
+	Messages         []slackMessage `json:"messages"`
+	ResponseMetadata slackRespMeta  `json:"response_metadata"`
 }
 
 type slackRespMeta struct {
@@ -637,4 +637,3 @@ func (c *SlackConnector) callSlackAPI(
 
 	return slackResponse{}, fmt.Errorf("slack API: exhausted all %d retry attempts", maxAPIRetries)
 }
-

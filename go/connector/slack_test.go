@@ -564,4 +564,3 @@ func TestStop_Idempotent(t *testing.T) {
 		t.Fatalf("second stop should be idempotent: %v", err)
 	}
 }
-

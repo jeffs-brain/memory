@@ -87,13 +87,13 @@ type ollamaOptions struct {
 }
 
 type ollamaChatResponse struct {
-	Model         string        `json:"model"`
-	Message       ollamaMessage `json:"message"`
-	Done          bool          `json:"done"`
-	DoneReason    string        `json:"done_reason"`
-	PromptEval    int           `json:"prompt_eval_count"`
-	EvalCount     int           `json:"eval_count"`
-	Error         string        `json:"error,omitempty"`
+	Model      string        `json:"model"`
+	Message    ollamaMessage `json:"message"`
+	Done       bool          `json:"done"`
+	DoneReason string        `json:"done_reason"`
+	PromptEval int           `json:"prompt_eval_count"`
+	EvalCount  int           `json:"eval_count"`
+	Error      string        `json:"error,omitempty"`
 }
 
 func (p *ollamaProvider) Complete(ctx context.Context, req CompleteRequest) (CompleteResponse, error) {

@@ -86,9 +86,9 @@ type AudioExtractorConfig struct {
 
 // TranscriptionSegment represents a single timed segment of transcription.
 type TranscriptionSegment struct {
-	Start float64            `json:"start"`
-	End   float64            `json:"end"`
-	Text  string             `json:"text"`
+	Start float64             `json:"start"`
+	End   float64             `json:"end"`
+	Text  string              `json:"text"`
 	Words []TranscriptionWord `json:"words,omitempty"`
 }
 
@@ -147,14 +147,14 @@ var audioExtensions = []string{
 
 // audioMagicSignatures contains magic byte patterns for audio format detection.
 var audioMagicSignatures = []MagicSignature{
-	{Offset: 0, Bytes: []byte{0x52, 0x49, 0x46, 0x46}},  // WAV (RIFF)
-	{Offset: 8, Bytes: []byte{0x57, 0x41, 0x56, 0x45}},   // WAV (WAVE marker)
-	{Offset: 0, Bytes: []byte{0x66, 0x4C, 0x61, 0x43}},   // FLAC
-	{Offset: 0, Bytes: []byte{0x4F, 0x67, 0x67, 0x53}},   // OGG
-	{Offset: 0, Bytes: []byte{0x49, 0x44, 0x33}},          // MP3 ID3
-	{Offset: 0, Bytes: []byte{0xFF, 0xFB}},                // MP3 sync
-	{Offset: 0, Bytes: []byte{0xFF, 0xF3}},                // MP3 sync
-	{Offset: 0, Bytes: []byte{0xFF, 0xF2}},                // MP3 sync
+	{Offset: 0, Bytes: []byte{0x52, 0x49, 0x46, 0x46}}, // WAV (RIFF)
+	{Offset: 8, Bytes: []byte{0x57, 0x41, 0x56, 0x45}}, // WAV (WAVE marker)
+	{Offset: 0, Bytes: []byte{0x66, 0x4C, 0x61, 0x43}}, // FLAC
+	{Offset: 0, Bytes: []byte{0x4F, 0x67, 0x67, 0x53}}, // OGG
+	{Offset: 0, Bytes: []byte{0x49, 0x44, 0x33}},       // MP3 ID3
+	{Offset: 0, Bytes: []byte{0xFF, 0xFB}},             // MP3 sync
+	{Offset: 0, Bytes: []byte{0xFF, 0xF3}},             // MP3 sync
+	{Offset: 0, Bytes: []byte{0xFF, 0xF2}},             // MP3 sync
 }
 
 // NewAudioExtractor creates a new AudioExtractor with the given config.

@@ -380,9 +380,9 @@ func TestCircuitBreaker_ConcurrentSafety(t *testing.T) {
 
 func TestCircuitBreaker_StateString(t *testing.T) {
 	tests := map[CircuitState]string{
-		CircuitClosed:   "closed",
-		CircuitOpen:     "open",
-		CircuitHalfOpen: "half_open",
+		CircuitClosed:    "closed",
+		CircuitOpen:      "open",
+		CircuitHalfOpen:  "half_open",
 		CircuitState(99): "unknown(99)",
 	}
 	for state, want := range tests {

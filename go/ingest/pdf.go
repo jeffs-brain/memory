@@ -41,10 +41,10 @@ type PDFExtractorConfig struct {
 }
 
 const (
-	defaultMaxPDFPages    = 100
-	defaultPDFTimeout     = 120 * time.Second
-	pdfContentType        = "application/pdf"
-	scannedTextThreshold  = 50 // characters below which a PDF page is considered scanned
+	defaultMaxPDFPages   = 100
+	defaultPDFTimeout    = 120 * time.Second
+	pdfContentType       = "application/pdf"
+	scannedTextThreshold = 50 // characters below which a PDF page is considered scanned
 )
 
 func (c *PDFExtractorConfig) applyDefaults() {

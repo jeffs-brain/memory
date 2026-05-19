@@ -66,15 +66,15 @@ const (
 
 // Google MIME types for native document formats.
 const (
-	mimeGoogleDoc          = "application/vnd.google-apps.document"
-	mimeGoogleSheet        = "application/vnd.google-apps.spreadsheet"
-	mimeGoogleSlides       = "application/vnd.google-apps.presentation"
-	mimeGoogleDrawing      = "application/vnd.google-apps.drawing"
-	mimeGoogleFolder     = "application/vnd.google-apps.folder"
-	mimeTextMarkdown     = "text/markdown"
-	mimeTextPlain        = "text/plain"
-	mimeTextCSV          = "text/csv"
-	mimeImagePNG         = "image/png"
+	mimeGoogleDoc     = "application/vnd.google-apps.document"
+	mimeGoogleSheet   = "application/vnd.google-apps.spreadsheet"
+	mimeGoogleSlides  = "application/vnd.google-apps.presentation"
+	mimeGoogleDrawing = "application/vnd.google-apps.drawing"
+	mimeGoogleFolder  = "application/vnd.google-apps.folder"
+	mimeTextMarkdown  = "text/markdown"
+	mimeTextPlain     = "text/plain"
+	mimeTextCSV       = "text/csv"
+	mimeImagePNG      = "image/png"
 )
 
 // defaultExportFormats maps Google-native MIME types to the export format
@@ -856,4 +856,3 @@ func (c *GDriveConnector) handleRateLimitError(body []byte, statusCode int) erro
 
 	return fmt.Errorf("gdrive: API error (status %d): %s", statusCode, apiErr.Error.Message)
 }
-

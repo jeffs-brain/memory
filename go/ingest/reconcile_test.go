@@ -354,4 +354,3 @@ func TestNewReconciler_requires_index(t *testing.T) {
 		t.Fatalf("expected error when Index is nil")
 	}
 }
-

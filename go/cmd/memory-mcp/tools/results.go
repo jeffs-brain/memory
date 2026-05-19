@@ -92,9 +92,9 @@ type IngestResult struct {
 
 // IngestURLResult is the typed response from memory_ingest_url.
 type IngestURLResult struct {
-	Path             string       `json:"path"`
-	Result           IngestResult `json:"result"`
-	DocumentContent  string       `json:"-"` // Internal field, excluded from JSON.
+	Path            string       `json:"path"`
+	Result          IngestResult `json:"result"`
+	DocumentContent string       `json:"-"` // Internal field, excluded from JSON.
 }
 
 // ExtractedMessage is a single extracted memory in an extract result.
@@ -143,10 +143,10 @@ type ExtractAfterIngestResult struct {
 
 // ReflectionDetail holds the reflection outcome from memory_reflect.
 type ReflectionDetail struct {
-	Outcome              string `json:"outcome"`
-	ShouldRecordEpisode  bool   `json:"should_record_episode"`
-	Path                 string `json:"path"`
-	RetryFeedback        string `json:"retry_feedback"`
+	Outcome             string `json:"outcome"`
+	ShouldRecordEpisode bool   `json:"should_record_episode"`
+	Path                string `json:"path"`
+	RetryFeedback       string `json:"retry_feedback"`
 }
 
 // ReflectResult is the typed response from memory_reflect.

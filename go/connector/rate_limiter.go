@@ -50,13 +50,13 @@ func (c RateLimiterConfig) withDefaults() RateLimiterConfig {
 // backoff and adaptive header-based adjustment. It is safe for
 // concurrent use.
 type RateLimiter struct {
-	mu                sync.Mutex
-	config            RateLimiterConfig
+	mu                 sync.Mutex
+	config             RateLimiterConfig
 	originalRefillRate float64
-	tokens            float64
-	lastTick          time.Time
-	stopCh            chan struct{}
-	stopped           bool
+	tokens             float64
+	lastTick           time.Time
+	stopCh             chan struct{}
+	stopped            bool
 }
 
 // NewRateLimiter creates a new token-bucket rate limiter. The bucket
