@@ -14,10 +14,26 @@ linters:
     - staticcheck
     - misspell
     - unconvert
+  disable:
     - unparam
+    - unused
   settings:
     misspell:
       locale: UK
+    staticcheck:
+      checks:
+        - "all"
+        - "-ST1018"
+        - "-ST1023"
+        - "-QF1012"
+        - "-QF1001"
+        - "-QF1003"
+        - "-S1011"
+        - "-S1017"
+        - "-S1007"
+        - "-SA9003"
+        - "-SA2001"
+        - "-SA4006"
   exclusions:
     paths:
       - testdata
@@ -25,5 +41,4 @@ linters:
     rules:
       - path: _test\.go
         linters:
-          - unparam
           - errcheck

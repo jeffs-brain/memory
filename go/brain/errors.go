@@ -32,7 +32,7 @@ var (
 
 	// ErrUnauthorized maps to HTTP 401. The caller supplied no credentials
 	// or an unparseable Authorization header.
-	ErrUnauthorized = errors.New("brain: unauthorized")
+	ErrUnauthorized = errors.New("brain: unauthorised")
 
 	// ErrForbidden maps to HTTP 403. The authenticated principal lacks the
 	// scope or RBAC right for the requested operation.
