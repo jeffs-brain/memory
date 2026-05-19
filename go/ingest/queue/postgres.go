@@ -309,7 +309,7 @@ func (q *PostgresQueue) Claim(ctx context.Context, opts ClaimOptions) ([]Job, er
 	if err != nil {
 		return nil, fmt.Errorf("ingest: claim query failed: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	jobs, err := scanJobs(rows)
 	if err != nil {
@@ -628,7 +628,7 @@ func (q *PostgresQueue) CountByStatus(ctx context.Context, brainID string) (map[
 	if err != nil {
 		return nil, fmt.Errorf("ingest: count by status failed: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	counts := make(map[JobStatus]int)
 	for rows.Next() {
