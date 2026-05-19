@@ -322,7 +322,7 @@ func writeVideoToTempFile(path string, reader io.Reader, maxSize int64) (int64, 
 	if err != nil {
 		return 0, fmt.Errorf("ingest: creating temp video file: %w", err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	limited := io.LimitReader(reader, maxSize+1)
 	n, err := io.Copy(f, limited)
