@@ -136,7 +136,7 @@ func (a *SqliteDeadLetterAdapter) List(ctx context.Context, opts DeadLetterListO
 	if err != nil {
 		return DeadLetterListResult{}, fmt.Errorf("ingest: dead letter list: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	entries := make([]DeadLetterEntry, 0, deadLetterListCap)
 	for rows.Next() {
