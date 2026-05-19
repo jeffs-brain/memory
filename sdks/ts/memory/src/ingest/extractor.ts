@@ -80,6 +80,8 @@ export type ExtractOptions = {
   readonly contentType: string
   readonly fileName?: string
   readonly encoding?: string
+  /** ISO 639-1 language hint for OCR extractors (e.g. "en", "de"). */
+  readonly language?: string
   readonly maxBytes?: number
 }
 
