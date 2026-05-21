@@ -1,6 +1,6 @@
 {
   "name": "@jeffs-brain/memory-postgres",
-  "version": "0.1.0",
+  "version": "0.2.0-rc.1",
   "description": "Postgres and pgvector adapter for @jeffs-brain/memory: tsvector BM25, halfvec cosine, and RRF hybrid retrieval.",
   "license": "Apache-2.0",
   "author": "Alex J <alex@lleverage.ai>",

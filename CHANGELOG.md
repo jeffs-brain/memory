@@ -63,6 +63,26 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   `peerDependencies` so pi-bundled copies are used instead of installed
   duplicates. Required by pi's package-loading model. (TS)
 
+## [0.4.0-rc.1] - 2026-05-21
+
+### Added
+- **P3: Queue Infrastructure** — PostgreSQL ingest queue (FOR UPDATE SKIP LOCKED), worker pool with crash recovery, dead letter queue with error history, shared rate limiter with circuit breaker
+- **P4: Multimodal Extraction** — OCR (PaddleOCR/Tesseract), scanned PDF extraction, audio transcription (faster-whisper), streaming video extraction with keyframe OCR, schema-aware structured data (CSV/JSON/JSONL/XML)
+- **P5: Connector Framework** — OAuth2 + SecureTokenStore (AES-256-GCM), connector registry, Slack/Google Drive/Notion connectors, webhook receiver (HMAC-SHA256)
+- **Ontology** — 10 new edge types (applies_to, contains, assigned_to, implements, created_by, supersedes, derived_from, governs, requires, maps_to), removed rule.combined node type
+- **Rate Limiting** — Token bucket with adaptive header-based throttling, per-tenant factory with TTL eviction, Netflix Hystrix circuit breaker pattern
+- **Pipeline** — State machine with crash recovery, chunk delta computation, BLAKE3 migration, multi-language stemmers, reconciliation
+
+### Changed
+- Ontology: 31 node types → 30 (removed rule.combined), 19 edge types → 29 (+10)
+- memory-postgres migrations renumbered sequentially (0001-0008)
+
+### Fixed
+- All 28 critical + 70 major review findings addressed
+- Advisory lock scope (transaction-scoped unlock)
+- Goroutine leak in rate limiter retry-after
+- Worker pool retry count on per-brain rejection (uses Requeue)
+
 ## [0.3.0] - 2026-05-12
 
 ### Added
@@ -142,7 +162,8 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 - Go and Python SDKs are in the pipeline. See `go/` and `sdks/py/` README files.
 - Platform integration (multi-tenant backend) is private and unpublished.
 
-[Unreleased]: https://github.com/jeffs-brain/memory/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/jeffs-brain/memory/compare/v0.4.0-rc.1...HEAD
+[0.4.0-rc.1]: https://github.com/jeffs-brain/memory/compare/v0.3.0...v0.4.0-rc.1
 [0.3.0]: https://github.com/jeffs-brain/memory/compare/go/v0.2.3...v0.3.0
 [0.2.3]: https://github.com/jeffs-brain/memory/compare/go/v0.2.2...go/v0.2.3
 [0.2.2]: https://github.com/jeffs-brain/memory/compare/go/v0.2.1...go/v0.2.2

@@ -15,4 +15,10 @@ if [[ "$published_version" == "$local_version" ]]; then
 fi
 
 echo "Publishing $package_name@$local_version"
-npm publish --access public --provenance
+
+# Detect prerelease version (contains hyphen like 0.4.0-rc.1)
+tag_flag=""
+if [[ "$local_version" == *-* ]]; then
+  tag_flag="--tag rc"
+fi
+npm publish --access public --provenance $tag_flag
