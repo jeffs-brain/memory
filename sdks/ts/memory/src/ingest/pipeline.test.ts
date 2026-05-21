@@ -8,6 +8,7 @@
  * boundary and verify the pipeline resumes correctly on re-entry.
  */
 
+import { createHash } from 'node:crypto'
 import { afterEach, describe, expect, it } from 'vitest'
 import { createHashEmbedder } from '../llm/hashembed.js'
 import { type SearchIndex, createSearchIndex } from '../search/index.js'

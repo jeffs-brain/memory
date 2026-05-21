@@ -83,6 +83,7 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 - Goroutine leak in rate limiter retry-after
 - Worker pool retry count on per-brain rejection (uses Requeue)
 
+
 ## [0.3.0] - 2026-05-12
 
 ### Added

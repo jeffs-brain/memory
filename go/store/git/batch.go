@@ -12,10 +12,12 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"syscall"
 	"time"
 
 	gogit "github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
+	gitindex "github.com/go-git/go-git/v5/plumbing/format/index"
 	"github.com/go-git/go-git/v5/plumbing/object"
 
 	"github.com/jeffs-brain/memory/go/brain"
@@ -98,8 +100,33 @@ func (s *Store) Batch(ctx context.Context, opts brain.BatchOptions, fn func(brai
 		return nil
 	}
 
+	// Acquire a cross-process file lock so multiple Store instances
+	// sharing the same working tree (e.g. jeff serve + jeff compile)
+	// cannot corrupt the git index by staging and committing
+	// concurrently. The lock is held only for stage+commit, not push.
+	lockPath := filepath.Join(s.opts.Root, ".git", "brain.lock")
+	lockFile, lockErr := acquireFileLock(lockPath)
+	if lockErr != nil {
+		lockErr = s.rollbackWithError(touched, headBefore, hadHead, fmt.Errorf("gitstore: acquire file lock: %w", lockErr))
+		s.discardBatchEvents()
+		s.mu.Unlock()
+		return lockErr
+	}
+
+	// Force go-git to re-read the index from disk. Without this,
+	// go-git serves a stale in-memory cache and overwrites changes
+	// made by the other process since our last batch.
+	if refreshErr := s.refreshIndex(); refreshErr != nil {
+		releaseFileLock(lockFile)
+		refreshErr = s.rollbackWithError(touched, headBefore, hadHead, refreshErr)
+		s.discardBatchEvents()
+		s.mu.Unlock()
+		return refreshErr
+	}
+
 	w, err := s.repo.Worktree()
 	if err != nil {
+		releaseFileLock(lockFile)
 		err = s.rollbackWithError(touched, headBefore, hadHead, err)
 		s.discardBatchEvents()
 		s.mu.Unlock()
@@ -107,6 +134,7 @@ func (s *Store) Batch(ctx context.Context, opts brain.BatchOptions, fn func(brai
 	}
 	for p := range touched {
 		if stageErr := s.stagePath(w, p); stageErr != nil {
+			releaseFileLock(lockFile)
 			stageErr = s.rollbackWithError(touched, headBefore, hadHead, stageErr)
 			s.discardBatchEvents()
 			s.mu.Unlock()
@@ -141,6 +169,8 @@ func (s *Store) Batch(ctx context.Context, opts brain.BatchOptions, fn func(brai
 		commitOpts.Signer = signerFromSignFn(s.opts.Sign)
 	}
 	_, commitErr := w.Commit(subject, commitOpts)
+	releaseFileLock(lockFile)
+
 	if errors.Is(commitErr, gogit.ErrEmptyCommit) {
 		// Net-zero batch — nothing to commit. Not an error.
 		s.discardBatchEvents()
@@ -715,6 +745,53 @@ func pathUnder(p, dir brain.Path, recursive bool) bool {
 		}
 	}
 	return true
+}
+
+// --- cross-process locking ---
+
+// acquireFileLock opens (or creates) the lock file and acquires an
+// exclusive advisory lock via flock(2). The returned file must be
+// passed to releaseFileLock when the critical section is done. The
+// call blocks until the lock is available.
+func acquireFileLock(path string) (*os.File, error) {
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0644)
+	if err != nil {
+		return nil, err
+	}
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX); err != nil {
+		f.Close()
+		return nil, err
+	}
+	return f, nil
+}
+
+func releaseFileLock(f *os.File) {
+	_ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
+	f.Close()
+}
+
+// refreshIndex re-reads the git index from disk into go-git's in-memory
+// cache. This is necessary when another process sharing the same
+// working tree may have modified the index between batches. Without
+// this, go-git serves a stale cached index and concurrent processes
+// silently overwrite each other's staged changes.
+func (s *Store) refreshIndex() error {
+	idxPath := filepath.Join(s.opts.Root, ".git", "index")
+	f, err := os.Open(idxPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return fmt.Errorf("gitstore: open index for refresh: %w", err)
+	}
+	defer f.Close()
+
+	idx := &gitindex.Index{}
+	dec := gitindex.NewDecoder(f)
+	if err := dec.Decode(idx); err != nil {
+		return fmt.Errorf("gitstore: decode index for refresh: %w", err)
+	}
+	return s.repo.Storer.SetIndex(idx)
 }
 
 // --- helpers ---
