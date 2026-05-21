@@ -21,6 +21,14 @@ tag_flag=""
 if [[ "$local_version" == *-* ]]; then
   tag_flag="--tag rc"
 fi
+
+# Provenance requires the tag to be on the default branch (main).
+# RC candidates are tagged on develop, so we skip provenance for prereleases.
+provenance_flag="--provenance"
+if [[ "$local_version" == *-* ]]; then
+  provenance_flag=""
+fi
+
 # --ignore-scripts skips prepublishOnly (typecheck + test + build already
 # ran in the CI workflow steps before this script is called).
-npm publish --access public --provenance --ignore-scripts $tag_flag
+npm publish --access public $provenance_flag --ignore-scripts $tag_flag
