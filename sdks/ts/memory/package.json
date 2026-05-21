@@ -74,6 +74,10 @@
       "import": "./dist/ingest/hooks/index.js",
       "types": "./dist/ingest/hooks/index.d.ts"
     },
+    "./ingest/queue": {
+      "import": "./dist/ingest/queue/index.js",
+      "types": "./dist/ingest/queue/index.d.ts"
+    },
     "./llm": {
       "import": "./dist/llm/index.js",
       "types": "./dist/llm/index.d.ts"
@@ -105,6 +109,10 @@
     "./connector": {
       "import": "./dist/connector/index.js",
       "types": "./dist/connector/index.d.ts"
+    },
+    "./ontology": {
+      "import": "./dist/ontology/index.js",
+      "types": "./dist/ontology/index.d.ts"
     },
     "./package.json": "./package.json"
   },

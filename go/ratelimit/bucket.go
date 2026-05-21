@@ -23,7 +23,7 @@ const maxRetryAfter = 5 * time.Minute
 //
 // NOTE: This is a single-process implementation. For multi-worker
 // deployments requiring shared state, a Redis-backed bucket is planned
-// as a follow-up (see LLE-XXXX).
+// as a follow-up.
 type tokenBucket struct {
 	mu       sync.RWMutex
 	limiter  *rate.Limiter

@@ -94,7 +94,7 @@ const MAX_RETRY_AFTER_SECS = 300
  *
  * NOTE: This is a single-process implementation. For multi-worker
  * deployments requiring shared state, a Redis-backed bucket is planned
- * as a follow-up (see LLE-XXXX).
+ * as a follow-up.
  */
 export const createTokenBucket = (opts: TokenBucketOptions): RateLimiter => {
   if (opts.maxTokens <= 0) {

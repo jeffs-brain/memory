@@ -57,7 +57,7 @@ const rowToEntry = (row: StateRow): PipelineStateEntry => ({
  * PostgreSQL implementation of PipelineStateStore.
  *
  * Expects the `memory.pipeline_state` table to exist (see migration
- * `0005_pipeline_state.sql`). Uses upsert semantics for Set so that
+ * `0006_pipeline_state.sql`). Uses upsert semantics for Set so that
  * concurrent calls for the same document hash are safe.
  */
 export class PostgresPipelineStateStore implements PipelineStateStore {
