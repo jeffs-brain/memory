@@ -23,4 +23,6 @@ if [[ "$local_version" == *-* ]]; then
 fi
 # --ignore-scripts skips prepublishOnly (typecheck + test + build already
 # ran in the CI workflow steps before this script is called).
-npm publish --access public --provenance --ignore-scripts $tag_flag
+# --provenance disabled: Sigstore Rekor service intermittently unavailable.
+# Re-enable once sigstore.dev stabilises.
+npm publish --access public --ignore-scripts $tag_flag
