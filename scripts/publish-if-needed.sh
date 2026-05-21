@@ -21,4 +21,6 @@ tag_flag=""
 if [[ "$local_version" == *-* ]]; then
   tag_flag="--tag rc"
 fi
-npm publish --access public --provenance $tag_flag
+# --ignore-scripts skips prepublishOnly (typecheck + test + build already
+# ran in the CI workflow steps before this script is called).
+npm publish --access public --provenance --ignore-scripts $tag_flag
