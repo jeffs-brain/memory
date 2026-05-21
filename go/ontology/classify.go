@@ -47,7 +47,7 @@ func NewClassifier(provider llm.Provider) *Classifier {
 // Classify determines the document class and business category.
 // Classification cascade: JSON detection -> tabular detection -> LLM.
 func (c *Classifier) Classify(ctx context.Context, content string, fileName string) (ClassificationResult, error) {
-	if IsJsonDocument(content) {
+	if IsJSONDocument(content) {
 		return ClassificationResult{
 			Class:        DocumentClassStructured,
 			Category:     inferCategoryFromJSON(content),
@@ -77,11 +77,11 @@ func (c *Classifier) Classify(ctx context.Context, content string, fileName stri
 	}, nil
 }
 
-// IsJsonDocument returns true if content parses as JSON with
+// IsJSONDocument returns true if content parses as JSON with
 // business-relevant structure: a non-empty object, or an array
 // containing at least one object or nested array. Bare primitives,
 // empty structures, and primitive-only arrays are excluded.
-func IsJsonDocument(content string) bool {
+func IsJSONDocument(content string) bool {
 	trimmed := strings.TrimSpace(content)
 	if len(trimmed) == 0 {
 		return false

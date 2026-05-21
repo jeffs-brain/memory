@@ -274,8 +274,8 @@ func TestGDriveConnector_FetchAll_PaginatedFileListing(t *testing.T) {
 			if strings.Contains(req.URL.String(), "drive/v3/files") {
 				callCount++
 				var data []byte
-				switch {
-				case callCount == 1:
+				switch callCount {
+				case 1:
 					data, _ = json.Marshal(page1)
 				default:
 					data, _ = json.Marshal(page2)
@@ -977,8 +977,8 @@ func TestGDriveConnector_FetchAll_RateLimitRetrySucceeds(t *testing.T) {
 			if strings.Contains(reqURL, "drive/v3/files?") {
 				callCount++
 				// First call returns rate limit, second succeeds.
-				switch {
-				case callCount == 1:
+				switch callCount {
+				case 1:
 					return &http.Response{
 						StatusCode: http.StatusTooManyRequests,
 						Body:       io.NopCloser(strings.NewReader(rateLimitBody)),

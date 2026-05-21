@@ -193,7 +193,7 @@ func (e *VideoExtractor) Extract(ctx context.Context, raw []byte, opts ExtractOp
 
 // ExtractStream buffers the reader and delegates to Extract.
 func (e *VideoExtractor) ExtractStream(ctx context.Context, reader io.Reader, opts ExtractOptions) (ExtractResult, error) {
-	var limitReader io.Reader = reader
+	limitReader := reader
 	if opts.MaxBytes > 0 {
 		limitReader = io.LimitReader(reader, opts.MaxBytes)
 	}
@@ -218,7 +218,7 @@ func (e *VideoExtractor) extractFromReader(ctx context.Context, reader io.Reader
 	if err != nil {
 		return ExtractResult{}, fmt.Errorf("ingest: creating temp dir: %w", err)
 	}
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	tmpVideoPath := tmpDir + "/input.video"
 	written, err := writeVideoToTempFile(tmpVideoPath, reader, e.cfg.MaxFileSize)

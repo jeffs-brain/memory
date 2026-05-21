@@ -12,8 +12,8 @@ import (
 	"strings"
 )
 
-// JsonExtractorConfig configures the JSON extractor behaviour.
-type JsonExtractorConfig struct {
+// JSONExtractorConfig configures the JSON extractor behaviour.
+type JSONExtractorConfig struct {
 	// ObjectsPerChunk is the number of array objects per output chunk.
 	// Defaults to 50 when zero.
 	ObjectsPerChunk int
@@ -36,35 +36,35 @@ type JsonExtractorConfig struct {
 	MaxInputSize int64
 }
 
-func (c JsonExtractorConfig) objectsPerChunk() int {
+func (c JSONExtractorConfig) objectsPerChunk() int {
 	if c.ObjectsPerChunk > 0 {
 		return c.ObjectsPerChunk
 	}
 	return 50
 }
 
-func (c JsonExtractorConfig) maxDepth() int {
+func (c JSONExtractorConfig) maxDepth() int {
 	if c.MaxDepth > 0 {
 		return c.MaxDepth
 	}
 	return 10
 }
 
-func (c JsonExtractorConfig) schemaSampleSize() int {
+func (c JSONExtractorConfig) schemaSampleSize() int {
 	if c.SchemaSampleSize > 0 {
 		return c.SchemaSampleSize
 	}
 	return 20
 }
 
-func (c JsonExtractorConfig) tableThreshold() int {
+func (c JSONExtractorConfig) tableThreshold() int {
 	if c.TableThreshold > 0 {
 		return c.TableThreshold
 	}
 	return 3
 }
 
-func (c JsonExtractorConfig) maxInputSize() int64 {
+func (c JSONExtractorConfig) maxInputSize() int64 {
 	if c.MaxInputSize > 0 {
 		return c.MaxInputSize
 	}
@@ -77,7 +77,7 @@ func (c JsonExtractorConfig) maxInputSize() int64 {
 // nested structures are flattened to dot-notation. For large arrays,
 // streaming token-based parsing is used to avoid holding the full
 // parsed tree in memory simultaneously.
-func ExtractJSON(raw []byte, cfg JsonExtractorConfig) (ExtractResult, error) {
+func ExtractJSON(raw []byte, cfg JSONExtractorConfig) (ExtractResult, error) {
 	if len(bytes.TrimSpace(raw)) == 0 {
 		return ExtractResult{}, fmt.Errorf("structured: empty json input")
 	}
@@ -135,7 +135,7 @@ func ExtractJSON(raw []byte, cfg JsonExtractorConfig) (ExtractResult, error) {
 // extractJSONArrayStreaming processes a JSON array using streaming
 // token-by-token decoding. Elements are collected in chunks and
 // rendered incrementally to keep memory bounded.
-func extractJSONArrayStreaming(decoder *json.Decoder, cfg JsonExtractorConfig, encoding string) (ExtractResult, error) {
+func extractJSONArrayStreaming(decoder *json.Decoder, cfg JSONExtractorConfig, encoding string) (ExtractResult, error) {
 	// Collect all elements (streaming decode, but we still
 	// accumulate into slices for schema analysis). For truly huge
 	// files, the maxInputSize guard above prevents OOM.
@@ -171,7 +171,7 @@ func extractJSONArrayStreaming(decoder *json.Decoder, cfg JsonExtractorConfig, e
 
 // renderJSON dispatches to the appropriate rendering strategy based on
 // the top-level JSON structure.
-func renderJSON(v any, cfg JsonExtractorConfig) (string, string, string) {
+func renderJSON(v any, cfg JSONExtractorConfig) (string, string, string) {
 	switch val := v.(type) {
 	case []any:
 		return renderJSONArray(val, cfg)
@@ -185,7 +185,7 @@ func renderJSON(v any, cfg JsonExtractorConfig) (string, string, string) {
 // renderJSONArray handles the array case, detecting whether objects
 // share a uniform schema (markdown table) or should be rendered
 // individually.
-func renderJSONArray(arr []any, cfg JsonExtractorConfig) (string, string, string) {
+func renderJSONArray(arr []any, cfg JSONExtractorConfig) (string, string, string) {
 	if len(arr) == 0 {
 		return "[]", "empty_array", ""
 	}
@@ -252,7 +252,7 @@ func renderJSONArray(arr []any, cfg JsonExtractorConfig) (string, string, string
 
 // renderJSONObject handles a top-level JSON object by emitting its
 // keys and values with structural context.
-func renderJSONObject(obj map[string]any, cfg JsonExtractorConfig) (string, string, string) {
+func renderJSONObject(obj map[string]any, cfg JSONExtractorConfig) (string, string, string) {
 	if len(obj) == 0 {
 		return "{}", "empty_object", ""
 	}
@@ -328,7 +328,7 @@ func areObjectsUniform(objects []map[string]any, commonKeys []string) bool {
 
 // renderAsMarkdownTable formats uniform objects as a markdown table
 // with chunk boundaries at objectsPerChunk intervals.
-func renderAsMarkdownTable(objects []map[string]any, keys []string, cfg JsonExtractorConfig) string {
+func renderAsMarkdownTable(objects []map[string]any, keys []string, cfg JSONExtractorConfig) string {
 	opc := cfg.objectsPerChunk()
 	var out strings.Builder
 	chunkIdx := 0
@@ -375,7 +375,7 @@ func renderAsMarkdownTable(objects []map[string]any, keys []string, cfg JsonExtr
 
 // renderObjectsIndividually renders each object with schema annotation
 // and chunk boundaries.
-func renderObjectsIndividually(objects []map[string]any, commonKeys []string, cfg JsonExtractorConfig) string {
+func renderObjectsIndividually(objects []map[string]any, commonKeys []string, cfg JSONExtractorConfig) string {
 	opc := cfg.objectsPerChunk()
 	var out strings.Builder
 	chunkIdx := 0
@@ -541,7 +541,7 @@ func escapeMdTableCell(s string) string {
 
 // ExtractJSONL parses newline-delimited JSON (one JSON object per
 // line) and delegates to ExtractJSON after collecting into an array.
-func ExtractJSONL(raw []byte, cfg JsonExtractorConfig) (ExtractResult, error) {
+func ExtractJSONL(raw []byte, cfg JSONExtractorConfig) (ExtractResult, error) {
 	if len(bytes.TrimSpace(raw)) == 0 {
 		return ExtractResult{}, fmt.Errorf("structured: empty jsonl input")
 	}

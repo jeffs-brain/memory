@@ -117,7 +117,7 @@ func (f *tenantFactory) ForTenant(tenantID string) Limiter {
 		Logger:           f.logger,
 	})
 
-	var lim Limiter = bucket
+	var lim Limiter = bucket //nolint:staticcheck // interface type needed for reassignment to different concrete type
 	if f.opts.AdaptiveEnabled {
 		lim = NewAdaptive(AdaptiveOptions{
 			Bucket:         bucket,

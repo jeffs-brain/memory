@@ -25,8 +25,8 @@ type notionDatabaseQueryResponse struct {
 // notionBlockChildrenResponse models the block children response.
 type notionBlockChildrenResponse struct {
 	Results    []notionBlock `json:"results"`
-	NextCursor string       `json:"next_cursor"`
-	HasMore    bool         `json:"has_more"`
+	NextCursor string        `json:"next_cursor"`
+	HasMore    bool          `json:"has_more"`
 }
 
 // notionBlock represents a single Notion block.
@@ -52,10 +52,10 @@ func (b *notionBlock) UnmarshalJSON(data []byte) error {
 
 // notionRichText represents a Notion rich text object.
 type notionRichText struct {
-	Type        string             `json:"type"`
-	PlainText   string             `json:"plain_text"`
-	Href        string             `json:"href"`
-	Annotations notionAnnotations  `json:"annotations"`
+	Type        string            `json:"type"`
+	PlainText   string            `json:"plain_text"`
+	Href        string            `json:"href"`
+	Annotations notionAnnotations `json:"annotations"`
 }
 
 // notionAnnotations contains formatting flags for rich text.
@@ -132,10 +132,10 @@ func (c *NotionConnector) blockToMarkdown(block notionBlock) string {
 			}
 			return "- " + marker + " " + text
 		},
-		"toggle":    func() string { return "- " + text },
-		"quote":     func() string { return "> " + text + "\n" },
-		"callout":   func() string { return "> " + text + "\n" },
-		"divider":   func() string { return "---\n" },
+		"toggle":  func() string { return "- " + text },
+		"quote":   func() string { return "> " + text + "\n" },
+		"callout": func() string { return "> " + text + "\n" },
+		"divider": func() string { return "---\n" },
 		"code": func() string {
 			lang := typed.Language
 			return "```" + lang + "\n" + text + "\n```\n"

@@ -49,23 +49,23 @@ var sanitizeArgsAllowlist = map[string]struct{}{
 	"--verbose":  {},
 	"--stdin":    {},
 	"--stdout":   {},
-	"--no-color": {},
+	"--no-color": {}, //nolint:misspell // standard CLI flag name
 }
 
 // SanitizeArgs filters a slice of command-line arguments, rejecting any
 // flag (starting with '-') that is not in the hardcoded allowlist. This
 // prevents injection of dangerous flags into subprocess extractors.
 func SanitizeArgs(args []string) ([]string, error) {
-	sanitized := make([]string, 0, len(args))
+	sanitised := make([]string, 0, len(args))
 	for _, arg := range args {
 		if strings.HasPrefix(arg, "-") {
 			if _, ok := sanitizeArgsAllowlist[arg]; !ok {
 				return nil, fmt.Errorf("ingest: disallowed argument %q", arg)
 			}
 		}
-		sanitized = append(sanitized, arg)
+		sanitised = append(sanitised, arg)
 	}
-	return sanitized, nil
+	return sanitised, nil
 }
 
 // MagicSignature identifies a file format by magic bytes at a given offset.
@@ -148,7 +148,7 @@ func (b *BaseExtractor) Extract(ctx context.Context, raw []byte, opts ExtractOpt
 
 // ExtractStream buffers the reader and delegates to Extract.
 func (b *BaseExtractor) ExtractStream(ctx context.Context, reader io.Reader, opts ExtractOptions) (ExtractResult, error) {
-	var limitReader io.Reader = reader
+	limitReader := reader
 	if opts.MaxBytes > 0 {
 		limitReader = io.LimitReader(reader, opts.MaxBytes)
 	}
@@ -207,7 +207,7 @@ func (p *PlainTextExtractor) Extract(_ context.Context, raw []byte, _ ExtractOpt
 
 // ExtractStream buffers the reader and delegates to Extract.
 func (p *PlainTextExtractor) ExtractStream(ctx context.Context, reader io.Reader, opts ExtractOptions) (ExtractResult, error) {
-	var limitReader io.Reader = reader
+	limitReader := reader
 	if opts.MaxBytes > 0 {
 		limitReader = io.LimitReader(reader, opts.MaxBytes)
 	}
@@ -551,7 +551,7 @@ func (e *CSVExtractor) ExtractStream(ctx context.Context, reader io.Reader, opts
 // JSONExtractor wraps the JSON extraction function as a canonical
 // ingest.Extractor implementation.
 type JSONExtractor struct {
-	Config JsonExtractorConfig
+	Config JSONExtractorConfig
 }
 
 // Compile-time interface check.
@@ -595,7 +595,7 @@ func (e *JSONExtractor) ExtractStream(ctx context.Context, reader io.Reader, opt
 // JSONLExtractor wraps the JSONL extraction function as a canonical
 // ingest.Extractor implementation.
 type JSONLExtractor struct {
-	Config JsonExtractorConfig
+	Config JSONExtractorConfig
 }
 
 // Compile-time interface check.
@@ -639,7 +639,7 @@ func (e *JSONLExtractor) ExtractStream(ctx context.Context, reader io.Reader, op
 // XMLExtractor wraps the XML extraction function as a canonical
 // ingest.Extractor implementation.
 type XMLExtractor struct {
-	Config XmlExtractorConfig
+	Config XMLExtractorConfig
 }
 
 // Compile-time interface check.

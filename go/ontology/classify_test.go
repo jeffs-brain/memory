@@ -28,58 +28,58 @@ func (f *fakeProvider) CompleteStream(_ context.Context, _ llm.CompleteRequest) 
 
 func (f *fakeProvider) Close() error { return nil }
 
-func TestIsJsonDocument_ValidObject(t *testing.T) {
+func TestIsJSONDocument_ValidObject(t *testing.T) {
 	t.Parallel()
 	content := `{"rules": [{"name": "discount"}, {"name": "tax"}]}`
-	if !ontology.IsJsonDocument(content) {
+	if !ontology.IsJSONDocument(content) {
 		t.Fatal("expected true for valid JSON object")
 	}
 }
 
-func TestIsJsonDocument_ValidArray(t *testing.T) {
+func TestIsJSONDocument_ValidArray(t *testing.T) {
 	t.Parallel()
 	content := `[{"name": "Alice"}, {"name": "Bob"}]`
-	if !ontology.IsJsonDocument(content) {
+	if !ontology.IsJSONDocument(content) {
 		t.Fatal("expected true for valid JSON array")
 	}
 }
 
-func TestIsJsonDocument_InvalidJson(t *testing.T) {
+func TestIsJSONDocument_InvalidJson(t *testing.T) {
 	t.Parallel()
 	content := "This is just some regular text content."
-	if ontology.IsJsonDocument(content) {
+	if ontology.IsJSONDocument(content) {
 		t.Fatal("expected false for prose text")
 	}
 }
 
-func TestIsJsonDocument_TrivialJson(t *testing.T) {
+func TestIsJSONDocument_TrivialJson(t *testing.T) {
 	t.Parallel()
 	// Bare primitives are not business-relevant JSON
-	if ontology.IsJsonDocument("42") {
+	if ontology.IsJSONDocument("42") {
 		t.Fatal("expected false for bare number")
 	}
-	if ontology.IsJsonDocument(`"hello"`) {
+	if ontology.IsJSONDocument(`"hello"`) {
 		t.Fatal("expected false for bare string")
 	}
 }
 
-func TestIsJsonDocument_PrimitiveArray(t *testing.T) {
+func TestIsJSONDocument_PrimitiveArray(t *testing.T) {
 	t.Parallel()
 	// Primitive-only arrays are not business-relevant
-	if ontology.IsJsonDocument(`[1, 2, 3]`) {
+	if ontology.IsJSONDocument(`[1, 2, 3]`) {
 		t.Fatal("expected false for primitive array")
 	}
-	if ontology.IsJsonDocument(`["a", "b", "c"]`) {
+	if ontology.IsJSONDocument(`["a", "b", "c"]`) {
 		t.Fatal("expected false for string array")
 	}
 }
 
-func TestIsJsonDocument_EmptyStructures(t *testing.T) {
+func TestIsJSONDocument_EmptyStructures(t *testing.T) {
 	t.Parallel()
-	if ontology.IsJsonDocument(`{}`) {
+	if ontology.IsJSONDocument(`{}`) {
 		t.Fatal("expected false for empty object")
 	}
-	if ontology.IsJsonDocument(`[]`) {
+	if ontology.IsJSONDocument(`[]`) {
 		t.Fatal("expected false for empty array")
 	}
 }

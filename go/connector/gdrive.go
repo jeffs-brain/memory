@@ -706,7 +706,7 @@ func (c *GDriveConnector) doAPIGet(ctx context.Context, reqURL string, timeout t
 		}
 
 		body, readErr := io.ReadAll(io.LimitReader(resp.Body, maxBodySize+1))
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		cancel()
 
 		if readErr != nil {

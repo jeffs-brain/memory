@@ -285,11 +285,11 @@ func TestHMACTimestampExpiry(t *testing.T) {
 
 	body := makePayload(singleDoc())
 	// Timestamp 10 minutes ago — should be rejected.
-	oldTs := time.Now().Add(-10 * time.Minute).Unix()
-	sig := computeHMAC("hmac-secret-key", oldTs, body)
+	oldTS := time.Now().Add(-10 * time.Minute).Unix()
+	sig := computeHMAC("hmac-secret-key", oldTS, body)
 	rr := doRequest(w, http.MethodPost, body, map[string]string{
 		"X-Webhook-Signature": sig,
-		"X-Webhook-Timestamp": strconv.FormatInt(oldTs, 10),
+		"X-Webhook-Timestamp": strconv.FormatInt(oldTS, 10),
 	})
 	if rr.Code != http.StatusUnauthorized {
 		t.Fatalf("expected 401 for expired timestamp, got %d", rr.Code)
@@ -490,7 +490,7 @@ func TestIdempotencyKeyFirstRequest(t *testing.T) {
 
 	body := makePayload(singleDoc())
 	rr := doRequest(w, http.MethodPost, body, map[string]string{
-		"Authorization":    "Bearer test-secret-token",
+		"Authorization":     "Bearer test-secret-token",
 		"X-Idempotency-Key": "unique-key-123",
 	})
 	if rr.Code != http.StatusOK {
@@ -509,7 +509,7 @@ func TestIdempotencyKeyDuplicate(t *testing.T) {
 
 	body := makePayload(singleDoc())
 	headers := map[string]string{
-		"Authorization":    "Bearer test-secret-token",
+		"Authorization":     "Bearer test-secret-token",
 		"X-Idempotency-Key": "dup-key-456",
 	}
 

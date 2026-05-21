@@ -38,11 +38,11 @@ func extractTitleFromProperties(properties map[string]json.RawMessage) string {
 // string representation.
 func extractPropertyValue(raw json.RawMessage) string {
 	var prop struct {
-		Type           string           `json:"type"`
-		Title          []notionRichText `json:"title"`
-		RichText       []notionRichText `json:"rich_text"`
-		Number         *float64         `json:"number"`
-		Select         *struct {
+		Type     string           `json:"type"`
+		Title    []notionRichText `json:"title"`
+		RichText []notionRichText `json:"rich_text"`
+		Number   *float64         `json:"number"`
+		Select   *struct {
 			Name string `json:"name"`
 		} `json:"select"`
 		MultiSelect []struct {
@@ -71,7 +71,7 @@ func extractPropertyValue(raw json.RawMessage) string {
 	}
 
 	renderers := map[string]func() string{
-		"title":    func() string { return renderPlainRichText(prop.Title) },
+		"title":     func() string { return renderPlainRichText(prop.Title) },
 		"rich_text": func() string { return renderPlainRichText(prop.RichText) },
 		"number": func() string {
 			if prop.Number == nil {

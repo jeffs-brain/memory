@@ -13,15 +13,15 @@ import (
 )
 
 const (
-	notionAPIVersion        = "2022-06-28"
-	notionBaseURL           = "https://api.notion.com/v1"
-	notionDefaultMaxDepth   = 10
+	notionAPIVersion          = "2022-06-28"
+	notionBaseURL             = "https://api.notion.com/v1"
+	notionDefaultMaxDepth     = 10
 	notionDefaultPollInterval = 15 * time.Minute
-	notionDefaultTimeout    = 30 * time.Second
-	notionDefaultPageSize   = 100
-	notionDefaultRateLimit  = 3
-	notionMaxRetryAttempts  = 5
-	notionMaxResponseSize   = 10 * 1024 * 1024 // 10 MiB
+	notionDefaultTimeout      = 30 * time.Second
+	notionDefaultPageSize     = 100
+	notionDefaultRateLimit    = 3
+	notionMaxRetryAttempts    = 5
+	notionMaxResponseSize     = 10 * 1024 * 1024 // 10 MiB
 )
 
 // NotionConnectorConfig holds Notion-specific configuration.
@@ -29,9 +29,9 @@ type NotionConnectorConfig struct {
 	APIToken          string
 	RootPageIDs       []string
 	DatabaseIDs       []string
-	IncludeChildPages bool              // default: true
-	IncludeDatabases  bool              // default: true
-	MaxDepth          int               // default: 10
+	IncludeChildPages bool                // default: true
+	IncludeDatabases  bool                // default: true
+	MaxDepth          int                 // default: 10
 	BlockTypeFilter   map[string]struct{} // when non-empty, only these block types are rendered
 
 	// OAuth2 fields: used when the connector authenticates via
@@ -458,7 +458,7 @@ type notionDatabaseQueryBody struct {
 // notionDatabaseTimeFilter represents a last_edited_time filter.
 type notionDatabaseTimeFilter struct {
 	Timestamp      string                   `json:"timestamp"`
-	LastEditedTime notionTimestampCondition  `json:"last_edited_time"`
+	LastEditedTime notionTimestampCondition `json:"last_edited_time"`
 }
 
 // notionTimestampCondition holds the condition for timestamp filters.
@@ -832,4 +832,3 @@ func (c *NotionConnector) fetchDatabaseEntries(ctx context.Context, dbID string,
 
 	return nil
 }
-

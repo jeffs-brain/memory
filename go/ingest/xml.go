@@ -9,8 +9,8 @@ import (
 	"strings"
 )
 
-// XmlExtractorConfig configures the XML extractor behaviour.
-type XmlExtractorConfig struct {
+// XMLExtractorConfig configures the XML extractor behaviour.
+type XMLExtractorConfig struct {
 	// ElementsPerChunk is the number of top-level child elements per
 	// output chunk. Defaults to 50 when zero.
 	ElementsPerChunk int
@@ -25,21 +25,21 @@ type XmlExtractorConfig struct {
 	MaxInputSize int64
 }
 
-func (c XmlExtractorConfig) elementsPerChunk() int {
+func (c XMLExtractorConfig) elementsPerChunk() int {
 	if c.ElementsPerChunk > 0 {
 		return c.ElementsPerChunk
 	}
 	return 50
 }
 
-func (c XmlExtractorConfig) maxDepth() int {
+func (c XMLExtractorConfig) maxDepth() int {
 	if c.MaxDepth > 0 {
 		return c.MaxDepth
 	}
 	return 10
 }
 
-func (c XmlExtractorConfig) maxInputSize() int64 {
+func (c XMLExtractorConfig) maxInputSize() int64 {
 	if c.MaxInputSize > 0 {
 		return c.MaxInputSize
 	}
@@ -65,7 +65,7 @@ type xmlAttr struct {
 // namespaces are stripped to their local name, and processing
 // instructions are ignored. Parsing uses a streaming xml.Decoder to
 // build a lightweight tree, then renders it with path context.
-func ExtractXML(raw []byte, cfg XmlExtractorConfig) (ExtractResult, error) {
+func ExtractXML(raw []byte, cfg XMLExtractorConfig) (ExtractResult, error) {
 	if len(raw) == 0 {
 		return ExtractResult{}, fmt.Errorf("structured: empty xml input")
 	}
@@ -170,7 +170,7 @@ func parseXMLTree(decoder *xml.Decoder, maxDepth int) (*xmlNode, error) {
 
 // renderXMLNodes renders the XML tree as structured text with element
 // path context and chunk boundaries.
-func renderXMLNodes(root *xmlNode, cfg XmlExtractorConfig) (string, int) {
+func renderXMLNodes(root *xmlNode, cfg XMLExtractorConfig) (string, int) {
 	if len(root.children) == 0 {
 		// Single root with text only.
 		txt := root.text.String()

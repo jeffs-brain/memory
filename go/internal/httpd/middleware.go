@@ -41,7 +41,7 @@ func AuthMiddleware(token string, next http.Handler) http.Handler {
 		}
 		got := r.Header.Get("Authorization")
 		if got == "" {
-			Unauthorized(w, "missing Authorization header")
+			Unauthorised(w, "missing Authorization header")
 			return
 		}
 		if !validBearerToken(got, token) {

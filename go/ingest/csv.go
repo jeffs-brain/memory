@@ -160,10 +160,7 @@ func ExtractCSV(raw []byte, cfg CsvExtractorConfig) (ExtractResult, error) {
 	}
 
 	batchStartIdx := 0
-	for {
-		if rowCount >= maxR {
-			break
-		}
+	for rowCount < maxR {
 		row, readErr := reader.Read()
 		if readErr != nil {
 			break

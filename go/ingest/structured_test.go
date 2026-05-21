@@ -185,7 +185,7 @@ func TestExtractCSV_DuplicateHeaders(t *testing.T) {
 
 func TestExtractJSON_SimpleObject(t *testing.T) {
 	input := []byte(`{"name":"Alice","age":30,"city":"London"}`)
-	result, err := ExtractJSON(input, JsonExtractorConfig{})
+	result, err := ExtractJSON(input, JSONExtractorConfig{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -202,7 +202,7 @@ func TestExtractJSON_SimpleObject(t *testing.T) {
 
 func TestExtractJSON_UniformArrayOfObjects(t *testing.T) {
 	input := []byte(`[{"name":"Alice","age":30},{"name":"Bob","age":25},{"name":"Carol","age":35}]`)
-	result, err := ExtractJSON(input, JsonExtractorConfig{TableThreshold: 3})
+	result, err := ExtractJSON(input, JSONExtractorConfig{TableThreshold: 3})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -220,7 +220,7 @@ func TestExtractJSON_UniformArrayOfObjects(t *testing.T) {
 
 func TestExtractJSON_HeterogeneousArrayOfObjects(t *testing.T) {
 	input := []byte(`[{"a":1,"b":2},{"c":3,"d":4}]`)
-	result, err := ExtractJSON(input, JsonExtractorConfig{})
+	result, err := ExtractJSON(input, JSONExtractorConfig{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -235,7 +235,7 @@ func TestExtractJSON_HeterogeneousArrayOfObjects(t *testing.T) {
 
 func TestExtractJSON_DeeplyNested(t *testing.T) {
 	input := []byte(`{"a":{"b":{"c":{"d":{"e":"deep"}}}}}`)
-	result, err := ExtractJSON(input, JsonExtractorConfig{})
+	result, err := ExtractJSON(input, JSONExtractorConfig{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -247,7 +247,7 @@ func TestExtractJSON_DeeplyNested(t *testing.T) {
 
 func TestExtractJSON_EmptyObject(t *testing.T) {
 	input := []byte(`{}`)
-	result, err := ExtractJSON(input, JsonExtractorConfig{})
+	result, err := ExtractJSON(input, JSONExtractorConfig{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -258,7 +258,7 @@ func TestExtractJSON_EmptyObject(t *testing.T) {
 
 func TestExtractJSON_EmptyArray(t *testing.T) {
 	input := []byte(`[]`)
-	result, err := ExtractJSON(input, JsonExtractorConfig{})
+	result, err := ExtractJSON(input, JSONExtractorConfig{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -269,7 +269,7 @@ func TestExtractJSON_EmptyArray(t *testing.T) {
 
 func TestExtractJSON_InvalidJSON(t *testing.T) {
 	input := []byte(`{invalid`)
-	_, err := ExtractJSON(input, JsonExtractorConfig{})
+	_, err := ExtractJSON(input, JSONExtractorConfig{})
 	if err == nil {
 		t.Fatal("expected error for invalid JSON")
 	}
@@ -280,7 +280,7 @@ func TestExtractJSON_InvalidJSON(t *testing.T) {
 
 func TestExtractJSON_PrimitiveArray(t *testing.T) {
 	input := []byte(`[1,2,3,4,5]`)
-	result, err := ExtractJSON(input, JsonExtractorConfig{})
+	result, err := ExtractJSON(input, JSONExtractorConfig{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -294,7 +294,7 @@ func TestExtractJSON_PrimitiveArray(t *testing.T) {
 }
 
 func TestExtractJSON_EmptyInput(t *testing.T) {
-	_, err := ExtractJSON([]byte{}, JsonExtractorConfig{})
+	_, err := ExtractJSON([]byte{}, JSONExtractorConfig{})
 	if err == nil {
 		t.Fatal("expected error for empty input")
 	}
@@ -309,7 +309,7 @@ func TestExtractJSON_ObjectChunking(t *testing.T) {
 		objects = append(objects, `{"id":1,"name":"test"}`)
 	}
 	input := []byte("[" + strings.Join(objects, ",") + "]")
-	result, err := ExtractJSON(input, JsonExtractorConfig{ObjectsPerChunk: 50, TableThreshold: 3})
+	result, err := ExtractJSON(input, JSONExtractorConfig{ObjectsPerChunk: 50, TableThreshold: 3})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -329,7 +329,7 @@ func TestExtractJSON_SchemaDetection(t *testing.T) {
 		{"name":"Bob","age":25,"city":"Paris"},
 		{"name":"Carol","age":35,"city":"Berlin"}
 	]`)
-	result, err := ExtractJSON(input, JsonExtractorConfig{TableThreshold: 3})
+	result, err := ExtractJSON(input, JSONExtractorConfig{TableThreshold: 3})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -344,7 +344,7 @@ func TestExtractJSON_SchemaDetection(t *testing.T) {
 
 func TestExtractJSON_NullValue(t *testing.T) {
 	input := []byte(`{"key":null}`)
-	result, err := ExtractJSON(input, JsonExtractorConfig{})
+	result, err := ExtractJSON(input, JSONExtractorConfig{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -355,7 +355,7 @@ func TestExtractJSON_NullValue(t *testing.T) {
 
 func TestExtractJSON_BooleanValues(t *testing.T) {
 	input := []byte(`{"active":true,"deleted":false}`)
-	result, err := ExtractJSON(input, JsonExtractorConfig{})
+	result, err := ExtractJSON(input, JSONExtractorConfig{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -373,7 +373,7 @@ func TestExtractJSON_BooleanValues(t *testing.T) {
 
 func TestExtractJSONL_Basic(t *testing.T) {
 	input := []byte("{\"a\":1}\n{\"a\":2}\n{\"a\":3}\n")
-	result, err := ExtractJSONL(input, JsonExtractorConfig{TableThreshold: 3})
+	result, err := ExtractJSONL(input, JSONExtractorConfig{TableThreshold: 3})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -383,7 +383,7 @@ func TestExtractJSONL_Basic(t *testing.T) {
 }
 
 func TestExtractJSONL_Empty(t *testing.T) {
-	_, err := ExtractJSONL([]byte{}, JsonExtractorConfig{})
+	_, err := ExtractJSONL([]byte{}, JSONExtractorConfig{})
 	if err == nil {
 		t.Fatal("expected error for empty JSONL")
 	}
@@ -554,7 +554,7 @@ func TestExtractCSV_MaxInputSize(t *testing.T) {
 
 func TestExtractXML_BasicDocument(t *testing.T) {
 	input := []byte(`<root><item>hello</item><item>world</item></root>`)
-	result, err := ExtractXML(input, XmlExtractorConfig{})
+	result, err := ExtractXML(input, XMLExtractorConfig{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -574,7 +574,7 @@ func TestExtractXML_BasicDocument(t *testing.T) {
 
 func TestExtractXML_WithAttributes(t *testing.T) {
 	input := []byte(`<root><user id="1" name="Alice">text content</user></root>`)
-	result, err := ExtractXML(input, XmlExtractorConfig{})
+	result, err := ExtractXML(input, XMLExtractorConfig{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -591,7 +591,7 @@ func TestExtractXML_WithAttributes(t *testing.T) {
 
 func TestExtractXML_NamespaceStripping(t *testing.T) {
 	input := []byte(`<ns:root xmlns:ns="http://example.com"><ns:item>value</ns:item></ns:root>`)
-	result, err := ExtractXML(input, XmlExtractorConfig{})
+	result, err := ExtractXML(input, XMLExtractorConfig{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -603,7 +603,7 @@ func TestExtractXML_NamespaceStripping(t *testing.T) {
 
 func TestExtractXML_CDATA(t *testing.T) {
 	input := []byte(`<root><data><![CDATA[some <special> content]]></data></root>`)
-	result, err := ExtractXML(input, XmlExtractorConfig{})
+	result, err := ExtractXML(input, XMLExtractorConfig{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -614,7 +614,7 @@ func TestExtractXML_CDATA(t *testing.T) {
 
 func TestExtractXML_ProcessingInstructionIgnored(t *testing.T) {
 	input := []byte(`<?xml version="1.0"?><root><item>value</item></root>`)
-	result, err := ExtractXML(input, XmlExtractorConfig{})
+	result, err := ExtractXML(input, XMLExtractorConfig{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -624,7 +624,7 @@ func TestExtractXML_ProcessingInstructionIgnored(t *testing.T) {
 }
 
 func TestExtractXML_EmptyInput(t *testing.T) {
-	_, err := ExtractXML([]byte{}, XmlExtractorConfig{})
+	_, err := ExtractXML([]byte{}, XMLExtractorConfig{})
 	if err == nil {
 		t.Fatal("expected error for empty input")
 	}
@@ -635,7 +635,7 @@ func TestExtractXML_EmptyInput(t *testing.T) {
 
 func TestExtractXML_NestedElements(t *testing.T) {
 	input := []byte(`<root><parent><child><grandchild>deep</grandchild></child></parent></root>`)
-	result, err := ExtractXML(input, XmlExtractorConfig{})
+	result, err := ExtractXML(input, XMLExtractorConfig{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -652,7 +652,7 @@ func TestExtractXML_Chunking(t *testing.T) {
 	}
 	b.WriteString("</root>")
 
-	result, err := ExtractXML([]byte(b.String()), XmlExtractorConfig{ElementsPerChunk: 50})
+	result, err := ExtractXML([]byte(b.String()), XMLExtractorConfig{ElementsPerChunk: 50})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -664,7 +664,7 @@ func TestExtractXML_Chunking(t *testing.T) {
 
 func TestExtractXML_MaxInputSize(t *testing.T) {
 	input := []byte(`<root><item>value</item></root>`)
-	_, err := ExtractXML(input, XmlExtractorConfig{MaxInputSize: 5})
+	_, err := ExtractXML(input, XMLExtractorConfig{MaxInputSize: 5})
 	if err == nil {
 		t.Fatal("expected error for input exceeding max size")
 	}

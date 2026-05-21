@@ -1521,13 +1521,13 @@ func TestNotionConnector_TokenRefreshOnExpiry(t *testing.T) {
 	}
 	conn := NewNotionConnector(deps, mock)
 	err := conn.Configure(map[string]any{
-		"apiToken":           "expired-token",
-		"rootPageIds":        []any{"page-1"},
-		"oauth2_client_id":   "client-id",
+		"apiToken":             "expired-token",
+		"rootPageIds":          []any{"page-1"},
+		"oauth2_client_id":     "client-id",
 		"oauth2_client_secret": "client-secret",
-		"refresh_token":      "test-refresh-token",
-		"token_expires_at":   time.Now().Add(-time.Hour).Format(time.RFC3339),
-		"token_exchanger":    exchanger,
+		"refresh_token":        "test-refresh-token",
+		"token_expires_at":     time.Now().Add(-time.Hour).Format(time.RFC3339),
+		"token_exchanger":      exchanger,
 	})
 	if err != nil {
 		t.Fatalf("Configure() failed: %v", err)
@@ -1566,7 +1566,7 @@ func TestNotionConnector_TokenRefreshFailurePropagates(t *testing.T) {
 	err := conn.Configure(map[string]any{
 		"apiToken":             "expired-token",
 		"rootPageIds":          []any{"page-1"},
-		"oauth2_client_id":    "client-id",
+		"oauth2_client_id":     "client-id",
 		"oauth2_client_secret": "client-secret",
 		"refresh_token":        "revoked-token",
 		"token_expires_at":     time.Now().Add(-time.Hour).Format(time.RFC3339),
@@ -1665,7 +1665,7 @@ func TestNotionConnector_RefreshWithinBuffer(t *testing.T) {
 	err := conn.Configure(map[string]any{
 		"apiToken":             "expiring-token",
 		"rootPageIds":          []any{"page-buf"},
-		"oauth2_client_id":    "client-id",
+		"oauth2_client_id":     "client-id",
 		"oauth2_client_secret": "client-secret",
 		"refresh_token":        "test-refresh-token",
 		"token_expires_at":     time.Now().Add(3 * time.Minute).Format(time.RFC3339),

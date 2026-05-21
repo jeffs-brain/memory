@@ -93,12 +93,12 @@ func registerIngestDirectoryWithOpts(server *mcp.Server, client MemoryClient, op
 			return nil, nil, fmt.Errorf("memory_ingest_directory: enumerate: %w", err)
 		}
 
-		jobGroupId := uuid.New().String()
+		jobGroupID := uuid.New().String()
 		total := len(enumerated)
 
-		brainId := args.Brain
-		if brainId == "" {
-			brainId = "default"
+		brainID := args.Brain
+		if brainID == "" {
+			brainID = "default"
 		}
 
 		// Async mode: publish events to the trigger bus and return immediately.
@@ -107,13 +107,13 @@ func registerIngestDirectoryWithOpts(server *mcp.Server, client MemoryClient, op
 			for _, file := range enumerated {
 				evt := trigger.IngestTriggerEvent{
 					ID:      uuid.New().String(),
-					BrainID: brainId,
+					BrainID: brainID,
 					Source:  trigger.SourceEventBus,
 					Payload: trigger.TriggerPayload{
 						Kind: trigger.PayloadFile,
 						Path: file.Path,
 					},
-					Metadata:  map[string]any{"jobGroupId": jobGroupId},
+					Metadata:  map[string]any{"jobGroupId": jobGroupID},
 					Timestamp: time.Now(),
 				}
 				if pubErr := opts.TriggerBus.Publish(evt); pubErr != nil {
@@ -125,7 +125,7 @@ func registerIngestDirectoryWithOpts(server *mcp.Server, client MemoryClient, op
 			}
 
 			payload := directoryResult{
-				JobGroupID:     jobGroupId,
+				JobGroupID:     jobGroupID,
 				FilesQueued:    queued,
 				FilesSkipped:   len(skipped),
 				SkippedReasons: skipped,
@@ -184,7 +184,7 @@ func registerIngestDirectoryWithOpts(server *mcp.Server, client MemoryClient, op
 		_ = g.Wait()
 
 		payload := directoryResult{
-			JobGroupID:     jobGroupId,
+			JobGroupID:     jobGroupID,
 			FilesQueued:    total,
 			FilesSkipped:   len(skipped),
 			SkippedReasons: skipped,

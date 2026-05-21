@@ -224,9 +224,9 @@ func TestIngestDirectory_SyncFallbackReturnsJobGroupId(t *testing.T) {
 		"directory": dir,
 	})
 
-	jobGroupId, ok := payload["jobGroupId"].(string)
-	if !ok || jobGroupId == "" {
-		t.Error("expected non-empty jobGroupId in sync fallback")
+	jobGroupID, ok := payload["jobGroupId"].(string)
+	if !ok || jobGroupID == "" {
+		t.Error("expected non-empty jobGroupID in sync fallback")
 	}
 	if payload["async"] != false {
 		t.Errorf("expected async=false for sync fallback, got %v", payload["async"])
@@ -266,9 +266,9 @@ func TestIngestDirectory_AsyncModeWithBus(t *testing.T) {
 	if payload["async"] != true {
 		t.Errorf("expected async=true, got %v", payload["async"])
 	}
-	jobGroupId, ok := payload["jobGroupId"].(string)
-	if !ok || jobGroupId == "" {
-		t.Error("expected non-empty jobGroupId in async mode")
+	jobGroupID, ok := payload["jobGroupId"].(string)
+	if !ok || jobGroupID == "" {
+		t.Error("expected non-empty jobGroupID in async mode")
 	}
 	if payload["filesQueued"] != float64(2) {
 		t.Errorf("expected filesQueued=2, got %v", payload["filesQueued"])
@@ -286,8 +286,8 @@ func TestIngestDirectory_AsyncModeWithBus(t *testing.T) {
 			t.Errorf("expected file payload, got %s", evt.Payload.Kind)
 		}
 		md, ok := evt.Metadata["jobGroupId"]
-		if !ok || md != jobGroupId {
-			t.Errorf("expected metadata.jobGroupId=%s, got %v", jobGroupId, md)
+		if !ok || md != jobGroupID {
+			t.Errorf("expected metadata.jobGroupID=%s, got %v", jobGroupID, md)
 		}
 	}
 	rmu.Unlock()

@@ -150,7 +150,7 @@ func (e *PDFExtractor) Extract(ctx context.Context, raw []byte, opts ExtractOpti
 	if err != nil {
 		return ExtractResult{}, fmt.Errorf("ingest: creating temp dir for PDF: %w", err)
 	}
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	pdfPath := filepath.Join(tmpDir, "input.pdf")
 	if err := os.WriteFile(pdfPath, raw, 0o600); err != nil {
@@ -181,7 +181,7 @@ func (e *PDFExtractor) Extract(ctx context.Context, raw []byte, opts ExtractOpti
 
 // ExtractStream buffers the reader and delegates to Extract.
 func (e *PDFExtractor) ExtractStream(ctx context.Context, reader io.Reader, opts ExtractOptions) (ExtractResult, error) {
-	var limitReader io.Reader = reader
+	limitReader := reader
 	if opts.MaxBytes > 0 {
 		limitReader = io.LimitReader(reader, opts.MaxBytes)
 	}

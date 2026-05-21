@@ -44,15 +44,15 @@ afterEach(async () => {
 const MARKDOWN_DOC = [
   '# Alpha Section',
   '',
-  'The quick brown fox jumps over the lazy dog.',
+  'The quick brown fox jumps over the lazy dog. This section contains enough text to exceed the minimum token threshold used by the chunker so that each heading-delimited section stands alone as its own chunk without being merged into a neighbour.',
   '',
   '# Beta Section',
   '',
-  'Polyphonic synthesisers create harmonious soundscapes.',
+  'Polyphonic synthesisers create harmonious soundscapes. Additional detail ensures this section also surpasses the minimum token boundary so it remains independent during the merge-small-chunks pass of the markdown chunker.',
   '',
   '# Gamma Section',
   '',
-  'Reticulating splines with alacrity and precision.',
+  'Reticulating splines with alacrity and precision. Once more, sufficient prose is needed here so the chunker treats this as a standalone section rather than folding it into the preceding chunk due to brevity.',
 ].join('\n')
 
 describe('ingestDocument', () => {

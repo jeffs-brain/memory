@@ -208,7 +208,7 @@ func (s *idempotencyStore) sweep() {
 const (
 	defaultMaxDocuments    = 50
 	defaultMaxPayloadBytes = 8 * 1024 * 1024  // 8 MiB
-	defaultMaxDocBytes     = 10 * 1024 * 1024  // 10 MiB
+	defaultMaxDocBytes     = 10 * 1024 * 1024 // 10 MiB
 	defaultTimestampExpiry = 5 * time.Minute
 	defaultRateLimitTokens = 60
 	defaultRateLimitRate   = 10.0 // tokens per second
@@ -555,8 +555,8 @@ func (w *WebhookReceiver) processDocument(doc WebhookDocument) WebhookDocumentRe
 
 func (w *WebhookReceiver) decodeContent(doc WebhookDocument) ([]byte, error) {
 	decoders := map[string]func(string) ([]byte, error){
-		"":      func(s string) ([]byte, error) { return []byte(s), nil },
-		"utf8":  func(s string) ([]byte, error) { return []byte(s), nil },
+		"":     func(s string) ([]byte, error) { return []byte(s), nil },
+		"utf8": func(s string) ([]byte, error) { return []byte(s), nil },
 		"base64": func(s string) ([]byte, error) {
 			decoded, err := base64.StdEncoding.DecodeString(s)
 			if err != nil {

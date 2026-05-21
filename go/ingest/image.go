@@ -197,7 +197,7 @@ func (e *ImageExtractor) Extract(ctx context.Context, raw []byte, opts ExtractOp
 
 // ExtractStream buffers the reader and delegates to Extract.
 func (e *ImageExtractor) ExtractStream(ctx context.Context, reader io.Reader, opts ExtractOptions) (ExtractResult, error) {
-	var limitReader io.Reader = reader
+	limitReader := reader
 	if opts.MaxBytes > 0 {
 		limitReader = io.LimitReader(reader, opts.MaxBytes)
 	}
@@ -239,13 +239,13 @@ func writeTempFile(raw []byte, pattern string) (string, error) {
 	path := f.Name()
 
 	if _, err := f.Write(raw); err != nil {
-		f.Close()
-		os.Remove(path)
+		_ = f.Close()
+		_ = os.Remove(path)
 		return "", fmt.Errorf("ingest: writing temp file: %w", err)
 	}
 
 	if err := f.Close(); err != nil {
-		os.Remove(path)
+		_ = os.Remove(path)
 		return "", fmt.Errorf("ingest: closing temp file: %w", err)
 	}
 
@@ -260,7 +260,7 @@ func (e *ImageExtractor) extractWithPaddleOCR(ctx context.Context, raw []byte, l
 	if err != nil {
 		return ExtractResult{}, err
 	}
-	defer os.Remove(tmpPath)
+	defer func() { _ = os.Remove(tmpPath) }()
 
 	// Resolve to absolute path to prevent path traversal.
 	absPath, err := filepath.Abs(tmpPath)
@@ -312,7 +312,7 @@ func (e *ImageExtractor) extractWithTesseract(ctx context.Context, raw []byte, l
 	if err != nil {
 		return ExtractResult{}, err
 	}
-	defer os.Remove(tmpPath)
+	defer func() { _ = os.Remove(tmpPath) }()
 
 	absPath, err := filepath.Abs(tmpPath)
 	if err != nil {

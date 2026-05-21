@@ -601,7 +601,7 @@ func (c *SlackConnector) callSlackAPI(
 			if parseErr != nil || waitSecs <= 0 {
 				waitSecs = 5
 			}
-			resp.Body.Close()
+			_ = resp.Body.Close()
 			cancel()
 
 			if attempt == maxAPIRetries-1 {
@@ -614,13 +614,13 @@ func (c *SlackConnector) callSlackAPI(
 		}
 
 		if resp.StatusCode != http.StatusOK {
-			resp.Body.Close()
+			_ = resp.Body.Close()
 			cancel()
 			return slackResponse{}, fmt.Errorf("slack API returned HTTP %d", resp.StatusCode)
 		}
 
 		body, readErr := io.ReadAll(io.LimitReader(resp.Body, 10*1024*1024)) // 10 MB limit
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		cancel()
 		if readErr != nil {
 			return slackResponse{}, fmt.Errorf("read response: %w", readErr)
@@ -642,14 +642,14 @@ func (c *SlackConnector) callSlackAPI(
 }
 
 // Health returns the current health status of the Slack connector.
-func (sc *SlackConnector) Health() HealthStatus {
-	sc.mu.Lock()
-	defer sc.mu.Unlock()
+func (c *SlackConnector) Health() HealthStatus {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 
 	status := StatusConnected
 	var message string
 
-	if sc.config.BotToken == "" {
+	if c.config.BotToken == "" {
 		status = StatusDisconnected
 		message = "connector not configured"
 	}

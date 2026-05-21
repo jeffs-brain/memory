@@ -166,7 +166,7 @@ func (p *anthropicProvider) Complete(ctx context.Context, req CompleteRequest) (
 			out.ToolCalls = append(out.ToolCalls, ToolCall{
 				ID:        block.ID,
 				Name:      block.Name,
-				Arguments: json.RawMessage(block.Input),
+				Arguments: block.Input,
 			})
 		}
 	}

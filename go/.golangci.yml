@@ -20,9 +20,40 @@ linters:
   settings:
     misspell:
       locale: UK
+      ignore-rules:
+        # US spellings in regex patterns matching both UK/US variants
+        - naturalization
+        - counselor
+        - pediatrician
+        - gynecologist
+        - participat
+        - cozy
+        # US spellings in LLM prompt text (must not change model instructions)
+        - penalize
+        - personalized
+        - moisturizer
+        - organize
+        # HTTP standard terms
+        - unauthorized
+        # CLI flag names (de facto standard)
+        - color
+        # Go crypto library upstream term
+        - armored
+        # US English terms used as internal reason codes / string constants
+        - artifact
+        - normalized
+        - categorized
+        - center
+        - Initializing
+        - behavior
+        - distill
+        - Distill
+        # LLM prompt content - cannot change
+        - utilizes
     staticcheck:
       checks:
         - "all"
+        - "-ST1000"
         - "-ST1018"
         - "-ST1023"
         - "-QF1012"

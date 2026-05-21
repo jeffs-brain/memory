@@ -91,13 +91,13 @@ func UnsupportedMediaType(w http.ResponseWriter, detail string) {
 	})
 }
 
-// Unauthorized writes a 401 Problem+JSON.
-func Unauthorized(w http.ResponseWriter, detail string) {
+// Unauthorised writes a 401 Problem+JSON.
+func Unauthorised(w http.ResponseWriter, detail string) {
 	WriteProblem(w, Problem{
 		Status: http.StatusUnauthorized,
-		Title:  "Unauthorized",
+		Title:  "Unauthorized", //nolint:misspell // HTTP standard term
 		Detail: detail,
-		Code:   "unauthorized",
+		Code:   "unauthorized", //nolint:misspell // HTTP standard term
 	})
 }
 
@@ -141,7 +141,7 @@ func WriteStoreError(w http.ResponseWriter, err error) bool {
 	case errors.Is(err, brain.ErrUnsupportedMedia):
 		UnsupportedMediaType(w, err.Error())
 	case errors.Is(err, brain.ErrUnauthorized):
-		Unauthorized(w, err.Error())
+		Unauthorised(w, err.Error())
 	case errors.Is(err, brain.ErrForbidden):
 		Forbidden(w, err.Error())
 	case errors.Is(err, brain.ErrReadOnly):

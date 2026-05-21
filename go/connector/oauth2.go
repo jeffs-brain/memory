@@ -255,7 +255,7 @@ func (e *httpTokenExchanger) post(ctx context.Context, form url.Values) (OAuth2T
 	if err != nil {
 		return OAuth2Token{}, fmt.Errorf("oauth2: token request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	respBody, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {

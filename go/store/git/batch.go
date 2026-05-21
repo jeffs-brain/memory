@@ -397,14 +397,10 @@ func (b *gitBatch) effectiveContent(ctx context.Context, p brain.Path, upto int)
 			}
 		case opDelete:
 			if op.path == p {
-				have = true
-				buf = nil
 				return nil, false, false, nil
 			}
 		case opRename:
 			if op.src == p {
-				have = true
-				buf = nil
 				return nil, false, false, nil
 			}
 			if op.path == p {
@@ -416,8 +412,6 @@ func (b *gitBatch) effectiveContent(ctx context.Context, p brain.Path, upto int)
 					have = true
 					buf = append(buf[:0], sub...)
 				} else {
-					have = true
-					buf = nil
 					return nil, false, false, nil
 				}
 			}
@@ -759,7 +753,7 @@ func acquireFileLock(path string) (*os.File, error) {
 		return nil, err
 	}
 	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX); err != nil {
-		f.Close()
+		_ = f.Close()
 		return nil, err
 	}
 	return f, nil
@@ -767,7 +761,7 @@ func acquireFileLock(path string) (*os.File, error) {
 
 func releaseFileLock(f *os.File) {
 	_ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
-	f.Close()
+	_ = f.Close()
 }
 
 // refreshIndex re-reads the git index from disk into go-git's in-memory
@@ -784,7 +778,7 @@ func (s *Store) refreshIndex() error {
 		}
 		return fmt.Errorf("gitstore: open index for refresh: %w", err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	idx := &gitindex.Index{}
 	dec := gitindex.NewDecoder(f)

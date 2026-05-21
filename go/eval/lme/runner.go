@@ -403,7 +403,7 @@ func Run(ctx context.Context, cfg RunConfig) (*LMEResult, error) {
 		}
 	}
 
-	var evalStore brain.Store = cfg.Store
+	evalStore := cfg.Store
 	if evalStore == nil {
 		if cfg.BrainCache != "" {
 			// Use the passthrough store so every logical path lands at

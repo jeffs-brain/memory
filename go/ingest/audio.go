@@ -318,7 +318,7 @@ func (e *AudioExtractor) ExtractStream(ctx context.Context, reader io.Reader, op
 		_ = os.Remove(tmpPath)
 	}()
 
-	var src io.Reader = reader
+	src := reader
 	if e.maxFileSize > 0 {
 		src = io.LimitReader(reader, e.maxFileSize+1)
 	}
