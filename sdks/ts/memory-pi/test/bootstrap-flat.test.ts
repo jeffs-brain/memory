@@ -8,7 +8,7 @@
  */
 
 import { mkdtempSync, rmSync } from 'node:fs'
-import { mkdir, writeFile } from 'node:fs/promises'
+import { mkdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createSearchIndex } from '@jeffs-brain/memory/search'
@@ -90,6 +90,41 @@ describe('bootstrapFlatBrain', () => {
       expect(second.indexed).toBe(0)
       expect(second.skipped).toBe(1)
       expect(second.skippedReasons['already-indexed']).toBe(1)
+    } finally {
+      await idx.close()
+    }
+  })
+
+  it('reindexes changed files and prunes deleted files when requested', async () => {
+    await writeAt('memory/changing.md', '# Before\n\nold body\n')
+    await writeAt('raw/transient.md', '# Transient\n\nremove me\n')
+
+    const idx = await createSearchIndex({ dbPath: ':memory:' })
+    try {
+      const first = await bootstrapFlatBrain({
+        brainRoot,
+        brainId: 'test-brain',
+        searchIndex: idx,
+        prune: true,
+      })
+      expect(first.indexed).toBe(2)
+
+      await writeAt('memory/changing.md', '# After\n\nnew body with extra detail\n')
+      await rm(join(brainRoot, 'raw', 'transient.md'))
+
+      const second = await bootstrapFlatBrain({
+        brainRoot,
+        brainId: 'test-brain',
+        searchIndex: idx,
+        prune: true,
+      })
+      expect(second.indexed).toBe(1)
+      expect(second.deleted).toBeGreaterThanOrEqual(1)
+      expect(idx.indexedPaths()).toEqual(['memory/changing.md'])
+
+      const hits = idx.searchBM25('new', 5)
+      expect(hits[0]?.chunk.path).toBe('memory/changing.md')
+      expect(idx.searchBM25('old', 5)).toHaveLength(0)
     } finally {
       await idx.close()
     }

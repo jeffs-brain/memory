@@ -31,6 +31,8 @@ import {
   type SearchIndex as MemorySearchIndex,
   type SqliteSearchIndex,
   type Store,
+  TEIEmbedder,
+  TEIReranker,
   autodetectStore,
   createFsStore,
   createGitStore,
@@ -43,6 +45,15 @@ import {
 import type { Message } from '@jeffs-brain/memory'
 import type { Retrieval } from '@jeffs-brain/memory/retrieval'
 import { createRetrieval } from '@jeffs-brain/memory/retrieval'
+import {
+  AutoReranker,
+  CrossEncoderReranker,
+  DEFAULT_RERANK_BATCH_SIZE,
+  DEFAULT_RERANK_PARALLELISM,
+  DEFAULT_SHARED_RERANK_CONCURRENCY,
+  LLMReranker,
+  type Reranker,
+} from '@jeffs-brain/memory/rerank'
 import { bootstrapFlatBrain } from './bootstrap-flat.js'
 import type { MemoryExtensionConfig } from './config.js'
 import {
@@ -54,6 +65,7 @@ import {
   resolveBrainPaths,
 } from './defaults.js'
 import { type RuntimeLogger, noopRuntimeLogger } from './runtime-logger.js'
+import { backfillSearchIndexVectors, resolveBackfillModel } from './vector-backfill.js'
 
 export { noopRuntimeLogger } from './runtime-logger.js'
 export type { RuntimeLogger } from './runtime-logger.js'
@@ -84,6 +96,7 @@ export type MemoryRuntime = {
   readonly searchIndex: SqliteSearchIndex
   readonly embedder: Embedder | undefined
   readonly provider: Provider | undefined
+  readonly reranker: Reranker | undefined
   readonly memory: Memory
   readonly retrieval: Retrieval
   readonly extractQueue: ExtractQueueState
@@ -100,7 +113,9 @@ export type ResolvedRuntimeConfig = {
   readonly flatLayout: boolean
   readonly searchIndexPath: string | undefined
   readonly vectorExtensionPath: string | undefined
+  readonly vectorDim: number | undefined
   readonly bootstrapScanDirs: readonly string[] | undefined
+  readonly bootstrapScanIntervalMs: number | undefined
   readonly scope: Scope
   readonly fallbackScopes: readonly Scope[]
   readonly actorId: string
@@ -135,7 +150,9 @@ export const resolveRuntimeConfig = (
   const flatLayout = config?.flatLayout ?? truthyEnv(env.MEMORY_PI_FLAT_LAYOUT)
   const searchIndexPath = config?.searchIndexPath ?? env.MEMORY_PI_SEARCH_INDEX_PATH
   const vectorExtensionPath = config?.vectorExtensionPath ?? env.MEMORY_PI_VECTOR_EXTENSION_PATH
+  const vectorDim = config?.vectorDim
   const bootstrapScanDirs = config?.bootstrapScanDirs
+  const bootstrapScanIntervalMs = config?.bootstrapScanIntervalMs
   const scope = (config?.recall?.scope as Scope | undefined) ?? 'global'
   const fallbackScopes = (config?.recall?.fallbackScopes as readonly Scope[] | undefined) ?? []
   const actorId = config?.acl?.actorId ?? env.MEMORY_PI_ACTOR_ID ?? 'pi-user'
@@ -145,7 +162,9 @@ export const resolveRuntimeConfig = (
     flatLayout,
     searchIndexPath,
     vectorExtensionPath,
+    vectorDim,
     bootstrapScanDirs,
+    bootstrapScanIntervalMs,
     scope,
     fallbackScopes,
     actorId,
@@ -226,16 +245,18 @@ const buildEmbedder = async (
     })
   }
   if (embedderConfig !== undefined && embedderConfig.kind === 'openai') {
+    const baseURL = embedderConfig.baseUrl ?? embedderConfig.baseURL
     return new OpenAIEmbedder({
       apiKey: embedderConfig.apiKey,
+      ...(baseURL !== undefined ? { baseURL } : {}),
       model: embedderConfig.model ?? 'text-embedding-3-small',
     })
   }
   if (embedderConfig !== undefined && embedderConfig.kind === 'tei') {
-    // TEI embedder needs custom URL plumbing not yet stabilised; punt
-    // to an explicit error so the user does not silently get no
-    // embeddings.
-    throw new Error('memory-pi: tei embedder is not wired yet; pass embedder: { kind: "auto" }')
+    return new TEIEmbedder({
+      baseURL: embedderConfig.endpoint,
+      model: embedderConfig.model ?? 'tei',
+    })
   }
   throw new Error(`memory-pi: unknown embedder kind: ${JSON.stringify(embedderConfig)}`)
 }
@@ -257,8 +278,10 @@ const buildProvider = async (
     return new OllamaProvider({ baseURL: detected.baseUrl, model: detected.model })
   }
   if (providerConfig !== undefined && providerConfig.kind === 'openai') {
+    const baseURL = providerConfig.baseUrl ?? providerConfig.baseURL
     return new OpenAIProvider({
       apiKey: providerConfig.apiKey,
+      ...(baseURL !== undefined ? { baseURL } : {}),
       model: providerConfig.model ?? 'gpt-4o-mini',
     })
   }
@@ -275,6 +298,85 @@ const buildProvider = async (
     })
   }
   throw new Error(`memory-pi: unknown provider kind: ${JSON.stringify(providerConfig)}`)
+}
+
+const llmReranker = (
+  provider: Provider | undefined,
+  settings: {
+    readonly label?: string | undefined
+    readonly batchSize?: number | undefined
+    readonly parallelism?: number | undefined
+    readonly concurrencyCap?: number | undefined
+  },
+): Reranker | undefined => {
+  if (provider === undefined) return undefined
+  return new LLMReranker({
+    provider,
+    batchSize: settings.batchSize ?? DEFAULT_RERANK_BATCH_SIZE,
+    parallelism: settings.parallelism ?? DEFAULT_RERANK_PARALLELISM,
+    concurrencyCap: settings.concurrencyCap ?? DEFAULT_SHARED_RERANK_CONCURRENCY,
+    label: settings.label ?? 'llm-rerank',
+  })
+}
+
+const teiReranker = (settings: {
+  readonly endpoint: string
+  readonly label?: string | undefined
+  readonly concurrencyCap?: number | undefined
+}): Reranker =>
+  new CrossEncoderReranker({
+    client: new TEIReranker({ baseURL: settings.endpoint }),
+    label: settings.label ?? 'tei-rerank',
+    concurrencyCap: settings.concurrencyCap ?? DEFAULT_SHARED_RERANK_CONCURRENCY,
+  })
+
+const buildReranker = (
+  config: MemoryExtensionConfig | undefined,
+  provider: Provider | undefined,
+  logger: RuntimeLogger,
+): Reranker | undefined => {
+  const rerankerConfig = config?.reranker
+  if (rerankerConfig === undefined || rerankerConfig.kind === 'off') return undefined
+  if (rerankerConfig.kind === 'tei') {
+    return teiReranker(rerankerConfig)
+  }
+  if (rerankerConfig.kind === 'llm') {
+    const reranker = llmReranker(provider, rerankerConfig)
+    if (reranker === undefined) {
+      logger.warn('memory-pi: llm reranker requested without an LLM provider')
+    }
+    return reranker
+  }
+  if (rerankerConfig.kind === 'auto') {
+    const fallback = llmReranker(provider, rerankerConfig)
+    if (rerankerConfig.endpoint === undefined) return fallback
+    const primary = teiReranker({
+      endpoint: rerankerConfig.endpoint,
+      label: 'tei-rerank',
+      concurrencyCap: rerankerConfig.concurrencyCap,
+    })
+    return new AutoReranker({
+      primary,
+      ...(fallback !== undefined ? { fallback } : {}),
+      label: rerankerConfig.label ?? 'auto-rerank',
+    })
+  }
+  throw new Error(`memory-pi: unknown reranker kind: ${JSON.stringify(rerankerConfig)}`)
+}
+
+const configuredEmbedModel = (
+  config: MemoryExtensionConfig | undefined,
+  embedder: Embedder | undefined,
+): string => {
+  const embedderConfig = config?.embedder
+  if (
+    embedderConfig !== undefined &&
+    embedderConfig.kind !== 'auto' &&
+    embedderConfig.kind !== 'off'
+  ) {
+    return resolveBackfillModel(embedder, embedderConfig.model)
+  }
+  return resolveBackfillModel(embedder)
 }
 
 /**
@@ -304,12 +406,18 @@ export const createMemoryRuntime = async (
   const store = await buildStore(config, paths.root)
   const searchIndex = await createSearchIndex({
     dbPath: paths.searchIndexPath,
+    ...(resolved.vectorDim !== undefined ? { vectorDim: resolved.vectorDim } : {}),
     ...(resolved.vectorExtensionPath !== undefined
       ? { vectorExtensionPath: resolved.vectorExtensionPath }
       : {}),
   })
   const embedder = await buildEmbedder(config)
   const provider = await buildProvider(config)
+  const reranker = buildReranker(config, provider, logger)
+  const maintenanceAbort = new AbortController()
+  let scanTimer: ReturnType<typeof setInterval> | undefined
+  let maintenanceRun: Promise<void> | undefined
+  let vectorBackfillRun: Promise<void> | undefined
 
   if (provider === undefined) {
     logger.warn(
@@ -320,12 +428,31 @@ export const createMemoryRuntime = async (
     logger.warn('memory-pi: no embedder detected; vector recall disabled')
   }
 
-  // Single-brain hosts: walk the existing on-disk content once on boot
-  // so memory_search / memory_recall query the same wiki + memory + raw
-  // files the host already manages, without writing copies back into
-  // the brain Store. Idempotent: re-entries hit the indexed-paths cache
-  // in `bootstrapFlatBrain` and become no-ops.
-  if (resolved.flatLayout) {
+  const scheduleVectorBackfill = (): void => {
+    if (embedder === undefined || vectorBackfillRun !== undefined) return
+    const model = configuredEmbedModel(config, embedder)
+    vectorBackfillRun = backfillSearchIndexVectors({
+      brainId: paths.id,
+      searchIndex,
+      embedder,
+      model,
+      signal: maintenanceAbort.signal,
+      logger,
+    })
+      .then(() => undefined)
+      .catch((err) => {
+        if (maintenanceAbort.signal.aborted) return
+        logger.warn('memory-pi: vector backfill failed', {
+          err: err instanceof Error ? err.message : String(err),
+          brainRoot: paths.root,
+        })
+      })
+      .finally(() => {
+        vectorBackfillRun = undefined
+      })
+  }
+
+  const runFlatBootstrap = async (): Promise<void> => {
     try {
       await bootstrapFlatBrain({
         brainRoot: paths.root,
@@ -334,8 +461,10 @@ export const createMemoryRuntime = async (
         ...(resolved.bootstrapScanDirs !== undefined
           ? { scanDirs: resolved.bootstrapScanDirs }
           : {}),
+        prune: true,
         logger,
       })
+      scheduleVectorBackfill()
     } catch (err) {
       logger.error('memory-pi: flat bootstrap failed', {
         err: err instanceof Error ? err.message : String(err),
@@ -344,9 +473,28 @@ export const createMemoryRuntime = async (
     }
   }
 
+  // Single-brain hosts: walk the existing on-disk content on boot so
+  // memory_search / memory_recall query the same wiki + memory + raw
+  // files the host already manages, without writing copies back into
+  // the brain Store. Changed files are refreshed by source file stats,
+  // and hosts can opt into a periodic rescan.
+  if (resolved.flatLayout) {
+    await runFlatBootstrap()
+    if (resolved.bootstrapScanIntervalMs !== undefined) {
+      scanTimer = setInterval(() => {
+        if (maintenanceRun !== undefined) return
+        maintenanceRun = runFlatBootstrap().finally(() => {
+          maintenanceRun = undefined
+        })
+      }, resolved.bootstrapScanIntervalMs)
+      scanTimer.unref?.()
+    }
+  }
+
   const retrieval = createRetrieval({
     index: searchIndex,
     ...(embedder !== undefined ? { embedder } : {}),
+    ...(reranker !== undefined ? { reranker } : {}),
   })
 
   // Wire the SQLite SearchIndex into `createMemory` via a thin adapter
@@ -378,11 +526,16 @@ export const createMemoryRuntime = async (
     searchIndex,
     embedder,
     provider,
+    reranker,
     memory,
     retrieval,
     extractQueue,
     async close() {
+      maintenanceAbort.abort()
+      if (scanTimer !== undefined) clearInterval(scanTimer)
       await extractQueue.flush()
+      await maintenanceRun?.catch(() => undefined)
+      await vectorBackfillRun?.catch(() => undefined)
       await searchIndex.close().catch(() => undefined)
       await store.close().catch(() => undefined)
     },

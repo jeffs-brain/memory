@@ -11,8 +11,9 @@
  * read-only side index over those files. The Store is never touched
  * so source content is not duplicated or rewritten.
  *
- * Idempotent: paths already present in `knowledge_chunks` are skipped on
- * re-entry, so booting an already-bootstrapped brain is a no-op.
+ * Idempotent: paths with matching source file stats are skipped on
+ * re-entry, while changed files are reindexed and stale files can be
+ * pruned by hosts that opt in.
  */
 
 import { readFile, readdir, stat } from 'node:fs/promises'
@@ -36,6 +37,7 @@ export type BootstrapFlatOptions = {
   readonly searchIndex: SearchIndex
   readonly scanDirs?: readonly string[]
   readonly extensions?: readonly string[]
+  readonly prune?: boolean
   readonly logger?: RuntimeLogger
 }
 
@@ -43,6 +45,7 @@ export type BootstrapFlatResult = {
   readonly scanned: number
   readonly indexed: number
   readonly skipped: number
+  readonly deleted: number
   readonly skippedReasons: Readonly<Record<string, number>>
   readonly durationMs: number
 }
@@ -61,6 +64,60 @@ const isFileAccessible = async (path: string): Promise<boolean> => {
     return false
   }
 }
+
+type IndexedFileStat = {
+  readonly sourceSize: number
+  readonly sourceMtimeMs: number
+}
+
+type IndexedFileStatRow = {
+  readonly path: string
+  readonly metadata_json: string | null
+}
+
+const parseIndexedFileStat = (raw: string | null): IndexedFileStat | undefined => {
+  if (raw === null) return undefined
+  try {
+    const parsed = JSON.parse(raw) as {
+      sourceSize?: unknown
+      sourceMtimeMs?: unknown
+    }
+    if (
+      typeof parsed.sourceSize === 'number' &&
+      Number.isFinite(parsed.sourceSize) &&
+      typeof parsed.sourceMtimeMs === 'number' &&
+      Number.isFinite(parsed.sourceMtimeMs)
+    ) {
+      return {
+        sourceSize: parsed.sourceSize,
+        sourceMtimeMs: parsed.sourceMtimeMs,
+      }
+    }
+  } catch {
+    return undefined
+  }
+  return undefined
+}
+
+const indexedFileStats = (searchIndex: SearchIndex): Map<string, IndexedFileStat> => {
+  const rows = searchIndex.db
+    .prepare(
+      `SELECT path, metadata_json
+         FROM knowledge_chunks
+        ORDER BY path, ordinal`,
+    )
+    .all() as IndexedFileStatRow[]
+  const out = new Map<string, IndexedFileStat>()
+  for (const row of rows) {
+    if (out.has(row.path)) continue
+    const parsed = parseIndexedFileStat(row.metadata_json)
+    if (parsed !== undefined) out.set(row.path, parsed)
+  }
+  return out
+}
+
+const underScanDirs = (path: string, scanDirs: readonly string[]): boolean =>
+  scanDirs.some((dir) => path === dir || path.startsWith(`${dir}/`))
 
 const extractTitle = (path: string, content: string): string => {
   const trimmed = content.trim()
@@ -128,12 +185,16 @@ export const bootstrapFlatBrain = async (
   const logger = options.logger ?? noopRuntimeLogger
   const scanDirs = options.scanDirs ?? DEFAULT_BOOTSTRAP_SCAN_DIRS
   const extensions = options.extensions ?? DEFAULT_BOOTSTRAP_EXTENSIONS
+  const prune = options.prune ?? false
   const start = Date.now()
   const known = new Set(options.searchIndex.indexedPaths())
+  const fileStats = indexedFileStats(options.searchIndex)
+  const seen = new Set<string>()
 
   let scanned = 0
   let indexed = 0
   let skipped = 0
+  let deleted = 0
   const skippedReasons: Record<string, number> = {}
   let batch: IndexChunk[] = []
 
@@ -141,6 +202,15 @@ export const bootstrapFlatBrain = async (
     if (batch.length === 0) return
     options.searchIndex.upsertChunks(batch)
     batch = []
+  }
+
+  const deleteIndexedPath = (rel: string): void => {
+    if (!known.has(rel)) return
+    flushBatch()
+    options.searchIndex.deleteByPath(rel)
+    known.delete(rel)
+    fileStats.delete(rel)
+    deleted++
   }
 
   for (const sub of scanDirs) {
@@ -152,27 +222,37 @@ export const bootstrapFlatBrain = async (
     for await (const absPath of walk(dir, extensions)) {
       scanned++
       const rel = toPosixRel(relative(options.brainRoot, absPath))
-      if (known.has(rel)) {
-        skipped++
-        bumpReason(skippedReasons, 'already-indexed')
-        continue
-      }
+      seen.add(rel)
       let info
       try {
         info = await stat(absPath)
       } catch {
         skipped++
         bumpReason(skippedReasons, 'stat-failed')
+        deleteIndexedPath(rel)
+        continue
+      }
+      const sourceMtimeMs = Math.trunc(info.mtimeMs)
+      const previousStat = fileStats.get(rel)
+      if (
+        previousStat !== undefined &&
+        previousStat.sourceSize === info.size &&
+        previousStat.sourceMtimeMs === sourceMtimeMs
+      ) {
+        skipped++
+        bumpReason(skippedReasons, 'already-indexed')
         continue
       }
       if (info.size === 0) {
         skipped++
         bumpReason(skippedReasons, 'empty')
+        deleteIndexedPath(rel)
         continue
       }
       if (info.size > MAX_FILE_BYTES) {
         skipped++
         bumpReason(skippedReasons, 'too-large')
+        deleteIndexedPath(rel)
         logger.warn('memory-pi bootstrap: skipping oversize file', {
           path: rel,
           bytes: info.size,
@@ -185,6 +265,7 @@ export const bootstrapFlatBrain = async (
       } catch (err) {
         skipped++
         bumpReason(skippedReasons, 'read-failed')
+        deleteIndexedPath(rel)
         logger.warn('memory-pi bootstrap: read failed', {
           path: rel,
           err: err instanceof Error ? err.message : String(err),
@@ -194,14 +275,17 @@ export const bootstrapFlatBrain = async (
       if (content.trim() === '') {
         skipped++
         bumpReason(skippedReasons, 'blank')
+        deleteIndexedPath(rel)
         continue
       }
       const sections = chunkMarkdown(content)
       if (sections.length === 0) {
         skipped++
         bumpReason(skippedReasons, 'no-chunks')
+        deleteIndexedPath(rel)
         continue
       }
+      deleteIndexedPath(rel)
       const title = extractTitle(rel, content)
       for (const section of sections) {
         batch.push({
@@ -213,6 +297,8 @@ export const bootstrapFlatBrain = async (
           metadata: {
             source: 'bootstrap-flat',
             brainId: options.brainId,
+            sourceSize: info.size,
+            sourceMtimeMs,
             headingPath: section.headingPath,
             startLine: section.startLine,
             endLine: section.endLine,
@@ -225,10 +311,19 @@ export const bootstrapFlatBrain = async (
   }
   flushBatch()
 
+  if (prune) {
+    for (const path of options.searchIndex.indexedPaths()) {
+      if (!underScanDirs(path, scanDirs) || seen.has(path)) continue
+      options.searchIndex.deleteByPath(path)
+      deleted++
+    }
+  }
+
   const result: BootstrapFlatResult = {
     scanned,
     indexed,
     skipped,
+    deleted,
     skippedReasons,
     durationMs: Date.now() - start,
   }

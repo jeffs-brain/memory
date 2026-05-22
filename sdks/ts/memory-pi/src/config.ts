@@ -38,9 +38,15 @@ const EmbedderConfigSchema = z.discriminatedUnion('kind', [
   z.object({
     kind: z.literal('openai'),
     apiKey: z.string(),
+    baseUrl: z.string().url().optional(),
+    baseURL: z.string().url().optional(),
     model: z.string().optional(),
   }),
-  z.object({ kind: z.literal('tei'), endpoint: z.string().url() }),
+  z.object({
+    kind: z.literal('tei'),
+    endpoint: z.string().url(),
+    model: z.string().optional(),
+  }),
   z.object({ kind: z.literal('off') }),
 ])
 
@@ -49,6 +55,8 @@ const ProviderConfigSchema = z.discriminatedUnion('kind', [
   z.object({
     kind: z.literal('openai'),
     apiKey: z.string(),
+    baseUrl: z.string().url().optional(),
+    baseURL: z.string().url().optional(),
     model: z.string().optional(),
   }),
   z.object({
@@ -64,9 +72,27 @@ const ProviderConfigSchema = z.discriminatedUnion('kind', [
 ])
 
 const RerankerConfigSchema = z.discriminatedUnion('kind', [
-  z.object({ kind: z.literal('auto') }),
-  z.object({ kind: z.literal('llm') }),
-  z.object({ kind: z.literal('tei'), endpoint: z.string().url() }),
+  z.object({
+    kind: z.literal('auto'),
+    endpoint: z.string().url().optional(),
+    label: z.string().optional(),
+    batchSize: z.number().int().positive().optional(),
+    parallelism: z.number().int().positive().optional(),
+    concurrencyCap: z.number().int().positive().optional(),
+  }),
+  z.object({
+    kind: z.literal('llm'),
+    label: z.string().optional(),
+    batchSize: z.number().int().positive().optional(),
+    parallelism: z.number().int().positive().optional(),
+    concurrencyCap: z.number().int().positive().optional(),
+  }),
+  z.object({
+    kind: z.literal('tei'),
+    endpoint: z.string().url(),
+    label: z.string().optional(),
+    concurrencyCap: z.number().int().positive().optional(),
+  }),
   z.object({ kind: z.literal('off') }),
 ])
 
@@ -107,6 +133,12 @@ export const MemoryExtensionConfigSchema = z
     // of `brainRoot` and ingest every markdown file found. Only honoured
     // when `flatLayout` is true. Defaults to ['wiki', 'memory', 'raw'].
     bootstrapScanDirs: z.array(z.string()).optional(),
+    // Optional periodic rescan interval for flat-layout hosts. This
+    // keeps wiki, memory, and raw markdown in the local FTS/vector index
+    // when another process writes directly to the brain working tree.
+    bootstrapScanIntervalMs: z.number().int().positive().optional(),
+    // SQLite vector dimension. Defaults to 1024, matching bge-m3.
+    vectorDim: z.number().int().positive().optional(),
     // Override the path to sqlite-vec's loadable extension (e.g.
     // `vec0.so`). sqlite-vec normally resolves this via
     // `import.meta.resolve('sqlite-vec-linux-x64/vec0.so')`, which fails

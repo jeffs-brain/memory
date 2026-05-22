@@ -110,6 +110,27 @@ describe('memory-pi smoke', () => {
     await runtime.close()
   })
 
+  it('builds TEI embedder and reranker clients from explicit config', async () => {
+    const runtime = await createMemoryRuntime({
+      brainRoot,
+      brainId: 'smoke',
+      store: { kind: 'fs' },
+      embedder: {
+        kind: 'tei',
+        endpoint: 'http://tei.example.test',
+        model: 'bge-m3',
+      },
+      reranker: {
+        kind: 'tei',
+        endpoint: 'http://reranker.example.test',
+      },
+    })
+    expect(runtime.embedder?.name()).toBe('tei-embed')
+    expect(runtime.embedder?.model()).toBe('bge-m3')
+    expect(runtime.reranker?.name()).toBe('tei-rerank')
+    await runtime.close()
+  })
+
   it('passes git store options through and pushes writes', async () => {
     const remoteRoot = await mkdtemp(join(tmpdir(), 'memory-pi-git-remote-'))
     const remoteDir = join(remoteRoot, 'brain.git')
