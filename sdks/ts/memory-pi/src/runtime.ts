@@ -182,9 +182,18 @@ const buildStore = async (
     return createFsStore({ root: brainRoot })
   }
   if (storeConfig.kind === 'git') {
+    const remoteUrl = storeConfig.remoteUrl ?? storeConfig.remote
+
     return createGitStore({
       dir: brainRoot,
-      ...(storeConfig.remote !== undefined ? { remoteUrl: storeConfig.remote } : {}),
+      ...(remoteUrl !== undefined ? { remoteUrl } : {}),
+      ...(storeConfig.branch !== undefined ? { branch: storeConfig.branch } : {}),
+      ...(storeConfig.init !== undefined ? { init: storeConfig.init } : {}),
+      ...(storeConfig.autoPush !== undefined ? { autoPush: storeConfig.autoPush } : {}),
+      ...(storeConfig.defaultAuthor !== undefined
+        ? { defaultAuthor: storeConfig.defaultAuthor }
+        : {}),
+      ...(storeConfig.sign !== undefined ? { sign: storeConfig.sign } : {}),
     })
   }
   if (storeConfig.kind === 'http') {

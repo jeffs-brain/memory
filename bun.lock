@@ -77,17 +77,21 @@
     },
     "sdks/ts/memory-pi": {
       "name": "@jeffs-brain/memory-pi",
-      "version": "0.1.0",
+      "version": "0.2.3",
       "dependencies": {
-        "@earendil-works/pi-coding-agent": "^0.74.0",
-        "@jeffs-brain/memory": "workspace:*",
-        "typebox": "^1.1.24",
+        "@jeffs-brain/memory": "^0.3.0",
         "zod": "^3",
       },
       "devDependencies": {
+        "@earendil-works/pi-coding-agent": "^0.74.0",
         "@types/node": "^22.10.5",
+        "typebox": "^1.1.24",
         "typescript": "^5.7.3",
         "vitest": "^2.1.8",
+      },
+      "peerDependencies": {
+        "@earendil-works/pi-coding-agent": "^0.74.0",
+        "typebox": "^1",
       },
     },
     "sdks/ts/memory-postgres": {

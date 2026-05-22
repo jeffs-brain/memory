@@ -1,9 +1,26 @@
 import { z } from 'zod'
+import type { GitSignFn } from '@jeffs-brain/memory'
+
+const GitSignatureSchema = z.object({
+  name: z.string().min(1),
+  email: z.string().min(1),
+})
+
+const GitSignFnSchema = z.custom<GitSignFn>((value) => typeof value === 'function')
 
 const StoreConfigSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('auto') }),
   z.object({ kind: z.literal('fs') }),
-  z.object({ kind: z.literal('git'), remote: z.string().optional() }),
+  z.object({
+    kind: z.literal('git'),
+    remote: z.string().optional(),
+    remoteUrl: z.string().optional(),
+    branch: z.string().min(1).optional(),
+    init: z.boolean().optional(),
+    autoPush: z.boolean().optional(),
+    defaultAuthor: GitSignatureSchema.optional(),
+    sign: GitSignFnSchema.optional(),
+  }),
   z.object({
     kind: z.literal('http'),
     endpoint: z.string().url(),
