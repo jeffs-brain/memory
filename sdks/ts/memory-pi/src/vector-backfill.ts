@@ -3,7 +3,7 @@
 import type { Embedder, SqliteSearchIndex } from '@jeffs-brain/memory'
 import { type RuntimeLogger, noopRuntimeLogger } from './runtime-logger.js'
 
-const DEFAULT_BACKFILL_BATCH_SIZE = 64
+const DEFAULT_BACKFILL_BATCH_SIZE = 16
 const DEFAULT_BACKFILL_TEXT_CAP = 8192
 
 type IndexedChunkRow = {

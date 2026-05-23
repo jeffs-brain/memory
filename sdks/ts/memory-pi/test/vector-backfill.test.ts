@@ -62,4 +62,45 @@ describe('backfillSearchIndexVectors', () => {
       await idx.close()
     }
   })
+
+  it('keeps default backfill batches below TEI client batch limits', async () => {
+    const idx = await createSearchIndex({ dbPath: ':memory:', vectorDim: 3 })
+    const batchSizes: number[] = []
+    const embedder: Embedder = {
+      name: () => 'fake',
+      model: () => 'fake-embedder',
+      dimension: () => 3,
+      async embed(texts) {
+        batchSizes.push(texts.length)
+        return texts.map((text, index) => {
+          const seed = text.length + index + 1
+          return Array.from({ length: 3 }, (_, offset) => seed + offset)
+        })
+      },
+    }
+
+    try {
+      idx.upsertChunks(
+        Array.from({ length: 40 }, (_, index) => ({
+          id: `memory/b.md#${index}`,
+          path: 'memory/b.md',
+          ordinal: index,
+          title: 'B',
+          content: `content ${index}`,
+        })),
+      )
+
+      const result = await backfillSearchIndexVectors({
+        brainId: 'test',
+        searchIndex: idx,
+        embedder,
+        model: 'fake-embedder',
+      })
+
+      expect(result.embedded).toBe(40)
+      expect(batchSizes).toEqual([16, 16, 8])
+    } finally {
+      await idx.close()
+    }
+  })
 })
