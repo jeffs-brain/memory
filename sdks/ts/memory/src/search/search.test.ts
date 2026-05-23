@@ -226,6 +226,22 @@ describe('roundtrip', () => {
 })
 
 describe('deleteByPath', () => {
+  it('handles paths whose chunks have no vector rows', async () => {
+    const idx = await fresh()
+
+    idx.upsertChunks([
+      {
+        id: 'text-only',
+        path: 'text-only.md',
+        title: 'text',
+        content: 'text only content',
+      },
+    ])
+
+    expect(() => idx.deleteByPath('text-only.md')).not.toThrow()
+    expect(idx.getChunk('text-only')).toBeUndefined()
+  })
+
   it('removes matching chunks from both BM25 and vector indexes', async () => {
     const idx = await fresh()
 

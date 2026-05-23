@@ -47,7 +47,7 @@
     },
     "sdks/ts/memory": {
       "name": "@jeffs-brain/memory",
-      "version": "0.3.0",
+      "version": "0.3.1",
       "bin": {
         "memory": "./dist/cli.js",
       },
@@ -77,7 +77,7 @@
     },
     "sdks/ts/memory-pi": {
       "name": "@jeffs-brain/memory-pi",
-      "version": "0.2.4",
+      "version": "0.2.6",
       "dependencies": {
         "@jeffs-brain/memory": "^0.3.0",
         "zod": "^3",

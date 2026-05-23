@@ -122,7 +122,7 @@ export function deleteVector(db: SqlDb, chunkId: string): void {
   const row = db
     .prepare('SELECT vec_rowid FROM knowledge_vec_map WHERE chunk_id = ?')
     .get(chunkId) as { vec_rowid: number | bigint } | undefined
-  if (row === undefined) return
+  if (row == null) return
   const vecRowidBig = typeof row.vec_rowid === 'bigint' ? row.vec_rowid : BigInt(row.vec_rowid)
   db.prepare('DELETE FROM knowledge_vectors WHERE rowid = ?').run(vecRowidBig)
   db.prepare('DELETE FROM knowledge_vec_map WHERE chunk_id = ?').run(chunkId)
