@@ -118,19 +118,19 @@ func ComputeSupersedesEdges(ctx context.Context, db *sql.DB, documentID, brainID
 }
 
 // ComputeSessionEpisodeEdges computes edges from session docs to episode docs.
-func ComputeSessionEpisodeEdges(ctx context.Context, db *sql.DB, documentID, brainID, tenantID string) ([]WeightedEdge, error) {
+func ComputeSessionEpisodeEdges(ctx context.Context, db *sql.DB, documentID, brainID, tenantID string, limit int) ([]WeightedEdge, error) {
 	if db == nil {
 		return nil, fmt.Errorf("compute session episode edges: nil db")
 	}
-	return computeSessionEpisodeEdges(ctx, db, documentID, brainID, tenantID)
+	return computeSessionEpisodeEdges(ctx, db, documentID, brainID, tenantID, limit)
 }
 
 // ComputeEpisodeHeuristicEdges computes edges linking episodes and heuristics for a session.
-func ComputeEpisodeHeuristicEdges(ctx context.Context, db *sql.DB, documentID, brainID, tenantID string) ([]WeightedEdge, error) {
+func ComputeEpisodeHeuristicEdges(ctx context.Context, db *sql.DB, documentID, brainID, tenantID string, limit int) ([]WeightedEdge, error) {
 	if db == nil {
 		return nil, fmt.Errorf("compute episode heuristic edges: nil db")
 	}
-	return computeEpisodeHeuristicEdges(ctx, db, documentID, brainID, tenantID)
+	return computeEpisodeHeuristicEdges(ctx, db, documentID, brainID, tenantID, limit)
 }
 
 // ComputeDocumentOntologyEdges computes edges between ontology docs and typed docs.
@@ -142,11 +142,11 @@ func ComputeDocumentOntologyEdges(ctx context.Context, db *sql.DB, documentID, b
 }
 
 // ComputeWikilinkEdges computes edges from explicit [[wikilink]] references.
-func ComputeWikilinkEdges(ctx context.Context, db *sql.DB, documentID, brainID, tenantID string) ([]LabeledWeightedEdge, error) {
+func ComputeWikilinkEdges(ctx context.Context, db *sql.DB, documentID, brainID, tenantID string, limit int) ([]LabeledWeightedEdge, error) {
 	if db == nil {
 		return nil, fmt.Errorf("compute wikilink edges: nil db")
 	}
-	return computeWikilinkEdges(ctx, db, documentID, brainID, tenantID)
+	return computeWikilinkEdges(ctx, db, documentID, brainID, tenantID, limit)
 }
 
 // UpsertDocumentEdges inserts or updates edge rows in memory.document_edges.
@@ -289,11 +289,11 @@ func ComputeAllEdgesForDocument(ctx context.Context, db *sql.DB, documentID, bra
 	if err != nil {
 		return fmt.Errorf("compute all edges for document: supersedes: %w", err)
 	}
-	sessionEpisode, err := computeSessionEpisodeEdges(ctx, tx, documentID, brainID, tenantID)
+	sessionEpisode, err := computeSessionEpisodeEdges(ctx, tx, documentID, brainID, tenantID, relationLimit)
 	if err != nil {
 		return fmt.Errorf("compute all edges for document: session episode: %w", err)
 	}
-	episodeHeuristic, err := computeEpisodeHeuristicEdges(ctx, tx, documentID, brainID, tenantID)
+	episodeHeuristic, err := computeEpisodeHeuristicEdges(ctx, tx, documentID, brainID, tenantID, relationLimit)
 	if err != nil {
 		return fmt.Errorf("compute all edges for document: episode heuristic: %w", err)
 	}
@@ -301,7 +301,7 @@ func ComputeAllEdgesForDocument(ctx context.Context, db *sql.DB, documentID, bra
 	if err != nil {
 		return fmt.Errorf("compute all edges for document: document ontology: %w", err)
 	}
-	wikilink, err := computeWikilinkEdges(ctx, tx, documentID, brainID, tenantID)
+	wikilink, err := computeWikilinkEdges(ctx, tx, documentID, brainID, tenantID, relationLimit)
 	if err != nil {
 		return fmt.Errorf("compute all edges for document: wikilink: %w", err)
 	}
@@ -501,7 +501,7 @@ func computeSupersedesEdges(ctx context.Context, q queryer, documentID, brainID,
 		limit $5`, documentID, brainID, tenantID, supersedesWeight, defaultRelationLimit)
 }
 
-func computeSessionEpisodeEdges(ctx context.Context, q queryer, documentID, brainID, tenantID string) ([]WeightedEdge, error) {
+func computeSessionEpisodeEdges(ctx context.Context, q queryer, documentID, brainID, tenantID string, limit int) ([]WeightedEdge, error) {
 	return runWeightedQuery(ctx, q, `
 		with source as (
 			select coalesce(metadata->>'session_id', metadata->>'sessionId') as session_id
@@ -512,11 +512,12 @@ func computeSessionEpisodeEdges(ctx context.Context, q queryer, documentID, brai
 		from memory.documents d cross join source s
 		where d.brain_id = $2::uuid and d.tenant_id = $3::uuid and d.document_id != $1::uuid
 		  and s.session_id is not null and d.path like 'episodes/%'
-		  and (coalesce(d.metadata->>'session_id', d.metadata->>'sessionId') = s.session_id or d.path = 'episodes/' || s.session_id || '.md' or d.path = 'episodes/session-' || s.session_id || '.md')`,
-		documentID, brainID, tenantID, sessionEpisodeWeight)
+		  and (coalesce(d.metadata->>'session_id', d.metadata->>'sessionId') = s.session_id or d.path = 'episodes/' || s.session_id || '.md' or d.path = 'episodes/session-' || s.session_id || '.md')
+		limit $5`,
+		documentID, brainID, tenantID, sessionEpisodeWeight, intOrDefault(limit, defaultRelationLimit))
 }
 
-func computeEpisodeHeuristicEdges(ctx context.Context, q queryer, documentID, brainID, tenantID string) ([]WeightedEdge, error) {
+func computeEpisodeHeuristicEdges(ctx context.Context, q queryer, documentID, brainID, tenantID string, limit int) ([]WeightedEdge, error) {
 	return runWeightedQuery(ctx, q, `
 		with source as (
 			select path, coalesce(metadata->>'session_id', metadata->>'sessionId') as session_id
@@ -529,8 +530,9 @@ func computeEpisodeHeuristicEdges(ctx context.Context, q queryer, documentID, br
 		  and ((s.path like 'episodes/%' and (d.path like 'memory/%/heuristic-%' or d.path like 'memory/%/anti-pattern-%'))
 		       or ((s.path like 'memory/%/heuristic-%' or s.path like 'memory/%/anti-pattern-%') and d.path like 'episodes/%'))
 		  and s.session_id is not null
-		  and coalesce(d.metadata->>'session_id', d.metadata->>'sessionId') = s.session_id`,
-		documentID, brainID, tenantID, episodeHeuristicWeight)
+		  and coalesce(d.metadata->>'session_id', d.metadata->>'sessionId') = s.session_id
+		limit $5`,
+		documentID, brainID, tenantID, episodeHeuristicWeight, intOrDefault(limit, defaultRelationLimit))
 }
 
 func computeDocumentOntologyEdges(ctx context.Context, q queryer, documentID, brainID, tenantID string) ([]LabeledWeightedEdge, error) {
@@ -550,10 +552,10 @@ func computeDocumentOntologyEdges(ctx context.Context, q queryer, documentID, br
 		documentID, brainID, tenantID, documentOntologyWeight, defaultRelationLimit)
 }
 
-func computeWikilinkEdges(ctx context.Context, q queryer, documentID, brainID, tenantID string) ([]LabeledWeightedEdge, error) {
+func computeWikilinkEdges(ctx context.Context, q queryer, documentID, brainID, tenantID string, limit int) ([]LabeledWeightedEdge, error) {
 	return runLabeledWeightedQuery(ctx, q, `
 		with source as (
-			select case when content is null then '' else encode(content, 'escape') end as body
+			select coalesce(convert_from(content, 'UTF8'), '') as body
 			from memory.documents
 			where document_id = $1::uuid and brain_id = $2::uuid and tenant_id = $3::uuid
 		), links as (
@@ -567,10 +569,11 @@ func computeWikilinkEdges(ctx context.Context, q queryer, documentID, brainID, t
 		join links l
 		  on d.path = l.target
 		  or d.path = l.target || '.md'
-		  or d.path like '%/' || l.target
-		  or d.path like '%/' || l.target || '.md'
-		where d.brain_id = $2::uuid and d.tenant_id = $3::uuid and d.document_id != $1::uuid`,
-		documentID, brainID, tenantID, wikilinkWeight)
+		  or d.path like '%/' || replace(replace(replace(l.target, '\\', '\\\\'), '%', '\\%'), '_', '\\_') escape '\\'
+		  or d.path like '%/' || replace(replace(replace(l.target, '\\', '\\\\'), '%', '\\%'), '_', '\\_') || '.md' escape '\\'
+		where d.brain_id = $2::uuid and d.tenant_id = $3::uuid and d.document_id != $1::uuid
+		limit $5`,
+		documentID, brainID, tenantID, wikilinkWeight, intOrDefault(limit, defaultRelationLimit))
 }
 
 func runWeightedQuery(ctx context.Context, q queryer, sqlQuery string, args ...any) ([]WeightedEdge, error) {
@@ -668,7 +671,7 @@ func intOrDefault(v int, d int) int {
 }
 
 func floatOrDefault(v float64, d float64) float64 {
-	if v >= 0 {
+	if v > 0 {
 		return v
 	}
 	return d

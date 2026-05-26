@@ -394,8 +394,8 @@ export async function computeSupersedesEdges(
       and (
         d.path = s.supersedes
         or d.path = s.supersedes || '.md'
-        or d.path like '%/' || s.supersedes
-        or d.path like '%/' || s.supersedes || '.md'
+        or d.path like '%/' || replace(replace(replace(s.supersedes, '\\', '\\\\'), '%', '\\%'), '_', '\\_') escape '\\'
+        or d.path like '%/' || replace(replace(replace(s.supersedes, '\\', '\\\\'), '%', '\\%'), '_', '\\_') || '.md' escape '\\'
       )
   `) as ReadonlyArray<SupersedesRow>
 
@@ -573,8 +573,8 @@ export async function computeWikilinkEdges(
     join links l
       on d.path = l.target
       or d.path = l.target || '.md'
-      or d.path like '%/' || l.target
-      or d.path like '%/' || l.target || '.md'
+      or d.path like '%/' || replace(replace(replace(l.target, '\\', '\\\\'), '%', '\\%'), '_', '\\_') escape '\\'
+      or d.path like '%/' || replace(replace(replace(l.target, '\\', '\\\\'), '%', '\\%'), '_', '\\_') || '.md' escape '\\'
     where d.brain_id = ${brainId}::uuid
       and d.tenant_id = ${tenantId}::uuid
       and d.document_id != ${documentId}::uuid
