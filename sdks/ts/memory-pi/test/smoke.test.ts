@@ -14,11 +14,14 @@
  * not need to import any pi runtime internals.
  */
 
+import { execFile as execFileCallback } from 'node:child_process'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { promisify } from 'node:util'
 import type { BeforeAgentStartEventResult } from '@earendil-works/pi-coding-agent'
 import type { ExtensionAPI } from '@earendil-works/pi-coding-agent'
+import { toPath } from '@jeffs-brain/memory'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   type BeforeAgentStartEvent,
@@ -30,6 +33,8 @@ import {
   registerMemoryTools,
   renderRecallBlock,
 } from '../src/index.js'
+
+const execFile = promisify(execFileCallback)
 
 type RegisteredHandlers = {
   before_agent_start?: (
@@ -103,6 +108,72 @@ describe('memory-pi smoke', () => {
     expect(runtime.config.brainId).toBe('smoke')
     expect(runtime.embedder).toBeUndefined()
     await runtime.close()
+  })
+
+  it('builds TEI embedder and reranker clients from explicit config', async () => {
+    const runtime = await createMemoryRuntime({
+      brainRoot,
+      brainId: 'smoke',
+      store: { kind: 'fs' },
+      embedder: {
+        kind: 'tei',
+        endpoint: 'http://tei.example.test',
+        model: 'bge-m3',
+      },
+      reranker: {
+        kind: 'tei',
+        endpoint: 'http://reranker.example.test',
+      },
+    })
+    expect(runtime.embedder?.name()).toBe('tei-embed')
+    expect(runtime.embedder?.model()).toBe('bge-m3')
+    expect(runtime.reranker?.name()).toBe('tei-rerank')
+    await runtime.close()
+  })
+
+  it('passes git store options through and pushes writes', async () => {
+    const remoteRoot = await mkdtemp(join(tmpdir(), 'memory-pi-git-remote-'))
+    const remoteDir = join(remoteRoot, 'brain.git')
+    await execFile('git', ['init', '--bare', '--initial-branch', 'main', remoteDir], {
+      encoding: 'utf8',
+    })
+
+    try {
+      const runtime = await createMemoryRuntime({
+        brainRoot,
+        brainId: 'smoke',
+        store: {
+          kind: 'git',
+          remoteUrl: remoteDir,
+          branch: 'main',
+          init: true,
+          autoPush: true,
+          defaultAuthor: {
+            name: 'Memory PI',
+            email: 'memory-pi@example.com',
+          },
+        },
+        embedder: { kind: 'off' },
+      })
+
+      try {
+        await runtime.store.write(
+          toPath('memory/gitstore.md'),
+          Buffer.from('# Git Store\n\nPersist me.\n', 'utf8'),
+        )
+      } finally {
+        await runtime.close()
+      }
+
+      const { stdout } = await execFile(
+        'git',
+        ['--git-dir', remoteDir, 'show', 'main:memory/gitstore.md'],
+        { encoding: 'utf8' },
+      )
+      expect(stdout).toContain('Persist me.')
+    } finally {
+      await rm(remoteRoot, { recursive: true, force: true })
+    }
   })
 
   it('registers all eleven tools', async () => {

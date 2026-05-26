@@ -82,9 +82,9 @@
     },
     "sdks/ts/memory-pi": {
       "name": "@jeffs-brain/memory-pi",
-      "version": "0.2.2",
+      "version": "0.2.7",
       "dependencies": {
-        "@jeffs-brain/memory": "^0.3.0",
+        "@jeffs-brain/memory": "0.3.1",
         "zod": "^3",
       },
       "devDependencies": {
@@ -1338,7 +1338,7 @@
 
     "@isaacs/cliui/wrap-ansi": ["wrap-ansi@8.1.0", "", { "dependencies": { "ansi-styles": "^6.1.0", "string-width": "^5.0.1", "strip-ansi": "^7.0.1" } }, "sha512-si7QWI6zUMq56bESFvagtmzMdGOtoxfR+Sez11Mobfc7tm+VkUckk9bW2UeffTGVUbOksxmSw0AA2gs8g71NCQ=="],
 
-    "@jeffs-brain/memory-pi/@jeffs-brain/memory": ["@jeffs-brain/memory@0.3.0", "", { "dependencies": { "@stackone/defender": "^0.6.3", "citty": "^0.1.6", "isomorphic-git": "^1.37.5", "sqlite-vec": "^0.1.9" }, "optionalDependencies": { "@huggingface/transformers": "^4.2.0", "@types/better-sqlite3": "^7.6.13", "better-sqlite3": "^12.9.0", "pdf-parse": "^1.1.1" }, "bin": { "memory": "dist/cli.js" } }, "sha512-S0bSsZdoZweZrZfXx+qRwH1Vo32THKPbznBHoizQutwB7umPQa3sMz5zxvL3S6ADwELGk4pAa2qpR8s/PuTEhw=="],
+    "@jeffs-brain/memory-pi/@jeffs-brain/memory": ["@jeffs-brain/memory@0.3.1", "", { "dependencies": { "@stackone/defender": "^0.6.3", "citty": "^0.1.6", "isomorphic-git": "^1.37.5", "sqlite-vec": "^0.1.9" }, "optionalDependencies": { "@huggingface/transformers": "^4.2.0", "@types/better-sqlite3": "^7.6.13", "better-sqlite3": "^12.9.0", "pdf-parse": "^1.1.1" }, "bin": { "memory": "dist/cli.js" } }, "sha512-whltnBvzxUM61ks9uonTEpilE0AV2LbOR3YLCWVBME38UQktQUlcZxAKG71+QSTzDK+ro+RngPICvkL+IesJaA=="],
 
     "@types/ssh2/@types/node": ["@types/node@18.19.130", "", { "dependencies": { "undici-types": "~5.26.4" } }, "sha512-GRaXQx6jGfL8sKfaIDD6OupbIHBr9jv7Jnaml9tB7l4v068PAOXqfcujMMo5PhbIs6ggR1XODELqahT2R8v0fg=="],
 

@@ -67,8 +67,8 @@ export function getChunk(db: SqlDb, id: string): Chunk | undefined {
          FROM knowledge_chunks
         WHERE id = ?`,
     )
-    .get(id) as StoredChunkRow | undefined
-  return row === undefined ? undefined : hydrateRow(row)
+    .get(id) as StoredChunkRow | undefined | null
+  return row == null ? undefined : hydrateRow(row)
 }
 
 function hydrateMany(db: SqlDb, ids: readonly string[]): Map<string, Chunk> {
