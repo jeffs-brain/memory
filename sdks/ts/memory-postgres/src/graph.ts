@@ -80,7 +80,7 @@ type NodeRow = {
   document_id: string
   path: string
   size: number
-  updated_at: Date
+  updated_at: Date | string
   chunk_count: number
   metadata: Record<string, unknown> | null
 }
@@ -188,7 +188,7 @@ export async function getDocumentGraph(
       ...(ontologyLabel === undefined ? {} : { ontologyLabel }),
       scope: resolved.scope,
       size: row.size,
-      modTime: row.updated_at.toISOString(),
+      modTime: row.updated_at instanceof Date ? row.updated_at.toISOString() : String(row.updated_at),
       chunkCount: row.chunk_count,
       metadata: row.metadata ?? {},
     } satisfies GraphNode
@@ -270,7 +270,7 @@ export async function getDocumentStats(
       document_count: number
       chunk_count: number
       edge_count: number
-      last_activity_at: Date | null
+      last_activity_at: Date | string | null
     }>`
       with docs as (
         select document_id, tenant_id, updated_at
@@ -331,6 +331,10 @@ export async function getDocumentStats(
     edgeCount: docs[0]?.edge_count ?? 0,
     entityTypeCounts,
     edgeTypeCounts,
-    lastActivityAt: docs[0]?.last_activity_at?.toISOString() ?? null,
+    lastActivityAt: docs[0]?.last_activity_at instanceof Date
+      ? docs[0].last_activity_at.toISOString()
+      : docs[0]?.last_activity_at !== null && docs[0]?.last_activity_at !== undefined
+        ? String(docs[0].last_activity_at)
+        : null,
   }
 }
