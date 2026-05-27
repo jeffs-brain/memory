@@ -60,7 +60,7 @@ export {
   upsertDocumentEdges,
 } from './edges.js'
 
-export { getDocumentGraph, getDocumentStats } from './graph.js'
+export { DOCUMENT_EDGE_TYPES, getDocumentGraph, getDocumentStats } from './graph.js'
 
 export type {
   DocumentEdgeType,

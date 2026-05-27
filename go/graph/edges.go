@@ -26,7 +26,7 @@ const (
 	wikilinkWeight         = 0.7
 )
 
-// SimilarityOptions controls nearest-neighbor semantic edge computation.
+// SimilarityOptions controls nearest-neighbour semantic edge computation.
 type SimilarityOptions struct {
 	Threshold    float64
 	Limit        int

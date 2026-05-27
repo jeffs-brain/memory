@@ -77,7 +77,7 @@ func GetDocumentGraph(
 		limit $3`,
 		brainID,
 		tenantID,
-		maxNodes,
+		maxNodes+1,
 	)
 	if err != nil {
 		return GraphResponse{}, fmt.Errorf("get document graph: query nodes: %w", err)
@@ -130,6 +130,12 @@ func GetDocumentGraph(
 		return GraphResponse{}, fmt.Errorf("get document graph: iterate nodes: %w", err)
 	}
 
+	nodesTruncated := loadedNodeCount > maxNodes
+	if nodesTruncated {
+		nodes = nodes[:maxNodes]
+		nodeIDs = nodeIDs[:maxNodes]
+	}
+
 	entityFilter := map[EntityType]struct{}{}
 	for _, entity := range opts.EntityTypes {
 		entityFilter[entity] = struct{}{}
@@ -157,7 +163,7 @@ func GetDocumentGraph(
 				TotalEdges:       0,
 				EntityTypeCounts: map[string]int{},
 				EdgeTypeCounts:   map[string]int{},
-				Truncated:        loadedNodeCount >= maxNodes,
+				Truncated:        nodesTruncated,
 			},
 		}, nil
 	}
@@ -188,7 +194,7 @@ func GetDocumentGraph(
 		pq.Array(nodeIDs),
 		len(edgeTypes),
 		pq.Array(edgeTypes),
-		maxEdges,
+		maxEdges+1,
 	)
 	if err != nil {
 		return GraphResponse{}, fmt.Errorf("get document graph: query edges: %w", err)
@@ -211,6 +217,11 @@ func GetDocumentGraph(
 		return GraphResponse{}, fmt.Errorf("get document graph: iterate edges: %w", err)
 	}
 
+	edgesTruncated := len(edges) > maxEdges
+	if edgesTruncated {
+		edges = edges[:maxEdges]
+	}
+
 	entityCounts := map[string]int{}
 	for _, node := range nodes {
 		entityCounts[string(node.EntityType)]++
@@ -229,7 +240,7 @@ func GetDocumentGraph(
 			TotalEdges:       len(edges),
 			EntityTypeCounts: entityCounts,
 			EdgeTypeCounts:   edgeCounts,
-			Truncated:        loadedNodeCount >= maxNodes || len(edges) >= maxEdges,
+			Truncated:        nodesTruncated || edgesTruncated,
 		},
 	}, nil
 }

@@ -159,10 +159,13 @@ export async function getDocumentGraph(
       and d.tenant_id = ${tenantId}::uuid
     group by d.document_id, d.path, d.size, d.updated_at, d.metadata
     order by d.updated_at desc
-    limit ${maxNodes}
+    limit ${maxNodes + 1}
   `) as ReadonlyArray<NodeRow>
 
-  const allNodes = nodeRows.map((row) => {
+  const nodesTruncated = nodeRows.length > maxNodes
+  const boundedNodeRows = nodesTruncated ? nodeRows.slice(0, maxNodes) : nodeRows
+
+  const allNodes = boundedNodeRows.map((row) => {
     const resolved = resolveEntityAndScope(row.path)
     const ontologyType =
       typeof row.metadata?.ontology_type === 'string'
@@ -207,7 +210,7 @@ export async function getDocumentGraph(
         totalEdges: 0,
         entityTypeCounts: {},
         edgeTypeCounts: {},
-        truncated: nodeRows.length >= maxNodes,
+        truncated: nodesTruncated,
       },
     }
   }
@@ -228,10 +231,13 @@ export async function getDocumentGraph(
       and target_doc_id = any(${nodeIds}::uuid[])
       and (${selectedEdgeTypes.length} = 0 or edge_type = any(${selectedEdgeTypes}::text[]))
     order by weight desc
-    limit ${maxEdges}
+    limit ${maxEdges + 1}
   `) as ReadonlyArray<EdgeRow>
 
-  const edges = rows.map((row) => ({
+  const edgesTruncated = rows.length > maxEdges
+  const boundedEdgeRows = edgesTruncated ? rows.slice(0, maxEdges) : rows
+
+  const edges = boundedEdgeRows.map((row) => ({
     source: row.source_doc_id,
     target: row.target_doc_id,
     edgeType: row.edge_type,
@@ -248,7 +254,7 @@ export async function getDocumentGraph(
       totalEdges: edges.length,
       entityTypeCounts: buildEntityCounts(nodes),
       edgeTypeCounts: buildEdgeCounts(edges),
-      truncated: nodeRows.length >= maxNodes || rows.length >= maxEdges,
+      truncated: nodesTruncated || edgesTruncated,
     },
   }
 }
@@ -259,7 +265,7 @@ export async function getDocumentStats(
   brainId: string,
   tenantId: string,
 ): Promise<StatsResponse> {
-  const [countsRows, entityTypeRows, edgeTypeRows] = await Promise.all([
+  const [countsRows, pathRows, edgeTypeRows] = await Promise.all([
     sql<{
       document_count: number
       chunk_count: number
@@ -284,28 +290,11 @@ export async function getDocumentStats(
                 and e.tenant_id = ${tenantId}::uuid) as edge_count,
              (select max(updated_at) from docs) as last_activity_at
     `,
-    sql<{ entity_type: string; count: number }>`
-      select entity_type, count(*)::int as count
+    sql<{ path: string }>`
+      select path
       from memory.documents
-      cross join lateral (
-        select case
-          when path ~ '^memory/.*/(heuristic-|anti-pattern-)' then 'heuristic'
-          when path like 'memory/_procedural/%' then 'procedural'
-          when path like 'memory/project/%' then 'memory'
-          when path like 'memory/global/%' then 'memory'
-          when path like 'memory/agent/%' then 'memory'
-          when path like 'ontology/%' then 'ontology'
-          when path like 'wiki/%' then 'article'
-          when path like 'drafts/%' then 'article'
-          when path like 'episodes/%' then 'episode'
-          when path like 'raw/%' then 'ingested'
-          when path like 'reflections/%' then 'episode'
-          else 'memory'
-        end as entity_type
-      ) classified
       where brain_id = ${brainId}::uuid
         and tenant_id = ${tenantId}::uuid
-      group by entity_type
     `,
     sql<{ edge_type: DocumentEdgeType; count: number }>`
       select edge_type, count(*)::int as count
@@ -322,12 +311,13 @@ export async function getDocumentStats(
     edge_count: number
     last_activity_at: Date | null
   }>
-  const entities = entityTypeRows as ReadonlyArray<{ entity_type: string; count: number }>
+  const paths = pathRows as ReadonlyArray<{ path: string }>
   const edges = edgeTypeRows as ReadonlyArray<{ edge_type: DocumentEdgeType; count: number }>
 
   const entityTypeCounts: Record<string, number> = {}
-  for (const row of entities) {
-    entityTypeCounts[row.entity_type] = row.count
+  for (const row of paths) {
+    const { entityType } = resolveEntityAndScope(row.path)
+    entityTypeCounts[entityType] = (entityTypeCounts[entityType] ?? 0) + 1
   }
 
   const edgeTypeCounts: Record<string, number> = {}
