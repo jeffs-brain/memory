@@ -94,8 +94,8 @@ export class Classifier {
     try {
       const resp = await this.provider!.complete(
         {
+          system: CLASSIFICATION_SYSTEM_PROMPT,
           messages: [
-            { role: 'system', content: CLASSIFICATION_SYSTEM_PROMPT },
             { role: 'user', content: prompt },
           ],
           temperature: 0.1,

@@ -84,11 +84,8 @@ class LiveContextualPrefixBuilder implements ContextualPrefixBuilder {
     const response = await provider.complete(
       {
         ...(this.model !== '' ? { model: this.model } : {}),
+        system: CONTEXTUAL_PREFIX_SYSTEM_PROMPT,
         messages: [
-          {
-            role: 'system',
-            content: CONTEXTUAL_PREFIX_SYSTEM_PROMPT,
-          },
           {
             role: 'user',
             content: `Session header:\n${sessionSummary}\n\nFact body:\n${factBodySlice(args.factBody)}\n`,

@@ -194,11 +194,11 @@ describe('handleAsk reader modes', () => {
     const call = expectDefined(provider.calls[0], 'expected provider call')
     expect(call.request.maxTokens).toBe(1024)
     expect(call.request.temperature).toBe(0.2)
-    expect(call.request.messages.length).toBe(2)
-    expect(call.request.messages[0]?.role).toBe('system')
-    expect(call.request.messages[1]?.role).toBe('user')
+    expect(call.request.system).toBeDefined()
+    expect(call.request.messages.length).toBe(1)
+    expect(call.request.messages[0]?.role).toBe('user')
     const userPrompt = expectString(
-      call.request.messages[1]?.content,
+      call.request.messages[0]?.content,
       'expected user prompt content',
     )
     expect(userPrompt).toContain('## Evidence')

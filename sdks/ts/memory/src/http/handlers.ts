@@ -770,19 +770,20 @@ export const handleAsk = async (
         readerMode === 'augmented'
           ? [
               {
-                role: 'user',
+                role: 'user' as const,
                 content: buildAugmentedAskPrompt(question, augmentedEvidence ?? '', questionDate),
               },
             ]
           : [
-              { role: 'system', content: ASK_SYSTEM_PROMPT },
-              { role: 'user', content: buildAskPrompt(question, chunks) },
+              { role: 'user' as const, content: buildAskPrompt(question, chunks) },
             ]
+      const systemPrompt = readerMode === 'augmented' ? undefined : ASK_SYSTEM_PROMPT
       const maxTokens = readerMode === 'augmented' ? READER_AUGMENTED_MAX_TOKENS : 1024
       const temperature = readerMode === 'augmented' ? READER_AUGMENTED_TEMPERATURE : 0.2
       try {
         for await (const evt of provider.stream(
           {
+            ...(systemPrompt !== undefined ? { system: systemPrompt } : {}),
             messages,
             maxTokens,
             temperature,

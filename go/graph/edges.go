@@ -33,7 +33,7 @@ type SimilarityOptions struct {
 	EmbeddingDim EmbeddingDim
 }
 
-// SimilarDocument holds one semantic neighbor match.
+// SimilarDocument holds one semantic neighbour match.
 type SimilarDocument struct {
 	TargetDocID string
 	Similarity  float64
@@ -77,7 +77,7 @@ func ComputeDocumentCentroid(ctx context.Context, db *sql.DB, documentID, tenant
 	return computeDocumentCentroid(ctx, db, documentID, tenantID, dim)
 }
 
-// FindSimilarDocuments finds semantic-neighbor documents by centroid cosine similarity.
+// FindSimilarDocuments finds semantic-neighbour documents by centroid cosine similarity.
 func FindSimilarDocuments(ctx context.Context, db *sql.DB, documentID, brainID, tenantID string, opts SimilarityOptions) ([]SimilarDocument, error) {
 	if db == nil {
 		return nil, fmt.Errorf("find similar documents: nil db")
@@ -599,19 +599,19 @@ func runWeightedQuery(ctx context.Context, q queryer, sqlQuery string, args ...a
 func runLabeledWeightedQuery(ctx context.Context, q queryer, sqlQuery string, args ...any) ([]LabeledWeightedEdge, error) {
 	rows, err := q.QueryContext(ctx, sqlQuery, args...)
 	if err != nil {
-		return nil, fmt.Errorf("run labeled weighted query: %w", err)
+		return nil, fmt.Errorf("run labelled weighted query: %w", err)
 	}
 	defer func() { _ = rows.Close() }()
 	out := make([]LabeledWeightedEdge, 0)
 	for rows.Next() {
 		var edge LabeledWeightedEdge
 		if err := rows.Scan(&edge.TargetDocID, &edge.Weight, &edge.Label); err != nil {
-			return nil, fmt.Errorf("run labeled weighted query: scan row: %w", err)
+			return nil, fmt.Errorf("run labelled weighted query: scan row: %w", err)
 		}
 		out = append(out, edge)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("run labeled weighted query: iterate rows: %w", err)
+		return nil, fmt.Errorf("run labelled weighted query: iterate rows: %w", err)
 	}
 	return out, nil
 }

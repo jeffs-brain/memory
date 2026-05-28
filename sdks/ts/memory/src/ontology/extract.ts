@@ -156,16 +156,18 @@ export class Extractor {
     userMsg: string,
     signal?: AbortSignal,
   ): Promise<ExtractionResult> {
-    const messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
-      { role: 'system', content: systemPrompt },
+    const messages: Array<{ role: 'user' | 'assistant'; content: string }> = [
       { role: 'user', content: userMsg },
     ]
+
+    let lastContent = ''
 
     for (let attempt = 0; attempt <= this.maxRetries; attempt++) {
       signal?.throwIfAborted()
 
       const resp = await this.provider!.complete(
         {
+          system: systemPrompt,
           messages,
           temperature: this.temperature,
           maxTokens: 4096,
@@ -173,6 +175,8 @@ export class Extractor {
         },
         signal,
       )
+
+      lastContent = resp.content
 
       const parseResult = parseExtractionResponse(resp.content)
       if (parseResult !== undefined) {
@@ -191,7 +195,9 @@ export class Extractor {
         continue
       }
 
-      throw new Error(`ontology: extraction failed after ${this.maxRetries} retries`)
+      throw new Error(
+        `ontology: extraction failed after ${this.maxRetries} retries — last response: ${lastContent.slice(0, 500)}`,
+      )
     }
 
     throw new Error('ontology: extraction exhausted retries')
