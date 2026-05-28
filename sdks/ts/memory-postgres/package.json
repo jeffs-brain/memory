@@ -1,6 +1,6 @@
 {
   "name": "@jeffs-brain/memory-postgres",
-  "version": "0.2.0-rc.1",
+  "version": "0.2.0-rc.2",
   "description": "Postgres and pgvector adapter for @jeffs-brain/memory: tsvector BM25, halfvec cosine, and RRF hybrid retrieval.",
   "license": "Apache-2.0",
   "author": "Alex J <alex@lleverage.ai>",
@@ -28,7 +28,13 @@
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "sideEffects": false,
-  "files": ["dist", "migrations", "README.md", "LICENSE", "NOTICE"],
+  "files": [
+    "dist",
+    "migrations",
+    "README.md",
+    "LICENSE",
+    "NOTICE"
+  ],
   "exports": {
     ".": {
       "import": "./dist/index.js",
