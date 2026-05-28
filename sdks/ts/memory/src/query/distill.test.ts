@@ -75,11 +75,8 @@ describe('createDistiller', () => {
     expect(call.model).toBe('gpt-test')
     expect(call.temperature).toBe(0)
     expect(call.maxTokens).toBe(256)
-    expect(call.messages[0]).toEqual({
-      role: 'system',
-      content: DISTILL_SYSTEM_PROMPT,
-    })
-    expect(call.messages[1]).toEqual({ role: 'user', content: 'raw query' })
+    expect(call.system).toBe(DISTILL_SYSTEM_PROMPT)
+    expect(call.messages[0]).toEqual({ role: 'user', content: 'raw query' })
   })
 
   it('returns the cached value without a second LLM call on repeat input', async () => {

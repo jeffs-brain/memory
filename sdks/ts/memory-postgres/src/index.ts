@@ -43,3 +43,32 @@ export {
   type PostgresRetrieverFactoryInput,
   type PostgresSearchLike,
 } from './retrieval.js'
+
+export {
+  computeAllEdgesForDocument,
+  computeDocumentCentroid,
+  computeDocumentOntologyEdges,
+  computeEpisodeHeuristicEdges,
+  computeSameSessionEdges,
+  computeSessionEpisodeEdges,
+  computeSharedFolderEdges,
+  computeSharedTagEdges,
+  computeSupersedesEdges,
+  computeWikilinkEdges,
+  deleteDocumentEdges,
+  findSimilarDocuments,
+  upsertDocumentEdges,
+} from './edges.js'
+
+export { DOCUMENT_EDGE_TYPES, getDocumentGraph, getDocumentStats } from './graph.js'
+
+export type {
+  DocumentEdgeType,
+  GraphEdge,
+  GraphCommunity,
+  GraphMeta,
+  GraphNode,
+  GraphQueryOptions,
+  GraphResponse,
+  StatsResponse,
+} from './graph.js'

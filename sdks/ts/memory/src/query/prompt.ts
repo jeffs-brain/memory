@@ -48,8 +48,8 @@ export async function callDistillLLM(
   const resp = await provider.complete(
     {
       model: model ?? '',
+      system: DISTILL_SYSTEM_PROMPT,
       messages: [
-        { role: 'system', content: DISTILL_SYSTEM_PROMPT },
         { role: 'user', content: raw },
       ],
       temperature: DEFAULT_TEMPERATURE,

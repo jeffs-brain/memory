@@ -225,6 +225,60 @@ describe('Extractor', () => {
 
     expect(result.domain).toBe('tech')
   })
+
+  it('passes system prompt via the system field, not in messages', async () => {
+    const response = makeLLMResponse(
+      'infra',
+      0.9,
+      [{ type: 'entity.host', label: 'Host', description: 'A compute host' }],
+      [],
+      ['hosting'],
+    )
+
+    let capturedRequest: CompletionRequest | undefined
+    const provider: Provider = {
+      name: () => 'spy',
+      modelName: () => 'spy-model',
+      supportsStructuredDecoding: () => false,
+      structured: async () => '',
+      stream: (_req: CompletionRequest, _signal?: AbortSignal): AsyncIterable<StreamEvent> => ({
+        [Symbol.asyncIterator]: () => ({
+          next: async () => ({ done: true as const, value: undefined }),
+        }),
+      }),
+      complete: async (req: CompletionRequest): Promise<CompletionResponse> => {
+        capturedRequest = req
+        return {
+          content: response,
+          toolCalls: [],
+          usage: { inputTokens: 10, outputTokens: 10 },
+          stopReason: 'end_turn',
+        }
+      },
+    }
+
+    const ext = new Extractor({ provider })
+    await ext.extract({
+      content: 'Short hosting document.',
+      fileName: 'hosts.md',
+    })
+
+    expect(capturedRequest).toBeDefined()
+    expect(capturedRequest!.system).toBeDefined()
+    expect(capturedRequest!.system).toContain('domain ontology analyst')
+
+    const systemMessages = capturedRequest!.messages.filter((m) => m.role === 'system')
+    expect(systemMessages).toHaveLength(0)
+  })
+
+  it('includes last response content in error message on failure', async () => {
+    const ext = new Extractor({
+      provider: makeFakeProvider(['garbage response one', 'garbage response two', 'garbage final']),
+    })
+    await expect(
+      ext.extract({ content: 'Some document.', fileName: 'doc.md' }),
+    ).rejects.toThrow(/garbage final/)
+  })
 })
 
 describe('noisyOr', () => {
