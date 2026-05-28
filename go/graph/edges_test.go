@@ -189,9 +189,9 @@ func TestEdgeConversionHelpers(t *testing.T) {
 		t.Fatalf("unexpected weighted edges: %+v", weighted)
 	}
 
-	labeled := toLabeledEdges("src", []LabeledWeightedEdge{{TargetDocID: "c", Weight: 0.5, Label: "x"}}, EdgeWikilink)
-	if len(labeled) != 1 || labeled[0].EdgeType != EdgeWikilink || labeled[0].Label != "x" {
-		t.Fatalf("unexpected labeled edges: %+v", labeled)
+	labelled := toLabeledEdges("src", []LabeledWeightedEdge{{TargetDocID: "c", Weight: 0.5, Label: "x"}}, EdgeWikilink)
+	if len(labelled) != 1 || labelled[0].EdgeType != EdgeWikilink || labelled[0].Label != "x" {
+		t.Fatalf("unexpected labelled edges: %+v", labelled)
 	}
 
 	deduped := dedupeEdges([]UpsertEdge{
