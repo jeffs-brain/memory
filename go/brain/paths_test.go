@@ -41,6 +41,8 @@ func TestPathHelpers(t *testing.T) {
 		{"raw prefix", RawPrefix(), "raw"},
 		{"raw documents prefix", RawDocumentsPrefix(), "raw/documents"},
 		{"sources prefix", SourcesPrefix(), "raw/.sources"},
+		{"conversations prefix", ConversationsPrefix(), "conversations"},
+		{"conversation article", Conversation("slack/2026/05/2026-05-30-5a948-brain.md"), "conversations/slack/2026/05/2026-05-30-5a948-brain.md"},
 		{"schema", Schema(), "kb-schema.md"},
 	}
 	for _, tc := range cases {
