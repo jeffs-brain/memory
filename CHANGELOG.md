@@ -7,6 +7,22 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+### memory (Go) 0.3.1
+
+#### Added
+
+- `conversations` storage scope. A first-class top-level `conversations/`
+  tree (laid out by channel then date) is now discovered, indexed, and
+  retrievable alongside `wiki`, `memory`, `raw`, and `sources`. Adds
+  `brain.ConversationsPrefix()` and `brain.Conversation(rel)`, wires the
+  scope through `search.Index` (classify, discover, FTS filter, scope
+  matching) and `retrieval` (exact-scope and scope-filter aliases), and
+  parses conversation-article frontmatter (`title` / `summary` /
+  `modified`) the same as wiki articles so search results carry titles
+  and summaries. Lets hosts persist synthesised session-learning
+  articles under the brain and surface them through hybrid retrieval
+  with no host-side index workaround. (Go)
+
 ### memory-pi 0.2.2
 
 #### Added

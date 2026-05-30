@@ -25,6 +25,7 @@ import (
 //   - memory/project/<s>/X  -> projects/<s>/memory/X
 //   - wiki/X                -> wiki/X
 //   - raw/X                 -> raw/X
+//   - conversations/X       -> conversations/X
 //   - kb-schema.md          -> kb-schema.md
 //   - schema-version.yaml   -> schema-version.yaml
 func Relative(p brain.Path) (string, error) {
@@ -50,6 +51,8 @@ func Relative(p brain.Path) (string, error) {
 	case strings.HasPrefix(lp, "wiki/") || lp == "wiki":
 		return lp, nil
 	case strings.HasPrefix(lp, "raw/") || lp == "raw":
+		return lp, nil
+	case strings.HasPrefix(lp, "conversations/") || lp == "conversations":
 		return lp, nil
 	default:
 		return "", fmt.Errorf("%w: unknown root in %q", brain.ErrInvalidPath, lp)
@@ -87,6 +90,8 @@ func LogicalFromRel(rel string) brain.Path {
 	case rel == "wiki" || strings.HasPrefix(rel, "wiki/"):
 		return brain.Path(rel)
 	case rel == "raw" || strings.HasPrefix(rel, "raw/"):
+		return brain.Path(rel)
+	case rel == "conversations" || strings.HasPrefix(rel, "conversations/"):
 		return brain.Path(rel)
 	default:
 		return brain.Path(rel)
