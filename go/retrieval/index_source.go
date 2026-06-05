@@ -400,6 +400,8 @@ func exactSearchScope(scope string) (string, bool) {
 		return "raw_lme", true
 	case "sources":
 		return "sources", true
+	case "conversation", "conversations":
+		return "conversations", true
 	default:
 		return "", false
 	}
@@ -548,6 +550,12 @@ func scopeMatchesFilter(rowScope, want string) bool {
 		},
 		"sources": {
 			"sources": true,
+		},
+		"conversation": {
+			"conversations": true,
+		},
+		"conversations": {
+			"conversations": true,
 		},
 	}
 	allowed, ok := aliases[trimmed]

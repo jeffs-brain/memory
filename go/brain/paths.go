@@ -9,12 +9,13 @@ import (
 
 // Logical path roots. Every [Path] starts with one of these prefixes.
 const (
-	memoryRoot       = "memory"
-	wikiRoot         = "wiki"
-	rawRoot          = "raw"
-	rawDocumentsRoot = "raw/documents"
-	sourcesRoot      = "raw/.sources"
-	schemaFile       = "kb-schema.md"
+	memoryRoot        = "memory"
+	wikiRoot          = "wiki"
+	rawRoot           = "raw"
+	rawDocumentsRoot  = "raw/documents"
+	sourcesRoot       = "raw/.sources"
+	conversationsRoot = "conversations"
+	schemaFile        = "kb-schema.md"
 
 	// schemaVersionName is the root-level schema version marker. Kept here
 	// alongside the other root constants so store path resolution stays in
@@ -209,6 +210,19 @@ func RawLMEPrefix() Path { return Path(path.Join(rawRoot, "lme")) }
 // IsSourceRaw reports whether p lies under the .sources prefix.
 func IsSourceRaw(p Path) bool {
 	return strings.HasPrefix(string(p), sourcesRoot+"/") || string(p) == sourcesRoot
+}
+
+// ---------- Conversations ----------
+
+// ConversationsPrefix returns the logical root of the conversations tree.
+// Search indexes this tree under the "conversations" scope so synthesised
+// session-learning articles are discoverable via BM25 and hybrid retrieval.
+func ConversationsPrefix() Path { return Path(conversationsRoot) }
+
+// Conversation returns the path of a conversation article from a
+// conversations-relative path like "slack/2026/05/2026-05-30-id-slug.md".
+func Conversation(rel string) Path {
+	return Path(path.Join(conversationsRoot, rel))
 }
 
 // ---------- Schema ----------

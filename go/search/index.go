@@ -216,7 +216,7 @@ type Index struct {
 
 // SearchOpts controls filtering and pagination for searches.
 type SearchOpts struct {
-	Scope       string // "" for all, "wiki", "global_memory", "project_memory", "raw_document", "sources"
+	Scope       string // "" for all, "wiki", "global_memory", "project_memory", "raw_document", "sources", "conversations"
 	ProjectSlug string // filter by project (only for project_memory scope)
 	MaxResults  int    // default 20
 	Sort        SortMode
@@ -515,6 +515,8 @@ func buildSearchSQL(expr string, from, to time.Time, scope, projectSlug string, 
 		clauses = append(clauses, "scope = 'raw_lme'")
 	case "sources":
 		clauses = append(clauses, "scope = 'sources'")
+	case "conversation", "conversations":
+		clauses = append(clauses, "scope = 'conversations'")
 	default:
 		if scope != "" {
 			clauses = append(clauses, "scope = ?")
@@ -600,6 +602,8 @@ func searchScopeMatches(rowScope, want string) bool {
 		return rowScope == "project_memory"
 	case "raw":
 		return rowScope == "raw_document" || rowScope == "raw_lme"
+	case "conversation", "conversations":
+		return rowScope == "conversations"
 	default:
 		return rowScope == trimmed
 	}
@@ -677,7 +681,7 @@ func (idx *Index) hydrateModified(results []SearchResult) {
 // zero + false when the field is absent or unparseable.
 func extractModified(raw []byte, scope string) (time.Time, bool) {
 	switch scope {
-	case "wiki":
+	case "wiki", "conversations":
 		fm, _ := parseWikiFrontmatter(string(raw))
 		return parseModifiedString(fm.Modified)
 	default:
@@ -1324,6 +1328,11 @@ func classifyPath(p brain.Path) (scope, projectSlug string, ok bool) {
 		// when the extraction pass produced no facts (e.g. small
 		// extraction models that repeatedly return `{"memories": []}`).
 		return "raw_lme", "", true
+	case strings.HasPrefix(s, "conversations/"):
+		// Synthesised session-learning articles, laid out by channel and
+		// date. Indexed so whole-conversation narratives and learnings are
+		// retrievable alongside wiki and memory.
+		return "conversations", "", true
 	}
 	return "", "", false
 }
@@ -1390,6 +1399,11 @@ func (idx *Index) discoverFiles(ctx context.Context) []discoveredFile {
 
 	// Compiled sources (originals preserved after compilation).
 	files = append(files, idx.walkPrefix(ctx, brain.SourcesPrefix(), "sources", "")...)
+
+	// Synthesised session-learning conversation articles (laid out by
+	// channel and date). Indexing here surfaces them through hybrid
+	// retrieval the same as wiki and raw content.
+	files = append(files, idx.walkPrefix(ctx, brain.ConversationsPrefix(), "conversations", "")...)
 
 	return files
 }
@@ -1629,7 +1643,7 @@ func firstFrontmatterString(raw string, keys ...string) string {
 // tuple.
 func parseFrontmatterGeneric(content, scope string) (title, summary string, tags []string, body string) {
 	switch scope {
-	case "wiki":
+	case "wiki", "conversations":
 		fm, b := parseWikiFrontmatter(content)
 		return fm.Title, fm.Summary, fm.Tags, b
 	default:

@@ -26,3 +26,31 @@ func TestScopeMatchesFilterRawMatchesRawLME(t *testing.T) {
 		t.Fatal("scopeMatchesFilter(raw_lme, raw_lme) = false, want true")
 	}
 }
+
+func TestExactSearchScopeConversations(t *testing.T) {
+	t.Parallel()
+
+	for _, in := range []string{"conversations", "conversation"} {
+		got, ok := exactSearchScope(in)
+		if !ok {
+			t.Fatalf("exactSearchScope(%q) = not ok, want ok", in)
+		}
+		if got != "conversations" {
+			t.Fatalf("exactSearchScope(%q) = %q, want conversations", in, got)
+		}
+	}
+}
+
+func TestScopeMatchesFilterConversations(t *testing.T) {
+	t.Parallel()
+
+	if !scopeMatchesFilter("conversations", "conversations") {
+		t.Fatal("scopeMatchesFilter(conversations, conversations) = false, want true")
+	}
+	if !scopeMatchesFilter("conversations", "conversation") {
+		t.Fatal("scopeMatchesFilter(conversations, conversation) = false, want true")
+	}
+	if scopeMatchesFilter("wiki", "conversations") {
+		t.Fatal("scopeMatchesFilter(wiki, conversations) = true, want false")
+	}
+}

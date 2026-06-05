@@ -29,6 +29,8 @@ func TestClassifyPath(t *testing.T) {
 		{"raw/.sources/web/foo.md", "sources", "", true},
 		{"raw/lme/sess-001.md", "raw_lme", "", true},
 		{"raw/lme/nested/sess.md", "raw_lme", "", true},
+		{"conversations/slack/2026/05/2026-05-30-id-slug.md", "conversations", "", true},
+		{"conversations/_index.md", "conversations", "", true},
 		{"raw/web/foo.md", "", "", false},
 		{"memory/global/not-md.txt", "", "", false},
 		{"memory/project/", "", "", false},

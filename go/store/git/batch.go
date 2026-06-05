@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -327,10 +328,16 @@ func (s *Store) rollbackTo(touched map[brain.Path]struct{}, head string, hadHead
 		}
 		return nil
 	}
-	return w.Reset(&gogit.ResetOptions{
+	if err := w.Reset(&gogit.ResetOptions{
 		Mode:   gogit.HardReset,
 		Commit: plumbing.NewHash(head),
-	})
+	}); err != nil {
+		if cliErr := resetWorktreeWithGitCLI(s.opts.Root, head); cliErr != nil {
+			return fmt.Errorf("%w (git reset fallback failed: %v)", err, cliErr)
+		}
+		return s.refreshIndex()
+	}
+	return nil
 }
 
 func (s *Store) rollbackWithError(touched map[brain.Path]struct{}, head string, hadHead bool, cause error) error {
@@ -338,6 +345,22 @@ func (s *Store) rollbackWithError(touched map[brain.Path]struct{}, head string, 
 		return fmt.Errorf("%w (rollback failed: %v)", cause, rbErr)
 	}
 	return cause
+}
+
+func resetWorktreeWithGitCLI(root, head string) error {
+	head = strings.TrimSpace(head)
+	cmd := exec.Command("git", "-C", root, "reset", "--hard", head)
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &out
+	if err := cmd.Run(); err != nil {
+		msg := strings.TrimSpace(out.String())
+		if msg != "" {
+			return fmt.Errorf("%w: %s", err, msg)
+		}
+		return err
+	}
+	return nil
 }
 
 // --- gitBatch implements brain.Batch ---

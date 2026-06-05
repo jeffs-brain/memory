@@ -1128,6 +1128,94 @@ Hedgehogs live in hedgerows and gardens.`)); err != nil {
 	}
 }
 
+// TestRebuild_IndexesConversations verifies that synthesised
+// session-learning articles persisted under conversations/ are
+// discovered, indexed under the conversations scope, and isolated
+// by a conversations scope filter.
+func TestRebuild_IndexesConversations(t *testing.T) {
+	store := newWikiTestStore(t,
+		wikiTestDoc{path: "conversations/slack/2026/05/2026-05-30-abc-brain-repair.md", title: "Brain corruption repair", body: "Repaired the gitstore after a corrupted commit using the cli fallback."},
+		wikiTestDoc{path: "wiki/platform/go.md", title: "Go", body: "Go is a fast systems language."},
+	)
+
+	db := openTestDB(t)
+	idx, err := NewIndex(db, store)
+	if err != nil {
+		t.Fatalf("NewIndex: %v", err)
+	}
+
+	ctx := context.Background()
+	if _, err := idx.RebuildWithStats(ctx); err != nil {
+		t.Fatalf("RebuildWithStats: %v", err)
+	}
+
+	scoped, err := idx.Search("gitstore", SearchOpts{Scope: "conversations"})
+	if err != nil {
+		t.Fatalf("Search scope filter: %v", err)
+	}
+	if len(scoped) != 1 {
+		t.Fatalf("scoped results = %d, want 1", len(scoped))
+	}
+	if scoped[0].Path != "conversations/slack/2026/05/2026-05-30-abc-brain-repair.md" {
+		t.Errorf("scoped path = %q, want the conversations article", scoped[0].Path)
+	}
+	if scoped[0].Scope != "conversations" {
+		t.Errorf("scope = %q, want %q", scoped[0].Scope, "conversations")
+	}
+	if scoped[0].Title != "Brain corruption repair" {
+		t.Errorf("title = %q, want %q", scoped[0].Title, "Brain corruption repair")
+	}
+}
+
+// TestSubscribe_IndexesConversation verifies the event sink path
+// covers the conversations/ tree so writes via the brain store land
+// in the FTS index without an explicit Rebuild.
+func TestSubscribe_IndexesConversation(t *testing.T) {
+	store := newTestStore()
+	t.Cleanup(func() { _ = store.Close() })
+
+	db := openTestDB(t)
+	idx, err := NewIndex(db, store)
+	if err != nil {
+		t.Fatalf("NewIndex: %v", err)
+	}
+	unsub := idx.Subscribe(store)
+	t.Cleanup(unsub)
+
+	ctx := context.Background()
+	if err := store.Write(ctx, "conversations/telegram/2026/05/2026-05-30-xyz-deploy.md", []byte(`---
+title: Deploy walkthrough
+summary: How the deploy went
+session_date: 2026-05-30
+---
+Walked through the staging deploy and the rollback plan.`)); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	results, err := idx.Search("rollback", SearchOpts{Scope: "conversations"})
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if len(results) == 0 {
+		t.Fatal("expected a hit after a conversations write")
+	}
+	if results[0].Path != "conversations/telegram/2026/05/2026-05-30-xyz-deploy.md" {
+		t.Errorf("path = %q, want the conversations article", results[0].Path)
+	}
+	if results[0].Scope != "conversations" {
+		t.Errorf("scope = %q, want %q", results[0].Scope, "conversations")
+	}
+	if results[0].SessionDate != "2026-05-30" {
+		t.Errorf("session_date = %q, want 2026-05-30", results[0].SessionDate)
+	}
+	if results[0].Title != "Deploy walkthrough" {
+		t.Errorf("title = %q, want %q", results[0].Title, "Deploy walkthrough")
+	}
+	if results[0].Summary != "How the deploy went" {
+		t.Errorf("summary = %q, want %q", results[0].Summary, "How the deploy went")
+	}
+}
+
 // TestDiscoverFiles_ExcludesUnderscorePrefixed verifies that
 // markdown files whose basename starts with an underscore are
 // filtered out of the FTS discovery path.
