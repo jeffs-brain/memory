@@ -163,6 +163,7 @@ export const createMemory = (opts: MemoryOpts): Memory => {
 }
 
 export type {
+  CodecPriors,
   ConsolidateArgs,
   ConsolidationOp,
   ConsolidationPayload,
@@ -217,6 +218,14 @@ export {
   RECALL_SELECTOR_SYSTEM_PROMPT,
   REFLECTION_SYSTEM_PROMPT,
 } from './prompts.js'
+export {
+  CODEC_PRIORS_MAX_BLOCK_CHARS,
+  CODEC_PRIORS_MAX_ITEM_LENGTH,
+  CODEC_PRIORS_MAX_ITEMS_PER_LIST,
+  CodecPriorsError,
+  applyCodecPriors,
+  buildCodecPriorsBlock,
+} from './codec-priors.js'
 export {
   createContextualPrefixBuilder,
   type ContextualPrefixBuilderConfig,

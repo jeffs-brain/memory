@@ -13,6 +13,7 @@ import type { Logger, Message, Provider } from '../llm/index.js'
 import { expandTemporal } from '../query/temporal.js'
 import type { Store } from '../store/index.js'
 import { lastSegment } from '../store/path.js'
+import { applyCodecPriors } from './codec-priors.js'
 import { buildFrontmatter } from './frontmatter.js'
 import { parseFrontmatter } from './frontmatter.js'
 import { ensureMarkdown, scopeIndex, scopePrefix, scopeTopic } from './paths.js'
@@ -203,6 +204,17 @@ export const createPreviewExtract = (deps: ExtractDeps) => {
     runExtract(deps, args, { persist: false, advanceCursor: false })
 }
 
+const abortError = (signal: AbortSignal): Error => {
+  const reason = signal.reason
+  if (reason instanceof Error) return reason
+  return new DOMException('The extract operation was aborted', 'AbortError')
+}
+
+const isAbortError = (err: unknown, signal?: AbortSignal): boolean => {
+  if (signal?.aborted) return true
+  return err instanceof DOMException && err.name === 'AbortError'
+}
+
 const runExtract = async (
   deps: ExtractDeps,
   args: ExtractArgs,
@@ -239,17 +251,30 @@ const runExtract = async (
   }
 
   const userPrompt = buildExtractUserPrompt(windowed, existingMemories)
+  // Compose the effective system prompt outside the try/catch so a typed
+  // CodecPriorsError from malformed priors surfaces to the caller rather
+  // than being swallowed as a provider failure.
+  const systemPrompt = applyCodecPriors(EXTRACTION_SYSTEM_PROMPT, args.priors)
+
+  if (args.signal?.aborted) throw abortError(args.signal)
 
   let raw: string
   try {
-    const resp = await deps.provider.complete({
-      messages: [{ role: 'user', content: userPrompt }],
-      system: EXTRACTION_SYSTEM_PROMPT,
-      maxTokens: EXTRACT_MAX_TOKENS,
-      temperature: EXTRACT_TEMPERATURE,
-    })
+    const resp = await deps.provider.complete(
+      {
+        messages: [{ role: 'user', content: userPrompt }],
+        system: systemPrompt,
+        maxTokens: EXTRACT_MAX_TOKENS,
+        temperature: EXTRACT_TEMPERATURE,
+      },
+      args.signal,
+    )
     raw = resp.content
   } catch (err) {
+    // Honour cancellation explicitly: a triggered AbortSignal stops the
+    // extract immediately and propagates rather than being swallowed as a
+    // generic provider failure (no persist, no cursor advance).
+    if (isAbortError(err, args.signal)) throw err
     deps.logger.warn('memory: extract provider call failed', {
       err: err instanceof Error ? err.message : String(err),
     })

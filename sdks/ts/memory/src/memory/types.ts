@@ -349,6 +349,25 @@ export type MemoryOpts = {
   readonly contextualPrefixBuilder?: ContextualPrefixBuilder
 }
 
+/**
+ * Codec priors are the project's canonical vocabulary, folded into the
+ * extraction prompt as SOFT known-entity hints. They mirror the codec
+ * `ontology:` frontmatter block (plain string lists) and are deliberately
+ * distinct from the typed `ResolvedOntology` used by the ontology-type
+ * extractor — codec priors carry no types, attributes, or endpoints.
+ *
+ * All three lists are optional; an absent or wholly empty value leaves
+ * extraction behaviour byte-identical to the no-priors baseline.
+ */
+export type CodecPriors = {
+  /** Canonical entity names, e.g. `['Person', 'Organisation', 'Product']`. */
+  readonly entities?: readonly string[]
+  /** Canonical relation names, e.g. `['worksAt', 'owns', 'dependsOn']`. */
+  readonly relations?: readonly string[]
+  /** Domain vocabulary / shorthand, e.g. `['sprint', 'deployment']`. */
+  readonly domainTerms?: readonly string[]
+}
+
 /** Arguments accepted by `extract`. */
 export type ExtractArgs = {
   readonly messages: readonly Message[]
@@ -356,6 +375,14 @@ export type ExtractArgs = {
   readonly scope?: Scope
   readonly sessionId?: string
   readonly sessionDate?: string
+  /**
+   * Optional codec priors that shape extraction towards the project's
+   * canonical entities, relations, and domain terms. Omitted or empty ⇒
+   * byte-identical to current behaviour.
+   */
+  readonly priors?: CodecPriors
+  /** Optional cancellation signal threaded into the extraction LLM call. */
+  readonly signal?: AbortSignal
 }
 
 /** Arguments accepted by `reflect`. */

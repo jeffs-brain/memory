@@ -598,7 +598,25 @@ func ExtractFromMessages(
 	projectPath string,
 	messages []Message,
 ) ([]ExtractedMemory, error) {
-	return extractFromMessagesWithSession(ctx, provider, model, mem, projectPath, "", messages, "", "")
+	return extractFromMessagesWithSession(ctx, provider, model, mem, projectPath, "", messages, "", "", nil)
+}
+
+// ExtractFromMessagesWithPriors runs the extraction LLM call with optional
+// codec priors folded into the system prompt as soft known-entity hints.
+// Passing nil priors is byte-identical to ExtractFromMessages. Honours
+// ctx cancellation via the provider call.
+func ExtractFromMessagesWithPriors(
+	ctx context.Context,
+	provider llm.Provider,
+	model string,
+	mem *Memory,
+	projectPath string,
+	messages []Message,
+	sessionID string,
+	sessionDate string,
+	priors *CodecPriors,
+) ([]ExtractedMemory, error) {
+	return extractFromMessagesWithSession(ctx, provider, model, mem, projectPath, "", messages, sessionID, sessionDate, priors)
 }
 
 // ExtractFromMessagesWithProjectSlug runs the extraction LLM call using
@@ -612,7 +630,7 @@ func ExtractFromMessagesWithProjectSlug(
 	projectSlug string,
 	messages []Message,
 ) ([]ExtractedMemory, error) {
-	return extractFromMessagesWithSession(ctx, provider, model, mem, projectPath, projectSlug, messages, "", "")
+	return extractFromMessagesWithSession(ctx, provider, model, mem, projectPath, projectSlug, messages, "", "", nil)
 }
 
 // ExtractFromMessagesWithSession runs the extraction LLM call and
@@ -628,7 +646,7 @@ func ExtractFromMessagesWithSession(
 	sessionID string,
 	sessionDate string,
 ) ([]ExtractedMemory, error) {
-	return extractFromMessagesWithSession(ctx, provider, model, mem, projectPath, "", messages, sessionID, sessionDate)
+	return extractFromMessagesWithSession(ctx, provider, model, mem, projectPath, "", messages, sessionID, sessionDate, nil)
 }
 
 // ExtractFromMessagesWithSessionAndProjectSlug runs the extraction LLM
@@ -645,7 +663,7 @@ func ExtractFromMessagesWithSessionAndProjectSlug(
 	sessionID string,
 	sessionDate string,
 ) ([]ExtractedMemory, error) {
-	return extractFromMessagesWithSession(ctx, provider, model, mem, projectPath, projectSlug, messages, sessionID, sessionDate)
+	return extractFromMessagesWithSession(ctx, provider, model, mem, projectPath, projectSlug, messages, sessionID, sessionDate, nil)
 }
 
 func extractFromMessagesWithSession(
@@ -658,12 +676,25 @@ func extractFromMessagesWithSession(
 	messages []Message,
 	sessionID string,
 	sessionDate string,
+	priors *CodecPriors,
 ) ([]ExtractedMemory, error) {
 	if len(messages) < 2 {
 		return nil, nil
 	}
 	if strings.TrimSpace(projectSlug) == "" {
 		projectSlug = ProjectSlug(projectPath)
+	}
+
+	// Compose the effective system prompt first so a malformed-priors
+	// error surfaces to the caller before any LLM call or store read.
+	systemPrompt, err := applyCodecPriors(extractionPrompt, priors)
+	if err != nil {
+		return nil, err
+	}
+
+	// Honour cancellation before doing any work.
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
 
 	recent := messages
@@ -677,7 +708,7 @@ func extractFromMessagesWithSession(
 	resp, err := provider.Complete(ctx, llm.CompleteRequest{
 		Model: model,
 		Messages: []llm.Message{
-			{Role: RoleSystem, Content: extractionPrompt},
+			{Role: RoleSystem, Content: systemPrompt},
 			{Role: RoleUser, Content: userPrompt},
 		},
 		MaxTokens:          extractMaxTokens,

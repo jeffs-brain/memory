@@ -7,6 +7,30 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+### memory (Go + TypeScript) — codec extraction priors
+
+#### Added
+
+- Optional codec priors on the memory-note extraction path. `extract`
+  now accepts a `CodecPriors` value (plain string lists: `entities`,
+  `relations`, `domainTerms`) that is folded into the extraction system
+  prompt as a bounded, deduplicated, truncated block of SOFT
+  known-entity hints, so extraction reuses the project's canonical
+  entity / relation / term names. TypeScript: `ExtractArgs.priors` on
+  `createMemory().extract` plus exported `buildCodecPriorsBlock`,
+  `applyCodecPriors`, and `CodecPriorsError`. Go: new
+  `ExtractFromMessagesWithPriors` entry point plus the `CodecPriors`
+  type and `ErrInvalidCodecPriors`. Priors are deliberately distinct
+  from the typed `ResolvedOntology` used by the ontology-type extractor.
+  Omitting or supplying empty priors is byte-identical to previous
+  behaviour. Malformed priors (line breaks; non-string items in
+  TypeScript) raise a typed error before any LLM call. A Go↔TS golden
+  parity test pins the rendered block byte-for-byte. (Go + TypeScript)
+- Cancellation on the TypeScript memory-note extraction path.
+  `ExtractArgs.signal` threads an `AbortSignal` into the extraction LLM
+  call and is honoured before and during the call; the Go path already
+  honoured `context.Context` cancellation. (TypeScript)
+
 ### memory (Go) 0.3.1
 
 #### Added
