@@ -47,7 +47,7 @@
     },
     "sdks/ts/memory": {
       "name": "@jeffs-brain/memory",
-      "version": "0.4.0-rc.1",
+      "version": "0.4.0-rc.3",
       "bin": {
         "memory": "./dist/cli.js",
       },
@@ -101,7 +101,7 @@
     },
     "sdks/ts/memory-postgres": {
       "name": "@jeffs-brain/memory-postgres",
-      "version": "0.2.0-rc.1",
+      "version": "0.2.0-rc.2",
       "dependencies": {
         "drizzle-orm": "^0.45.2",
         "postgres": "^3.4.9",
