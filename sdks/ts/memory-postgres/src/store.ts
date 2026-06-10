@@ -41,6 +41,7 @@ import {
   isGenerated as pathIsGenerated,
   validatePath,
 } from '@jeffs-brain/memory/store'
+import { extractDocumentMetadata } from './metadata.js'
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
@@ -154,13 +155,19 @@ export class PostgresStore implements Store {
   }
 
   /**
-   * Apply the additive `content` column so `read()` has something to return.
-   * Idempotent — safe to call on every process boot.
+   * Apply the additive `content` and `metadata` columns so `read()` has
+   * something to return and frontmatter-derived edges have a column to key
+   * off. Idempotent — safe to call on every process boot. Managed
+   * deployments that run the SQL migrations under `./migrations/` already
+   * have both columns; this keeps the OSS-standalone path self-sufficient.
    */
   async init(): Promise<void> {
     const { sql } = this
     await sql.unsafe(
       "ALTER TABLE memory.documents ADD COLUMN IF NOT EXISTS content bytea NOT NULL DEFAULT ''::bytea",
+    )
+    await sql.unsafe(
+      "ALTER TABLE memory.documents ADD COLUMN IF NOT EXISTS metadata jsonb NOT NULL DEFAULT '{}'::jsonb",
     )
   }
 
@@ -414,17 +421,25 @@ export class PostgresStore implements Store {
 
   async upsertInTx(tx: PgSql, p: Path, content: Buffer): Promise<void> {
     const hash = sha256(content)
+    // Derive the metadata jsonb from the document's YAML-subset frontmatter.
+    // Documents without a fenced frontmatter block yield `{}`, preserving the
+    // prior behaviour where the column defaulted to `'{}'::jsonb`. The metadata
+    // is serialised to a JSON string and parsed by Postgres via `::text::jsonb`
+    // so the driver sends it as a text parameter rather than JSON-encoding it a
+    // second time into a jsonb string scalar (which would defeat `->>'key'`).
+    const metadataJson = JSON.stringify(extractDocumentMetadata(content.toString('utf8')))
     await tx`
       insert into memory.documents
-        (brain_id, tenant_id, path, content_hash, size, source, content, updated_at)
+        (brain_id, tenant_id, path, content_hash, size, source, content, metadata, updated_at)
       values
         (${this.brainId}::uuid, ${this.tenantId}::uuid, ${p as string},
-         ${hash}, ${content.length}, ${this.source}, ${content}, now())
+         ${hash}, ${content.length}, ${this.source}, ${content}, ${metadataJson}::text::jsonb, now())
       on conflict (brain_id, path) do update set
         content_hash = excluded.content_hash,
         size         = excluded.size,
         content      = excluded.content,
         source       = excluded.source,
+        metadata     = excluded.metadata,
         updated_at   = now()
     `
   }

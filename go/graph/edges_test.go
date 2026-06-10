@@ -178,6 +178,78 @@ func TestDeleteDocumentEdges_FiltersByEdgeType(t *testing.T) {
 	}
 }
 
+func TestComputeDocumentOntologyEdges_FromPersistedMetadata(t *testing.T) {
+	db := requireTestDB(t)
+	resetGraphSchema(t, db)
+
+	ctx := context.Background()
+	brainID := "11111111-1111-1111-1111-111111111111"
+	tenantID := "22222222-2222-2222-2222-222222222222"
+	anchorID := "33333333-3333-3333-3333-333333333333"
+	typedID := "44444444-4444-4444-4444-444444444444"
+	unrelatedID := "55555555-5555-5555-5555-555555555555"
+
+	// Seed documents with the metadata jsonb exactly as the Postgres store
+	// write path now persists it from frontmatter: the anchor under ontology/
+	// carries ontology_type, the typed doc carries the camelCase ontologyType,
+	// and an unrelated doc carries no ontology metadata.
+	if _, err := db.ExecContext(ctx, `
+		insert into memory.documents (document_id, brain_id, tenant_id, path, size, updated_at, metadata, content)
+		values
+		($1::uuid, $2::uuid, $3::uuid, 'ontology/types/customer.md', 19, now(), '{"ontology_type":"customer"}'::jsonb, ''::bytea),
+		($4::uuid, $2::uuid, $3::uuid, 'memory/project/x/acme.md', 20, now(), '{"ontologyType":"customer"}'::jsonb, ''::bytea),
+		($5::uuid, $2::uuid, $3::uuid, 'memory/project/x/other.md', 21, now(), '{}'::jsonb, ''::bytea)`,
+		anchorID, brainID, tenantID, typedID, unrelatedID,
+	); err != nil {
+		t.Fatalf("seed documents: %v", err)
+	}
+
+	edges, err := ComputeDocumentOntologyEdges(ctx, db, typedID, brainID, tenantID)
+	if err != nil {
+		t.Fatalf("compute document ontology edges: %v", err)
+	}
+	var matched *LabeledWeightedEdge
+	for i := range edges {
+		if edges[i].TargetDocID == anchorID {
+			matched = &edges[i]
+		}
+	}
+	if matched == nil {
+		t.Fatalf("expected an ontology edge to the anchor doc, got %+v", edges)
+	}
+	if matched.Label != "customer" {
+		t.Fatalf("expected label 'customer', got %q", matched.Label)
+	}
+	if matched.Weight != documentOntologyWeight {
+		t.Fatalf("expected weight %v, got %v", documentOntologyWeight, matched.Weight)
+	}
+
+	// Persist the computed ontology edge via the public upsert path (the same
+	// path ComputeAllEdgesForDocument uses for this edge type) and confirm it
+	// lands in memory.document_edges.
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatalf("begin tx: %v", err)
+	}
+	if err := UpsertDocumentEdges(ctx, tx, brainID, tenantID, toLabeledEdges(typedID, edges, EdgeDocumentOntology)); err != nil {
+		t.Fatalf("upsert ontology edges: %v", err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatalf("commit tx: %v", err)
+	}
+	var count int
+	if err := db.QueryRowContext(ctx, `
+		select count(*) from memory.document_edges
+		where brain_id = $1::uuid and source_doc_id = $2::uuid and edge_type = 'document_ontology' and label = 'customer'`,
+		brainID, typedID,
+	).Scan(&count); err != nil {
+		t.Fatalf("count ontology edges: %v", err)
+	}
+	if count == 0 {
+		t.Fatalf("expected a persisted document_ontology edge, got %d", count)
+	}
+}
+
 func TestEdgeConversionHelpers(t *testing.T) {
 	semantic := toSemanticEdges("src", []SimilarDocument{{TargetDocID: "a", Similarity: 0.8}})
 	if len(semantic) != 1 || semantic[0].EdgeType != EdgeSemanticSimilarity || semantic[0].Weight != 0.8 {
