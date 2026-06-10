@@ -84,7 +84,25 @@ export type PostgresStoreOptions = {
    * Set to false in managed deployments that provision the column up front.
    */
   readonly initContentColumn?: boolean
+  /**
+   * Maximum time, in milliseconds, the ensure-schema transaction will wait to
+   * acquire the `ACCESS EXCLUSIVE` lock its `ALTER TABLE` statements need. If
+   * the table is held by a long-running transaction the DDL fails fast with a
+   * Postgres `lock_timeout` error (SQLSTATE 55P03) instead of convoying behind
+   * it. Scoped to the ensure-schema transaction only via `SET LOCAL`; normal
+   * query transactions are unaffected. Defaults to {@link DEFAULT_INIT_LOCK_TIMEOUT_MS}.
+   */
+  readonly initLockTimeoutMs?: number
 }
+
+/**
+ * Default `lock_timeout` for the ensure-schema transaction. The columns
+ * normally already exist (provisioned by the SQL migrations under
+ * `./migrations/`), so the `ADD COLUMN IF NOT EXISTS` statements complete
+ * instantly; this bound only matters on the rare path where the table is
+ * concurrently locked, in which case failing fast is far safer than blocking.
+ */
+export const DEFAULT_INIT_LOCK_TIMEOUT_MS = 3000
 
 /**
  * Convert a glob pattern into a Postgres LIKE pattern. Unlike {@link matchGlob}
@@ -143,32 +161,68 @@ export class PostgresStore implements Store {
   readonly tenantId: string
   readonly brainId: string
   private readonly source: string
+  private readonly initLockTimeoutMs: number
   private readonly sinks = new Map<number, EventSink>()
   private nextSinkId = 0
   private closed = false
+  /**
+   * Memoised ensure-schema promise. The first `init()` call assigns it and
+   * runs the DDL exactly once; every later call returns the same settled
+   * promise without touching the table. This guarantees the `ALTER TABLE`
+   * (and the momentary `ACCESS EXCLUSIVE` lock it takes) happens at most once
+   * per store instance rather than on every operation.
+   */
+  private initPromise: Promise<void> | undefined
 
   constructor(opts: PostgresStoreOptions) {
     this.sql = opts.sql
     this.tenantId = opts.tenantId
     this.brainId = opts.brainId
     this.source = opts.source ?? 'postgres-store'
+    this.initLockTimeoutMs = opts.initLockTimeoutMs ?? DEFAULT_INIT_LOCK_TIMEOUT_MS
   }
 
   /**
    * Apply the additive `content` and `metadata` columns so `read()` has
    * something to return and frontmatter-derived edges have a column to key
-   * off. Idempotent — safe to call on every process boot. Managed
-   * deployments that run the SQL migrations under `./migrations/` already
-   * have both columns; this keeps the OSS-standalone path self-sufficient.
+   * off. Managed deployments that run the SQL migrations under
+   * `./migrations/` already have both columns; this keeps the OSS-standalone
+   * path self-sufficient.
+   *
+   * Idempotent AND memoised: the DDL executes at most once per store instance.
+   * Repeat calls return the cached promise without issuing any SQL, so a
+   * caller that constructs a store (or invokes `init()`) per request never
+   * takes a fresh `ACCESS EXCLUSIVE` lock on `memory.documents` on the hot
+   * recall path. The DDL runs inside a single transaction with a short
+   * `SET LOCAL lock_timeout`, so if the table is held by a long-running
+   * transaction it fails fast (SQLSTATE 55P03) instead of convoying behind it.
+   *
+   * The promise is memoised only once it resolves: a rejected ensure-schema
+   * (e.g. a transient `lock_timeout`) is not cached, so a later call may
+   * retry, while a successful run is never repeated.
    */
   async init(): Promise<void> {
-    const { sql } = this
-    await sql.unsafe(
-      "ALTER TABLE memory.documents ADD COLUMN IF NOT EXISTS content bytea NOT NULL DEFAULT ''::bytea",
-    )
-    await sql.unsafe(
-      "ALTER TABLE memory.documents ADD COLUMN IF NOT EXISTS metadata jsonb NOT NULL DEFAULT '{}'::jsonb",
-    )
+    if (this.initPromise !== undefined) return this.initPromise
+    const pending = this.ensureSchema()
+    this.initPromise = pending
+    try {
+      await pending
+    } catch (err) {
+      this.initPromise = undefined
+      throw err
+    }
+  }
+
+  private async ensureSchema(): Promise<void> {
+    await this.sql.begin(async (tx) => {
+      await tx`select set_config('lock_timeout', ${`${this.initLockTimeoutMs}`}, true)`
+      await tx.unsafe(
+        "ALTER TABLE memory.documents ADD COLUMN IF NOT EXISTS content bytea NOT NULL DEFAULT ''::bytea",
+      )
+      await tx.unsafe(
+        "ALTER TABLE memory.documents ADD COLUMN IF NOT EXISTS metadata jsonb NOT NULL DEFAULT '{}'::jsonb",
+      )
+    })
   }
 
   async read(p: Path): Promise<Buffer> {
