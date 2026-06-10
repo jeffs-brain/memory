@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { execSync } from 'node:child_process'
-import { readFileSync } from 'node:fs'
+import { readFileSync, readdirSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { toPath } from '@jeffs-brain/memory/store'
 import postgres from 'postgres'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { computeAllEdgesForDocument, computeDocumentOntologyEdges } from './edges.js'
 import { createPostgresStore } from './store.js'
 import type { PgSql } from './store.js'
 
@@ -43,8 +44,14 @@ maybe('PostgresStore (testcontainers)', () => {
     superSql = postgres(uri, { max: 2, prepare: false })
 
     const here = path.dirname(fileURLToPath(import.meta.url))
-    const migration = readFileSync(path.join(here, '..', 'migrations', '0001_init.sql'), 'utf8')
-    await superSql.unsafe(migration).simple()
+    const migrationsDir = path.join(here, '..', 'migrations')
+    const migrations = readdirSync(migrationsDir)
+      .filter((entry) => /^\d+_.*\.sql$/.test(entry))
+      .sort()
+      .map((entry) => readFileSync(path.join(migrationsDir, entry), 'utf8'))
+    for (const migration of migrations) {
+      await superSql.unsafe(migration).simple()
+    }
 
     // Seed tenants + brains as superuser.
     await superSql.unsafe(
@@ -180,5 +187,112 @@ maybe('PostgresStore (testcontainers)', () => {
     expect(await storeA.exists(secret)).toBe(true)
     expect((await storeA.read(secret)).toString()).toBe('tenant-A-only')
     await storeA.close()
+  }, 60_000)
+
+  it('persists frontmatter metadata on write and round-trips it', async () => {
+    const store = await createPostgresStore({
+      sql: superSql as unknown as PgSql,
+      tenantId: tenantA,
+      brainId: brainA,
+    })
+    const typed = toPath('meta/typed.md')
+    await store.write(
+      typed,
+      Buffer.from(
+        '---\nontology_type: customer\ntags: [crm, account]\n---\n\nAcme is a customer.\n',
+      ),
+    )
+
+    const rows = (await superSql<{ metadata: Record<string, unknown> }>`
+      select metadata from memory.documents
+      where brain_id = ${brainA}::uuid and path = ${'meta/typed.md'}
+      limit 1
+    `) as ReadonlyArray<{ metadata: Record<string, unknown> }>
+    expect(rows[0]?.metadata).toEqual({ ontology_type: 'customer', tags: ['crm', 'account'] })
+
+    // A plain document (no frontmatter) must still persist {} exactly as before.
+    const plain = toPath('meta/plain.md')
+    await store.write(plain, Buffer.from('no frontmatter here'))
+    const plainRows = (await superSql<{ metadata: Record<string, unknown> }>`
+      select metadata from memory.documents
+      where brain_id = ${brainA}::uuid and path = ${'meta/plain.md'}
+      limit 1
+    `) as ReadonlyArray<{ metadata: Record<string, unknown> }>
+    expect(plainRows[0]?.metadata).toEqual({})
+
+    // Re-writing with changed frontmatter updates the persisted metadata.
+    await store.write(typed, Buffer.from('---\nontology_type: supplier\n---\n\nNow a supplier.\n'))
+    const updated = (await superSql<{ metadata: Record<string, unknown> }>`
+      select metadata from memory.documents
+      where brain_id = ${brainA}::uuid and path = ${'meta/typed.md'}
+      limit 1
+    `) as ReadonlyArray<{ metadata: Record<string, unknown> }>
+    expect(updated[0]?.metadata).toEqual({ ontology_type: 'supplier' })
+
+    await store.delete(typed)
+    await store.delete(plain)
+    await store.close()
+  }, 60_000)
+
+  it('produces a document_ontology edge between docs sharing ontology_type via the store write path', async () => {
+    const store = await createPostgresStore({
+      sql: superSql as unknown as PgSql,
+      tenantId: tenantA,
+      brainId: brainA,
+    })
+
+    // Anchor doc under ontology/ carrying the type, and a typed doc elsewhere
+    // carrying the same type — written purely through the public store API.
+    const anchorPath = 'ontology/types/customer.md'
+    const typedPath = 'memory/project/x/acme.md'
+    await store.write(
+      toPath(anchorPath),
+      Buffer.from('---\nontology_type: customer\n---\n\nCustomer type anchor.\n'),
+    )
+    await store.write(
+      toPath(typedPath),
+      Buffer.from('---\nontologyType: customer\n---\n\nAcme account note.\n'),
+    )
+
+    const idRows = (await superSql<{ document_id: string; path: string }>`
+      select document_id::text, path from memory.documents
+      where brain_id = ${brainA}::uuid and path in (${anchorPath}, ${typedPath})
+    `) as ReadonlyArray<{ document_id: string; path: string }>
+    const byPath = new Map(idRows.map((r) => [r.path, r.document_id]))
+    const typedId = byPath.get(typedPath)
+    const anchorId = byPath.get(anchorPath)
+    expect(typedId).toBeDefined()
+    expect(anchorId).toBeDefined()
+
+    // The typed doc, anchored against the ontology/ doc, yields the edge.
+    const ontologyEdges = await computeDocumentOntologyEdges(
+      superSql as unknown as PgSql,
+      typedId as string,
+      brainA,
+      tenantA,
+    )
+    expect(ontologyEdges.some((e) => e.targetDocId === anchorId && e.label === 'customer')).toBe(
+      true,
+    )
+
+    // The full edge recompute persists it into memory.document_edges.
+    await computeAllEdgesForDocument(
+      superSql as unknown as PgSql,
+      typedId as string,
+      brainA,
+      tenantA,
+    )
+    const edgeRows = (await superSql<{ count: number }>`
+      select count(*)::int as count from memory.document_edges
+      where brain_id = ${brainA}::uuid
+        and source_doc_id = ${typedId as string}::uuid
+        and edge_type = 'document_ontology'
+        and label = 'customer'
+    `) as ReadonlyArray<{ count: number }>
+    expect((edgeRows[0]?.count ?? 0) > 0).toBe(true)
+
+    await store.delete(toPath(anchorPath))
+    await store.delete(toPath(typedPath))
+    await store.close()
   }, 60_000)
 })
