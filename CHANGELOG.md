@@ -7,6 +7,30 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+### memory-postgres 0.2.0-rc.4
+
+#### Fixed
+
+- Memoise `PostgresStore.init()` ensure-schema so the additive-column DDL runs
+  at most once per store instance. `init()` is now single-flight: the first call
+  assigns and awaits a memoised promise and every later call returns the same
+  settled promise without issuing any SQL; a failed (e.g. transient
+  `lock_timeout`) run is not cached, so a later call may retry, while a
+  successful run is never repeated. Previously a host that constructed a store
+  (or called `init()`) per request re-ran `ALTER TABLE memory.documents ADD
+  COLUMN IF NOT EXISTS ...` on the hot recall path, taking a fresh momentary
+  `ACCESS EXCLUSIVE` lock on `memory.documents` on every recall. Under load
+  these locks convoyed behind one another and stalled all reads, the root cause
+  of the 2026-06-10 outage.
+- Bound the ensure-schema transaction with a `SET LOCAL lock_timeout` (via
+  `set_config('lock_timeout', ..., true)`, default
+  `DEFAULT_INIT_LOCK_TIMEOUT_MS = 3000`ms, configurable via the new
+  `initLockTimeoutMs` option). If `memory.documents` is held by a long-running
+  transaction the blocked DDL now fails fast with a Postgres `lock_timeout`
+  error (SQLSTATE 55P03) instead of convoying behind it. The bound is scoped to
+  the ensure-schema transaction only; normal query transactions are unaffected.
+  (#77, LLE-10529) (TypeScript)
+
 ### memory-postgres 0.2.0-rc.3
 
 #### Fixed
