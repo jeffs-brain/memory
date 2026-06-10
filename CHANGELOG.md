@@ -7,6 +7,24 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+### memory-postgres 0.2.0-rc.3
+
+#### Fixed
+
+- Persist the `metadata` jsonb column on document write. `PostgresStore`
+  previously inserted only path/content_hash/size/source/content/updated_at and
+  dropped `metadata`, so the column stayed `{}` and the metadata-keyed graph
+  edges (`document_ontology`, `shared_tag`, `same_session`, `supersedes`) could
+  never fire. The store now derives metadata from the document's own `---`
+  frontmatter (via a non-lossy YAML-subset extractor — the typed
+  `parseFrontmatter` intentionally drops keys like `ontology_type`) and persists
+  it via `${json}::text::jsonb` (a plain `::jsonb` bind double-encodes a JS
+  string into a jsonb string scalar, defeating `->>'key'`), with
+  `on conflict ... metadata = excluded.metadata`. Empty/absent frontmatter is
+  byte-identical to previous behaviour (no migration; the column already exists).
+  A Go reader test pins that `computeDocumentOntologyEdges` consumes the
+  persisted field. (#76, LLE-10520) (TypeScript)
+
 ### memory (Go + TypeScript) — codec extraction priors
 
 #### Added
