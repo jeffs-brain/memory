@@ -132,23 +132,50 @@ func TestQueueDepthExceeded(t *testing.T) {
 
 	bus := NewBus(&BusOptions{MaxQueueDepth: 2, Logger: logger})
 
-	// Do not subscribe — events accumulate in queue.
+	// The dispatch goroutine continuously drains the event channel, so we
+	// cannot rely on unsubscribed events accumulating — dispatch would empty
+	// the buffer before backpressure can trigger, making the assertion flaky.
+	//
+	// Instead, pin the dispatch loop with a blocking handler. dispatch calls
+	// handlers synchronously, so once it pulls the first event the handler
+	// parks on inHandler/release and the loop stops consuming. Subsequent
+	// publishes then fill the buffered channel (capacity 2) until the queue
+	// overflows and the backpressure warning is emitted deterministically.
+	inHandler := make(chan struct{})
+	release := make(chan struct{})
+	var handlerEntered sync.Once
+	bus.Subscribe(func(_ IngestTriggerEvent) error {
+		handlerEntered.Do(func() { close(inHandler) })
+		<-release
+		return nil
+	})
+
+	// First event is consumed by dispatch and parks the handler.
 	if err := bus.Publish(validEvent("q1")); err != nil {
 		t.Fatalf("publish q1: %v", err)
 	}
+	<-inHandler // dispatch is now blocked; the buffer will no longer drain.
+
+	// Fill the buffered channel to capacity (MaxQueueDepth: 2).
 	if err := bus.Publish(validEvent("q2")); err != nil {
 		t.Fatalf("publish q2: %v", err)
 	}
-	// Third publish should trigger backpressure (drop oldest).
 	if err := bus.Publish(validEvent("q3")); err != nil {
 		t.Fatalf("publish q3: %v", err)
 	}
-
-	bus.Close()
+	// Channel is now full; this publish must trigger backpressure (drop oldest)
+	// and emit the warning synchronously inside Publish.
+	if err := bus.Publish(validEvent("q4")); err != nil {
+		t.Fatalf("publish q4: %v", err)
+	}
 
 	if got := warnings.Load(); got < 1 {
 		t.Fatalf("expected at least 1 warning, got %d", got)
 	}
+
+	// Release the parked handler and let the bus drain and close cleanly.
+	close(release)
+	bus.Close()
 }
 
 func TestMalformedEventRejected(t *testing.T) {
