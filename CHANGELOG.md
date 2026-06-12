@@ -7,6 +7,24 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+### memory-postgres 0.2.0-rc.5
+
+#### Fixed
+
+- Thread the caller's `AbortSignal` through the Postgres retrieve path to the
+  query-embedding call. `PostgresRetrievalRequest` now accepts an optional
+  `signal`, which `createPostgresRetriever().retrieve` forwards to
+  `embedder.embed([query], signal)`. Previously the query embedding ran with no
+  deadline, so a degraded embeddings service could keep a `/ask` or `/search`
+  request in flight past the intended request deadline (a bounded but
+  unintentionally slow request). With the signal supplied, an aborted deadline
+  (e.g. `AbortSignal.any([request-close, AbortSignal.timeout(...)])`) cancels
+  the in-flight embed and retrieval degrades to lexical via the existing
+  fallback, rather than blocking. Omitting `signal` is byte-identical to the
+  previous behaviour. The Go retriever already threaded its `context.Context`
+  to `Embedder.Embed`; a mirrored parity test now guards that behaviour.
+  (LLE-10559) (TypeScript, Go)
+
 ### memory-postgres 0.2.0-rc.4
 
 #### Fixed

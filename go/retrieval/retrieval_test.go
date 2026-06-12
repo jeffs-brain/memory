@@ -1823,3 +1823,74 @@ func (f rerankerFn) Rerank(ctx context.Context, query string, chunks []Retrieved
 }
 
 func (f rerankerFn) Name() string { return "test-reranker" }
+
+// ctxObservingEmbedder records the context handed to Embed and honours
+// cancellation: an already-cancelled context returns promptly with the
+// context error instead of running the embed to completion. It is the Go
+// mirror of the TypeScript memory-postgres signal-threading tests, proving
+// the caller's deadline reaches the embed network call on the retrieve path.
+type ctxObservingEmbedder struct {
+	dims     int
+	gotErr   error
+	canceled bool
+	ran      bool
+}
+
+func (e *ctxObservingEmbedder) Embed(ctx context.Context, texts []string) ([][]float32, error) {
+	if err := ctx.Err(); err != nil {
+		e.canceled = true
+		e.gotErr = err
+		return nil, err
+	}
+	e.ran = true
+	out := make([][]float32, len(texts))
+	for i := range texts {
+		out[i] = make([]float32, e.dims)
+	}
+	return out, nil
+}
+
+func (e *ctxObservingEmbedder) Dimensions() int { return e.dims }
+
+func (e *ctxObservingEmbedder) Close() error { return nil }
+
+// TestRetrieve_CancelledContext_AbortsEmbed proves the caller's cancelled
+// context is threaded down to embedder.Embed on the vector leg: the embed sees
+// the cancellation, returns promptly, and the retrieve degrades to BM25 rather
+// than running the embed to completion. Without ctx threading the embedder
+// would not observe the cancellation.
+func TestRetrieve_CancelledContext_AbortsEmbed(t *testing.T) {
+	t.Parallel()
+	src := newFakeSource(newTestCorpus())
+	embedder := &ctxObservingEmbedder{dims: src.embedDim}
+	r, err := New(Config{Source: src, Embedder: embedder})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	resp, err := r.Retrieve(ctx, Request{
+		Query: "invoice",
+		Mode:  ModeHybrid,
+	})
+	if err != nil {
+		t.Fatalf("Retrieve: %v", err)
+	}
+	if !embedder.canceled {
+		t.Fatalf("embed did not observe the cancelled context; threading is broken")
+	}
+	if embedder.ran {
+		t.Fatalf("embed ran to completion despite a cancelled context")
+	}
+	if !errors.Is(embedder.gotErr, context.Canceled) {
+		t.Fatalf("embed got %v, want context.Canceled", embedder.gotErr)
+	}
+	if resp.Trace.EmbedderUsed {
+		t.Fatalf("embedder should not be marked used after a cancelled embed")
+	}
+	if resp.Trace.VectorSkipReason != "vector_error" {
+		t.Fatalf("vector skip reason = %q, want vector_error", resp.Trace.VectorSkipReason)
+	}
+}
