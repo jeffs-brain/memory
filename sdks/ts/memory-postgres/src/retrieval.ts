@@ -120,6 +120,14 @@ export type PostgresRetrievalRequest = {
   readonly candidateLimit?: number
   readonly rerankTopN?: number
   readonly documentIdAllowlist?: ReadonlySet<string>
+  /**
+   * Optional caller deadline. When supplied it is forwarded to the query
+   * embedding call so that an aborted signal (e.g. a request close or an
+   * `AbortSignal.timeout`) cancels the in-flight embed rather than letting a
+   * degraded embeddings service run past the intended request deadline. When
+   * omitted, behaviour is unchanged.
+   */
+  readonly signal?: AbortSignal
 }
 
 export type PostgresSearchLike = {
@@ -456,7 +464,7 @@ export const createPostgresRetriever = (
         try {
           if (embedderFactory === undefined) throw new Error('embedder not configured')
           const embedder = embedderFactory(opts.env)
-          const vectors = await embedder.embed([req.query])
+          const vectors = await embedder.embed([req.query], req.signal)
           const first = vectors[0]
           if (first !== undefined && first.length > 0) {
             embedding = first
