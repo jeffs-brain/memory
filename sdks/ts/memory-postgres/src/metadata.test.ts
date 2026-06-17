@@ -91,6 +91,41 @@ describe('extractDocumentMetadata', () => {
     })
   })
 
+  it('adds normalised OKF aliases when requested', () => {
+    const content = [
+      '---',
+      'title: Acme Corp',
+      'summary: A customer',
+      'tags: [crm, account]',
+      'modified: 2026-06-01T00:00:00Z',
+      'url: https://example.com/acme',
+      '---',
+      '',
+      'Acme is a customer.',
+    ].join('\n')
+    expect(
+      extractDocumentMetadata(content, {
+        path: 'wiki/customers/acme.md',
+        normaliseOkf: true,
+      }),
+    ).toEqual({
+      title: 'Acme Corp',
+      summary: 'A customer',
+      tags: ['crm', 'account'],
+      modified: '2026-06-01T00:00:00Z',
+      url: 'https://example.com/acme',
+      okf_type: 'Article',
+      okf_title: 'Acme Corp',
+      okf_description: 'A customer',
+      okf_resource: 'https://example.com/acme',
+      okf_timestamp: '2026-06-01T00:00:00Z',
+      okf_tags: ['crm', 'account'],
+      description: 'A customer',
+      resource: 'https://example.com/acme',
+      timestamp: '2026-06-01T00:00:00Z',
+    })
+  })
+
   it('ignores blank lines and non key-value lines inside the block', () => {
     const content = '---\nontology_type: customer\n\n# a comment line without colon\n---\n\nbody'
     expect(extractDocumentMetadata(content)).toEqual({ ontology_type: 'customer' })

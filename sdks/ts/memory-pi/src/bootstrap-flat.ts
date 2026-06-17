@@ -16,9 +16,11 @@
  * pruned by hosts that opt in.
  */
 
+import type { Stats } from 'node:fs'
 import { readFile, readdir, stat } from 'node:fs/promises'
 import { join, relative, sep } from 'node:path'
 import { chunkMarkdown } from '@jeffs-brain/memory/ingest'
+import { deriveOkfTypeFromPath, normaliseOkfDocument } from '@jeffs-brain/memory/okf'
 import type { Chunk as IndexChunk, SearchIndex } from '@jeffs-brain/memory/search'
 import { type RuntimeLogger, noopRuntimeLogger } from './runtime-logger.js'
 
@@ -223,7 +225,7 @@ export const bootstrapFlatBrain = async (
       scanned++
       const rel = toPosixRel(relative(options.brainRoot, absPath))
       seen.add(rel)
-      let info
+      let info: Stats
       try {
         info = await stat(absPath)
       } catch {
@@ -286,13 +288,20 @@ export const bootstrapFlatBrain = async (
         continue
       }
       deleteIndexedPath(rel)
-      const title = extractTitle(rel, content)
+      const defaultType = deriveOkfTypeFromPath(rel)
+      const okf = normaliseOkfDocument(content, {
+        path: rel,
+        ...(defaultType !== undefined ? { defaultType } : {}),
+      })
+      const title = okf.title ?? extractTitle(rel, content)
       for (const section of sections) {
         batch.push({
           id: `${rel}#${section.ordinal}`,
           path: rel,
           ordinal: section.ordinal,
           title,
+          ...(okf.description !== undefined ? { summary: okf.description } : {}),
+          ...(okf.tags.length > 0 ? { tags: okf.tags } : {}),
           content: section.content,
           metadata: {
             source: 'bootstrap-flat',
@@ -302,6 +311,10 @@ export const bootstrapFlatBrain = async (
             headingPath: section.headingPath,
             startLine: section.startLine,
             endLine: section.endLine,
+            ...(okf.conceptId !== undefined ? { conceptId: okf.conceptId } : {}),
+            ...(okf.type !== undefined ? { okfType: okf.type } : {}),
+            ...(okf.resource !== undefined ? { resource: okf.resource } : {}),
+            ...(okf.timestamp !== undefined ? { timestamp: okf.timestamp } : {}),
           },
         })
         if (batch.length >= BATCH_SIZE) flushBatch()

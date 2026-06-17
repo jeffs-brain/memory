@@ -99,7 +99,7 @@ maybe('document edges integration', () => {
       ('${docs.heuristicS1}', '${brainId}', '${tenantId}', 'memory/project/a/heuristic-review.md', decode('00','hex'), ''::bytea, 18, 'test', '{"sessionId":"s1"}'::jsonb),
       ('${docs.ontologyCustomer}', '${brainId}', '${tenantId}', 'ontology/types/customer.md', decode('00','hex'), ''::bytea, 19, 'test', '{"ontology_type":"customer","ontology_label":"Customer"}'::jsonb),
       ('${docs.memoryCustomer}', '${brainId}', '${tenantId}', 'memory/project/a/customer-note.md', decode('00','hex'), ''::bytea, 20, 'test', '{"ontologyType":"customer"}'::jsonb),
-      ('${docs.linkSource}', '${brainId}', '${tenantId}', 'wiki/link-source.md', decode('00','hex'), convert_to('Links: [[memory/project/a/similar]] [[ontology/types/customer.md]]', 'UTF8'), 21, 'test', '{"session_id":"s1","supersedes":"legacy-note"}'::jsonb)
+      ('${docs.linkSource}', '${brainId}', '${tenantId}', 'wiki/link-source.md', decode('00','hex'), convert_to('Links: [[memory/project/a/similar]] [customer](/ontology/types/customer.md) [folder](memory/project/a/folder.md) ![ignored](/memory/project/b/session.md)', 'UTF8'), 21, 'test', '{"session_id":"s1","supersedes":"legacy-note"}'::jsonb)
     `)
 
     await sql.unsafe(`
@@ -127,56 +127,120 @@ maybe('document edges integration', () => {
     expect(centroid).not.toBeNull()
     expect((centroid ?? [])[0]).toBeCloseTo(1, 5)
 
-    const similar = await findSimilarDocuments(sql as unknown as PgSql, docs.source, brainId, tenantId, {
-      threshold: 0.2,
-      limit: 1,
-    })
+    const similar = await findSimilarDocuments(
+      sql as unknown as PgSql,
+      docs.source,
+      brainId,
+      tenantId,
+      {
+        threshold: 0.2,
+        limit: 1,
+      },
+    )
     expect(similar).toHaveLength(1)
     expect(similar[0]?.targetDocId).toBe(docs.similar)
   }, 120_000)
 
   it('returns null centroid and no semantic edges when source has no chunks', async () => {
-    const centroid = await computeDocumentCentroid(sql as unknown as PgSql, docs.sourceNoChunks, tenantId)
+    const centroid = await computeDocumentCentroid(
+      sql as unknown as PgSql,
+      docs.sourceNoChunks,
+      tenantId,
+    )
     expect(centroid).toBeNull()
 
-    const similar = await findSimilarDocuments(sql as unknown as PgSql, docs.sourceNoChunks, brainId, tenantId, {
-      threshold: 0,
-      limit: 10,
-    })
+    const similar = await findSimilarDocuments(
+      sql as unknown as PgSql,
+      docs.sourceNoChunks,
+      brainId,
+      tenantId,
+      {
+        threshold: 0,
+        limit: 10,
+      },
+    )
     expect(similar).toEqual([])
   }, 120_000)
 
   it('computes shared tag, folder, and session edges', async () => {
-    const tags = await computeSharedTagEdges(sql as unknown as PgSql, docs.source, brainId, tenantId)
+    const tags = await computeSharedTagEdges(
+      sql as unknown as PgSql,
+      docs.source,
+      brainId,
+      tenantId,
+    )
     const tagToSimilar = tags.find((row) => row.targetDocId === docs.similar)
     expect(tagToSimilar).toBeDefined()
     expect(tagToSimilar?.weight).toBeCloseTo(1 / 3, 5)
     expect(tagToSimilar?.label).toContain('alpha')
 
-    const folders = await computeSharedFolderEdges(sql as unknown as PgSql, docs.source, brainId, tenantId)
+    const folders = await computeSharedFolderEdges(
+      sql as unknown as PgSql,
+      docs.source,
+      brainId,
+      tenantId,
+    )
     expect(folders.some((row) => row.targetDocId === docs.similar && row.weight === 0.3)).toBe(true)
     expect(folders.some((row) => row.targetDocId === docs.folder && row.weight === 0.3)).toBe(true)
 
-    const sessions = await computeSameSessionEdges(sql as unknown as PgSql, docs.source, brainId, tenantId)
+    const sessions = await computeSameSessionEdges(
+      sql as unknown as PgSql,
+      docs.source,
+      brainId,
+      tenantId,
+    )
     expect(sessions.some((row) => row.targetDocId === docs.folder && row.weight === 0.5)).toBe(true)
-    expect(sessions.some((row) => row.targetDocId === docs.session && row.weight === 0.5)).toBe(true)
+    expect(sessions.some((row) => row.targetDocId === docs.session && row.weight === 0.5)).toBe(
+      true,
+    )
   }, 120_000)
 
   it('handles no tags/session and computes added edge types', async () => {
-    const noTagRows = await computeSharedTagEdges(sql as unknown as PgSql, docs.sourceNoChunks, brainId, tenantId)
+    const noTagRows = await computeSharedTagEdges(
+      sql as unknown as PgSql,
+      docs.sourceNoChunks,
+      brainId,
+      tenantId,
+    )
     expect(noTagRows).toEqual([])
 
-    const noSessionRows = await computeSameSessionEdges(sql as unknown as PgSql, docs.sourceNoMeta, brainId, tenantId)
+    const noSessionRows = await computeSameSessionEdges(
+      sql as unknown as PgSql,
+      docs.sourceNoMeta,
+      brainId,
+      tenantId,
+    )
     expect(noSessionRows).toEqual([])
 
-    const supersedes = await computeSupersedesEdges(sql as unknown as PgSql, docs.linkSource, brainId, tenantId)
-    expect(supersedes.some((row) => row.targetDocId === docs.targetSuperseded && row.weight === 1)).toBe(true)
+    const supersedes = await computeSupersedesEdges(
+      sql as unknown as PgSql,
+      docs.linkSource,
+      brainId,
+      tenantId,
+    )
+    expect(
+      supersedes.some((row) => row.targetDocId === docs.targetSuperseded && row.weight === 1),
+    ).toBe(true)
 
-    const sessionEpisode = await computeSessionEpisodeEdges(sql as unknown as PgSql, docs.source, brainId, tenantId)
-    expect(sessionEpisode.some((row) => row.targetDocId === docs.episodeS1 && row.weight === 0.8)).toBe(true)
+    const sessionEpisode = await computeSessionEpisodeEdges(
+      sql as unknown as PgSql,
+      docs.source,
+      brainId,
+      tenantId,
+    )
+    expect(
+      sessionEpisode.some((row) => row.targetDocId === docs.episodeS1 && row.weight === 0.8),
+    ).toBe(true)
 
-    const episodeHeuristic = await computeEpisodeHeuristicEdges(sql as unknown as PgSql, docs.episodeS1, brainId, tenantId)
-    expect(episodeHeuristic.some((row) => row.targetDocId === docs.heuristicS1 && row.weight === 0.7)).toBe(true)
+    const episodeHeuristic = await computeEpisodeHeuristicEdges(
+      sql as unknown as PgSql,
+      docs.episodeS1,
+      brainId,
+      tenantId,
+    )
+    expect(
+      episodeHeuristic.some((row) => row.targetDocId === docs.heuristicS1 && row.weight === 0.7),
+    ).toBe(true)
 
     const documentOntology = await computeDocumentOntologyEdges(
       sql as unknown as PgSql,
@@ -184,17 +248,35 @@ maybe('document edges integration', () => {
       brainId,
       tenantId,
     )
-    expect(documentOntology.some((row) => row.targetDocId === docs.ontologyCustomer && row.label === 'customer')).toBe(
-      true,
-    )
+    expect(
+      documentOntology.some(
+        (row) => row.targetDocId === docs.ontologyCustomer && row.label === 'customer',
+      ),
+    ).toBe(true)
 
-    const wikilinks = await computeWikilinkEdges(sql as unknown as PgSql, docs.linkSource, brainId, tenantId)
-    expect(wikilinks.some((row) => row.targetDocId === docs.similar && row.label === 'memory/project/a/similar')).toBe(
-      true,
+    const wikilinks = await computeWikilinkEdges(
+      sql as unknown as PgSql,
+      docs.linkSource,
+      brainId,
+      tenantId,
     )
     expect(
-      wikilinks.some((row) => row.targetDocId === docs.ontologyCustomer && row.label === 'ontology/types/customer.md'),
+      wikilinks.some(
+        (row) => row.targetDocId === docs.similar && row.label === 'memory/project/a/similar',
+      ),
     ).toBe(true)
+    expect(
+      wikilinks.some(
+        (row) =>
+          row.targetDocId === docs.ontologyCustomer && row.label === '/ontology/types/customer.md',
+      ),
+    ).toBe(true)
+    expect(
+      wikilinks.some(
+        (row) => row.targetDocId === docs.folder && row.label === 'memory/project/a/folder.md',
+      ),
+    ).toBe(true)
+    expect(wikilinks.some((row) => row.targetDocId === docs.session)).toBe(false)
   }, 120_000)
 
   it('upserts and deletes document edges', async () => {
@@ -276,10 +358,16 @@ maybe('document edges integration', () => {
     expect((addedTypeMap.get('session_episode') ?? 0) > 0).toBe(true)
     expect((addedTypeMap.get('wikilink') ?? 0) > 0).toBe(true)
 
-    await computeAllEdgesForDocument(sql as unknown as PgSql, docs.memoryCustomer, brainId, tenantId, {
-      similarityThreshold: 0.2,
-      similarityLimit: 10,
-    })
+    await computeAllEdgesForDocument(
+      sql as unknown as PgSql,
+      docs.memoryCustomer,
+      brainId,
+      tenantId,
+      {
+        similarityThreshold: 0.2,
+        similarityLimit: 10,
+      },
+    )
     const ontologyTypeRows = (await sql<{ edge_type: string; count: number }[]>`
       select edge_type, count(*)::int as count
       from memory.document_edges

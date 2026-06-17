@@ -1,5 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
+import {
+  deriveOkfTypeFromPath,
+  normaliseOkfMetadata,
+  parseOkfDocument,
+} from '@jeffs-brain/memory/okf'
+
 /**
  * Document metadata extraction for the Postgres store write path.
  *
@@ -36,6 +42,11 @@ export type DocumentMetadataValue = string | boolean | readonly string[]
 
 /** Generic frontmatter map persisted into `memory.documents.metadata`. */
 export type DocumentMetadata = Readonly<Record<string, DocumentMetadataValue>>
+
+export type ExtractDocumentMetadataOptions = {
+  readonly path?: string
+  readonly normaliseOkf?: boolean
+}
 
 const BOOLEAN_RE = /^(true|false|yes|no)$/i
 
@@ -95,7 +106,10 @@ const splitKV = (line: string): readonly [string, string] | undefined => {
  * @param content Raw UTF-8 document content.
  * @returns Parsed frontmatter map preserving every key.
  */
-export const extractDocumentMetadata = (content: string): DocumentMetadata => {
+export const extractDocumentMetadata = (
+  content: string,
+  options: ExtractDocumentMetadataOptions = {},
+): DocumentMetadata => {
   const lines = content.split('\n')
   if (lines.length < 2 || lines[0]?.trim() !== FENCE) return {}
 
@@ -154,6 +168,44 @@ export const extractDocumentMetadata = (content: string): DocumentMetadata => {
     }
     out[key] = coerceScalar(rawVal)
   }
+
+  if (options.normaliseOkf !== true) return out
+  return withOkfMetadata(out, content, options.path)
+}
+
+const putIfPresent = (
+  target: Record<string, DocumentMetadataValue>,
+  key: string,
+  value: string | undefined,
+): void => {
+  if (value !== undefined && value.trim() !== '') target[key] = value
+}
+
+const withOkfMetadata = (
+  metadata: Record<string, DocumentMetadataValue>,
+  content: string,
+  path: string | undefined,
+): DocumentMetadata => {
+  const parsed = parseOkfDocument(content)
+  if (!parsed.present) return metadata
+
+  const defaultType = deriveOkfTypeFromPath(path)
+  const okf = normaliseOkfMetadata(parsed.frontmatter, parsed.body, {
+    ...(path !== undefined ? { path } : {}),
+    ...(defaultType !== undefined ? { defaultType } : {}),
+  })
+  const out: Record<string, DocumentMetadataValue> = { ...metadata }
+
+  putIfPresent(out, 'okf_type', okf.type)
+  putIfPresent(out, 'okf_title', okf.title)
+  putIfPresent(out, 'okf_description', okf.description)
+  putIfPresent(out, 'okf_resource', okf.resource)
+  putIfPresent(out, 'okf_timestamp', okf.timestamp)
+  if (okf.tags.length > 0) out.okf_tags = okf.tags
+
+  if (out.description === undefined) putIfPresent(out, 'description', okf.description)
+  if (out.timestamp === undefined) putIfPresent(out, 'timestamp', okf.timestamp)
+  if (out.resource === undefined) putIfPresent(out, 'resource', okf.resource)
 
   return out
 }

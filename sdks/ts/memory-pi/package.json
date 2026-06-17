@@ -39,7 +39,7 @@
     "typebox": "^1"
   },
   "dependencies": {
-    "@jeffs-brain/memory": "0.3.1",
+    "@jeffs-brain/memory": "workspace:*",
     "zod": "^3"
   },
   "devDependencies": {
@@ -52,14 +52,7 @@
   "engines": {
     "node": ">=20.0.0"
   },
-  "keywords": [
-    "pi-extension",
-    "memory",
-    "rag",
-    "retrieval",
-    "embedding",
-    "knowledge-base"
-  ],
+  "keywords": ["pi-extension", "memory", "rag", "retrieval", "embedding", "knowledge-base"],
   "repository": {
     "type": "git",
     "url": "git+https://github.com/jeffs-brain/memory.git",
