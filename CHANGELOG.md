@@ -7,6 +7,44 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+### memory 0.4.0-rc.4
+
+#### Added
+
+- OKF (Open Knowledge Format) v0.1 content profile. New `./okf` subpath export
+  (`@jeffs-brain/memory/okf`) ships pure, I/O-free helpers: `parseOkfDocument`,
+  `normaliseOkfMetadata`, `deriveOkfTypeFromPath`, `conceptIdFromPath`, link
+  extraction, and soft validation. The profile is permissive by design — `type`
+  is the only field required for strict conformance, with legacy aliases
+  (`title`/`name`/heading; `description`/`summary`; `timestamp`/`modified`/
+  `updated_at`; `resource`/`url`/`source_url`; `tags` list or CSV) and
+  path-derived presentation types (`wiki/`→Article, `memory/`→Memory, `raw/`→Raw
+  Document, `codec.md`→Codec). Both `[[wikilinks]]` and OKF markdown links are
+  treated as graph edges; broken links are tolerated. No I/O, no DDL. (#80)
+  (TypeScript)
+
+### memory-postgres 0.2.0-rc.6
+
+#### Added
+
+- OKF-aware document metadata extraction. The write path now extracts a
+  non-lossy frontmatter superset via `extractDocumentMetadata(content, { path,
+  normaliseOkf: true })` so the persisted `metadata` jsonb preserves every
+  scalar/list key and adds `okf_type`/`okf_title`/`okf_description`/
+  `okf_resource`/`okf_timestamp`/`okf_tags`, back-filling `description`/
+  `timestamp`/`resource` only when absent (never clobbering explicit values).
+  No frontmatter is byte-identical to before (`{}`). (#80) (TypeScript)
+
+#### Changed
+
+- `computeWikilinkEdges` now also matches OKF markdown links
+  (`[text](/path.md)`) in addition to `[[wikilinks]]`, with relative-path
+  resolution, `#fragment`/`?query` stripping, and external-scheme/`../`
+  exclusion. This yields additional `wikilink` rows in `document_edges` for
+  documents written with markdown cross-links; the existing `wikilink` edge type
+  already satisfies the table CHECK, so no schema change is required. (#80)
+  (TypeScript)
+
 ### memory-postgres 0.2.0-rc.5
 
 #### Fixed
