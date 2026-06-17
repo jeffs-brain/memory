@@ -208,7 +208,15 @@ maybe('PostgresStore (testcontainers)', () => {
       where brain_id = ${brainA}::uuid and path = ${'meta/typed.md'}
       limit 1
     `) as ReadonlyArray<{ metadata: Record<string, unknown> }>
-    expect(rows[0]?.metadata).toEqual({ ontology_type: 'customer', tags: ['crm', 'account'] })
+    expect(rows[0]?.metadata).toEqual(
+      expect.objectContaining({
+        ontology_type: 'customer',
+        tags: ['crm', 'account'],
+        okf_type: 'Document',
+        okf_title: 'typed',
+        okf_tags: ['crm', 'account'],
+      }),
+    )
 
     // A plain document (no frontmatter) must still persist {} exactly as before.
     const plain = toPath('meta/plain.md')
@@ -227,7 +235,13 @@ maybe('PostgresStore (testcontainers)', () => {
       where brain_id = ${brainA}::uuid and path = ${'meta/typed.md'}
       limit 1
     `) as ReadonlyArray<{ metadata: Record<string, unknown> }>
-    expect(updated[0]?.metadata).toEqual({ ontology_type: 'supplier' })
+    expect(updated[0]?.metadata).toEqual(
+      expect.objectContaining({
+        ontology_type: 'supplier',
+        okf_type: 'Document',
+        okf_title: 'typed',
+      }),
+    )
 
     await store.delete(typed)
     await store.delete(plain)

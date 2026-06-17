@@ -192,4 +192,43 @@ describe('bootstrapFlatBrain', () => {
       await idx.close()
     }
   })
+
+  it('indexes OKF and legacy metadata into chunk fields', async () => {
+    await writeAt(
+      'wiki/runbooks/freshness.md',
+      [
+        '---',
+        'type: Playbook',
+        'title: Freshness Runbook',
+        'summary: Legacy summary used as OKF description.',
+        'resource: https://example.com/freshness',
+        'tags: [oncall, data-quality]',
+        'modified: 2026-06-01T00:00:00Z',
+        '---',
+        '',
+        'Check the freshness dashboard.',
+      ].join('\n'),
+    )
+
+    const idx = await createSearchIndex({ dbPath: ':memory:' })
+    try {
+      await bootstrapFlatBrain({
+        brainRoot,
+        brainId: 'test-brain',
+        searchIndex: idx,
+      })
+      const chunk = idx.getChunk('wiki/runbooks/freshness.md#0')
+      expect(chunk?.title).toBe('Freshness Runbook')
+      expect(chunk?.summary).toBe('Legacy summary used as OKF description.')
+      expect(chunk?.tags).toEqual(['oncall', 'data-quality'])
+      expect(chunk?.metadata).toMatchObject({
+        conceptId: 'wiki/runbooks/freshness',
+        okfType: 'Playbook',
+        resource: 'https://example.com/freshness',
+        timestamp: '2026-06-01T00:00:00Z',
+      })
+    } finally {
+      await idx.close()
+    }
+  })
 })

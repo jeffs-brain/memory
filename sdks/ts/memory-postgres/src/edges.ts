@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
-import type { PgSql } from './store.js'
 import type { DocumentEdgeType } from './graph.js'
+import type { PgSql } from './store.js'
 
 export type EmbeddingDim = 1024 | 3072
 
@@ -539,7 +539,7 @@ export async function computeDocumentOntologyEdges(
 }
 
 /**
- * Compute edges for explicit `[[wikilink]]` references in content.
+ * Compute edges for explicit `[[wikilink]]` and OKF markdown-link references in content.
  *
  * @param sql Postgres tagged-template client.
  * @param documentId Source document UUID.
@@ -555,20 +555,51 @@ export async function computeWikilinkEdges(
 ): Promise<{ targetDocId: string; weight: number; label: string }[]> {
   const rows = (await sql<WikilinkRow>`
     with source as (
-      select convert_from(content, 'UTF8') as body
+      select path,
+             regexp_replace(path, '/[^/]*$', '') as directory,
+             convert_from(content, 'UTF8') as body
       from memory.documents
       where document_id = ${documentId}::uuid
         and brain_id = ${brainId}::uuid
         and tenant_id = ${tenantId}::uuid
     ),
-    links as (
-      select distinct trim(split_part(matches[1], '|', 1)) as target
+    raw_links as (
+      select distinct trim(split_part(matches[1], '|', 1)) as target,
+             trim(split_part(matches[1], '|', 1)) as label
       from source s,
       lateral regexp_matches(s.body, '\\[\\[([^\\]]+)\\]\\]', 'g') as matches
       where trim(split_part(matches[1], '|', 1)) <> ''
+
+      union
+
+      select distinct trim(matches[2]) as target,
+             trim(matches[2]) as label
+      from source s,
+      lateral regexp_matches(s.body, '(^|[^!])\\[[^\\]\\n]+\\]\\(([^)\\s]+)(?:\\s+"[^"]*")?\\)', 'g') as matches
+      where trim(matches[2]) <> ''
+    ),
+    links as (
+      select distinct
+             case
+               when cleaned.target like '/%' then ltrim(cleaned.target, '/')
+               when cleaned.target like './%' and s.directory <> s.path then s.directory || '/' || substring(cleaned.target from 3)
+               when cleaned.target like './%' then substring(cleaned.target from 3)
+               else cleaned.target
+             end as target,
+             cleaned.label as label
+      from source s,
+      lateral (
+        select regexp_replace(rl.target, '[#?].*$', '') as target,
+               rl.label as label
+        from raw_links rl
+      ) as cleaned
+      where cleaned.target <> ''
+        and cleaned.target not like '#%'
+        and cleaned.target !~* '^[a-z][a-z0-9+.-]*:'
+        and cleaned.target not like '../%'
     )
     select d.document_id::text as target_doc_id,
-           l.target as label
+           l.label as label
     from memory.documents d
     join links l
       on d.path = l.target
@@ -728,66 +759,66 @@ export async function computeAllEdgesForDocument(
       computeWikilinkEdges(tx, documentId, brainId, tenantId),
     ])
 
-  const edges: UpsertEdge[] = [
-    ...similar.map((item) => ({
-      sourceDocId: documentId,
-      targetDocId: item.targetDocId,
-      edgeType: 'semantic_similarity' as const,
-      weight: item.similarity,
-    })),
-    ...sharedTag.map((item) => ({
-      sourceDocId: documentId,
-      targetDocId: item.targetDocId,
-      edgeType: 'shared_tag' as const,
-      weight: item.weight,
-      label: item.label,
-    })),
-    ...sharedFolder.map((item) => ({
-      sourceDocId: documentId,
-      targetDocId: item.targetDocId,
-      edgeType: 'shared_folder' as const,
-      weight: item.weight,
-    })),
-    ...sameSession.map((item) => ({
-      sourceDocId: documentId,
-      targetDocId: item.targetDocId,
-      edgeType: 'same_session' as const,
-      weight: item.weight,
-    })),
-    ...supersedes.map((item) => ({
-      sourceDocId: documentId,
-      targetDocId: item.targetDocId,
-      edgeType: 'supersedes' as const,
-      weight: item.weight,
-      label: item.label,
-    })),
-    ...sessionEpisode.map((item) => ({
-      sourceDocId: documentId,
-      targetDocId: item.targetDocId,
-      edgeType: 'session_episode' as const,
-      weight: item.weight,
-    })),
-    ...episodeHeuristic.map((item) => ({
-      sourceDocId: documentId,
-      targetDocId: item.targetDocId,
-      edgeType: 'episode_heuristic' as const,
-      weight: item.weight,
-    })),
-    ...documentOntology.map((item) => ({
-      sourceDocId: documentId,
-      targetDocId: item.targetDocId,
-      edgeType: 'document_ontology' as const,
-      weight: item.weight,
-      label: item.label,
-    })),
-    ...wikilink.map((item) => ({
-      sourceDocId: documentId,
-      targetDocId: item.targetDocId,
-      edgeType: 'wikilink' as const,
-      weight: item.weight,
-      label: item.label,
-    })),
-  ]
+    const edges: UpsertEdge[] = [
+      ...similar.map((item) => ({
+        sourceDocId: documentId,
+        targetDocId: item.targetDocId,
+        edgeType: 'semantic_similarity' as const,
+        weight: item.similarity,
+      })),
+      ...sharedTag.map((item) => ({
+        sourceDocId: documentId,
+        targetDocId: item.targetDocId,
+        edgeType: 'shared_tag' as const,
+        weight: item.weight,
+        label: item.label,
+      })),
+      ...sharedFolder.map((item) => ({
+        sourceDocId: documentId,
+        targetDocId: item.targetDocId,
+        edgeType: 'shared_folder' as const,
+        weight: item.weight,
+      })),
+      ...sameSession.map((item) => ({
+        sourceDocId: documentId,
+        targetDocId: item.targetDocId,
+        edgeType: 'same_session' as const,
+        weight: item.weight,
+      })),
+      ...supersedes.map((item) => ({
+        sourceDocId: documentId,
+        targetDocId: item.targetDocId,
+        edgeType: 'supersedes' as const,
+        weight: item.weight,
+        label: item.label,
+      })),
+      ...sessionEpisode.map((item) => ({
+        sourceDocId: documentId,
+        targetDocId: item.targetDocId,
+        edgeType: 'session_episode' as const,
+        weight: item.weight,
+      })),
+      ...episodeHeuristic.map((item) => ({
+        sourceDocId: documentId,
+        targetDocId: item.targetDocId,
+        edgeType: 'episode_heuristic' as const,
+        weight: item.weight,
+      })),
+      ...documentOntology.map((item) => ({
+        sourceDocId: documentId,
+        targetDocId: item.targetDocId,
+        edgeType: 'document_ontology' as const,
+        weight: item.weight,
+        label: item.label,
+      })),
+      ...wikilink.map((item) => ({
+        sourceDocId: documentId,
+        targetDocId: item.targetDocId,
+        edgeType: 'wikilink' as const,
+        weight: item.weight,
+        label: item.label,
+      })),
+    ]
 
     await upsertDocumentEdges(tx, brainId, tenantId, edges)
   })

@@ -32,12 +32,7 @@
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "sideEffects": false,
-  "files": [
-    "dist",
-    "README.md",
-    "LICENSE",
-    "NOTICE"
-  ],
+  "files": ["dist", "README.md", "LICENSE", "NOTICE"],
   "exports": {
     ".": {
       "import": "./dist/index.js",
@@ -118,6 +113,10 @@
     "./ontology": {
       "import": "./dist/ontology/index.js",
       "types": "./dist/ontology/index.d.ts"
+    },
+    "./okf": {
+      "import": "./dist/okf/index.js",
+      "types": "./dist/okf/index.d.ts"
     },
     "./package.json": "./package.json"
   },

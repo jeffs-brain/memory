@@ -481,7 +481,9 @@ export class PostgresStore implements Store {
     // is serialised to a JSON string and parsed by Postgres via `::text::jsonb`
     // so the driver sends it as a text parameter rather than JSON-encoding it a
     // second time into a jsonb string scalar (which would defeat `->>'key'`).
-    const metadataJson = JSON.stringify(extractDocumentMetadata(content.toString('utf8')))
+    const metadataJson = JSON.stringify(
+      extractDocumentMetadata(content.toString('utf8'), { path: p, normaliseOkf: true }),
+    )
     await tx`
       insert into memory.documents
         (brain_id, tenant_id, path, content_hash, size, source, content, metadata, updated_at)
