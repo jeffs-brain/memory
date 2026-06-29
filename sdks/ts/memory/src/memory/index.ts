@@ -50,6 +50,9 @@ export const createMemory = (opts: MemoryOpts): Memory => {
     ...(opts.contextualPrefixBuilder !== undefined
       ? { contextualPrefixBuilder: opts.contextualPrefixBuilder }
       : {}),
+    ...(opts.frontmatterProfile !== undefined
+      ? { frontmatterProfile: opts.frontmatterProfile }
+      : {}),
   })
   const previewExtract = createPreviewExtract({
     store: opts.store,
@@ -64,6 +67,9 @@ export const createMemory = (opts: MemoryOpts): Memory => {
     ...(opts.contextualPrefixBuilder !== undefined
       ? { contextualPrefixBuilder: opts.contextualPrefixBuilder }
       : {}),
+    ...(opts.frontmatterProfile !== undefined
+      ? { frontmatterProfile: opts.frontmatterProfile }
+      : {}),
   })
 
   const reflect = createReflect({
@@ -73,6 +79,9 @@ export const createMemory = (opts: MemoryOpts): Memory => {
     plugins,
     defaultScope: opts.scope,
     defaultActorId: opts.actorId,
+    ...(opts.frontmatterProfile !== undefined
+      ? { frontmatterProfile: opts.frontmatterProfile }
+      : {}),
   })
 
   const consolidate = createConsolidate({
@@ -82,6 +91,9 @@ export const createMemory = (opts: MemoryOpts): Memory => {
     plugins,
     defaultScope: opts.scope,
     defaultActorId: opts.actorId,
+    ...(opts.frontmatterProfile !== undefined
+      ? { frontmatterProfile: opts.frontmatterProfile }
+      : {}),
   })
 
   const contextualise = createContextualise({
@@ -94,6 +106,9 @@ export const createMemory = (opts: MemoryOpts): Memory => {
     logger,
     defaultScope: opts.scope,
     defaultActorId: opts.actorId,
+    ...(opts.frontmatterProfile !== undefined
+      ? { frontmatterProfile: opts.frontmatterProfile }
+      : {}),
   })
   const proceduralStore = createStoreBackedProceduralStore(opts.store)
 
@@ -229,6 +244,8 @@ export {
   scopePrefix,
   scopeTopic,
 } from './paths.js'
+
+export type { FrontmatterProfile } from './frontmatter.js'
 
 export { StoreBackedCursorStore, createStoreBackedCursorStore } from './cursor.js'
 export {

@@ -13,7 +13,7 @@ import type { Logger, Message, Provider } from '../llm/index.js'
 import { expandTemporal } from '../query/temporal.js'
 import type { Store } from '../store/index.js'
 import { lastSegment } from '../store/path.js'
-import { buildFrontmatter } from './frontmatter.js'
+import { type FrontmatterProfile, buildFrontmatter } from './frontmatter.js'
 import { parseFrontmatter } from './frontmatter.js'
 import { ensureMarkdown, scopeIndex, scopePrefix, scopeTopic } from './paths.js'
 import { fireExtractionEnd, fireExtractionStart } from './plugins.js'
@@ -176,6 +176,7 @@ export type ExtractDeps = {
   readonly minMessages: number
   readonly maxRecent: number
   readonly contextualPrefixBuilder?: ContextualPrefixBuilder
+  readonly frontmatterProfile?: FrontmatterProfile
 }
 
 type ExtractRunOptions = {
@@ -290,7 +291,7 @@ const runExtract = async (
 
   if (opts.persist && extracted.length > 0) {
     try {
-      await persistExtractions(deps.store, actorId, extracted)
+      await persistExtractions(deps.store, actorId, extracted, deps.frontmatterProfile)
     } catch (err) {
       deps.logger.warn('memory: extract persist failed', {
         err: err instanceof Error ? err.message : String(err),
@@ -586,6 +587,7 @@ const persistExtractions = async (
   store: Store,
   actorId: string,
   extracted: readonly ExtractedMemory[],
+  profile?: FrontmatterProfile,
 ): Promise<void> => {
   const indexEntriesByScope = new Map<Scope, string[]>()
   type Pending = { path: import('../store/path.js').Path; body: Buffer }
@@ -595,7 +597,7 @@ const persistExtractions = async (
     if (!em.filename || !em.content) continue
     const filename = ensureMarkdown(em.filename)
     const path = scopeTopic(em.scope, actorId, filename)
-    const body = buildTopicFile(em)
+    const body = buildTopicFile(em, profile)
     writes.push({ path, body })
     if (em.indexEntry) {
       const arr = indexEntriesByScope.get(em.scope) ?? []
@@ -709,25 +711,28 @@ const appendIndexEntries = async (
   await batch.write(indexPath, Buffer.from(`${content}\n`, 'utf8'))
 }
 
-const buildTopicFile = (em: ExtractedMemory): Buffer => {
+const buildTopicFile = (em: ExtractedMemory, profile?: FrontmatterProfile): Buffer => {
   const now = new Date().toISOString()
   const modified = em.modifiedOverride ?? now
   const created = em.modifiedOverride ?? now
-  const fm = buildFrontmatter({
-    extra: {},
-    ...(em.name ? { name: em.name } : {}),
-    ...(em.description ? { description: em.description } : {}),
-    ...(em.type ? { type: em.type } : {}),
-    scope: em.scope,
-    ...(em.action === 'create' ? { created } : {}),
-    modified,
-    source: 'session',
-    ...(em.supersedes ? { supersedes: em.supersedes } : {}),
-    ...(em.sessionId ? { session_id: em.sessionId } : {}),
-    ...(em.observedOn ? { observed_on: em.observedOn } : {}),
-    ...(em.sessionDate ? { session_date: em.sessionDate } : {}),
-    ...(em.tags && em.tags.length > 0 ? { tags: em.tags } : {}),
-  })
+  const fm = buildFrontmatter(
+    {
+      extra: {},
+      ...(em.name ? { name: em.name } : {}),
+      ...(em.description ? { description: em.description } : {}),
+      ...(em.type ? { type: em.type } : {}),
+      scope: em.scope,
+      ...(em.action === 'create' ? { created } : {}),
+      modified,
+      source: 'session',
+      ...(em.supersedes ? { supersedes: em.supersedes } : {}),
+      ...(em.sessionId ? { session_id: em.sessionId } : {}),
+      ...(em.observedOn ? { observed_on: em.observedOn } : {}),
+      ...(em.sessionDate ? { session_date: em.sessionDate } : {}),
+      ...(em.tags && em.tags.length > 0 ? { tags: em.tags } : {}),
+    },
+    { profile },
+  )
   const prefix = em.contextPrefix?.trim()
   const body = prefix ? `${CONTEXTUAL_PREFIX_MARKER}${prefix}\n\n${em.content}` : em.content
   return Buffer.from(`${fm}\n${body}\n`, 'utf8')

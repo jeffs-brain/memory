@@ -10,7 +10,7 @@
 
 import type { Logger, Message, Provider } from '../llm/index.js'
 import type { Store } from '../store/index.js'
-import { buildFrontmatter } from './frontmatter.js'
+import { type FrontmatterProfile, buildFrontmatter } from './frontmatter.js'
 import { parseFrontmatter } from './frontmatter.js'
 import { reflectionPath, scopeIndex, scopeTopic } from './paths.js'
 import { fireReflectionEnd, fireReflectionStart } from './plugins.js'
@@ -30,6 +30,7 @@ export type ReflectDeps = {
   readonly plugins: readonly Plugin[]
   readonly defaultScope: Scope
   readonly defaultActorId: string
+  readonly frontmatterProfile?: FrontmatterProfile
 }
 
 export const createReflect = (deps: ReflectDeps) => {
@@ -67,7 +68,7 @@ export const createReflect = (deps: ReflectDeps) => {
     }
 
     const path = reflectionPath(args.sessionId)
-    const fileContent = buildReflectionFile(parsed, args.sessionId, scope)
+    const fileContent = buildReflectionFile(parsed, args.sessionId, scope, deps.frontmatterProfile)
 
     try {
       await deps.store.batch({ reason: 'reflect' }, async (b) => {
@@ -76,6 +77,7 @@ export const createReflect = (deps: ReflectDeps) => {
           actorId,
           sessionId: args.sessionId,
           heuristics: parsed.heuristics,
+          profile: deps.frontmatterProfile,
         })
       })
     } catch (err) {
@@ -194,19 +196,27 @@ const buildReflectionPrompt = (messages: readonly Message[]): string => {
   return parts.join('\n')
 }
 
-const buildReflectionFile = (r: ParsedReflection, sessionId: string, scope: Scope): string => {
+const buildReflectionFile = (
+  r: ParsedReflection,
+  sessionId: string,
+  scope: Scope,
+  profile?: FrontmatterProfile,
+): string => {
   const now = new Date().toISOString()
-  const fm = buildFrontmatter({
-    extra: {
-      should_record_episode: r.shouldRecordEpisode ? 'true' : 'false',
+  const fm = buildFrontmatter(
+    {
+      extra: {
+        should_record_episode: r.shouldRecordEpisode ? 'true' : 'false',
+      },
+      type: 'reflection',
+      scope,
+      created: now,
+      modified: now,
+      source: 'reflection',
+      session_id: sessionId,
     },
-    type: 'reflection',
-    scope,
-    created: now,
-    modified: now,
-    source: 'reflection',
-    session_id: sessionId,
-  })
+    { profile },
+  )
   const body: string[] = []
   body.push(`# Session ${sessionId}`)
   body.push('')
@@ -239,6 +249,7 @@ const persistHeuristicsInBatch = async (
     readonly actorId: string
     readonly sessionId: string
     readonly heuristics: readonly Heuristic[]
+    readonly profile?: FrontmatterProfile | undefined
   },
 ): Promise<void> => {
   if (input.heuristics.length === 0) return
@@ -264,6 +275,7 @@ const persistHeuristicsInBatch = async (
           sessionId: input.sessionId,
           created: parsedExisting?.created,
           now,
+          profile: input.profile,
         }),
         'utf8',
       ),
@@ -317,23 +329,27 @@ const buildHeuristicFile = (input: {
   readonly sessionId: string
   readonly created?: string | undefined
   readonly now: string
+  readonly profile?: FrontmatterProfile | undefined
 }): string => {
   const { heuristic } = input
-  const fm = buildFrontmatter({
-    extra: {},
-    name: heuristic.antiPattern
-      ? `Anti-pattern: ${heuristic.rule}`
-      : `Heuristic: ${heuristic.rule}`,
-    description: heuristicDescription(heuristic),
-    type: heuristic.scope === 'project' ? 'project' : 'feedback',
-    scope: heuristic.scope,
-    created: input.created ?? input.now,
-    modified: input.now,
-    confidence: heuristic.confidence,
-    source: 'reflection',
-    session_id: input.sessionId,
-    tags: heuristicTags(heuristic),
-  })
+  const fm = buildFrontmatter(
+    {
+      extra: {},
+      name: heuristic.antiPattern
+        ? `Anti-pattern: ${heuristic.rule}`
+        : `Heuristic: ${heuristic.rule}`,
+      description: heuristicDescription(heuristic),
+      type: heuristic.scope === 'project' ? 'project' : 'feedback',
+      scope: heuristic.scope,
+      created: input.created ?? input.now,
+      modified: input.now,
+      confidence: heuristic.confidence,
+      source: 'reflection',
+      session_id: input.sessionId,
+      tags: heuristicTags(heuristic),
+    },
+    { profile: input.profile },
+  )
   const body = heuristic.antiPattern
     ? [
         `Anti-pattern: ${heuristic.rule}`,

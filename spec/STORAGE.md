@@ -215,3 +215,65 @@ const store = await createGitStore({
 ```
 
 Language SDKs. Go and Python SDKs MUST expose the same two-type shape (`GitSignPayload` with a single `payload: string` field; `GitSignFn` taking the payload and returning a future-of-string). The callback MUST receive the pre-hashed commit object verbatim and MUST return the detached armored signature. Implementations MUST invoke the callback at every batch commit and the init commit, and MUST NOT invoke it for tags or pushes in v1.0.
+
+## Note frontmatter profiles
+
+Memory notes are markdown files that open with a YAML frontmatter block. The
+canonical field set (the **`default` profile**) is:
+
+```
+---
+name: <concept title>
+description: <one-line summary>
+type: <user | feedback | project | reference | reflection | episode>
+scope: <global | project | agent>
+created: <RFC3339>
+modified: <RFC3339>
+source: <session | reflection | episode | …>
+session_id: <id>
+tags: [a, b]
+---
+```
+
+The writer also supports an opt-in **`okf` profile** that serialises the same
+note as [Open Knowledge Format](https://github.com/GoogleCloudPlatform/knowledge-catalog/tree/main/okf)
+frontmatter for interoperability with OKF tooling, mapping the core fields and
+preserving everything else as OKF extension keys:
+
+| Native field | OKF profile |
+|---|---|
+| `name` | `title` |
+| `modified` (else `created`) | `timestamp` |
+| `type`, `description`, `tags` | unchanged (OKF core) |
+| `created`, `scope`, `source`, `session_id`, `confidence`, … | retained as OKF extension keys |
+
+```
+---
+type: project
+title: <concept title>
+description: <one-line summary>
+tags: [a, b]
+timestamp: <RFC3339>
+created: <RFC3339>
+scope: global
+source: session
+session_id: <id>
+---
+```
+
+Rules implementations MUST follow:
+
+- The profile is a **write-time** choice. `default` is the default and its
+  output is byte-for-byte unchanged from prior releases; existing brains are
+  never rewritten on read.
+- **Readers MUST be profile-agnostic.** The frontmatter parser MUST accept both
+  key sets — treating `title` as an alias of `name` and `timestamp` as an alias
+  of `modified` — so a brain may freely mix formats and switching profiles needs
+  no migration. When a note carries both a native key and its alias, the native
+  key wins.
+- The `okf` projection MUST round-trip: parsing an `okf`-written note MUST yield
+  a frontmatter equivalent to the source (the SDK preserves `created` and the
+  native-only fields as extension keys for this reason).
+
+The TypeScript reference is `sdks/ts/memory/src/memory/frontmatter.ts`; the
+profile is selected per `Memory` instance via `MemoryOpts.frontmatterProfile`.

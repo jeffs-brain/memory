@@ -19,6 +19,7 @@ import type {
   EpisodeRecordArgs,
   RecordEpisodeResult,
 } from './episodes.js'
+import type { FrontmatterProfile } from './frontmatter.js'
 import type {
   DetectAndPersistProceduralRecordsArgs,
   ListProceduralRecordsArgs,
@@ -317,6 +318,13 @@ export type MemoryOpts = {
   readonly extractMaxRecent?: number
   /** Optional live contextualiser for extracted facts. */
   readonly contextualPrefixBuilder?: ContextualPrefixBuilder
+  /**
+   * Frontmatter serialisation profile for notes this instance writes. Defaults
+   * to `default` (the native field set; existing brains are unaffected). Set to
+   * `okf` to emit Open Knowledge Format shaped frontmatter. Reads tolerate both
+   * formats regardless of this setting, so no migration is needed to switch.
+   */
+  readonly frontmatterProfile?: FrontmatterProfile
 }
 
 /** Arguments accepted by `extract`. */

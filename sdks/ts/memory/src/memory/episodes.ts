@@ -2,7 +2,7 @@
 
 import { type Logger, type Message, noopLogger } from '../llm/index.js'
 import { type Path, type Store, joinPath, toPath } from '../store/index.js'
-import { buildFrontmatter, parseFrontmatter } from './frontmatter.js'
+import { type FrontmatterProfile, buildFrontmatter, parseFrontmatter } from './frontmatter.js'
 import { ensureMarkdown } from './paths.js'
 import type { Heuristic, ReflectionResult, Scope } from './types.js'
 
@@ -109,6 +109,7 @@ export type EpisodeRecorderDeps = {
   readonly defaultScope: Scope
   readonly defaultActorId: string
   readonly config?: Partial<EpisodeRecorderConfig>
+  readonly frontmatterProfile?: FrontmatterProfile
 }
 
 export type EpisodeRecorder = {
@@ -315,6 +316,7 @@ export const createEpisodeRecorder = (deps: EpisodeRecorderDeps): EpisodeRecorde
         outcome: args.reflection.outcome,
         signals: gate.signals,
         payload,
+        ...(deps.frontmatterProfile !== undefined ? { profile: deps.frontmatterProfile } : {}),
         ...(startedAt !== undefined ? { startedAt } : {}),
         ...(endedAt !== undefined ? { endedAt } : {}),
       })
@@ -398,38 +400,42 @@ const buildEpisodeFile = (args: {
   readonly endedAt?: string
   readonly signals: EpisodeSignals
   readonly payload: StoredEpisodePayload
+  readonly profile?: FrontmatterProfile
 }): string => {
-  const fm = buildFrontmatter({
-    name: args.name,
-    description: args.summary,
-    type: 'episode',
-    scope: args.scope,
-    created: args.created,
-    modified: args.modified,
-    source: 'episode',
-    session_id: args.sessionId,
-    session_date: args.sessionDate,
-    observed_on: args.observedOn,
-    tags: args.tags,
-    extra: {
-      actor_id: args.actorId,
-      outcome: args.outcome,
-      should_record_episode: 'true',
-      message_count: String(args.signals.messageCount),
-      substantive_message_count: String(args.signals.substantiveMessageCount),
-      user_message_count: String(args.signals.userMessageCount),
-      assistant_message_count: String(args.signals.assistantMessageCount),
-      tool_message_count: String(args.signals.toolMessageCount),
-      tool_call_count: String(args.signals.toolCallCount),
-      write_signal: boolString(args.signals.writeSignal),
-      edit_signal: boolString(args.signals.editSignal),
-      tool_signal: boolString(args.signals.toolSignal),
-      ...(args.startedAt !== undefined ? { started_at: args.startedAt } : {}),
-      ...(args.endedAt !== undefined ? { ended_at: args.endedAt } : {}),
-      heuristic_count: String(args.payload.heuristics.length),
-      open_question_count: String(args.payload.open_questions.length),
+  const fm = buildFrontmatter(
+    {
+      name: args.name,
+      description: args.summary,
+      type: 'episode',
+      scope: args.scope,
+      created: args.created,
+      modified: args.modified,
+      source: 'episode',
+      session_id: args.sessionId,
+      session_date: args.sessionDate,
+      observed_on: args.observedOn,
+      tags: args.tags,
+      extra: {
+        actor_id: args.actorId,
+        outcome: args.outcome,
+        should_record_episode: 'true',
+        message_count: String(args.signals.messageCount),
+        substantive_message_count: String(args.signals.substantiveMessageCount),
+        user_message_count: String(args.signals.userMessageCount),
+        assistant_message_count: String(args.signals.assistantMessageCount),
+        tool_message_count: String(args.signals.toolMessageCount),
+        tool_call_count: String(args.signals.toolCallCount),
+        write_signal: boolString(args.signals.writeSignal),
+        edit_signal: boolString(args.signals.editSignal),
+        tool_signal: boolString(args.signals.toolSignal),
+        ...(args.startedAt !== undefined ? { started_at: args.startedAt } : {}),
+        ...(args.endedAt !== undefined ? { ended_at: args.endedAt } : {}),
+        heuristic_count: String(args.payload.heuristics.length),
+        open_question_count: String(args.payload.open_questions.length),
+      },
     },
-  })
+    { profile: args.profile },
+  )
 
   const body: string[] = [
     `# ${args.name}`,

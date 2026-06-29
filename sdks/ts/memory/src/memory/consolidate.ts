@@ -15,7 +15,12 @@ import type { Logger, Provider } from '../llm/index.js'
 import { ErrNotFound } from '../store/errors.js'
 import type { Batch, FileInfo, ListOpts, Store } from '../store/index.js'
 import { type Path, lastSegment } from '../store/path.js'
-import { type Frontmatter, buildFrontmatter, parseFrontmatter } from './frontmatter.js'
+import {
+  type Frontmatter,
+  type FrontmatterProfile,
+  buildFrontmatter,
+  parseFrontmatter,
+} from './frontmatter.js'
 import { scopeIndex, scopePrefix } from './paths.js'
 import { fireConsolidationEnd, fireConsolidationStart } from './plugins.js'
 import { DEDUPLICATION_SYSTEM_PROMPT } from './prompts.js'
@@ -63,6 +68,7 @@ export type ConsolidateDeps = {
   readonly plugins: readonly Plugin[]
   readonly defaultScope: Scope
   readonly defaultActorId: string
+  readonly frontmatterProfile?: FrontmatterProfile
 }
 
 export const createConsolidate = (deps: ConsolidateDeps) => {
@@ -154,6 +160,7 @@ export const createConsolidate = (deps: ConsolidateDeps) => {
           prefix,
           indexPath,
           now,
+          profile: deps.frontmatterProfile,
         })
         ops.push(...maintenance.ops)
         errors.push(...maintenance.errors)
@@ -292,6 +299,7 @@ const runMaintenancePass = async (
     readonly prefix: Path
     readonly indexPath: Path
     readonly now: Date
+    readonly profile?: FrontmatterProfile | undefined
   },
 ): Promise<{ readonly ops: readonly ConsolidationOp[]; readonly errors: readonly string[] }> => {
   const ops: ConsolidationOp[] = []
@@ -299,7 +307,7 @@ const runMaintenancePass = async (
   const notes = await listNotes(batch, input.prefix, errors)
 
   for (const note of notes) {
-    const rewrite = rewriteNote(note, input.now)
+    const rewrite = rewriteNote(note, input.now, input.profile)
     if (!rewrite.changed) continue
     await batch.write(note.path, Buffer.from(rewrite.content, 'utf8'))
     ops.push({ kind: 'rewrite', path: note.path })
@@ -361,6 +369,7 @@ const listNotes = async (
 const rewriteNote = (
   note: NoteRecord,
   now: Date,
+  profile?: FrontmatterProfile,
 ): { readonly changed: boolean; readonly content: string } => {
   const originalTags = normaliseTags(note.frontmatter.tags)
   let nextTags = [...originalTags]
@@ -413,13 +422,18 @@ const rewriteNote = (
       ...(nextTags.length > 0 ? { tags: nextTags } : {}),
     },
     note.body,
+    profile,
   )
 
   return { changed: content !== note.content, content }
 }
 
-const buildNoteContent = (frontmatter: Frontmatter, body: string): string => {
-  const built = buildFrontmatter(frontmatter)
+const buildNoteContent = (
+  frontmatter: Frontmatter,
+  body: string,
+  profile?: FrontmatterProfile,
+): string => {
+  const built = buildFrontmatter(frontmatter, { profile })
   const trimmedBody = body.trim()
   return trimmedBody === '' ? `${built}\n` : `${built}\n${trimmedBody}\n`
 }
