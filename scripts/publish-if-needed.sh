@@ -23,7 +23,8 @@ if [[ "$local_version" == *-* ]]; then
 fi
 
 # Provenance requires the tag to be on the default branch (main).
-# RC candidates are tagged on develop, so we skip provenance for prereleases.
+# Prerelease tags may sit on short-lived branches, so provenance is skipped
+# for any version containing a prerelease suffix.
 provenance_flag="--provenance"
 if [[ "$local_version" == *-* ]]; then
   provenance_flag=""

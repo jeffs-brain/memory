@@ -16,7 +16,7 @@ import { type Tool, type ToolResult, tools } from './tools/index.js'
 import type { ToolContext } from './tools/types.js'
 
 export const SERVER_NAME = '@jeffs-brain/memory-mcp'
-export const SERVER_VERSION = '0.0.1'
+export const SERVER_VERSION = '1.0.0'
 
 type ToolRegistry = ReadonlyMap<string, Tool>
 

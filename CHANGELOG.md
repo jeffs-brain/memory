@@ -7,7 +7,33 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
-### memory 0.4.0-rc.4
+Nothing yet.
+
+## [1.0.0] - 2026-08-04
+
+First stable major release. Every published package moves to 1.0.0 in
+lockstep: `@jeffs-brain/memory`, `@jeffs-brain/memory-pi`,
+`@jeffs-brain/memory-postgres`, `@jeffs-brain/memory-openfga`,
+`@jeffs-brain/memory-mcp`, `@jeffs-brain/install`, and the Go module
+(tagged `go/v1.0.0`). The `rc` npm channel is retired; `latest` points at
+1.0.0 for all packages. Development moves to trunk-based flow on `main`;
+the long-running `develop` branch is retired.
+
+### Publishing
+
+#### Fixed
+
+- Cross-package dependency ranges are now concrete (`^1.0.0`) instead of
+  `workspace:*`. `npm publish` does not rewrite workspace specifiers, so
+  `memory-postgres@0.2.0-rc.6` and `memory-mcp@0.1.0` shipped with a
+  literal `workspace:*` peer range on `@jeffs-brain/memory` that npm
+  consumers cannot resolve. The same defect was fixed by hand for
+  `memory-pi` 0.2.1; concrete ranges remove the bug class.
+- The MCP servers now report their real version. The TypeScript server
+  advertised `0.0.1` regardless of package version, and the Go
+  `memory-mcp` did the same.
+
+### memory
 
 #### Added
 
@@ -23,7 +49,7 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   treated as graph edges; broken links are tolerated. No I/O, no DDL. (#80)
   (TypeScript)
 
-### memory-postgres 0.2.0-rc.6
+### memory-postgres
 
 #### Added
 
@@ -45,8 +71,6 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   already satisfies the table CHECK, so no schema change is required. (#80)
   (TypeScript)
 
-### memory-postgres 0.2.0-rc.5
-
 #### Fixed
 
 - Thread the caller's `AbortSignal` through the Postgres retrieve path to the
@@ -62,10 +86,6 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   previous behaviour. The Go retriever already threaded its `context.Context`
   to `Embedder.Embed`; a mirrored parity test now guards that behaviour.
   (LLE-10559) (TypeScript, Go)
-
-### memory-postgres 0.2.0-rc.4
-
-#### Fixed
 
 - Memoise `PostgresStore.init()` ensure-schema so the additive-column DDL runs
   at most once per store instance. `init()` is now single-flight: the first call
@@ -87,10 +107,6 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   the ensure-schema transaction only; normal query transactions are unaffected.
   (#77, LLE-10529) (TypeScript)
 
-### memory-postgres 0.2.0-rc.3
-
-#### Fixed
-
 - Persist the `metadata` jsonb column on document write. `PostgresStore`
   previously inserted only path/content_hash/size/source/content/updated_at and
   dropped `metadata`, so the column stayed `{}` and the metadata-keyed graph
@@ -105,7 +121,7 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   A Go reader test pins that `computeDocumentOntologyEdges` consumes the
   persisted field. (#76, LLE-10520) (TypeScript)
 
-### memory (Go + TypeScript) — codec extraction priors
+### memory: codec extraction priors (Go + TypeScript)
 
 #### Added
 
@@ -129,7 +145,9 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   call and is honoured before and during the call; the Go path already
   honoured `context.Context` cancellation. (TypeScript)
 
-### memory (Go) 0.3.1
+### memory (Go)
+
+Shipped early as `go/v0.3.1` on 2026-05-30.
 
 #### Added
 
@@ -145,9 +163,13 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   articles under the brain and surface them through hybrid retrieval
   with no host-side index workaround. (Go)
 
-### memory-pi 0.2.2
+### memory-pi
 
-#### Added
+The 0.2.x line shipped incrementally to npm from the development branch;
+notable entries are consolidated below. Versions 0.2.3 through 0.2.7
+shipped without changelog entries.
+
+#### memory-pi 0.2.2: Added
 
 - `vectorExtensionPath` config option (also `MEMORY_PI_VECTOR_EXTENSION_PATH`
   env var) that overrides the path to sqlite-vec's loadable extension.
@@ -157,9 +179,7 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   the virtual fs, so the host must copy the native extension next to
   the executable and point memory-pi at it. (TS)
 
-### memory-pi 0.2.1
-
-#### Fixed
+#### memory-pi 0.2.1: Fixed
 
 - Replace `"@jeffs-brain/memory": "workspace:*"` in the published tarball
   with `"^0.3.0"` so consumers installing via `npm` / `bun add` outside
@@ -168,9 +188,7 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   `pnpm publish`), so the 0.2.0 tarball was effectively uninstallable
   outside this repo. (TS)
 
-### memory-pi 0.2.0
-
-#### Added
+#### memory-pi 0.2.0: Added
 
 - `flatLayout` configuration option on `createMemoryExtension`. When
   `true`, the extension treats `brainRoot` as the brain directly and
@@ -192,7 +210,7 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   `MEMORY_PI_SEARCH_INDEX_PATH`, `MEMORY_PI_BRAIN_ROOT`,
   `MEMORY_PI_BRAIN_ID` for ops-friendly configuration. (TS)
 
-#### Changed
+#### memory-pi 0.2.0: Changed
 
 - `resolveBrainPaths(root, brainId)` now accepts an optional third
   argument `{ flat?: boolean; searchIndexPath?: string }`. Existing
@@ -301,7 +319,8 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 - Go and Python SDKs are in the pipeline. See `go/` and `sdks/py/` README files.
 - Platform integration (multi-tenant backend) is private and unpublished.
 
-[Unreleased]: https://github.com/jeffs-brain/memory/compare/v0.4.0-rc.1...HEAD
+[Unreleased]: https://github.com/jeffs-brain/memory/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/jeffs-brain/memory/compare/v0.4.0-rc.1...v1.0.0
 [0.4.0-rc.1]: https://github.com/jeffs-brain/memory/compare/v0.3.0...v0.4.0-rc.1
 [0.3.0]: https://github.com/jeffs-brain/memory/compare/go/v0.2.3...v0.3.0
 [0.2.3]: https://github.com/jeffs-brain/memory/compare/go/v0.2.2...go/v0.2.3

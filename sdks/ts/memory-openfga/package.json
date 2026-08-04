@@ -1,6 +1,6 @@
 {
   "name": "@jeffs-brain/memory-openfga",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "OpenFGA authorisation adapter for @jeffs-brain/memory, implementing the AccessControlProvider contract over plain fetch.",
   "license": "Apache-2.0",
   "author": "Alex J <alex@lleverage.ai>",
@@ -39,10 +39,10 @@
     "prepublishOnly": "bun run typecheck && bun run test && bun run build"
   },
   "peerDependencies": {
-    "@jeffs-brain/memory": "workspace:*"
+    "@jeffs-brain/memory": "^1.0.0"
   },
   "devDependencies": {
-    "@jeffs-brain/memory": "workspace:*",
+    "@jeffs-brain/memory": "^1.0.0",
     "vitest": "^2.1.8"
   }
 }

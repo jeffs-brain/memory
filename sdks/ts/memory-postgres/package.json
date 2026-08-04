@@ -1,6 +1,6 @@
 {
   "name": "@jeffs-brain/memory-postgres",
-  "version": "0.2.0-rc.6",
+  "version": "1.0.0",
   "description": "Postgres and pgvector adapter for @jeffs-brain/memory: tsvector BM25, halfvec cosine, and RRF hybrid retrieval.",
   "license": "Apache-2.0",
   "author": "Alex J <alex@lleverage.ai>",
@@ -59,10 +59,10 @@
     "postgres": "^3.4.9"
   },
   "peerDependencies": {
-    "@jeffs-brain/memory": "workspace:*"
+    "@jeffs-brain/memory": "^1.0.0"
   },
   "devDependencies": {
-    "@jeffs-brain/memory": "workspace:*",
+    "@jeffs-brain/memory": "^1.0.0",
     "@testcontainers/postgresql": "^11.14.0",
     "testcontainers": "^11.14.0",
     "vitest": "^2.1.8"

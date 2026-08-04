@@ -21,7 +21,7 @@ import (
 
 const (
 	serverName    = "@jeffs-brain/memory-mcp"
-	serverVersion = "0.0.1"
+	serverVersion = "1.0.0"
 )
 
 func main() {

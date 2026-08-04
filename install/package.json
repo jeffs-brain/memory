@@ -1,6 +1,6 @@
 {
   "name": "@jeffs-brain/install",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "One-shot npx orchestrator that wires the @jeffs-brain/memory-mcp server into Claude Code, Claude Desktop, Cursor, Windsurf, and Zed configs.",
   "license": "Apache-2.0",
   "author": "Alex J <alex@lleverage.ai>",

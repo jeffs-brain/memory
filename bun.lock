@@ -14,7 +14,7 @@
     },
     "install": {
       "name": "@jeffs-brain/install",
-      "version": "0.1.0",
+      "version": "1.0.0",
       "bin": {
         "jeffs-brain-install": "./dist/index.js",
       },
@@ -29,7 +29,7 @@
     },
     "mcp/ts": {
       "name": "@jeffs-brain/memory-mcp",
-      "version": "0.1.0",
+      "version": "1.0.0",
       "bin": {
         "memory-mcp": "./dist/index.js",
       },
@@ -38,16 +38,16 @@
         "zod": "^3.23.0",
       },
       "devDependencies": {
-        "@jeffs-brain/memory": "workspace:*",
+        "@jeffs-brain/memory": "^1.0.0",
         "vitest": "^2.1.8",
       },
       "peerDependencies": {
-        "@jeffs-brain/memory": "workspace:*",
+        "@jeffs-brain/memory": "^1.0.0",
       },
     },
     "sdks/ts/memory": {
       "name": "@jeffs-brain/memory",
-      "version": "0.4.0-rc.3",
+      "version": "1.0.0",
       "bin": {
         "memory": "./dist/cli.js",
       },
@@ -71,18 +71,18 @@
     },
     "sdks/ts/memory-openfga": {
       "name": "@jeffs-brain/memory-openfga",
-      "version": "0.1.0",
+      "version": "1.0.0",
       "devDependencies": {
-        "@jeffs-brain/memory": "workspace:*",
+        "@jeffs-brain/memory": "^1.0.0",
         "vitest": "^2.1.8",
       },
       "peerDependencies": {
-        "@jeffs-brain/memory": "workspace:*",
+        "@jeffs-brain/memory": "^1.0.0",
       },
     },
     "sdks/ts/memory-pi": {
       "name": "@jeffs-brain/memory-pi",
-      "version": "0.2.7",
+      "version": "1.0.0",
       "dependencies": {
         "@jeffs-brain/memory": "workspace:*",
         "zod": "^3",
@@ -101,19 +101,19 @@
     },
     "sdks/ts/memory-postgres": {
       "name": "@jeffs-brain/memory-postgres",
-      "version": "0.2.0-rc.5",
+      "version": "1.0.0",
       "dependencies": {
         "drizzle-orm": "^0.45.2",
         "postgres": "^3.4.9",
       },
       "devDependencies": {
-        "@jeffs-brain/memory": "workspace:*",
+        "@jeffs-brain/memory": "^1.0.0",
         "@testcontainers/postgresql": "^11.14.0",
         "testcontainers": "^11.14.0",
         "vitest": "^2.1.8",
       },
       "peerDependencies": {
-        "@jeffs-brain/memory": "workspace:*",
+        "@jeffs-brain/memory": "^1.0.0",
       },
     },
   },
