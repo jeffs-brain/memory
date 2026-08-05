@@ -14,6 +14,15 @@ if [[ "$published_version" == "$local_version" ]]; then
   exit 0
 fi
 
+# Refuse to publish when the package's entry point is missing: a package
+# whose build never ran would otherwise ship an empty tarball (this is how
+# memory-pi@1.0.0 went out with no dist/).
+main_file="$(node -p "JSON.parse(require('fs').readFileSync('package.json', 'utf8')).main || ''")"
+if [[ -n "$main_file" && ! -e "$main_file" ]]; then
+  echo "Refusing to publish $package_name@$local_version: entry point $main_file does not exist. Run the build first."
+  exit 1
+fi
+
 echo "Publishing $package_name@$local_version"
 
 # Detect prerelease version (contains hyphen like 0.4.0-rc.1)

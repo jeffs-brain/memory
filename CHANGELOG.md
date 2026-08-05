@@ -9,6 +9,30 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 Nothing yet.
 
+## [1.0.1] - 2026-08-05
+
+### memory-pi
+
+#### Fixed
+
+- Republish with build output. `memory-pi@1.0.0` shipped with no `dist/`
+  (two files: `package.json` and `README.md`) because the release
+  workflow builds via the root `tsc -b`, which does not reference
+  memory-pi, and publishes with `--ignore-scripts`, which skips the
+  package's own `prepublishOnly` build. 1.0.0 is deprecated on npm.
+
+### Publishing
+
+#### Fixed
+
+- The root `build` script now also builds memory-pi, so the release
+  workflow produces its artefacts.
+- `publish-if-needed.sh` refuses to publish any package whose `main`
+  entry point does not exist on disk, closing the empty-tarball class of
+  failure for every package.
+- The GitHub-release step only runs on tag refs, so a
+  `workflow_dispatch` republish no longer fails after publishing.
+
 ## [1.0.0] - 2026-08-04
 
 First stable major release. Every published package moves to 1.0.0 in
@@ -319,7 +343,8 @@ shipped without changelog entries.
 - Go and Python SDKs are in the pipeline. See `go/` and `sdks/py/` README files.
 - Platform integration (multi-tenant backend) is private and unpublished.
 
-[Unreleased]: https://github.com/jeffs-brain/memory/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/jeffs-brain/memory/compare/v1.0.1...HEAD
+[1.0.1]: https://github.com/jeffs-brain/memory/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/jeffs-brain/memory/compare/v0.4.0-rc.1...v1.0.0
 [0.4.0-rc.1]: https://github.com/jeffs-brain/memory/compare/v0.3.0...v0.4.0-rc.1
 [0.3.0]: https://github.com/jeffs-brain/memory/compare/go/v0.2.3...v0.3.0

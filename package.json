@@ -7,7 +7,7 @@
   "scripts": {
     "test": "vitest run --passWithNoTests",
     "typecheck": "tsc -b",
-    "build": "tsc -b",
+    "build": "tsc -b && bun run --cwd sdks/ts/memory-pi build",
     "build:packages": "tsc -b sdks/ts/memory sdks/ts/memory-postgres sdks/ts/memory-openfga mcp/ts install",
     "lint": "biome check ."
   },

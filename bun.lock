@@ -82,7 +82,7 @@
     },
     "sdks/ts/memory-pi": {
       "name": "@jeffs-brain/memory-pi",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "dependencies": {
         "@jeffs-brain/memory": "workspace:*",
         "zod": "^3",
