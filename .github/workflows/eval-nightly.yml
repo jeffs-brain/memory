@@ -2,8 +2,11 @@
 name: eval-nightly
 
 on:
-  schedule:
-    - cron: '0 3 * * *'  # 03:00 UTC daily
+  # Nightly schedule disabled 2026-08-05: the judge scorer needs an
+  # OPENAI_API_KEY secret the repo does not carry, so every run scored
+  # 0/100. Re-add the schedule block alongside the secret if revived.
+  # schedule:
+  #   - cron: '0 3 * * *'  # 03:00 UTC daily
   workflow_dispatch:
     inputs:
       ref:
