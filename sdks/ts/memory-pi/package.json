@@ -1,12 +1,15 @@
 {
   "name": "@jeffs-brain/memory-pi",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "description": "Pi extension for the @jeffs-brain/memory pipeline. Recall, extract, reflect, consolidate on every pi session via four lifecycle hooks plus 11 memory_* tools.",
   "license": "Apache-2.0",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
-  "files": ["dist", "README.md"],
+  "files": [
+    "dist",
+    "README.md"
+  ],
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -26,7 +29,9 @@
     }
   },
   "pi": {
-    "extensions": ["./dist/index.js"]
+    "extensions": [
+      "./dist/index.js"
+    ]
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
@@ -39,7 +44,7 @@
     "typebox": "^1"
   },
   "dependencies": {
-    "@jeffs-brain/memory": "^1.0.0",
+    "@jeffs-brain/memory": "^1.1.0",
     "zod": "^3"
   },
   "devDependencies": {
@@ -52,7 +57,14 @@
   "engines": {
     "node": ">=20.0.0"
   },
-  "keywords": ["pi-extension", "memory", "rag", "retrieval", "embedding", "knowledge-base"],
+  "keywords": [
+    "pi-extension",
+    "memory",
+    "rag",
+    "retrieval",
+    "embedding",
+    "knowledge-base"
+  ],
   "repository": {
     "type": "git",
     "url": "git+https://github.com/jeffs-brain/memory.git",

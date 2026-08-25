@@ -201,6 +201,32 @@ describe('OpenAIProvider streaming', () => {
     })
   })
 
+  it('merges defaultExtraBody into every request, per-request extraBody winning', async () => {
+    const { http, calls } = makeHttp(() => ({
+      body: sseBodyFromChunks([chatChunk({}, 'stop')]),
+    }))
+    const provider = new OpenAIProvider({
+      apiKey: 'k',
+      model: 'qwen3.5:397b',
+      baseURL: 'https://ollama.example/v1',
+      defaultExtraBody: { reasoning_effort: 'none', seed: 1 },
+      http,
+    })
+    for await (const _ of provider.stream({
+      messages: [{ role: 'user', content: 'hi' }],
+      extraBody: { seed: 2 },
+    })) {
+      // drain
+    }
+    expect(calls[0]?.body).toMatchObject({
+      reasoning_effort: 'none',
+      seed: 2,
+    })
+    // A baseURL already carrying /v1 (the OpenAI SDK convention, e.g. Ollama
+    // Cloud's https://ollama.com/v1) must not double up the path segment.
+    expect(calls[0]?.url).toBe('https://ollama.example/v1/chat/completions')
+  })
+
   it('strips a trailing slash from baseURL so the request path is correct', async () => {
     const { http, calls } = makeHttp(() => ({
       body: sseBodyFromChunks([chatChunk({}, 'stop')]),

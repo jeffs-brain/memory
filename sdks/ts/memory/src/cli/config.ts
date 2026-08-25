@@ -55,6 +55,7 @@ export type ProviderSettings = {
   readonly model: string
   readonly apiKey: string
   readonly baseURL?: string
+  readonly extraBody?: Record<string, unknown>
 }
 
 export class CliUsageError extends Error {
@@ -121,7 +122,29 @@ export const providerFromEnv = (): ProviderSettings => {
   if (kindRaw !== 'ollama' && apiKey === '' && baseURL === undefined) {
     throw new CliError(`JB_LLM_API_KEY required for provider '${kindRaw}'`)
   }
-  return baseURL ? { kind: kindRaw, model, apiKey, baseURL } : { kind: kindRaw, model, apiKey }
+  const extraBody = providerExtraBodyFromEnv()
+  return {
+    kind: kindRaw,
+    model,
+    apiKey,
+    ...(baseURL !== undefined ? { baseURL } : {}),
+    ...(extraBody !== undefined ? { extraBody } : {}),
+  }
+}
+
+const providerExtraBodyFromEnv = (): Record<string, unknown> | undefined => {
+  const raw = process.env.JB_LLM_EXTRA_BODY
+  if (raw === undefined || raw.trim() === '') return undefined
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(raw)
+  } catch {
+    throw new CliUsageError('invalid JB_LLM_EXTRA_BODY; expected a JSON object')
+  }
+  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new CliUsageError('invalid JB_LLM_EXTRA_BODY; expected a JSON object')
+  }
+  return parsed as Record<string, unknown>
 }
 
 export const providerFromEnvOptional = (): ProviderSettings | undefined => {
@@ -158,6 +181,7 @@ export const buildProvider = (settings: ProviderSettings): Provider => {
         apiKey: settings.apiKey,
         model: settings.model,
         ...(settings.baseURL ? { baseURL: settings.baseURL } : {}),
+        ...(settings.extraBody !== undefined ? { defaultExtraBody: settings.extraBody } : {}),
       })
     case 'ollama':
       return createProvider({

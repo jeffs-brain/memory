@@ -283,6 +283,9 @@ const buildProvider = async (
       apiKey: providerConfig.apiKey,
       ...(baseURL !== undefined ? { baseURL } : {}),
       model: providerConfig.model ?? 'gpt-4o-mini',
+      ...(providerConfig.extraBody !== undefined
+        ? { defaultExtraBody: providerConfig.extraBody }
+        : {}),
     })
   }
   if (providerConfig !== undefined && providerConfig.kind === 'anthropic') {

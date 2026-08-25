@@ -41,6 +41,13 @@ export type OpenAIConfig = {
   baseURL?: string
   defaultMaxTokens?: number
   streamIdleTimeoutMs?: number
+  /**
+   * Extra fields merged into every request body, e.g.
+   * `{ reasoning_effort: 'none' }` to disable thinking on OpenAI-compatible
+   * endpoints serving hybrid reasoning models. Per-request `extraBody` wins
+   * on key collisions.
+   */
+  defaultExtraBody?: Record<string, unknown>
   logger?: Logger
   http?: HttpClient
 }
@@ -100,6 +107,7 @@ export class OpenAIProvider implements Provider {
   private readonly model: string
   private readonly baseURL: string
   private readonly defaultMaxTokens: number
+  private readonly defaultExtraBody: Record<string, unknown> | undefined
   private readonly streamIdleTimeoutMs: number
   private readonly logger: Logger
   private readonly http: HttpClient
@@ -109,8 +117,9 @@ export class OpenAIProvider implements Provider {
     if (cfg.model === '') throw new LLMError('openai: model required')
     this.apiKey = cfg.apiKey
     this.model = cfg.model
-    this.baseURL = (cfg.baseURL ?? DEFAULT_BASE_URL).replace(/\/+$/, '')
+    this.baseURL = (cfg.baseURL ?? DEFAULT_BASE_URL).replace(/\/+$/, '').replace(/\/v1$/, '')
     this.defaultMaxTokens = cfg.defaultMaxTokens ?? 4096
+    this.defaultExtraBody = cfg.defaultExtraBody
     this.streamIdleTimeoutMs = cfg.streamIdleTimeoutMs ?? 90_000
     this.logger = cfg.logger ?? noopLogger
     this.http = cfg.http ?? defaultHttpClient
@@ -288,6 +297,12 @@ export class OpenAIProvider implements Provider {
       }))
     }
 
+    if (this.defaultExtraBody !== undefined) {
+      for (const [key, value] of Object.entries(this.defaultExtraBody)) {
+        body[key] = value
+      }
+    }
+
     if (req.extraBody !== undefined) {
       for (const [key, value] of Object.entries(req.extraBody)) {
         body[key] = value
@@ -455,7 +470,7 @@ export class OpenAIEmbedder implements Embedder {
     if (cfg.apiKey === '') throw new LLMError('openai: apiKey required')
     this.apiKey = cfg.apiKey
     this.modelNameValue = cfg.model ?? DEFAULT_EMBED_MODEL
-    this.baseURL = (cfg.baseURL ?? DEFAULT_BASE_URL).replace(/\/+$/, '')
+    this.baseURL = (cfg.baseURL ?? DEFAULT_BASE_URL).replace(/\/+$/, '').replace(/\/v1$/, '')
     this.logger = cfg.logger ?? noopLogger
     this.http = cfg.http ?? defaultHttpClient
     this.dimensionValue = cfg.dimensions ?? DEFAULT_EMBED_DIM

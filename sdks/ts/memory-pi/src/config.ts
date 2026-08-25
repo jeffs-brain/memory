@@ -58,6 +58,7 @@ const ProviderConfigSchema = z.discriminatedUnion('kind', [
     baseUrl: z.string().url().optional(),
     baseURL: z.string().url().optional(),
     model: z.string().optional(),
+    extraBody: z.record(z.string(), z.unknown()).optional(),
   }),
   z.object({
     kind: z.literal('anthropic'),

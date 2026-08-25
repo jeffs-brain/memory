@@ -1,6 +1,6 @@
 {
   "name": "@jeffs-brain/memory",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Local-first memory and hybrid retrieval library for LLM agents with pluggable stores, BM25 plus vector search, and a four-stage memory pipeline.",
   "license": "Apache-2.0",
   "author": "Alex J <alex@lleverage.ai>",
@@ -32,7 +32,12 @@
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "sideEffects": false,
-  "files": ["dist", "README.md", "LICENSE", "NOTICE"],
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE",
+    "NOTICE"
+  ],
   "exports": {
     ".": {
       "import": "./dist/index.js",
