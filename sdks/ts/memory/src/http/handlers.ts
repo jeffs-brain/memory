@@ -17,6 +17,7 @@ import type { Message } from '../llm/index.js'
 import { parseFrontmatter } from '../memory/frontmatter.js'
 import type { ConsolidationReport, ExtractedMemory, Scope } from '../memory/index.js'
 import { scopeTopic } from '../memory/index.js'
+import { FetchFailedError, UnsafeUrlError, safeFetch } from '../net/safe-fetch.js'
 import { augmentQueryWithTemporal, resolvedTemporalHintLine } from '../query/index.js'
 import type { RetrievalFilters } from '../retrieval/index.js'
 import { createSseHeartbeat } from '../sse.js'
@@ -39,9 +40,12 @@ import {
   type BrainResources,
   type Daemon,
 } from './daemon.js'
+import { IngestPathInvalidError, PathIngestRefusedError, resolveIngestPath } from './ingest-root.js'
 import {
+  badGateway,
   confirmationRequired,
   conflict,
+  forbidden,
   internalError,
   jsonResponse,
   notFound,
@@ -103,15 +107,20 @@ const resolveBrain = async (
     if (err instanceof BrainNotFoundError) {
       return notFound(`brain not found: ${brainId}`)
     }
-    return internalError(err instanceof Error ? err.message : String(err))
+    return serverError(daemon, err)
   }
 }
 
-const respondError = (err: unknown): Response => {
-  const mapped = storeProblem(err)
-  if (mapped !== undefined) return mapped
-  return internalError(err instanceof Error ? err.message : String(err))
+/** Log the real cause and answer with a detail-free 500. */
+const serverError = (daemon: Daemon, err: unknown): Response => {
+  daemon.logger.error('http: internal error', {
+    err: err instanceof Error ? err.message : String(err),
+  })
+  return internalError()
 }
+
+const respondError = (daemon: Daemon, err: unknown): Response =>
+  storeProblem(err) ?? serverError(daemon, err)
 
 type BrainSummary = {
   brainId: string
@@ -146,7 +155,7 @@ export const handleCreateBrain = async (daemon: Daemon, req: Request): Promise<R
     await daemon.brains.create(brainId)
   } catch (err) {
     if (err instanceof BrainConflictError) return conflict(err.message)
-    return respondError(err)
+    return respondError(daemon, err)
   }
   const summary: BrainSummary = { brainId }
   if (description !== undefined) summary.description = description
@@ -166,7 +175,7 @@ export const handleDeleteBrain = async (
     await daemon.brains.delete(brainId)
   } catch (err) {
     if (err instanceof BrainNotFoundError) return notFound(`brain not found: ${brainId}`)
-    return respondError(err)
+    return respondError(daemon, err)
   }
   return new Response(null, { status: 204 })
 }
@@ -201,7 +210,7 @@ export const handleDocRead = async (
       },
     })
   } catch (err) {
-    return respondError(err)
+    return respondError(daemon, err)
   }
 }
 
@@ -228,7 +237,7 @@ export const handleDocHead = async (
   } catch (err) {
     if (err instanceof ErrNotFound) return new Response(null, { status: 404 })
     if (err instanceof ErrInvalidPath) return new Response(null, { status: 400 })
-    return respondError(err)
+    return respondError(daemon, err)
   }
 }
 
@@ -245,7 +254,7 @@ export const handleDocStat = async (
     const info = await br.store.stat(path)
     return jsonResponse(200, toRawFileInfo(info))
   } catch (err) {
-    return respondError(err)
+    return respondError(daemon, err)
   }
 }
 
@@ -274,7 +283,7 @@ export const handleDocList = async (
     const items = await br.store.list(dir, opts)
     return jsonResponse(200, { items: items.map(toRawFileInfo) })
   } catch (err) {
-    return respondError(err)
+    return respondError(daemon, err)
   }
 }
 
@@ -294,7 +303,7 @@ export const handleDocWrite = async (
     await br.store.write(path, Buffer.from(body))
     return new Response(null, { status: 204 })
   } catch (err) {
-    return respondError(err)
+    return respondError(daemon, err)
   }
 }
 
@@ -314,7 +323,7 @@ export const handleDocAppend = async (
     await br.store.append(path, Buffer.from(body))
     return new Response(null, { status: 204 })
   } catch (err) {
-    return respondError(err)
+    return respondError(daemon, err)
   }
 }
 
@@ -331,7 +340,7 @@ export const handleDocDelete = async (
     await br.store.delete(path)
     return new Response(null, { status: 204 })
   } catch (err) {
-    return respondError(err)
+    return respondError(daemon, err)
   }
 }
 
@@ -359,7 +368,7 @@ export const handleDocRename = async (
     await br.store.rename(src, dst)
     return new Response(null, { status: 204 })
   } catch (err) {
-    return respondError(err)
+    return respondError(daemon, err)
   }
 }
 
@@ -452,7 +461,7 @@ export const handleBatchOps = async (
       }
     })
   } catch (err) {
-    return respondError(err)
+    return respondError(daemon, err)
   }
   return jsonResponse(200, { committed })
 }
@@ -760,7 +769,7 @@ export const handleAsk = async (
 
       const provider = daemon.provider
       if (provider === undefined) {
-        writer.sendJson('error', { message: 'no LLM provider configured' })
+        writer.sendJson('error', { code: 'no_llm', message: 'no LLM provider configured' })
         writer.sendJson('done', { ok: false })
         writer.close()
         return
@@ -799,14 +808,19 @@ export const handleAsk = async (
           } else if (evt.type === 'done') {
             break
           } else if (evt.type === 'error') {
-            writer.sendJson('error', { message: evt.error.message })
-            break
+            throw evt.error
           }
         }
       } catch (err) {
-        writer.sendJson('error', {
-          message: err instanceof Error ? err.message : String(err),
+        daemon.logger.error('ask: completion failed', {
+          brainId,
+          err: err instanceof Error ? err.message : String(err),
         })
+        if (writer.closed) return
+        writer.sendJson('error', { code: 'llm_error', message: 'answer generation failed' })
+        writer.sendJson('done', { ok: false })
+        writer.close()
+        return
       }
 
       for (const c of chunks) {
@@ -1080,17 +1094,19 @@ export const handleIngestFile = async (
         `ingest payload exceeds ${daemon.bodyLimits.batchDecodedBytes} bytes after decode`,
       )
     }
-  } else if (name !== '') {
-    // Fallback: read from the daemon's local filesystem. Keeps parity
-    // with the Go implementation which accepts either inline bytes or
-    // a server-resolvable path.
+  } else if (name.trim() !== '') {
     try {
-      const { readFile } = await import('node:fs/promises')
-      bytes = await readFile(name)
+      const resolved = await resolveIngestPath(daemon.ingestRoot, name)
+      const { readFile, stat } = await import('node:fs/promises')
+      const info = await stat(resolved)
+      if (info.size > daemon.bodyLimits.batchDecodedBytes) {
+        return payloadTooLarge(`file exceeds ${daemon.bodyLimits.batchDecodedBytes} bytes`)
+      }
+      bytes = await readFile(resolved)
     } catch (err) {
-      return validationError(
-        `unable to read path: ${err instanceof Error ? err.message : String(err)}`,
-      )
+      if (err instanceof PathIngestRefusedError) return forbidden(err.message)
+      if (err instanceof IngestPathInvalidError) return validationError(err.message)
+      return serverError(daemon, err)
     }
   } else {
     return validationError('contentBase64 or path required')
@@ -1098,7 +1114,7 @@ export const handleIngestFile = async (
 
   const title = typeof body.title === 'string' ? body.title : ''
   const contentType = typeof body.contentType === 'string' ? body.contentType : ''
-  return runIngest(br, brainId, bytes, { name, title, contentType })
+  return runIngest(daemon, br, brainId, bytes, { name, title, contentType })
 }
 
 export const handleIngestUrl = async (
@@ -1115,16 +1131,16 @@ export const handleIngestUrl = async (
   let bytes: Buffer
   let contentType: string
   try {
-    const resp = await fetch(url)
-    if (!resp.ok) return internalError(`fetch ${url}: HTTP ${resp.status}`)
-    const buf = await resp.arrayBuffer()
-    bytes = Buffer.from(buf)
-    contentType = resp.headers.get('content-type') ?? ''
+    const fetched = await safeFetch(url, { signal: req.signal })
+    bytes = fetched.body
+    contentType = fetched.contentType
   } catch (err) {
-    return internalError(`fetch ${url}: ${err instanceof Error ? err.message : String(err)}`)
+    if (err instanceof UnsafeUrlError) return validationError(err.message)
+    if (err instanceof FetchFailedError) return badGateway(err.message)
+    return serverError(daemon, err)
   }
   const slug = slugify(url).slice(0, 64)
-  return runIngest(br, brainId, bytes, { name: `${slug}.md`, title: url, contentType, source: url })
+  return runIngest(daemon, br, brainId, bytes, { name: `${slug}.md`, title: url, contentType, source: url })
 }
 
 type IngestMeta = {
@@ -1142,6 +1158,7 @@ type IngestMeta = {
  * tookMs}.
  */
 const runIngest = async (
+  daemon: Daemon,
   br: BrainResources,
   brainId: string,
   bytes: Buffer,
@@ -1180,18 +1197,21 @@ const runIngest = async (
         bytes: bytes.length,
         tookMs: Date.now() - started,
       })
-    } catch {
+    } catch (err) {
       // Fall back to the naive write path rather than failing the
-      // request; the store subscriber will still index the document as
-      // a single chunk. Silent on purpose: the fallback below still
-      // surfaces failures via respondError().
+      // request; the store subscriber still indexes the document as a
+      // single chunk, and the fallback surfaces its own failures.
+      daemon.logger.warn('ingest: pipeline failed, falling back to a raw write', {
+        path: storedPath,
+        err: err instanceof Error ? err.message : String(err),
+      })
     }
   }
 
   try {
     await br.store.write(storedPath, bytes)
   } catch (err) {
-    return respondError(err)
+    return respondError(daemon, err)
   }
   // Wait for the subscriber-driven index to catch up before returning.
   await br.refresh()
@@ -1266,7 +1286,7 @@ export const handleRemember = async (
   try {
     await br.store.write(path, Buffer.from(renderedBody, 'utf8'))
   } catch (err) {
-    return respondError(err)
+    return respondError(daemon, err)
   }
   return jsonResponse(201, { path, slug })
 }
@@ -1328,7 +1348,7 @@ export const handleRecall = async (
     }))
     return jsonResponse(200, { memories })
   } catch (err) {
-    return respondError(err)
+    return respondError(daemon, err)
   }
 }
 
@@ -1387,7 +1407,7 @@ export const handleExtract = async (
     })
     return jsonResponse(200, { memories: extracted as readonly ExtractedMemory[] })
   } catch (err) {
-    return respondError(err)
+    return respondError(daemon, err)
   }
 }
 
@@ -1421,7 +1441,7 @@ export const handleReflect = async (
     const result = await br.memory.reflect({ messages: msgs, sessionId, scope, actorId })
     return jsonResponse(200, { result: result ?? null })
   } catch (err) {
-    return respondError(err)
+    return respondError(daemon, err)
   }
 }
 
@@ -1456,7 +1476,7 @@ export const handleConsolidate = async (
     const report = await br.memory.consolidate({ scope, actorId })
     return jsonResponse(200, report as ConsolidationReport)
   } catch (err) {
-    return respondError(err)
+    return respondError(daemon, err)
   }
 }
 

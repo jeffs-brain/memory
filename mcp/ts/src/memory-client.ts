@@ -30,6 +30,7 @@ import {
   createStoreBackedCursorStore,
 } from '@jeffs-brain/memory'
 import { ingestDocument, extractAfterIngest as sdkExtractAfterIngest } from '@jeffs-brain/memory/ingest'
+import { type SafeFetchResult, safeFetch } from '@jeffs-brain/memory/net'
 import { createRetrieval } from '@jeffs-brain/memory/retrieval'
 import type { ConfigMode, HostedConfig, LocalConfig } from './config.js'
 
@@ -704,18 +705,14 @@ const createLocalClient = (cfg: LocalConfig): MemoryClient => {
       await ensureBootstrap()
       const brainId = resolveBrainId(cfg, args.brain)
       const brain = await openBrainResources(deps, brainId)
-      const resp = await fetch(args.url, {
-        signal: AbortSignal.timeout(30_000),
-      })
-      if (!resp.ok) {
-        throw new Error(`memory_ingest_url: fetch failed ${resp.status} ${resp.statusText}`)
+      let fetched: SafeFetchResult
+      try {
+        fetched = await safeFetch(args.url, { maxBytes: URL_FETCH_LIMIT_BYTES })
+      } catch (err) {
+        throw new Error(`memory_ingest_url: ${err instanceof Error ? err.message : String(err)}`)
       }
-      const contentTypeHeader = resp.headers.get('content-type') ?? 'text/plain'
-      const mime = contentTypeHeader.split(';')[0]?.trim() ?? 'text/plain'
-      const buffer = Buffer.from(await resp.arrayBuffer())
-      if (buffer.length > URL_FETCH_LIMIT_BYTES) {
-        throw new Error('memory_ingest_url: body exceeds 5 MiB fallback limit')
-      }
+      const mime = fetched.contentType.split(';')[0]?.trim() || 'text/plain'
+      const buffer = fetched.body
       progress?.(0, 'fetched')
       const embedder = deps.embedder
       if (embedder === undefined) {

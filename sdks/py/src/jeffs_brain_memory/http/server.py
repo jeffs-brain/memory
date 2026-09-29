@@ -8,11 +8,11 @@ off `app.state`.
 
 from __future__ import annotations
 
-import asyncio
 import contextlib
 import os
+from collections.abc import AsyncIterator, Callable
+from contextlib import AbstractAsyncContextManager
 from pathlib import Path
-from typing import AsyncIterator
 
 from starlette.applications import Starlette
 from starlette.requests import Request
@@ -29,7 +29,8 @@ from .handlers import events as events_mod
 from .handlers import ingest as ingest_mod
 from .handlers import memory as memory_mod
 from .handlers import search as search_mod
-from .middleware import AuthMiddleware, SizeLimitMiddleware
+from .middleware import AuthMiddleware, LoopbackGuardMiddleware, SizeLimitMiddleware
+from .problem import internal_error
 
 
 async def _healthz(_: Request) -> Response:
@@ -38,6 +39,10 @@ async def _healthz(_: Request) -> Response:
 
 async def _version(_: Request) -> Response:
     return JSONResponse({"version": __version__})
+
+
+async def _unhandled(_: Request, exc: Exception) -> Response:
+    return internal_error(f"unhandled {type(exc).__name__}: {exc}")
 
 
 def _build_routes() -> list[Route]:
@@ -85,6 +90,7 @@ def create_app(
     daemon: Daemon | None = None,
     root: Path | str | None = None,
     auth_token: str | None = None,
+    ingest_root: Path | str | None = None,
     llm: Provider | None = None,
     embedder: Embedder | None = None,
     contextualise: bool | None = None,
@@ -108,23 +114,31 @@ def create_app(
         preset=daemon,
         root=resolved_root if daemon is None else None,
         token=resolved_token,
+        ingest_root=ingest_root,
         llm=llm,
         embedder=embedder,
         contextualise=contextualise,
         contextualise_cache_dir=contextualise_cache_dir,
     )
 
-    app = Starlette(debug=False, routes=_build_routes(), lifespan=lifespan)
+    app = Starlette(
+        debug=False,
+        routes=_build_routes(),
+        lifespan=lifespan,
+        exception_handlers={Exception: _unhandled},
+    )
 
     # Expose daemon via app.state so handlers can fetch it cheaply.
-    app.state.daemon = daemon  # type: ignore[attr-defined]
+    app.state.daemon = daemon
 
-    # Middleware: auth first (outer) so unauthenticated requests never
-    # reach the size-limit layer; size-limit second so overflow 413s
-    # surface before handlers parse bodies.
+    # Middleware, outermost last: the loopback guard (active only without
+    # a token) refuses foreign Host and Origin headers, then auth, then
+    # the size limit so overflow 413s surface before handlers parse
+    # bodies.
     token_for_middleware = resolved_token if resolved_token else None
     app.add_middleware(SizeLimitMiddleware)
     app.add_middleware(AuthMiddleware, token=token_for_middleware)
+    app.add_middleware(LoopbackGuardMiddleware, token=token_for_middleware)
 
     return app
 
@@ -134,28 +148,30 @@ def _build_lifespan(
     preset: Daemon | None,
     root: Path | str | None,
     token: str | None,
+    ingest_root: Path | str | None,
     llm: Provider | None,
     embedder: Embedder | None,
     contextualise: bool | None,
     contextualise_cache_dir: str | None,
-):
+) -> Callable[[Starlette], AbstractAsyncContextManager[None]]:
     """Return an async lifespan context manager for the app."""
 
     @contextlib.asynccontextmanager
     async def lifespan(app: Starlette) -> AsyncIterator[None]:
         owned = False
-        daemon: Daemon | None = getattr(app.state, "daemon", None)  # type: ignore[attr-defined]
+        daemon: Daemon | None = getattr(app.state, "daemon", None)
         if daemon is None and preset is None:
             daemon = await Daemon.create(
                 root=root,
                 auth_token=token,
+                ingest_root=ingest_root,
                 llm=llm,
                 embedder=embedder,
                 contextualise=contextualise,
                 contextualise_cache_dir=contextualise_cache_dir,
             )
             owned = True
-            app.state.daemon = daemon  # type: ignore[attr-defined]
+            app.state.daemon = daemon
         try:
             yield
         finally:

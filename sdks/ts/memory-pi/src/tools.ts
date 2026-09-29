@@ -17,11 +17,11 @@ import { extname, isAbsolute, join, resolve as resolvePath } from 'node:path'
 import type { ExtensionAPI } from '@earendil-works/pi-coding-agent'
 import type { Batch, ExtractedMemory, Message, RecallHit, Scope } from '@jeffs-brain/memory'
 import { ingestDocument } from '@jeffs-brain/memory/ingest'
+import { type SafeFetchResult, safeFetch } from '@jeffs-brain/memory/net'
 import type { Static, TSchema } from 'typebox'
 import { Type } from 'typebox'
 import { MEMORY_TOOL_NAMES, type MemoryToolName } from './config.js'
 import type { MemoryRuntime } from './runtime.js'
-import { UnsafeUrlError, fetchSignalWithTimeout, validateExternalUrl } from './safe-fetch.js'
 
 const FILE_LIMIT_BYTES = 25 * 1024 * 1024
 const URL_FETCH_LIMIT_BYTES = 5 * 1024 * 1024
@@ -512,26 +512,17 @@ export const buildTools = (
       description: 'Fetch a URL and ingest its contents into the brain.',
       parameters: ingestUrlSchema,
       async execute(_id, params, signal) {
-        let safeUrl: URL
+        let fetched: SafeFetchResult
         try {
-          safeUrl = await validateExternalUrl(params.url)
+          fetched = await safeFetch(params.url, {
+            maxBytes: URL_FETCH_LIMIT_BYTES,
+            ...(signal !== undefined ? { signal } : {}),
+          })
         } catch (err) {
-          if (err instanceof UnsafeUrlError) {
-            throw new Error(`memory_ingest_url: ${err.message}`)
-          }
-          throw err
+          throw new Error(`memory_ingest_url: ${err instanceof Error ? err.message : String(err)}`)
         }
-        const init: RequestInit = { signal: fetchSignalWithTimeout(signal) }
-        const resp = await fetch(safeUrl, init)
-        if (!resp.ok) {
-          throw new Error(`memory_ingest_url: fetch failed ${resp.status} ${resp.statusText}`)
-        }
-        const contentTypeHeader = resp.headers.get('content-type') ?? 'text/plain'
-        const mime = contentTypeHeader.split(';')[0]?.trim() ?? 'text/plain'
-        const buffer = Buffer.from(await resp.arrayBuffer())
-        if (buffer.length > URL_FETCH_LIMIT_BYTES) {
-          throw new Error('memory_ingest_url: body exceeds 5 MiB fallback limit')
-        }
+        const mime = fetched.contentType.split(';')[0]?.trim() || 'text/plain'
+        const buffer = fetched.body
         const embedder = runtime.embedder
         if (embedder === undefined) {
           const hash = createHash('sha256').update(buffer).digest('hex')

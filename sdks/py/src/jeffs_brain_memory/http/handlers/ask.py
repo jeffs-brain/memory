@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from datetime import datetime
 from functools import lru_cache
 from pathlib import PurePosixPath
@@ -19,6 +20,8 @@ from ...search.frontmatter import parse_memory_frontmatter
 from ..problem import validation_error
 from ._shared import decode_json_body, resolve_brain
 from .search import filters_from_body, path_matches_filters, search_opts
+
+_log = logging.getLogger(__name__)
 
 _ASK_SSE_HEADERS = {
     "Cache-Control": "no-store",
@@ -575,8 +578,12 @@ async def ask(request: Request) -> Response:
                     )
                 if chunk.stop is not None:
                     break
-        except Exception as exc:  # noqa: BLE001
-            yield _format_event("error", json.dumps({"message": str(exc)}))
+        except Exception:  # noqa: BLE001
+            _log.exception("ask: completion failed (brain %s)", br.id)
+            yield _format_event(
+                "error",
+                json.dumps({"code": "llm_error", "message": "answer generation failed"}),
+            )
             yield _format_event("done", json.dumps({"ok": False}))
             return
 

@@ -20,6 +20,7 @@ from .ingest import (
     CONTENT_TYPE_YAML,
     DefaultFetcher,
     Fetcher,
+    InvalidContentError,
     MAX_READ_BYTES,
     RAW_DOCUMENTS_PREFIX,
     detect_content_type,
@@ -85,6 +86,7 @@ __all__ = [
     "SearchResponse",
     # Protocols
     "Fetcher",
+    "InvalidContentError",
     "DefaultFetcher",
     "IndexLike",
     "Retriever",

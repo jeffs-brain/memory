@@ -23,6 +23,7 @@ const (
 	envHome                  = "JB_HOME"
 	envAddr                  = "JB_ADDR"
 	envAuthToken             = "JB_AUTH_TOKEN"
+	envIngestRoot            = "JB_INGEST_ROOT"
 	envContextualise         = "JB_CONTEXTUALISE"
 	envContextualiseCacheDir = "JB_CONTEXTUALISE_CACHE_DIR"
 )
@@ -32,6 +33,7 @@ func serveCmd() *cobra.Command {
 		addr               string
 		root               string
 		token              string
+		ingestRoot         string
 		contextualise      bool
 		contextualiseCache string
 	)
@@ -46,6 +48,17 @@ func serveCmd() *cobra.Command {
 			}
 			if token == "" {
 				token = os.Getenv(envAuthToken)
+			}
+			if ingestRoot == "" {
+				ingestRoot = os.Getenv(envIngestRoot)
+			}
+			bindAddr, err := httpd.ResolveBindAddr(addr, token)
+			if err != nil {
+				return err
+			}
+			resolvedIngestRoot, err := resolveIngestRoot(ingestRoot)
+			if err != nil {
+				return err
 			}
 			if cmd.Flags().Changed("contextualise") {
 				if contextualise {
@@ -62,6 +75,7 @@ func serveCmd() *cobra.Command {
 				}
 			}
 			log := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+			slog.SetDefault(log)
 
 			ctx, cancel := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
 			defer cancel()
@@ -71,8 +85,9 @@ func serveCmd() *cobra.Command {
 				return err
 			}
 			defer func() { _ = daemon.Close() }()
+			daemon.IngestRoot = resolvedIngestRoot
 
-			srv := httpd.NewServer(addr, log)
+			srv := httpd.NewServer(bindAddr, log)
 			if token != "" {
 				srv.SetAuthToken(token)
 			}
@@ -86,11 +101,12 @@ func serveCmd() *cobra.Command {
 	}
 	defaultAddr := os.Getenv(envAddr)
 	if defaultAddr == "" {
-		defaultAddr = ":8080"
+		defaultAddr = httpd.DefaultAddr
 	}
-	cmd.Flags().StringVar(&addr, "addr", defaultAddr, "address to bind (host:port)")
+	cmd.Flags().StringVar(&addr, "addr", defaultAddr, "address to bind (host:port); a non-loopback host requires an auth token")
 	cmd.Flags().StringVar(&root, "root", "", "JB_HOME directory (default $JB_HOME or ~/.jeffs-brain)")
 	cmd.Flags().StringVar(&token, "auth-token", "", "shared bearer token (default $JB_AUTH_TOKEN, optional)")
+	cmd.Flags().StringVar(&ingestRoot, "ingest-root", "", "directory ingest/file may read server-side paths from (default $JB_INGEST_ROOT; unset disables path ingest)")
 	cmd.Flags().BoolVar(&contextualise, "contextualise", false, "Enable live extraction contextualisation so extracted facts carry a situating prefix.")
 	cmd.Flags().StringVar(&contextualiseCache, "contextualise-cache-dir", "", "Optional cache directory for live extraction contextualisation.")
 	return cmd

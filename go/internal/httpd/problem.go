@@ -8,6 +8,7 @@ package httpd
 import (
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 
 	"github.com/jeffs-brain/memory/go/brain"
@@ -111,13 +112,43 @@ func Forbidden(w http.ResponseWriter, detail string) {
 	})
 }
 
-// InternalError writes a 500 Problem+JSON with a generic title.
+// internalErrorDetail is the only detail a 500 response carries. The
+// underlying cause can name filesystem paths, SQL or upstream bodies,
+// so it is logged server-side and never sent to the client.
+const internalErrorDetail = "internal error"
+
+// InternalError logs detail through the default slog logger and writes
+// a 500 Problem+JSON whose detail is always the generic
+// [internalErrorDetail].
 func InternalError(w http.ResponseWriter, detail string) {
+	slog.Error("http: internal error", "detail", detail)
 	WriteProblem(w, Problem{
 		Status: http.StatusInternalServerError,
 		Title:  "Internal Server Error",
-		Detail: detail,
+		Detail: internalErrorDetail,
 		Code:   "internal_error",
+	})
+}
+
+// BadGateway writes a 502 Problem+JSON for a failed upstream call, such
+// as a URL fetch that returned a non-2xx status or could not connect.
+func BadGateway(w http.ResponseWriter, detail string) {
+	WriteProblem(w, Problem{
+		Status: http.StatusBadGateway,
+		Title:  "Bad Gateway",
+		Detail: detail,
+		Code:   "bad_gateway",
+	})
+}
+
+// MisdirectedRequest writes a 421 Problem+JSON for a request whose Host
+// header names a host this daemon does not serve.
+func MisdirectedRequest(w http.ResponseWriter, detail string) {
+	WriteProblem(w, Problem{
+		Status: http.StatusMisdirectedRequest,
+		Title:  "Misdirected Request",
+		Detail: detail,
+		Code:   "misdirected_request",
 	})
 }
 

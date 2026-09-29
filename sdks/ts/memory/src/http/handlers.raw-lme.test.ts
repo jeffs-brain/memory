@@ -36,7 +36,7 @@ const makeRequest = (
   init: { body?: BodyInit; headers?: Record<string, string> } = {},
 ): Request => {
   const headers = new Headers(init.headers ?? {})
-  return new Request(`http://daemon${path}`, {
+  return new Request(`http://localhost${path}`, {
     method,
     headers,
     ...(init.body !== undefined ? { body: init.body } : {}),

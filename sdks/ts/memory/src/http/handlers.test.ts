@@ -82,7 +82,7 @@ const makeRequest = (
   init: { body?: BodyInit; headers?: Record<string, string> } = {},
 ): Request => {
   const headers = new Headers(init.headers ?? {})
-  return new Request(`http://daemon${path}`, {
+  return new Request(`http://localhost${path}`, {
     method,
     headers,
     ...(init.body !== undefined ? { body: init.body } : {}),
@@ -335,7 +335,7 @@ describe('handleAsk reader modes', () => {
     await seedBrain(handler, 'lme')
 
     const res = await handler(
-      new Request('http://local/v1/brains/lme/ask', {
+      new Request('http://localhost/v1/brains/lme/ask', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({

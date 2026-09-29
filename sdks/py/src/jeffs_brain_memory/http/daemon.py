@@ -41,6 +41,7 @@ from ..memory._memstore import NotFoundError as MemNotFound
 from ..path import validate_path
 from ..retrieval.index_source import IndexedRow
 from .daemon_vectors import backfill_vectors
+from .ingest_root import resolve_ingest_root
 
 _log = logging.getLogger(__name__)
 
@@ -515,6 +516,10 @@ class Daemon:
 
     root: Path
     auth_token: str | None = None
+    #: Directory ``POST /ingest/file`` may read a server-side ``path``
+    #: from, already resolved by :func:`resolve_ingest_root`. ``None``
+    #: disables path ingest; callers must send ``contentBase64``.
+    ingest_root: Path | None = None
     llm: Provider | None = None
     embedder: Embedder | None = None
     embed_model: str = ""
@@ -531,11 +536,13 @@ class Daemon:
         *,
         root: Path | str | None = None,
         auth_token: str | None = None,
+        ingest_root: str | Path | None = None,
         llm: Provider | None = None,
         embedder: Embedder | None = None,
         contextualise: bool | None = None,
         contextualise_cache_dir: str | None = None,
     ) -> "Daemon":
+        resolved_ingest_root = resolve_ingest_root(ingest_root)
         resolved_root = Path(root) if root else Path.home() / ".jeffs-brain"
         resolved_root = resolved_root.resolve()
         resolved_root.mkdir(parents=True, exist_ok=True)
@@ -559,6 +566,7 @@ class Daemon:
         return cls(
             root=resolved_root,
             auth_token=auth_token,
+            ingest_root=resolved_ingest_root,
             llm=llm,
             embedder=embedder,
             embed_model=embed_model,

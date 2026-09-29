@@ -17,6 +17,9 @@ import {
 import { defineCommand } from 'citty'
 
 import { Daemon, createRouter, defaultRoot } from '../../http/index.js'
+import { resolveIngestRoot } from '../../http/ingest-root.js'
+import { isLoopbackHost } from '../../http/router.js'
+import type { Logger } from '../../llm/index.js'
 import { createContextualPrefixBuilder } from '../../memory/index.js'
 import {
   CliUsageError,
@@ -29,6 +32,7 @@ import {
 } from '../config.js'
 
 const DEFAULT_PORT = 8080
+const DEFAULT_HOST = '127.0.0.1'
 
 export const serveCommand = defineCommand({
   meta: {
@@ -38,7 +42,8 @@ export const serveCommand = defineCommand({
   args: {
     addr: {
       type: 'string',
-      description: 'Bind address host:port (overrides JB_ADDR)',
+      description:
+        'Bind address host:port (overrides JB_ADDR; default 127.0.0.1:8080). A non-loopback host requires an auth token',
     },
     port: {
       type: 'string',
@@ -55,6 +60,11 @@ export const serveCommand = defineCommand({
     'auth-token': {
       type: 'string',
       description: 'Shared bearer token (overrides JB_AUTH_TOKEN)',
+    },
+    'ingest-root': {
+      type: 'string',
+      description:
+        'Directory ingest/file may read server-side paths from (overrides JB_INGEST_ROOT; unset disables path ingest)',
     },
     contextualise: {
       type: 'boolean',
@@ -82,6 +92,20 @@ export const serveCommand = defineCommand({
         ? args['auth-token']
         : process.env.JB_AUTH_TOKEN
     const { hostname, port } = parseAddr(addr)
+    assertBindAllowed(hostname, token)
+    const ingestRootFlag =
+      typeof args['ingest-root'] === 'string' && args['ingest-root'] !== ''
+        ? args['ingest-root']
+        : process.env.JB_INGEST_ROOT
+    let ingestRoot: string | undefined
+    try {
+      ingestRoot = await resolveIngestRoot(ingestRootFlag)
+    } catch (err) {
+      throw new CliUsageError(
+        `serve: invalid ingest root: ${err instanceof Error ? err.message : String(err)}`,
+      )
+    }
+    const logger = createStderrLogger()
 
     const providerSettings = providerFromEnvOptional()
     const provider = providerSettings !== undefined ? buildProvider(providerSettings) : undefined
@@ -116,7 +140,9 @@ export const serveCommand = defineCommand({
 
     const daemon = new Daemon({
       root,
+      logger,
       ...(token !== undefined ? { authToken: token } : {}),
+      ...(ingestRoot !== undefined ? { ingestRoot } : {}),
       ...(provider !== undefined ? { provider } : {}),
       ...(embedder !== undefined ? { embedder } : {}),
       ...(reranker !== undefined ? { reranker } : {}),
@@ -148,7 +174,9 @@ export const serveCommand = defineCommand({
       })
     })
 
-    process.stderr.write(`memory serve: listening on http://${hostname}:${port}\n`)
+    const displayHost = hostname.includes(':') ? `[${hostname}]` : hostname
+    const authNote = token !== undefined && token !== '' ? 'bearer auth' : 'no auth, loopback only'
+    process.stderr.write(`memory serve: listening on http://${displayHost}:${port} (${authNote})\n`)
 
     const shutdown = async (): Promise<void> => {
       process.stderr.write('memory serve: shutting down\n')
@@ -167,7 +195,7 @@ export const serveCommand = defineCommand({
   },
 })
 
-const parseAddr = (addr: string): { hostname: string; port: number } => {
+export const parseAddr = (addr: string): { hostname: string; port: number } => {
   const trimmed = addr.trim()
   const match = trimmed.match(/^(?:\[?([^\]]*)\]?:)?(\d+)$/)
   if (match === null) {
@@ -178,7 +206,32 @@ const parseAddr = (addr: string): { hostname: string; port: number } => {
   if (!Number.isFinite(port) || port <= 0 || port > 65535) {
     throw new CliUsageError(`serve: invalid port in '${addr}'`)
   }
-  return { hostname: host !== '' ? host : '0.0.0.0', port }
+  return { hostname: host !== '' ? host : DEFAULT_HOST, port }
+}
+
+/**
+ * Bind policy from spec/PROTOCOL.md: without a bearer token the daemon
+ * only listens on loopback, so nothing on the network can reach an
+ * unauthenticated brain.
+ */
+export const assertBindAllowed = (hostname: string, token: string | undefined): void => {
+  if (token !== undefined && token !== '') return
+  if (isLoopbackHost(hostname)) return
+  throw new CliUsageError(
+    `serve: refusing to listen on ${hostname} without an auth token; set --auth-token or JB_AUTH_TOKEN, or bind to ${DEFAULT_HOST}`,
+  )
+}
+
+/** One JSON object per line on stderr, so daemon errors are never silent. */
+const createStderrLogger = (): Logger => {
+  const write =
+    (level: string) =>
+    (msg: string, ctx?: Record<string, unknown>): void => {
+      process.stderr.write(
+        `${JSON.stringify({ time: new Date().toISOString(), level, msg, ...(ctx ?? {}) })}\n`,
+      )
+    }
+  return { debug: () => {}, info: write('info'), warn: write('warn'), error: write('error') }
 }
 
 const envEnabled = (value: string | undefined): boolean => {
@@ -196,6 +249,10 @@ const parseOptionalPositiveInt = (value: string | undefined): number | undefined
   return parsed
 }
 
+/** A bare host name, IPv4 literal or bracketed IPv6 literal, optional port. */
+const HOST_HEADER =
+  /^(?:[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?|\[[0-9A-Fa-f:.]+\])(?::\d{1,5})?$/
+
 /**
  * Translate a Node request into a fetch-style Request, pass it to the
  * router, then stream the Response back onto the Node response.
@@ -212,6 +269,19 @@ export const handleNodeRequest = async (
 ): Promise<void> => {
   const urlPath = nreq.url ?? '/'
   const hostHeader = nreq.headers.host ?? `${hostname}:${port}`
+  if (!HOST_HEADER.test(hostHeader)) {
+    nres.statusCode = 400
+    nres.setHeader('content-type', 'application/problem+json')
+    nres.end(
+      JSON.stringify({
+        status: 400,
+        title: 'Bad Request',
+        code: 'validation_error',
+        detail: 'invalid Host header',
+      }),
+    )
+    return
+  }
   const url = `http://${hostHeader}${urlPath.startsWith('/') ? urlPath : `/${urlPath}`}`
 
   const controller = new AbortController()

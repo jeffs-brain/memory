@@ -32,6 +32,7 @@ from pathlib import Path
 from typing import Any, Awaitable, Callable, Literal, Protocol
 
 import httpx
+from jeffs_brain_memory.net import FetchFailedError, UnsafeUrlError, safe_fetch
 from pydantic import BaseModel, Field
 
 from .config import ConfigMode, HostedConfig, LocalConfig
@@ -678,13 +679,12 @@ class LocalMemoryClient:
         await self._ensure_bootstrap()
         brain_id = self._resolve_brain(args.brain)
         brain = self._open_brain(brain_id)
-        async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
-            resp = await client.get(args.url)
-            resp.raise_for_status()
-            body = resp.content
-            mime = (resp.headers.get("content-type") or "text/plain").split(";")[0].strip()
-        if len(body) > URL_FETCH_LIMIT_BYTES:
-            raise ValueError("memory_ingest_url: body exceeds 5 MiB fallback limit")
+        try:
+            fetched = await safe_fetch(args.url, max_bytes=URL_FETCH_LIMIT_BYTES)
+        except (UnsafeUrlError, FetchFailedError) as exc:
+            raise ValueError(f"memory_ingest_url: {exc}") from exc
+        body = fetched.body
+        mime = fetched.content_type.split(";")[0].strip() or "text/plain"
         if progress is not None:
             await progress(0.0, "fetched")
         digest = hashlib.sha256(body).hexdigest()

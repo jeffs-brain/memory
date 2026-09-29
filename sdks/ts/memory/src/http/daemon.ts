@@ -53,6 +53,12 @@ import { backfillVectors, resolveEmbedModel } from './daemon-vectors.js'
 export type DaemonConfig = {
   readonly root: string
   readonly authToken?: string
+  /**
+   * Directory `POST /ingest/file` may read a server-side `path` from,
+   * already resolved by {@link resolveIngestRoot}. Unset disables path
+   * ingest, so callers must send `contentBase64`.
+   */
+  readonly ingestRoot?: string
   readonly provider?: Provider
   readonly embedder?: Embedder
   readonly reranker?: Reranker
@@ -108,6 +114,7 @@ export class BrainConflictError extends Error {
 export class Daemon {
   readonly root: string
   readonly authToken: string | undefined
+  readonly ingestRoot: string | undefined
   readonly provider: Provider | undefined
   readonly embedder: Embedder | undefined
   readonly reranker: Reranker | undefined
@@ -120,6 +127,7 @@ export class Daemon {
   constructor(config: DaemonConfig) {
     this.root = resolvePath(config.root)
     this.authToken = config.authToken
+    this.ingestRoot = config.ingestRoot
     this.provider = config.provider
     this.embedder = config.embedder
     this.reranker = config.reranker

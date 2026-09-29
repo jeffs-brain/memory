@@ -16,6 +16,9 @@
  * adapter), or a `fetch` test invocation.
  */
 
+import { createHash, timingSafeEqual } from 'node:crypto'
+import { BlockList, isIP } from 'node:net'
+
 import type { Daemon } from './daemon.js'
 import {
   handleAsk,
@@ -42,9 +45,67 @@ import {
   handleRemember,
   handleSearch,
 } from './handlers.js'
-import { forbidden, notFound, unauthorized } from './problem.js'
+import { forbidden, internalError, misdirectedRequest, notFound, unauthorized } from './problem.js'
 
 export type Handler = (req: Request) => Promise<Response> | Response
+
+const sha256 = (value: string): Buffer => createHash('sha256').update(value, 'utf8').digest()
+
+/**
+ * Check an Authorization header against the expected bearer token. The
+ * scheme is case-insensitive (RFC 7235) and the token comparison hashes
+ * both sides first so it runs in constant time regardless of length.
+ */
+export const validBearerToken = (header: string, expected: string): boolean => {
+  const match = /^bearer +(.+)$/i.exec(header.trim())
+  const presented = match?.[1]?.trim() ?? ''
+  if (presented === '') return false
+  return timingSafeEqual(sha256(presented), sha256(expected))
+}
+
+const loopback = new BlockList()
+loopback.addSubnet('127.0.0.0', 8, 'ipv4')
+loopback.addAddress('::1', 'ipv6')
+
+/**
+ * True for `localhost` and loopback IP literals in any spelling,
+ * including IPv4-mapped IPv6. Brackets are tolerated.
+ */
+export const isLoopbackHost = (host: string): boolean => {
+  const bare = host.startsWith('[') && host.endsWith(']') ? host.slice(1, -1) : host
+  if (bare.toLowerCase() === 'localhost') return true
+  const family = isIP(bare)
+  if (family === 0) return false
+  return loopback.check(bare, family === 6 ? 'ipv6' : 'ipv4')
+}
+
+const isLoopbackOrigin = (origin: string): boolean => {
+  try {
+    const parsed = new URL(origin)
+    return (
+      (parsed.protocol === 'http:' || parsed.protocol === 'https:') &&
+      isLoopbackHost(parsed.hostname)
+    )
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Without a token the daemon only answers local clients that address it
+ * by a loopback name. This closes DNS rebinding (a foreign Host) and
+ * cross-site requests from a browser (a foreign Origin).
+ */
+const loopbackRefusal = (req: Request, url: URL): Response | undefined => {
+  if (!isLoopbackHost(url.hostname)) {
+    return misdirectedRequest('unauthenticated daemon only serves loopback hosts')
+  }
+  const origin = req.headers.get('origin')
+  if (origin !== null && origin !== '' && !isLoopbackOrigin(origin)) {
+    return forbidden('cross-origin requests are refused by an unauthenticated daemon')
+  }
+  return undefined
+}
 
 export const createRouter = (daemon: Daemon): Handler => {
   return async (req: Request): Promise<Response> => {
@@ -63,27 +124,23 @@ export const createRouter = (daemon: Daemon): Handler => {
       if (authn === '') {
         return unauthorized('missing Authorization header')
       }
-      if (authn !== `Bearer ${daemon.authToken}`) {
+      if (!validBearerToken(authn, daemon.authToken)) {
         return forbidden('invalid bearer token')
       }
+    } else {
+      const refusal = loopbackRefusal(req, url)
+      if (refusal !== undefined) return refusal
     }
 
     try {
       return await dispatch(daemon, req, url)
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
-      return new Response(
-        JSON.stringify({
-          status: 500,
-          title: 'Internal Server Error',
-          code: 'internal_error',
-          detail: message,
-        }),
-        {
-          status: 500,
-          headers: { 'content-type': 'application/problem+json' },
-        },
-      )
+      daemon.logger.error('http: unhandled error', {
+        method: req.method,
+        path: url.pathname,
+        err: err instanceof Error ? err.message : String(err),
+      })
+      return internalError()
     }
   }
 }

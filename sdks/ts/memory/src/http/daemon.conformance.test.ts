@@ -72,7 +72,7 @@ const SKIP: Record<string, string> = {
 // Provisioned per case; mirror Go so fresh state is guaranteed.
 const BRAIN_ID = 'conformance-brain'
 
-const BASE = 'http://conformance.test'
+const BASE = 'http://127.0.0.1'
 
 const substituteFactory = (placeholders: Record<string, string>): ((s: string) => string) => {
   const pairs = Object.entries({ ...placeholders, BRAIN_ID })
