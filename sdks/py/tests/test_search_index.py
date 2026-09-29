@@ -546,15 +546,15 @@ def test_vector_search_respects_scope_filter(idx: Index) -> None:
 def test_trigram_finds_typo_match(idx: Index) -> None:
     idx.upsert_chunks(
         [
-            _chunk("clients/oude-reimer.md", "body", title="Oude Reimer", scope="wiki"),
-            _chunk("clients/bosch.md", "body", title="Bosch", scope="wiki"),
+            _chunk("clients/mill-brook.md", "body", title="Mill Brook", scope="wiki"),
+            _chunk("clients/zenco.md", "body", title="Zenco", scope="wiki"),
         ]
     )
-    hits = idx.search_trigram("dude reimer", top_k=5)
+    hits = idx.search_trigram("hill brook", top_k=5)
     assert hits
     assert isinstance(hits[0], TrigramHit)
-    assert hits[0].path == "clients/oude-reimer.md"
-    assert hits[0].chunk_id == "clients/oude-reimer.md#0"
+    assert hits[0].path == "clients/mill-brook.md"
+    assert hits[0].chunk_id == "clients/mill-brook.md#0"
 
 
 def test_trigram_empty_index_returns_empty(idx: Index) -> None:
@@ -562,7 +562,7 @@ def test_trigram_empty_index_returns_empty(idx: Index) -> None:
 
 
 def test_trigram_respects_threshold(idx: Index) -> None:
-    idx.upsert_chunks([_chunk("clients/bosch.md", "body", scope="wiki")])
+    idx.upsert_chunks([_chunk("clients/zenco.md", "body", scope="wiki")])
     assert idx.search_trigram("unrelated query text", top_k=5) == []
 
 

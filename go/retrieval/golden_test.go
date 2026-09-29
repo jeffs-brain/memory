@@ -121,17 +121,17 @@ func fakeChunkForPath(path, query string) fakeChunk {
 	}
 }
 
-// TestGolden_HybridBM25 exercises a subset of golden-hybrid queries
-// against ModeBM25. The fixture was captured against a 5K-article
-// corpus we cannot redistribute, so we synthesise a minimal corpus
-// keyed to the golden expectations and assert the top-5 surfaces at
-// least one `any_of` hit (the fixture pass criterion).
-func TestGolden_HybridBM25(t *testing.T) {
+const goldenSetFile = "golden-public.yaml"
+
+// TestGolden_BM25 runs every query in the public golden set against
+// ModeBM25 over a corpus synthesised from the golden expectations and
+// asserts the top-5 satisfies the fixture pass criterion.
+func TestGolden_BM25(t *testing.T) {
 	t.Parallel()
-	set := loadGoldenSet(t, "golden-hybrid.yaml")
-	// Focus on queries where BM25 can reasonably surface the
-	// expected paths through slug overlap.
-	subset := pickQueries(set, []string{"invoice-automation", "quote-generation-tools"})
+	subset := loadGoldenSet(t, goldenSetFile).Queries
+	if len(subset) == 0 {
+		t.Fatal("golden set is empty")
+	}
 	corpus := goldenCorpus(subset)
 	src := newFakeSource(corpus)
 	r, err := New(Config{Source: src})
@@ -148,24 +148,22 @@ func TestGolden_HybridBM25(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Retrieve %s: %v", q.ID, err)
 		}
-		if topKContainsAny(resp.Chunks, q.AnyOf) {
+		if goldenPasses(resp.Chunks, q) {
 			passed++
 			continue
 		}
-		t.Errorf("golden %s: top-5 paths did not include any of %v; got %v", q.ID, q.AnyOf, topPaths(resp.Chunks))
+		t.Errorf("golden %s: top-5 %v did not satisfy any_of %v / must_retrieve %v", q.ID, topPaths(resp.Chunks), q.AnyOf, q.MustRetrieve)
 	}
 	if passed != len(subset) {
 		t.Fatalf("BM25 golden pass %d/%d", passed, len(subset))
 	}
 }
 
-// TestGolden_HybridMode exercises the same subset against ModeHybrid
-// using a fake embedder. The assertion is that hybrid recall is at
-// least as good as BM25 on the chosen queries.
+// TestGolden_HybridMode runs the same set against ModeHybrid using a
+// fake embedder. Hybrid recall must be at least as good as BM25.
 func TestGolden_HybridMode(t *testing.T) {
 	t.Parallel()
-	set := loadGoldenSet(t, "golden-hybrid.yaml")
-	subset := pickQueries(set, []string{"invoice-automation", "quote-generation-tools"})
+	subset := loadGoldenSet(t, goldenSetFile).Queries
 	corpus := goldenCorpus(subset)
 	src := newFakeSource(corpus)
 	embedder := llm.NewFakeEmbedder(src.embedDim)
@@ -182,18 +180,17 @@ func TestGolden_HybridMode(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Retrieve %s: %v", q.ID, err)
 		}
-		if !topKContainsAny(resp.Chunks, q.AnyOf) {
-			t.Errorf("golden %s (hybrid): top-5 missed %v; got %v", q.ID, q.AnyOf, topPaths(resp.Chunks))
+		if !goldenPasses(resp.Chunks, q) {
+			t.Errorf("golden %s (hybrid): top-5 %v did not satisfy any_of %v / must_retrieve %v", q.ID, topPaths(resp.Chunks), q.AnyOf, q.MustRetrieve)
 		}
 	}
 }
 
 // TestGolden_HybridRerank asserts the rerank pass runs without
-// regressing recall against the same golden subset.
+// regressing recall against the same golden set.
 func TestGolden_HybridRerank(t *testing.T) {
 	t.Parallel()
-	set := loadGoldenSet(t, "golden-hybrid.yaml")
-	subset := pickQueries(set, []string{"invoice-automation"})
+	subset := loadGoldenSet(t, goldenSetFile).Queries
 	corpus := goldenCorpus(subset)
 	src := newFakeSource(corpus)
 	embedder := llm.NewFakeEmbedder(src.embedDim)
@@ -216,8 +213,8 @@ func TestGolden_HybridRerank(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Retrieve %s: %v", q.ID, err)
 		}
-		if !topKContainsAny(resp.Chunks, q.AnyOf) {
-			t.Errorf("golden %s (hybrid-rerank): top-5 missed %v; got %v", q.ID, q.AnyOf, topPaths(resp.Chunks))
+		if !goldenPasses(resp.Chunks, q) {
+			t.Errorf("golden %s (hybrid-rerank): top-5 %v did not satisfy any_of %v / must_retrieve %v", q.ID, topPaths(resp.Chunks), q.AnyOf, q.MustRetrieve)
 		}
 		if !resp.Trace.Reranked && !resp.Trace.UnanimitySkipped {
 			t.Errorf("golden %s: rerank did not fire and unanimity was not flagged; trace %+v", q.ID, resp.Trace)
@@ -225,31 +222,27 @@ func TestGolden_HybridRerank(t *testing.T) {
 	}
 }
 
-func pickQueries(set goldenSet, ids []string) []goldenQuery {
-	out := make([]goldenQuery, 0, len(ids))
-	idx := make(map[string]goldenQuery, len(set.Queries))
-	for _, q := range set.Queries {
-		idx[q.ID] = q
-	}
-	for _, id := range ids {
-		if q, ok := idx[id]; ok {
-			out = append(out, q)
-		}
-	}
-	return out
-}
-
-func topKContainsAny(chunks []RetrievedChunk, wanted []string) bool {
-	want := make(map[string]bool, len(wanted))
-	for _, w := range wanted {
-		want[w] = true
-	}
+// goldenPasses applies the fixture pass criterion: at least one
+// `any_of` path in the top-K, or every `must_retrieve` path present.
+func goldenPasses(chunks []RetrievedChunk, q goldenQuery) bool {
+	got := make(map[string]bool, len(chunks))
 	for _, c := range chunks {
-		if want[c.Path] {
+		got[c.Path] = true
+	}
+	for _, p := range q.AnyOf {
+		if got[p] {
 			return true
 		}
 	}
-	return false
+	if len(q.MustRetrieve) == 0 {
+		return false
+	}
+	for _, p := range q.MustRetrieve {
+		if !got[p] {
+			return false
+		}
+	}
+	return true
 }
 
 func topPaths(chunks []RetrievedChunk) []string {

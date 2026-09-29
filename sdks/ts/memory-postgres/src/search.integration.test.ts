@@ -285,18 +285,18 @@ maybe('PostgresSearchIndex (testcontainers)', () => {
       sql: sql as unknown as PgSql,
       tenantId: tenantA,
       brainId: brainA,
-      aliases: new Map<string, readonly string[]>([['rbh', ['rbh', 'robert-bosch']]]),
+      aliases: new Map<string, readonly string[]>([['zcg', ['zcg', 'zenco-group']]]),
     })
 
     await index.upsert({
       chunkId: 104n,
       documentId: documentId as string,
       ordinal: 0,
-      content: 'Robert Bosch founded this company',
+      content: 'Zenco Group founded this company',
       tokens: 5,
     })
 
-    const hits = await index.searchBM25('rbh', 10)
+    const hits = await index.searchBM25('zcg', 10)
     expect(hits.map((row) => row.chunkId)).toContain(104n)
 
     await index.close()
@@ -322,18 +322,18 @@ maybe('PostgresSearchIndex (testcontainers)', () => {
       sql: sql as unknown as PgSql,
       tenantId: tenantA,
       brainId: brainA,
-      aliases: new Map<string, readonly string[]>([['dude', ['oude']]]),
+      aliases: new Map<string, readonly string[]>([['hill', ['mill']]]),
     })
 
     await index.upsert({
       chunkId: 105n,
       documentId: documentId as string,
       ordinal: 0,
-      content: 'Oude station notes for Amsterdam travel',
+      content: 'Mill station notes for Amsterdam travel',
       tokens: 6,
     })
 
-    const hits = await index.searchBM25('dude', 10)
+    const hits = await index.searchBM25('hill', 10)
     expect(hits.map((row) => row.chunkId)).toContain(105n)
 
     await index.close()

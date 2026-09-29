@@ -151,8 +151,8 @@ def test_sanitise_query_empty() -> None:
 
 
 def test_sanitise_query_preserves_operators() -> None:
-    assert sanitise_query("lleverage AND bosch") == "lleverage AND bosch"
-    assert sanitise_query("lleverage NOT bosch") == "lleverage AND NOT bosch"
+    assert sanitise_query("lleverage AND zenco") == "lleverage AND zenco"
+    assert sanitise_query("lleverage NOT zenco") == "lleverage AND NOT zenco"
 
 
 def test_sanitise_query_fallback_for_all_stopwords() -> None:
@@ -173,38 +173,38 @@ def test_alias_expansion_splits_phrase_alternatives() -> None:
     """Hyphenated alternatives become phrase tokens."""
     table = AliasTable.from_entries(
         {
-            "a-ware": ["royal-aware", "royal-a-ware", "a-ware"],
+            "e-volt": ["nova-evolt", "nova-e-volt", "e-volt"],
         }
     )
-    ast = parse("a-ware production", aliases=table)
+    ast = parse("e-volt production", aliases=table)
     kinds = {(tok.kind, tok.text) for tok in ast.tokens}
-    assert ("phrase", "royal aware") in kinds
-    assert ("phrase", "royal a ware") in kinds
-    assert ("phrase", "a ware") in kinds
+    assert ("phrase", "nova evolt") in kinds
+    assert ("phrase", "nova e volt") in kinds
+    assert ("phrase", "e volt") in kinds
     assert ("term", "production") in kinds
 
 
 def test_alias_expansion_case_insensitive() -> None:
-    table = AliasTable.from_entries({"bosch": ["bosch", "robert-bosch"]})
-    ast = parse("BOSCH", aliases=table)
+    table = AliasTable.from_entries({"zenco": ["zenco", "zenco-group"]})
+    ast = parse("ZENCO", aliases=table)
     texts = {(tok.kind, tok.text) for tok in ast.tokens}
-    assert ("term", "bosch") in texts
-    assert ("phrase", "robert bosch") in texts
+    assert ("term", "zenco") in texts
+    assert ("phrase", "zenco group") in texts
 
 
 def test_alias_miss_leaves_token_unchanged() -> None:
-    table = AliasTable.from_entries({"bosch": ["bosch", "robert-bosch"]})
+    table = AliasTable.from_entries({"zenco": ["zenco", "zenco-group"]})
     ast = parse("lleverage", aliases=table)
     assert [(tok.kind, tok.text) for tok in ast.tokens] == [("term", "lleverage")]
 
 
 def test_expand_aliases_post_parse() -> None:
-    table = AliasTable.from_entries({"bosch": ["bosch", "robert-bosch"]})
-    ast = parse("bosch")
+    table = AliasTable.from_entries({"zenco": ["zenco", "zenco-group"]})
+    ast = parse("zenco")
     expanded = expand_aliases(ast, table)
     texts = {(tok.kind, tok.text) for tok in expanded.tokens}
-    assert ("term", "bosch") in texts
-    assert ("phrase", "robert bosch") in texts
+    assert ("term", "zenco") in texts
+    assert ("phrase", "zenco group") in texts
 
 
 def test_strongest_term_picks_longest_non_stopword() -> None:
@@ -216,7 +216,7 @@ def test_strongest_term_returns_empty_when_all_short() -> None:
 
 
 def test_strongest_term_skips_stopwords() -> None:
-    assert strongest_term("the and bosch") == "bosch"
+    assert strongest_term("the and zenco") == "zenco"
 
 
 def test_phrase_only_query_marks_operator_flag() -> None:

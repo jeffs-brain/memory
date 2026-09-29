@@ -1221,7 +1221,7 @@ Walked through the staging deploy and the rollback plan.`)); err != nil {
 // filtered out of the FTS discovery path.
 func TestDiscoverFiles_ExcludesUnderscorePrefixed(t *testing.T) {
 	store := newWikiTestStore(t,
-		wikiTestDoc{path: "wiki/companies/bosch.md", title: "Bosch", body: "Bosch is a manufacturer."},
+		wikiTestDoc{path: "wiki/companies/zenco.md", title: "Zenco", body: "Zenco is a manufacturer."},
 		wikiTestDoc{path: "wiki/companies/_index.md", title: "Companies", body: "Index of companies."},
 		wikiTestDoc{path: "wiki/_log.md", title: "Wiki Log", body: "Change log entries."},
 		wikiTestDoc{path: "wiki/companies/_health.md", title: "Companies Health", body: "Health report."},
@@ -1241,10 +1241,10 @@ func TestDiscoverFiles_ExcludesUnderscorePrefixed(t *testing.T) {
 	}
 
 	if stats.FilesScanned != 1 {
-		t.Errorf("FilesScanned = %d, want 1 (only bosch.md)", stats.FilesScanned)
+		t.Errorf("FilesScanned = %d, want 1 (only zenco.md)", stats.FilesScanned)
 	}
 	if stats.FilesIndexed != 1 {
-		t.Errorf("FilesIndexed = %d, want 1 (only bosch.md)", stats.FilesIndexed)
+		t.Errorf("FilesIndexed = %d, want 1 (only zenco.md)", stats.FilesIndexed)
 	}
 
 	rows, err := db.QueryContext(ctx, "SELECT path FROM knowledge_fts ORDER BY path")
@@ -1264,7 +1264,7 @@ func TestDiscoverFiles_ExcludesUnderscorePrefixed(t *testing.T) {
 		t.Fatalf("rows.Err: %v", err)
 	}
 
-	want := []string{"wiki/companies/bosch.md"}
+	want := []string{"wiki/companies/zenco.md"}
 	if len(indexed) != len(want) || indexed[0] != want[0] {
 		t.Errorf("indexed paths = %v, want %v", indexed, want)
 	}

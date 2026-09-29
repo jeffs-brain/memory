@@ -156,9 +156,8 @@ async def test_cache_size_is_clamped_to_at_least_one() -> None:
 def test_prompt_matches_go_source_verbatim() -> None:
     # Read the Go source and extract the raw string literal; compare
     # byte-for-byte against the Python constant.
-    go_src = Path(
-        "/home/jaythegeek/code/jeffs-brain/memory/go/query/prompt.go"
-    ).read_text()
+    repo_root = Path(__file__).resolve().parents[3]
+    go_src = (repo_root / "go" / "query" / "prompt.go").read_text(encoding="utf-8")
     start = go_src.index("`") + 1
     end = go_src.index("`", start)
     assert go_src[start:end] == DISTILL_SYSTEM_PROMPT

@@ -231,8 +231,8 @@ func Parse(raw string) AST {
 
 		// Keep the pre-scrub form around so the alias map can be
 		// consulted with the user's original surface token. The FTS5
-		// scrub strips hyphens, which would otherwise turn `a-ware`
-		// into `aware` before alias lookup and silently miss the
+		// scrub strips hyphens, which would otherwise turn `e-volt`
+		// into `evolt` before alias lookup and silently miss the
 		// entry.
 		preScrubLower := strings.ToLower(strings.TrimSpace(word))
 

@@ -26,12 +26,12 @@ func TestLoadAliasMap_Success(t *testing.T) {
 		token string
 		want  []string
 	}{
-		{"a-ware", []string{"a-ware", "royal-a-ware", "royal-aware"}},
-		{"A-Ware", []string{"a-ware", "royal-a-ware", "royal-aware"}},
-		{"aware", []string{"a-ware", "royal-aware"}},
-		{"bosch", []string{"bosch", "robert-bosch"}},
-		{"dude", []string{"oude"}},
-		{"reimer", []string{"oude-reimer", "reimer"}},
+		{"e-volt", []string{"e-volt", "nova-e-volt", "nova-evolt"}},
+		{"E-Volt", []string{"e-volt", "nova-e-volt", "nova-evolt"}},
+		{"evolt", []string{"e-volt", "nova-evolt"}},
+		{"zenco", []string{"zenco", "zenco-group"}},
+		{"hill", []string{"mill"}},
+		{"brook", []string{"mill-brook", "brook"}},
 	}
 
 	for _, tc := range cases {
@@ -62,8 +62,8 @@ func TestLoadAliasMap_Missing(t *testing.T) {
 	if m.Len() != 0 {
 		t.Errorf("LoadAliasMap missing file: Len() = %d, want 0", m.Len())
 	}
-	if got := m.Expand("bosch"); len(got) != 1 || got[0] != "bosch" {
-		t.Errorf("Expand on empty map = %v, want [bosch]", got)
+	if got := m.Expand("zenco"); len(got) != 1 || got[0] != "zenco" {
+		t.Errorf("Expand on empty map = %v, want [zenco]", got)
 	}
 }
 
@@ -87,25 +87,25 @@ func TestLoadAliasMap_Malformed(t *testing.T) {
 // a nil receiver still behaves as a pass-through.
 func TestAliasMap_Expand(t *testing.T) {
 	m := NewAliasMap()
-	m.entries["bosch"] = []string{"bosch", "robert-bosch"}
-	m.entries["dude"] = []string{"oude"}
+	m.entries["zenco"] = []string{"zenco", "zenco-group"}
+	m.entries["hill"] = []string{"mill"}
 
-	if got := m.Expand("bosch"); len(got) != 2 || got[0] != "bosch" || got[1] != "robert-bosch" {
-		t.Errorf("Expand(bosch) = %v", got)
+	if got := m.Expand("zenco"); len(got) != 2 || got[0] != "zenco" || got[1] != "zenco-group" {
+		t.Errorf("Expand(zenco) = %v", got)
 	}
-	if got := m.Expand("BOSCH"); len(got) != 2 || got[0] != "bosch" || got[1] != "robert-bosch" {
-		t.Errorf("Expand(BOSCH) case-insensitive failed: %v", got)
+	if got := m.Expand("ZENCO"); len(got) != 2 || got[0] != "zenco" || got[1] != "zenco-group" {
+		t.Errorf("Expand(ZENCO) case-insensitive failed: %v", got)
 	}
 	if got := m.Expand("lleverage"); len(got) != 1 || got[0] != "lleverage" {
 		t.Errorf("Expand(miss) = %v, want [lleverage]", got)
 	}
-	if got := m.Expand("  dude  "); len(got) != 1 || got[0] != "oude" {
-		t.Errorf("Expand(whitespace) = %v, want [oude]", got)
+	if got := m.Expand("  hill  "); len(got) != 1 || got[0] != "mill" {
+		t.Errorf("Expand(whitespace) = %v, want [mill]", got)
 	}
 
 	var nilMap *AliasMap
-	if got := nilMap.Expand("bosch"); len(got) != 1 || got[0] != "bosch" {
-		t.Errorf("nil receiver Expand = %v, want [bosch]", got)
+	if got := nilMap.Expand("zenco"); len(got) != 1 || got[0] != "zenco" {
+		t.Errorf("nil receiver Expand = %v, want [zenco]", got)
 	}
 }
 
@@ -113,19 +113,19 @@ func TestAliasMap_Expand(t *testing.T) {
 // the spec's alias-table contract expects every SDK to expose.
 func TestAliasMapFromEntries(t *testing.T) {
 	m := AliasMapFromEntries(map[string][]string{
-		"  BOSCH  ": {"Robert Bosch", "  bosch  ", "robert bosch"},
+		"  ZENCO  ": {"Zenco Group", "  zenco  ", "zenco group"},
 		"empty":     {},
 		"":          {"nothing"},
 	})
 	if m.Len() != 1 {
 		t.Errorf("Len() = %d, want 1", m.Len())
 	}
-	got := m.Expand("bosch")
-	want := []string{"robert bosch", "bosch"}
+	got := m.Expand("zenco")
+	want := []string{"zenco group", "zenco"}
 	sort.Strings(got)
 	sort.Strings(want)
 	if !stringSlicesEqual(got, want) {
-		t.Errorf("Expand(bosch) = %v, want %v", got, want)
+		t.Errorf("Expand(zenco) = %v, want %v", got, want)
 	}
 }
 

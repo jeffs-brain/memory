@@ -18,7 +18,8 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-DATASET="${DATASET:-$HOME/code/jeffs-brain/memory/eval/datasets/longmemeval_s.json}"
+MEMORY_DIR="${MEMORY_DIR:-$(cd "$SCRIPT_DIR/../.." && pwd)}"
+DATASET="${DATASET:-$MEMORY_DIR/eval/datasets/longmemeval_s.json}"
 EXPECTED_SHA="${EXPECTED_SHA:-}"
 SAMPLE_SIZE="${SAMPLE_SIZE:-50}"
 SEED="${SEED:-42}"
@@ -56,7 +57,7 @@ ACTOR_FILTER_QUESTION_SESSIONS="${ACTOR_FILTER_QUESTION_SESSIONS:-1}"
 MAX_COST="${MAX_COST:-20}"
 # Replay-backed tri-SDK runs always write to their own timestamped
 # directory under eval/results/.
-OUTPUT_ROOT="${OUTPUT_ROOT:-$HOME/code/jeffs-brain/memory/eval/results/tri-lme-$(date +%Y%m%d-%H%M%S)}"
+OUTPUT_ROOT="${OUTPUT_ROOT:-$MEMORY_DIR/eval/results/tri-lme-$(date +%Y%m%d-%H%M%S)}"
 READER_CACHE_DIR="${READER_CACHE_DIR:-$HOME/.local/state/jeffs-brain/evals/reader-cache}"
 JUDGE_CACHE_DIR="${JUDGE_CACHE_DIR:-$HOME/.local/state/jeffs-brain/evals/judge-cache}"
 VECTOR_READY_TIMEOUT_SECONDS="${VECTOR_READY_TIMEOUT_SECONDS:-600}"
@@ -231,7 +232,7 @@ MEMORY_GO="${MEMORY_GO:-/tmp/memory-go}"
 run_logged_step \
   "$OUTPUT_ROOT/build-go.log" \
   "Go CLI build before extract" \
-  bash -lc "cd \"$HOME/code/jeffs-brain/memory/go\" && go build -o \"$MEMORY_GO\" ./cmd/memory"
+  bash -lc "cd \"$MEMORY_DIR/go\" && go build -o \"$MEMORY_GO\" ./cmd/memory"
 
 echo "== Phase 1: extract-only (shared brain at $JB_HOME) =="
 mkdir -p "$JB_HOME/brains"
@@ -311,7 +312,7 @@ TS_JB_LLM_BASE_URL="${JB_LLM_BASE_URL:-${ANTHROPIC_BASE_URL:-${OPENAI_BASE_URL:-
 run_logged_step \
   "$OUTPUT_ROOT/build-ts.log" \
   "TypeScript CLI build before daemon spawn" \
-  bash -lc "cd \"$HOME/code/jeffs-brain/memory/sdks/ts/memory\" && bun run build"
+  bash -lc "cd \"$MEMORY_DIR/sdks/ts/memory\" && bun run build"
 
 for sdk in ts go py; do
   port="${PORTS[$sdk]}"
@@ -328,7 +329,7 @@ for sdk in ts go py; do
         ${OPENAI_BASE_URL:+OPENAI_BASE_URL="$OPENAI_BASE_URL"} \
         ${ANTHROPIC_API_KEY:+ANTHROPIC_API_KEY="$ANTHROPIC_API_KEY"} \
         ${ANTHROPIC_BASE_URL:+ANTHROPIC_BASE_URL="$ANTHROPIC_BASE_URL"} \
-        node "$HOME/code/jeffs-brain/memory/sdks/ts/memory/dist/cli.js" serve --addr "127.0.0.1:$port" \
+        node "$MEMORY_DIR/sdks/ts/memory/dist/cli.js" serve --addr "127.0.0.1:$port" \
         > "$OUTPUT_ROOT/daemon-ts.log" 2>&1 < /dev/null &
       ;;
     go)
@@ -354,7 +355,7 @@ for sdk in ts go py; do
         ${OPENAI_BASE_URL:+OPENAI_BASE_URL="$OPENAI_BASE_URL"} \
         ${ANTHROPIC_API_KEY:+ANTHROPIC_API_KEY="$ANTHROPIC_API_KEY"} \
         ${ANTHROPIC_BASE_URL:+ANTHROPIC_BASE_URL="$ANTHROPIC_BASE_URL"} \
-        uv --project "$HOME/code/jeffs-brain/memory/sdks/py" run memory serve --addr "127.0.0.1:$port" \
+        uv --project "$MEMORY_DIR/sdks/py" run memory serve --addr "127.0.0.1:$port" \
         > "$OUTPUT_ROOT/daemon-py.log" 2>&1 < /dev/null &
       ;;
   esac

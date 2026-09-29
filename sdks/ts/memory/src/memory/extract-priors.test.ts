@@ -86,7 +86,7 @@ describe('extract with codec priors — positive', () => {
     const capture: Capture = { system: '', signalSeen: false }
     const { mem } = newMemory(capture, note)
     const priors: CodecPriors = {
-      entities: ['RoyalAWare', 'Sprint'],
+      entities: ['NovaEVolt', 'Sprint'],
       relations: ['dependsOn'],
       domainTerms: ['deployment'],
     }
@@ -94,7 +94,7 @@ describe('extract with codec priors — positive', () => {
 
     expect(capture.system.startsWith(EXTRACTION_SYSTEM_PROMPT)).toBe(true)
     expect(capture.system).toContain('## Project codec priors')
-    expect(capture.system).toContain('- RoyalAWare')
+    expect(capture.system).toContain('- NovaEVolt')
     expect(capture.system).toContain('- dependsOn')
     expect(capture.system).toContain('- deployment')
   })

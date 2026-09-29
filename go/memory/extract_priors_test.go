@@ -70,7 +70,7 @@ func TestExtractFromMessagesWithPriors_InjectsBlock(t *testing.T) {
 	mem, _ := newTestMemory(t)
 	provider := &capturingProvider{reply: priorsExtractReply}
 	priors := &CodecPriors{
-		Entities:    []string{"RoyalAWare", "Sprint"},
+		Entities:    []string{"NovaEVolt", "Sprint"},
 		Relations:   []string{"dependsOn"},
 		DomainTerms: []string{"deployment"},
 	}
@@ -84,7 +84,7 @@ func TestExtractFromMessagesWithPriors_InjectsBlock(t *testing.T) {
 	if !strings.HasPrefix(system, extractionPrompt) {
 		t.Fatalf("system prompt does not start with base prompt")
 	}
-	for _, want := range []string{"## Project codec priors", "- RoyalAWare", "- dependsOn", "- deployment"} {
+	for _, want := range []string{"## Project codec priors", "- NovaEVolt", "- dependsOn", "- deployment"} {
 		if !strings.Contains(system, want) {
 			t.Fatalf("system prompt missing %q", want)
 		}
