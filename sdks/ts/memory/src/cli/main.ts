@@ -5,6 +5,7 @@
  * tests can import `rootCommand` without triggering `runMain`.
  */
 
+import { readFileSync } from 'node:fs'
 import { defineCommand } from 'citty'
 import {
   aclCommand,
@@ -20,9 +21,27 @@ import {
 } from './commands/index.js'
 import { CliError, CliUsageError } from './config.js'
 
+/** Read `version` from package.json at `relative` to this module. */
+const readPackageVersion = (relative: string): string => {
+  const raw: unknown = JSON.parse(readFileSync(new URL(relative, import.meta.url), 'utf8'))
+  if (
+    typeof raw === 'object' &&
+    raw !== null &&
+    'version' in raw &&
+    typeof raw.version === 'string'
+  ) {
+    return raw.version
+  }
+  throw new Error(`package.json at ${relative} has no version`)
+}
+
+/** The published package version, read so it can never drift. */
+export const CLI_VERSION = readPackageVersion('../../package.json')
+
 export const rootCommand = defineCommand({
   meta: {
     name: 'memory',
+    version: CLI_VERSION,
     description: 'Slim CLI for @jeffs-brain/memory',
   },
   subCommands: {

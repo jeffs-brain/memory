@@ -8,18 +8,21 @@ Full documentation lives at [docs.jeffsbrain.com](https://docs.jeffsbrain.com).
 
 ## Install
 
+Not on PyPI yet. Install from a checkout of [jeffs-brain/memory](https://github.com/jeffs-brain/memory):
+
 ```bash
-pip install jeffs-brain-memory
-# or
-uv add jeffs-brain-memory
+git clone https://github.com/jeffs-brain/memory.git
+pip install ./memory/sdks/py
+# or, in a uv project:
+uv add ./memory/sdks/py
 ```
 
 Optional LLM extras (each pulls in the matching provider client):
 
 ```bash
-pip install "jeffs-brain-memory[openai]"
-pip install "jeffs-brain-memory[anthropic]"
-pip install "jeffs-brain-memory[ollama]"
+pip install "./memory/sdks/py[openai]"
+pip install "./memory/sdks/py[anthropic]"
+pip install "./memory/sdks/py[ollama]"
 ```
 
 The CLI is exposed as `memory`. Confirm with `memory --version` (currently `0.0.1`).

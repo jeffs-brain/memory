@@ -33,17 +33,15 @@ Cross-SDK eval parity today is the shared daemon surface in three scenarios: `as
   </TabItem>
   <TabItem label="Go">
     ```bash
-    go install github.com/jeffs-brain/memory/go/cmd/memory@v1.0.0
+    go install github.com/jeffs-brain/memory/go/cmd/memory@latest
     memory version
     memory serve --addr 127.0.0.1:18841
     ```
   </TabItem>
   <TabItem label="Python">
     ```bash
-    pip install jeffs-brain-memory
-    memory init ./my-brain
-    memory ingest ./docs
-    memory search "question"
+    # Not on PyPI yet: run from a checkout of jeffs-brain/memory.
+    uv run --project sdks/py memory serve --addr 127.0.0.1:8080
     ```
   </TabItem>
 </Tabs>

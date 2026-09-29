@@ -9,6 +9,34 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 Nothing yet.
 
+## [1.1.0] - 2026-08-25
+
+`@jeffs-brain/memory` and `@jeffs-brain/memory-pi` only. Published from
+`2cd4452` without a release tag or changelog entry; recorded here after
+the fact.
+
+### memory
+
+#### Added
+
+- `OpenAIConfig.defaultExtraBody` merges into every request body, with a
+  per-request `extraBody` winning on collisions. Lets callers pin fields
+  such as `reasoning_effort: none` for hybrid thinking models whose
+  reasoning otherwise burns small token budgets.
+- CLI: `JB_LLM_EXTRA_BODY` (a JSON object) feeds the same setting for the
+  `openai` provider kind.
+
+#### Fixed
+
+- The OpenAI provider and embedder tolerate a `baseURL` that already ends
+  in `/v1` (the OpenAI SDK convention) instead of doubling the segment.
+
+### memory-pi
+
+#### Added
+
+- The `openai` provider config passes `extraBody` through.
+
 ## [1.0.1] - 2026-08-05
 
 ### memory-pi

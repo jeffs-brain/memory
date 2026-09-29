@@ -10,7 +10,7 @@
  * by unit tests that mock the `MemoryClient` rather than the transport.
  */
 
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
@@ -18,7 +18,7 @@ import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { resolveConfig } from './config.js'
 import { createMemoryClient } from './memory-client.js'
-import { createServer } from './server.js'
+import { SERVER_NAME, SERVER_VERSION, createServer } from './server.js'
 import { tools } from './tools/index.js'
 import type { Tool, ToolContext } from './tools/types.js'
 
@@ -56,6 +56,19 @@ describe('memory-mcp server', () => {
 
   afterEach(async () => {
     await rm(tmp, { recursive: true, force: true })
+  })
+
+  it('reports the package.json version in the handshake', async () => {
+    const pkg: unknown = JSON.parse(
+      await readFile(new URL('../package.json', import.meta.url), 'utf8'),
+    )
+    expect(pkg).toMatchObject({ version: SERVER_VERSION })
+    const { client, shutdown } = await bootServer(tmp)
+    try {
+      expect(client.getServerVersion()).toEqual({ name: SERVER_NAME, version: SERVER_VERSION })
+    } finally {
+      await shutdown()
+    }
   })
 
   it('lists all 13 tools', async () => {

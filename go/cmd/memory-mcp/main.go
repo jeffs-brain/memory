@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Command memory-mcp is the Go implementation of the Jeffs Brain
-// memory MCP stdio wrapper. It exposes the eleven canonical memory_*
+// memory MCP stdio wrapper. It exposes the thirteen canonical memory_*
 // tools defined in spec/MCP-TOOLS.md over MCP stdio, dispatching each
 // call to either an in-process memory pipeline (local mode, no
 // JB_TOKEN) or a remote memory serve (hosted mode, JB_TOKEN set).
@@ -15,14 +15,16 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/jeffs-brain/memory/go/cmd/memory-mcp/tools"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/jeffs-brain/memory/go/cmd/memory-mcp/tools"
+	"github.com/jeffs-brain/memory/go/internal/version"
 )
 
-const (
-	serverName    = "@jeffs-brain/memory-mcp"
-	serverVersion = "1.0.0"
-)
+const serverName = "@jeffs-brain/memory-mcp"
+
+// serverVersion is the Go module version, shared with the memory CLI.
+const serverVersion = version.Version
 
 func main() {
 	if err := run(); err != nil {

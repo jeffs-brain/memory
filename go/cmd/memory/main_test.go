@@ -13,6 +13,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/jeffs-brain/memory/go/internal/version"
 )
 
 // TestSmokeVersion verifies `memory version` runs and prints the version.
@@ -25,8 +27,8 @@ func TestSmokeVersion(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("version execute: %v", err)
 	}
-	if got := strings.TrimSpace(stdout.String()); got != version {
-		t.Fatalf("version output = %q, want %q", got, version)
+	if got := strings.TrimSpace(stdout.String()); got != version.Version {
+		t.Fatalf("version output = %q, want %q", got, version.Version)
 	}
 }
 

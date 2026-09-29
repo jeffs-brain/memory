@@ -2,10 +2,11 @@
 
 /**
  * Stdio MCP server bootstrap. Wires the Model Context Protocol SDK to
- * the unified `MemoryClient` and registers the eleven `memory_*` tools
+ * the unified `MemoryClient` and registers the thirteen `memory_*` tools
  * from `./tools/`.
  */
 
+import { readFileSync } from 'node:fs'
 import { Server } from '@modelcontextprotocol/sdk/server/index.js'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js'
@@ -16,7 +17,23 @@ import { type Tool, type ToolResult, tools } from './tools/index.js'
 import type { ToolContext } from './tools/types.js'
 
 export const SERVER_NAME = '@jeffs-brain/memory-mcp'
-export const SERVER_VERSION = '1.0.0'
+
+/** Read `version` from package.json at `relative` to this module. */
+const readPackageVersion = (relative: string): string => {
+  const raw: unknown = JSON.parse(readFileSync(new URL(relative, import.meta.url), 'utf8'))
+  if (
+    typeof raw === 'object' &&
+    raw !== null &&
+    'version' in raw &&
+    typeof raw.version === 'string'
+  ) {
+    return raw.version
+  }
+  throw new Error(`package.json at ${relative} has no version`)
+}
+
+/** The published package version, read so it can never drift. */
+export const SERVER_VERSION = readPackageVersion('../package.json')
 
 type ToolRegistry = ReadonlyMap<string, Tool>
 

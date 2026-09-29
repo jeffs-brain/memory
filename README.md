@@ -11,17 +11,18 @@ Local-first, hosted-optional. Apache-2.0.
 
 ## SDK matrix
 
-| Language   | Package                        | Version | Install                                |
-| ---------- | ------------------------------ | ------- | -------------------------------------- |
-| TypeScript | `@jeffs-brain/memory`          | 1.0.0   | `npm i -g @jeffs-brain/memory`         |
-| TypeScript | `@jeffs-brain/memory-postgres` | 1.0.0   | `npm i @jeffs-brain/memory-postgres`   |
-| TypeScript | `@jeffs-brain/memory-openfga`  | 1.0.0   | `npm i @jeffs-brain/memory-openfga`    |
-| TypeScript | `@jeffs-brain/memory-mcp`      | 1.0.0   | `npx -y @jeffs-brain/memory-mcp`       |
-| TypeScript | `@jeffs-brain/install`         | 1.0.0   | `npx @jeffs-brain/install`             |
-| Go         | `github.com/jeffs-brain/memory/go` | 1.0.0   | `go install github.com/jeffs-brain/memory/go/cmd/memory@v1.0.0` |
-| Go         | `cmd/memory-mcp`               | 1.0.0   | `go install github.com/jeffs-brain/memory/go/cmd/memory-mcp@v1.0.0` |
-| Python     | `jeffs-brain-memory`           | 0.0.1 (pre-publish) | `pip install jeffs-brain-memory` or `uv add jeffs-brain-memory` |
-| Python     | `jeffs-brain-memory-mcp`       | 0.1.0   | `uvx jeffs-brain-memory-mcp`           |
+| Language   | Package                            | Latest | Install |
+| ---------- | ---------------------------------- | ------ | ------- |
+| TypeScript | `@jeffs-brain/memory`              | [![npm](https://img.shields.io/npm/v/@jeffs-brain/memory?label=)](https://www.npmjs.com/package/@jeffs-brain/memory) | `npm i -g @jeffs-brain/memory` |
+| TypeScript | `@jeffs-brain/memory-postgres`     | [![npm](https://img.shields.io/npm/v/@jeffs-brain/memory-postgres?label=)](https://www.npmjs.com/package/@jeffs-brain/memory-postgres) | `npm i @jeffs-brain/memory-postgres` |
+| TypeScript | `@jeffs-brain/memory-openfga`      | [![npm](https://img.shields.io/npm/v/@jeffs-brain/memory-openfga?label=)](https://www.npmjs.com/package/@jeffs-brain/memory-openfga) | `npm i @jeffs-brain/memory-openfga` |
+| TypeScript | `@jeffs-brain/memory-pi`           | [![npm](https://img.shields.io/npm/v/@jeffs-brain/memory-pi?label=)](https://www.npmjs.com/package/@jeffs-brain/memory-pi) | `npm i @jeffs-brain/memory-pi` |
+| TypeScript | `@jeffs-brain/memory-mcp`          | [![npm](https://img.shields.io/npm/v/@jeffs-brain/memory-mcp?label=)](https://www.npmjs.com/package/@jeffs-brain/memory-mcp) | `npx -y @jeffs-brain/memory-mcp` |
+| TypeScript | `@jeffs-brain/install`             | [![npm](https://img.shields.io/npm/v/@jeffs-brain/install?label=)](https://www.npmjs.com/package/@jeffs-brain/install) | `npx @jeffs-brain/install` |
+| Go         | `github.com/jeffs-brain/memory/go` | [![go](https://img.shields.io/github/v/tag/jeffs-brain/memory?filter=go%2Fv*&label=)](https://pkg.go.dev/github.com/jeffs-brain/memory/go) | `go install github.com/jeffs-brain/memory/go/cmd/memory@latest` |
+| Go         | `cmd/memory-mcp`                   | [![go](https://img.shields.io/github/v/tag/jeffs-brain/memory?filter=go%2Fv*&label=)](https://pkg.go.dev/github.com/jeffs-brain/memory/go) | `go install github.com/jeffs-brain/memory/go/cmd/memory-mcp@latest` |
+| Python     | `jeffs-brain-memory`               | not yet on PyPI | from a checkout: `uv run --project sdks/py memory` |
+| Python     | `jeffs-brain-memory-mcp`           | not yet on PyPI | from a checkout: `uv run --project mcp/py memory-mcp` |
 
 All three SDKs implement the full spec wire surface. The shared HTTP conformance suite sits at 28/29 green across SDKs. Cross-SDK evaluation parity today is the shared daemon surface in exactly three scenarios: `ask-basic`, `ask-augmented`, and `search-retrieve-only`.
 
@@ -136,7 +137,7 @@ Full walkthrough: [docs.jeffsbrain.com/getting-started/typescript/](https://docs
 ### Go
 
 ```bash
-go install github.com/jeffs-brain/memory/go/cmd/memory@v1.0.0
+go install github.com/jeffs-brain/memory/go/cmd/memory@latest
 memory version
 memory serve --addr 127.0.0.1:18841
 ```
@@ -145,12 +146,10 @@ Full walkthrough: [docs.jeffsbrain.com/getting-started/go/](https://docs.jeffsbr
 
 ### Python
 
+The Python SDK is not on PyPI yet. From a checkout, `memory serve` is the production-ready command; the rest of the local CLI is still scaffolded.
+
 ```bash
-pip install jeffs-brain-memory
-# or: uv add jeffs-brain-memory
-memory init
-memory ingest ./docs
-memory search "question"
+uv run --project sdks/py memory serve --addr 127.0.0.1:8080
 ```
 
 Full walkthrough: [docs.jeffsbrain.com/getting-started/python/](https://docs.jeffsbrain.com/getting-started/python/).
@@ -172,11 +171,11 @@ claude mcp add jeffs-brain -- npx -y @jeffs-brain/memory-mcp
 # Go
 claude mcp add jeffs-brain -- memory-mcp
 
-# Python
-claude mcp add jeffs-brain -- uvx jeffs-brain-memory-mcp
+# Python (from a checkout; not on PyPI yet)
+claude mcp add jeffs-brain -- uv run --project /path/to/memory/mcp/py memory-mcp
 ```
 
-Each wrapper exposes the same 11 `memory_*` tools defined in [`spec/MCP-TOOLS.md`](./spec/MCP-TOOLS.md).
+The TypeScript and Go wrappers expose all 13 `memory_*` tools defined in [`spec/MCP-TOOLS.md`](./spec/MCP-TOOLS.md). The Python wrapper exposes 11: `memory_ingest_batch` and `memory_ingest_directory` are not implemented there yet.
 
 ## Algorithm surface
 

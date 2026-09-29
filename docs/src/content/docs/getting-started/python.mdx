@@ -5,32 +5,29 @@ sidebar:
   order: 3
 ---
 
-import { Tabs, TabItem } from '@astrojs/starlight/components'
-
 ## Install
 
-<Tabs>
-  <TabItem label="pip">
-    ```bash
-    pip install jeffs-brain-memory
-    ```
-  </TabItem>
-  <TabItem label="uv">
-    ```bash
-    uv add jeffs-brain-memory
-    ```
-  </TabItem>
-</Tabs>
+The Python SDK is not on PyPI yet. Install it from a checkout of
+[jeffs-brain/memory](https://github.com/jeffs-brain/memory):
+
+```bash
+git clone https://github.com/jeffs-brain/memory.git
+cd memory
+uv sync --project sdks/py
+# or, into an existing environment:
+pip install ./sdks/py
+```
 
 Requires Python `>=3.11`.
 
 ## CLI quick start
 
+`memory serve` is the production-ready Python command. The other local
+commands (`init`, `ingest`, `search` and so on) are still scaffolded and
+exit with an error.
+
 ```bash
-memory init ./my-brain
-memory ingest ./docs/hedgehogs.md --brain ./my-brain
-memory search "where do hedgehogs live?" --brain ./my-brain
-memory serve --addr 127.0.0.1:8080
+uv run --project sdks/py memory serve --addr 127.0.0.1:8080
 ```
 
 See the [CLI reference](/reference/cli/) for the current per-SDK command matrix.
