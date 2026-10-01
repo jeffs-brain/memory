@@ -21,10 +21,9 @@ func (d *Daemon) handleEvents(w http.ResponseWriter, r *http.Request) {
 	if stream == nil {
 		return
 	}
-	if err := stream.SendRaw("ready", "ok"); err != nil {
-		return
-	}
 
+	// Subscribe before announcing ready: a client that writes as soon as
+	// it sees ready must still receive the change that write causes.
 	ctx := r.Context()
 	events := make(chan brain.ChangeEvent, 64)
 	unsubscribe := br.Store.Subscribe(brain.EventSinkFunc(func(evt brain.ChangeEvent) {
@@ -36,6 +35,10 @@ func (d *Daemon) handleEvents(w http.ResponseWriter, r *http.Request) {
 		}
 	}))
 	defer unsubscribe()
+
+	if err := stream.SendRaw("ready", "ok"); err != nil {
+		return
+	}
 
 	pingTicker := time.NewTicker(25 * time.Second)
 	defer pingTicker.Stop()

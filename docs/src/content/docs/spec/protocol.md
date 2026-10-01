@@ -321,7 +321,7 @@ Change event stream for the brain.
 
 **Frames**
 
-- `event: ready` emitted once after the stream attaches. `data: ok`.
+- `event: ready` emitted once after the stream attaches and the subscription is active. `data: ok`. A change made after the client receives `ready` MUST be delivered.
 - `event: ping` emitted every `pingIntervalMs` (default 25s) to keep proxies from closing idle streams. `data: keepalive`.
 - `event: change` emitted for every committed mutation. Payload:
 

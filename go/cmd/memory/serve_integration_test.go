@@ -17,6 +17,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jeffs-brain/memory/go/brain"
 	"github.com/jeffs-brain/memory/go/llm"
 )
 
@@ -649,5 +650,65 @@ func TestServeCreateBrainPathTraversal(t *testing.T) {
 				t.Fatalf("body missing validation_error code: %s", body)
 			}
 		})
+	}
+}
+
+// slowSubscribeStore delays Subscribe, so a daemon that announced ready
+// before subscribing would deterministically lose a write made the moment
+// the client sees ready.
+type slowSubscribeStore struct {
+	brain.Store
+	delay time.Duration
+}
+
+func (s slowSubscribeStore) Subscribe(sink brain.EventSink) func() {
+	time.Sleep(s.delay)
+	return s.Store.Subscribe(sink)
+}
+
+// TestServeEventsSSE_ReadyMeansSubscribed writes the instant ready
+// arrives: the change must still be delivered.
+func TestServeEventsSSE_ReadyMeansSubscribed(t *testing.T) {
+	d, srv := newTestDaemon(t)
+	c := srv.Client()
+	mustCreateBrain(t, c, srv.URL, "ready")
+	br, err := d.Brains.Get(context.Background(), "ready")
+	if err != nil {
+		t.Fatalf("get brain: %v", err)
+	}
+	br.Store = slowSubscribeStore{Store: br.Store, delay: 300 * time.Millisecond}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, srv.URL+"/v1/brains/ready/events", nil)
+	req.Header.Set("Accept", "text/event-stream")
+	resp, err := c.Do(req)
+	if err != nil {
+		t.Fatalf("subscribe: %v", err)
+	}
+	defer resp.Body.Close()
+
+	reader := bufio.NewReader(resp.Body)
+	for {
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			t.Fatalf("reading until ready: %v", err)
+		}
+		if strings.TrimSpace(line) == "event: ready" {
+			break
+		}
+	}
+
+	put, _ := http.NewRequest(http.MethodPut, srv.URL+"/v1/brains/ready/documents?path=memory%2Fnow.md", strings.NewReader("now"))
+	put.Header.Set("Content-Type", "application/octet-stream")
+	putResp, err := c.Do(put)
+	if err != nil {
+		t.Fatalf("put: %v", err)
+	}
+	_ = putResp.Body.Close()
+
+	events := readSSEEventsUntil(t, reader, "change", 3*time.Second)
+	if _, ok := events["change"]; !ok {
+		t.Fatalf("change written straight after ready was not delivered; got %v", events)
 	}
 }

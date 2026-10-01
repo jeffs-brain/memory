@@ -98,6 +98,8 @@ Proposed versions: `@jeffs-brain/memory` and `@jeffs-brain/memory-pi`
 - The planned CLI commands exited 0 after printing "not implemented";
   they exit 1.
 - `memory-mcp` and the CLI share one version constant.
+- `/events` sent `ready` before subscribing, so a change made as soon as
+  a client saw `ready` could be lost.
 
 ### Python (unpublished)
 
@@ -112,7 +114,8 @@ Proposed versions: `@jeffs-brain/memory` and `@jeffs-brain/memory-pi`
 
 ### Specification
 
-- `PROTOCOL.md` gains a daemon security section and the new error codes.
+- `PROTOCOL.md` gains a daemon security section and the new error codes,
+  and states that `ready` means the subscription is active.
 - `MCP-TOOLS.md`: the batch tool's schema sat under a duplicated
   directory heading; the intro named paths and a variable from another
   repository. Every MCP server is now tested against the spec.

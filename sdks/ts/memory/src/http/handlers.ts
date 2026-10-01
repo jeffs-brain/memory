@@ -1498,8 +1498,9 @@ export const handleEvents = async (
 
   const session = startSse(req.signal)
   const { writer } = session
-  writer.sendRaw('ready', 'ok')
 
+  // Subscribe before announcing ready: a client that writes as soon as it
+  // sees ready must still receive the change that write causes.
   const unsubscribe = br.store.subscribe((evt) => {
     if (writer.closed) return
     const payload: Record<string, unknown> = {
@@ -1511,6 +1512,7 @@ export const handleEvents = async (
     if (evt.reason !== undefined) payload.reason = evt.reason
     writer.sendJson('change', payload)
   })
+  writer.sendRaw('ready', 'ok')
 
   let stopPing = (): void => undefined
   stopPing = createSseHeartbeat(25_000, () => {
