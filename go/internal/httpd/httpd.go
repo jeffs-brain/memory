@@ -100,7 +100,7 @@ func (s *Server) Run(ctx context.Context) error {
 		s.runShutdownHooks(hooks)
 		return bindErr
 	}
-	var handler http.Handler = AuthMiddleware(token, mux)
+	handler := AuthMiddleware(token, mux)
 	if token == "" {
 		handler = LoopbackGuard(handler)
 	}
