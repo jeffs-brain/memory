@@ -2,7 +2,7 @@
 
 import { readFile } from 'node:fs/promises'
 import { isAbsolute, resolve } from 'node:path'
-import { z } from 'zod'
+import { z } from 'zod/v4'
 import { type Tool, jsonContent } from './types.js'
 
 const schema = z.object({
@@ -28,7 +28,10 @@ export const ingestFileTool: Tool<typeof schema> = {
 
     // Read the file content directly (already on disk, no re-fetch needed).
     const absPath = isAbsolute(args.path) ? args.path : resolve(args.path)
-    let extraction = { factsExtracted: 0, memories: [] as readonly { filename: string; content: string }[] }
+    let extraction = {
+      factsExtracted: 0,
+      memories: [] as readonly { filename: string; content: string }[],
+    }
     try {
       const raw = await readFile(absPath, 'utf8')
       if (raw.length > 0) {

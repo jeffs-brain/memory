@@ -43,11 +43,7 @@ describe('memory_ingest_batch tool', () => {
 
     const result = await ingestBatchTool.handler(
       {
-        files: [
-          { path: '/tmp/a.md' },
-          { path: '/tmp/b.md' },
-          { path: '/tmp/c.md' },
-        ],
+        files: [{ path: '/tmp/a.md' }, { path: '/tmp/b.md' }, { path: '/tmp/c.md' }],
       },
       client,
       {},
@@ -86,11 +82,7 @@ describe('memory_ingest_batch tool', () => {
 
     const result = await ingestBatchTool.handler(
       {
-        files: [
-          { path: '/tmp/a.md' },
-          { path: '/tmp/missing.md' },
-          { path: '/tmp/c.md' },
-        ],
+        files: [{ path: '/tmp/a.md' }, { path: '/tmp/missing.md' }, { path: '/tmp/c.md' }],
       },
       client,
       {},
@@ -129,11 +121,7 @@ describe('memory_ingest_batch tool', () => {
 
     await ingestBatchTool.handler(
       {
-        files: [
-          { path: '/a.md' },
-          { path: '/b.md' },
-          { path: '/c.md' },
-        ],
+        files: [{ path: '/a.md' }, { path: '/b.md' }, { path: '/c.md' }],
       },
       client,
       ctx,
@@ -183,10 +171,7 @@ describe('memory_ingest_batch tool', () => {
 
     const result = await ingestBatchTool.handler(
       {
-        files: [
-          { path: '/data/same.md' },
-          { path: '/data/same.md' },
-        ],
+        files: [{ path: '/data/same.md' }, { path: '/data/same.md' }],
       },
       client,
       {},

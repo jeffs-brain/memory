@@ -1,15 +1,15 @@
 # MCP tool surface
 
-Every Jeffs Brain SDK ships an MCP wrapper that exposes the same `memory_*` tool surface. The tool names, descriptions, and input schemas are canonical and cross-language. The reference implementation lives in `apps/mcp/src/tools/`.
+Every Jeffs Brain SDK ships an MCP wrapper that exposes the same `memory_*` tool surface: `mcp/ts` (`@jeffs-brain/memory-mcp`), `go/cmd/memory-mcp` and `mcp/py`. The tool names, descriptions and input schemas below are canonical and cross-language, and each server advertises them as JSON Schema in `tools/list`.
 
-All schemas are described below in Zod-like shorthand. Optional arguments are marked `?`. `brain` on every tool that takes it defaults to the `JBMCP_DEFAULT_BRAIN` environment variable (or the first accessible brain when that is unset) and is resolved server-side via `resolveBrain`.
+All schemas are described below in Zod-like shorthand. Optional arguments are marked `?`. `brain` on every tool that takes it defaults to the `JB_BRAIN` environment variable, and to the brain named `default` when that is unset.
 
 Each tool returns an MCP response with:
 
 - `content[0].text`: a short human-readable summary.
 - `structuredContent`: the raw JSON payload for programmatic consumers.
 
-Errors from any tool surface as a standard MCP error response via `toToolError`. The `no_brain` code is returned by every brain-scoped tool when brain resolution fails.
+Errors from any tool, including arguments that fail the input schema, surface as a tool result with `isError: true` and the message in `content[0].text`.
 
 ## Namespace URIs
 
@@ -195,14 +195,6 @@ Local fallback caps the fetched body at 5 MiB and records `path: 'fallback'` in 
 Ingest up to 50 local files in a single call with per-file error isolation. Returns a structured result array with individual outcomes.
 
 **Description**: "Ingest up to 50 local files in a single call. Returns per-file results."
-
----
-
-## `memory_ingest_directory`
-
-Recursively ingest files from a directory with optional glob filtering and .gitignore support.
-
-**Description**: "Ingest files from a directory. Walks recursively, respects .gitignore, and supports glob filtering."
 
 **Input schema**
 

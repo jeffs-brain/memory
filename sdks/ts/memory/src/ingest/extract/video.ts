@@ -281,7 +281,9 @@ export class VideoExtractor implements Extractor {
     try {
       const tmpVideoPath = join(tmpDir, 'input.video')
       await fsWriteFile(tmpVideoPath, input, { mode: 0o600 })
-      return this.processVideoFile(tmpVideoPath, tmpDir, input.length, opts)
+      // Await inside the try: returning the bare promise would run the
+      // finally, and delete tmpDir, before ffprobe reads the file.
+      return await this.processVideoFile(tmpVideoPath, tmpDir, input.length, opts)
     } finally {
       await rm(tmpDir, { recursive: true, force: true }).catch(() => {})
     }

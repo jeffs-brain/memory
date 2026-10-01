@@ -20,6 +20,8 @@ func rootCmd() *cobra.Command {
 			"commands remain callable as explicit not-yet-implemented " +
 			"placeholders, but are hidden from help until they ship.",
 		SilenceUsage: true,
+		// main prints the error once; cobra would print it a second time.
+		SilenceErrors: true,
 	}
 
 	root.AddCommand(
@@ -48,16 +50,16 @@ func main() {
 	}
 }
 
-// stubCmd returns a hidden cobra command whose Run prints "not yet implemented".
-// Used for planned subcommands that are not part of the production CLI surface.
+// stubCmd returns a hidden cobra command for a planned subcommand that is
+// not part of the production CLI surface yet. It fails, so a script never
+// mistakes a planned command for a successful one.
 func stubCmd(use, short string) *cobra.Command {
 	return &cobra.Command{
 		Use:    use,
 		Short:  short,
 		Hidden: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s: not yet implemented\n", use)
-			return nil
+			return fmt.Errorf("memory %s is not implemented in the Go SDK yet; run `memory serve` and use the HTTP API", use)
 		},
 	}
 }

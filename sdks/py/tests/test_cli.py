@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import pytest
 from click.testing import CliRunner
 
 from jeffs_brain_memory.cli.main import main
@@ -15,49 +16,32 @@ def test_version() -> None:
     assert "0.0.1" in result.output
 
 
-def test_help_lists_subcommands() -> None:
+PLANNED = [
+    ["init"],
+    ["ingest", "./docs"],
+    ["search", "hello"],
+    ["ask", "why?"],
+    ["remember", "a note"],
+    ["recall", "hello"],
+    ["reflect"],
+    ["consolidate"],
+    ["create-brain", "foo"],
+    ["list-brains"],
+]
+
+
+def test_help_lists_only_working_commands() -> None:
     runner = CliRunner()
     result = runner.invoke(main, ["--help"])
     assert result.exit_code == 0
-    for sub in [
-        "init",
-        "ingest",
-        "search",
-        "ask",
-        "serve",
-        "remember",
-        "recall",
-        "reflect",
-        "consolidate",
-        "create-brain",
-        "list-brains",
-    ]:
-        assert sub in result.output, f"expected {sub!r} in --help output"
+    assert "serve" in result.output
+    for args in PLANNED:
+        assert f"  {args[0]} " not in result.output, f"{args[0]!r} should be hidden from --help"
 
 
-def test_init_stub() -> None:
+@pytest.mark.parametrize("args", PLANNED, ids=lambda args: args[0])
+def test_planned_commands_fail(args: list[str]) -> None:
     runner = CliRunner()
-    result = runner.invoke(main, ["init"])
-    assert result.exit_code == 0
-    assert "scaffold only" in result.output
-
-
-def test_ingest_stub() -> None:
-    runner = CliRunner()
-    result = runner.invoke(main, ["ingest", "./docs"])
-    assert result.exit_code == 0
-    assert "scaffold only" in result.output
-
-
-def test_search_stub() -> None:
-    runner = CliRunner()
-    result = runner.invoke(main, ["search", "hello"])
-    assert result.exit_code == 0
-    assert "scaffold only" in result.output
-
-
-def test_create_brain_stub() -> None:
-    runner = CliRunner()
-    result = runner.invoke(main, ["create-brain", "foo"])
-    assert result.exit_code == 0
-    assert "scaffold only" in result.output
+    result = runner.invoke(main, args)
+    assert result.exit_code == 1
+    assert "not implemented in the Python SDK yet" in result.output

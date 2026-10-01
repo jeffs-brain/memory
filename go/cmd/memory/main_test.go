@@ -50,6 +50,32 @@ func TestPlannedCommandsHiddenFromHelp(t *testing.T) {
 	}
 }
 
+func TestPlannedCommandsFail(t *testing.T) {
+	for _, args := range [][]string{
+		{"init"}, {"ingest", "./docs"}, {"search", "hello"}, {"ask", "why?"},
+		{"remember", "a note"}, {"recall", "hello"}, {"reflect"}, {"consolidate"},
+		{"create-brain", "b"}, {"list-brains"},
+	} {
+		t.Run(args[0], func(t *testing.T) {
+			var out bytes.Buffer
+			cmd := rootCmd()
+			cmd.SetArgs(args)
+			cmd.SetOut(&out)
+			cmd.SetErr(&out)
+			err := cmd.Execute()
+			if err == nil {
+				t.Fatalf("%s succeeded; a planned command must fail", args[0])
+			}
+			if !strings.Contains(err.Error(), "not implemented") {
+				t.Fatalf("%s error = %q, want a not-implemented message", args[0], err)
+			}
+			if out.Len() != 0 {
+				t.Fatalf("%s wrote %q; main prints the error once", args[0], out.String())
+			}
+		})
+	}
+}
+
 // TestSmokeServe verifies `memory serve` binds a port and serves /healthz
 // then shuts down cleanly on context cancel.
 func TestSmokeServe(t *testing.T) {

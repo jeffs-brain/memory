@@ -92,6 +92,12 @@ describe('memory-mcp server', () => {
         'memory_remember',
         'memory_search',
       ])
+      const search = list.tools.find((t) => t.name === 'memory_search')
+      expect(search?.inputSchema).toMatchObject({
+        type: 'object',
+        required: ['query'],
+        properties: { query: { type: 'string', minLength: 1 }, top_k: { type: 'integer' } },
+      })
     } finally {
       await shutdown()
     }

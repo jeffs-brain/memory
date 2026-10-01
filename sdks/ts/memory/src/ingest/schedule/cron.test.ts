@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { isValid, nextOccurrence, parseCron } from './cron.js'
 
 describe('parseCron', () => {
@@ -103,5 +103,80 @@ describe('nextOccurrence', () => {
     expect(next.getUTCDate()).toBe(15) // DOM match (Thursday, not Monday)
     expect(next.getUTCHours()).toBe(9)
     expect(next.getUTCMinutes()).toBe(0)
+  })
+
+  it('does not skip a month when starting late in a long month', () => {
+    const feb = nextOccurrence(parseCron('0 0 * 2 *'), new Date('2026-01-31T12:00:00Z'))
+    expect(feb.toISOString()).toBe('2026-02-01T00:00:00.000Z')
+    const monthly = nextOccurrence(parseCron('0 0 1 * *'), new Date('2026-05-31T12:00:00Z'))
+    expect(monthly.toISOString()).toBe('2026-06-01T00:00:00.000Z')
+    const leap = nextOccurrence(parseCron('0 0 29 2 *'), new Date('2026-03-01T00:00:00Z'))
+    expect(leap.toISOString()).toBe('2028-02-29T00:00:00.000Z')
+  })
+
+  it('evaluates in UTC whatever the host time zone', () => {
+    const sched = parseCron('30 2 * * 1')
+    const ref = new Date('2025-05-15T10:00:00Z')
+    try {
+      const results = ['UTC', 'Pacific/Kiritimati', 'America/Los_Angeles'].map((tz) => {
+        vi.stubEnv('TZ', tz)
+        return nextOccurrence(sched, ref).toISOString()
+      })
+      expect(results).toEqual(Array(3).fill('2025-05-19T02:30:00.000Z'))
+    } finally {
+      vi.unstubAllEnvs()
+    }
+  })
+
+  it('returns the fallback four years out when nothing can match', () => {
+    const never = nextOccurrence(parseCron('0 0 30 2 *'), new Date('2026-01-01T00:00:00Z'))
+    expect(never.toISOString()).toBe('2030-01-01T00:00:00.000Z')
+  })
+})
+
+describe('nextOccurrence with a time zone', () => {
+  const at = (expr: string, after: string, timeZone: string): string =>
+    nextOccurrence(parseCron(expr), new Date(after), { timeZone }).toISOString()
+
+  it('matches fields against the zone wall clock', () => {
+    expect(at('0 9 * * *', '2026-07-01T00:00:00Z', 'Europe/London')).toBe(
+      '2026-07-01T08:00:00.000Z',
+    )
+    expect(at('0 9 * * *', '2026-01-01T00:00:00Z', 'Europe/London')).toBe(
+      '2026-01-01T09:00:00.000Z',
+    )
+    expect(at('0 9 * * *', '2026-01-01T00:00:00Z', 'Asia/Kolkata')).toBe('2026-01-01T03:30:00.000Z')
+  })
+
+  it('uses the zone date, not the UTC date, for day fields', () => {
+    // 23:30 UTC on Sunday is already Monday morning in Tokyo.
+    expect(at('0 * * * 1', '2026-06-07T23:30:00Z', 'Asia/Tokyo')).toBe('2026-06-08T00:00:00.000Z')
+  })
+
+  it('skips a time that falls in the spring-forward gap', () => {
+    // 02:30 does not exist in New York on 8 March 2026.
+    expect(at('30 2 * * *', '2026-03-08T05:00:00Z', 'America/New_York')).toBe(
+      '2026-03-09T06:30:00.000Z',
+    )
+  })
+
+  it('fires once for a time repeated by the fall-back overlap', () => {
+    // 01:30 happens twice in New York on 1 November 2026.
+    const first = at('30 1 * * *', '2026-11-01T04:00:00Z', 'America/New_York')
+    expect(first).toBe('2026-11-01T05:30:00.000Z')
+    expect(at('30 1 * * *', first, 'America/New_York')).toBe('2026-11-02T06:30:00.000Z')
+  })
+
+  it('stays strictly after the reference inside the overlap', () => {
+    // 06:10 UTC is the second 01:10; the next 01:30 is the second one.
+    expect(at('30 1 * * *', '2026-11-01T06:10:00Z', 'America/New_York')).toBe(
+      '2026-11-01T06:30:00.000Z',
+    )
+  })
+
+  it('rejects an unknown zone', () => {
+    expect(() =>
+      nextOccurrence(parseCron('* * * * *'), new Date(), { timeZone: 'Mars/Olympus' }),
+    ).toThrow('cron: unknown time zone "Mars/Olympus"')
   })
 })

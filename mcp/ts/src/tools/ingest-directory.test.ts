@@ -4,8 +4,8 @@ import { randomUUID } from 'node:crypto'
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { IngestTriggerEvent, TriggerBus } from '@jeffs-brain/memory/ingest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { MemoryClient, ProgressEmitter } from '../memory-client.js'
 import { ingestDirectoryTool } from './ingest-directory.js'
 import type { ToolContext, ToolResult } from './types.js'
@@ -61,7 +61,9 @@ const parseResult = (result: ToolResult): DirectoryIngestPayload => {
 const createStubBus = (): { bus: TriggerBus; events: IngestTriggerEvent[] } => {
   const events: IngestTriggerEvent[] = []
   const bus: TriggerBus = {
-    publish: (event: IngestTriggerEvent) => { events.push(event) },
+    publish: (event: IngestTriggerEvent) => {
+      events.push(event)
+    },
     subscribe: () => () => {},
     close: async () => {},
   }

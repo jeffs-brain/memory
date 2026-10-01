@@ -1065,7 +1065,8 @@ def _post_process_session_extractions(
                 session_id=next_session_id,
                 modified_override=shaped.modified_override or modified_override,
                 observed_on=shaped.observed_on or modified_override,
-                session_date=shaped.session_date or session_date_iso,
+                # The parsed ISO date wins, as in Go and TypeScript.
+                session_date=session_date_iso or shaped.session_date,
                 tags=tags,
             )
         )

@@ -81,7 +81,7 @@ Selected automatically:
 
 ## Tools
 
-Eleven `memory_*` tools shared with the TypeScript and Go MCP wrappers:
+Eleven of the thirteen `memory_*` tools in the spec. `memory_ingest_batch` and `memory_ingest_directory` are not implemented here yet, and `memory_ingest_file` and `memory_ingest_url` do not take the spec's `extract` option:
 
 - `memory_remember`
 - `memory_recall`

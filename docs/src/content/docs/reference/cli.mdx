@@ -17,6 +17,11 @@ subcommand surface is not identical.
 The stable cross-SDK baseline assumed by the docs and eval harness is
 `memory serve` plus the shared HTTP protocol it exposes.
 
+In Go and Python, the planned local workflow commands (`init`, `ingest`,
+`search` and the rest) are hidden from `--help` and exit with status `1`
+and a message pointing at `memory serve`, so a script never mistakes one
+for a success.
+
 Exit codes:
 
 - `0` — success

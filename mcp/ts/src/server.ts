@@ -10,7 +10,7 @@ import { readFileSync } from 'node:fs'
 import { Server } from '@modelcontextprotocol/sdk/server/index.js'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js'
-import { z } from 'zod'
+import { z } from 'zod/v4'
 import { resolveConfig } from './config.js'
 import { type MemoryClient, type ProgressEmitter, createMemoryClient } from './memory-client.js'
 import { type Tool, type ToolResult, tools } from './tools/index.js'
@@ -48,15 +48,15 @@ const buildRegistry = (): ToolRegistry => {
   return map
 }
 
-const toJsonSchema = (schema: z.ZodTypeAny): Record<string, unknown> => {
-  // TODO(next-pass): replace with zod-to-json-schema once we pull it in.
-  // Advertising a permissive object schema is enough for MCP clients to
-  // invoke the tool; the real validation happens inside `handler` via
-  // `schema.parse(args)`.
-  if (schema instanceof z.ZodObject) {
-    return { type: 'object' }
-  }
-  return { type: 'object' }
+/**
+ * The JSON Schema advertised in `tools/list`, generated from the same zod
+ * schema that validates the call. `io: 'input'` keeps defaulted fields
+ * optional, and the `$schema` marker is dropped to match the Go and
+ * Python servers.
+ */
+export const toJsonSchema = (schema: z.ZodType): Record<string, unknown> => {
+  const { $schema: _dialect, ...rest } = z.toJSONSchema(schema, { io: 'input' })
+  return rest
 }
 
 const runTool = async (

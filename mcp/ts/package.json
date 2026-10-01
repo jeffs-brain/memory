@@ -1,7 +1,7 @@
 {
   "name": "@jeffs-brain/memory-mcp",
   "version": "1.1.0",
-  "description": "Model Context Protocol stdio server for @jeffs-brain/memory, exposing eleven memory tools with zero-config local and hosted modes.",
+  "description": "Model Context Protocol stdio server for @jeffs-brain/memory, exposing thirteen memory tools with zero-config local and hosted modes.",
   "license": "Apache-2.0",
   "author": "Alex J <alex@lleverage.ai>",
   "homepage": "https://github.com/jeffs-brain/memory#readme",
@@ -53,7 +53,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0",
-    "zod": "^3.23.0"
+    "zod": "^3.25.0"
   },
   "peerDependencies": {
     "@jeffs-brain/memory": "^1.2.0"
