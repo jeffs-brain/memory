@@ -4,14 +4,12 @@
 from __future__ import annotations
 
 import math
-from pathlib import Path
 from typing import AsyncIterator
 
 import pytest
 
 from jeffs_brain_memory.path import BrainPath
 from jeffs_brain_memory.search import (
-    BM25Hit,
     Chunk,
     Index,
     SearchOpts,
@@ -19,7 +17,6 @@ from jeffs_brain_memory.search import (
     VectorHit,
 )
 from jeffs_brain_memory.store import (
-    Batch,
     BatchOptions,
     ChangeEvent,
     FileInfo,

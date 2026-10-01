@@ -74,3 +74,9 @@ target-version = "py311"
 [tool.mypy]
 python_version = "3.11"
 strict = true
+
+# The MCP SDK's low-level Server decorators carry no type annotations.
+[[tool.mypy.overrides]]
+module = ["jeffs_brain_memory_mcp.server"]
+disallow_untyped_decorators = false
+disallow_untyped_calls = false

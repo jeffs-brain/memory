@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 import threading
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from ..llm.provider import Provider
 from ..llm.types import CompleteRequest
@@ -245,7 +245,7 @@ def extract_task_description(messages: list[Message]) -> str:
 
 
 def summarise_tool_calls(messages: list[Message]) -> str:
-    tools: dict[str, dict] = {}
+    tools: dict[str, dict[str, Any]] = {}
     order: list[str] = []
     for m in messages:
         if m.role != Role.ASSISTANT:

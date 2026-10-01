@@ -5,13 +5,14 @@ from __future__ import annotations
 
 import time
 from dataclasses import asdict
+from enum import Enum
 from typing import Any
 
 from starlette.requests import Request
 from starlette.responses import Response
 
 from ... import retrieval, search as search_pkg
-from ..problem import internal_error, validation_error
+from ..problem import validation_error
 from ._shared import decode_json_body, ok_json, resolve_brain
 
 
@@ -68,7 +69,7 @@ def _trace_to_wire(trace: retrieval.Trace) -> dict[str, Any]:
     payload = asdict(trace)
     for key in ("requested_mode", "effective_mode"):
         value = payload.get(key)
-        if hasattr(value, "value"):
+        if isinstance(value, Enum):
             payload[key] = value.value
     return payload
 
@@ -76,7 +77,7 @@ def _trace_to_wire(trace: retrieval.Trace) -> dict[str, Any]:
 def _attempt_to_wire(attempt: retrieval.Attempt) -> dict[str, Any]:
     payload = asdict(attempt)
     value = payload.get("mode")
-    if hasattr(value, "value"):
+    if isinstance(value, Enum):
         payload["mode"] = value.value
     return payload
 

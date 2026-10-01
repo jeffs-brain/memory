@@ -486,7 +486,7 @@ async def ask(request: Request) -> Response:
         rerank_top_n,
         filters,
     )
-    daemon = request.app.state.daemon  # type: ignore[attr-defined]
+    daemon = request.app.state.daemon
     provider = daemon.llm
 
     async def event_stream() -> AsyncIterator[bytes]:
@@ -548,12 +548,8 @@ async def ask(request: Request) -> Response:
             max_tokens=max_tokens,
         )
         try:
-            stream = provider.complete_stream(complete_request)
-            # The Fake provider returns an async iterator through
-            # `await`; accommodate both shapes.
-            if hasattr(stream, "__await__"):
-                stream = await stream  # type: ignore[assignment]
-            async for chunk in stream:  # type: ignore[async-for]
+            stream = await provider.complete_stream(complete_request)
+            async for chunk in stream:
                 if await request.is_disconnected():
                     return
                 if chunk.delta_text:

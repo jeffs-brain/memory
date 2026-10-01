@@ -17,6 +17,7 @@ from starlette.responses import Response
 from ...llm.types import Role
 from ...memory import (
     Consolidator,
+    Contextualiser,
     ExtractedMemory,
     MemoryManager,
     Message as MemMessage,
@@ -146,7 +147,7 @@ async def recall(request: Request) -> Response:
         return validation_error("query required")
     project = _project_from_body(body)
 
-    daemon = request.app.state.daemon  # type: ignore[attr-defined]
+    daemon = request.app.state.daemon
     provider = daemon.llm
 
     manager: MemoryManager = br.memory_manager
@@ -199,7 +200,7 @@ def _truncate_one_line(value: str, limit: int) -> str:
 
 
 async def _decorate_extracted_memories(
-    contextualiser,
+    contextualiser: Contextualiser | None,
     messages: list[MemMessage],
     session_id: str,
     session_date: str,
@@ -213,11 +214,7 @@ async def _decorate_extracted_memories(
             memory.session_id = session_id
         if session_date and not memory.session_date:
             memory.session_date = session_date
-        if (
-            contextualiser is None
-            or memory.context_prefix
-            or not getattr(contextualiser, "enabled", lambda: False)()
-        ):
+        if contextualiser is None or memory.context_prefix or not contextualiser.enabled():
             continue
         prefix = await contextualiser.build_prefix_async(session_id, summary, memory.content)
         if prefix:
@@ -242,7 +239,7 @@ async def extract(request: Request) -> Response:
 
     messages = _wire_messages_to_memory(messages_raw)
 
-    daemon = request.app.state.daemon  # type: ignore[attr-defined]
+    daemon = request.app.state.daemon
     provider = daemon.llm
     try:
         results = await extract_from_messages(
@@ -287,7 +284,7 @@ async def reflect(request: Request) -> Response:
 
     messages = _wire_messages_to_memory(messages_raw)
 
-    daemon = request.app.state.daemon  # type: ignore[attr-defined]
+    daemon = request.app.state.daemon
     provider = daemon.llm
     reflector = Reflector(br.memory_manager)
     try:
@@ -335,7 +332,7 @@ async def consolidate(request: Request) -> Response:
     mode = "quick" if str(body.get("mode") or "").lower() == "quick" else "full"
     model = str(body.get("model") or "")
 
-    daemon = request.app.state.daemon  # type: ignore[attr-defined]
+    daemon = request.app.state.daemon
     provider = daemon.llm
 
     cons = Consolidator(provider, model, br.memory_manager)

@@ -12,8 +12,6 @@ from jeffs_brain_memory.memory import (
     Consolidator,
     MemoryManager,
     MemStore,
-    memory_global_index,
-    memory_global_topic,
     memory_project_index,
     memory_project_topic,
     project_slug,

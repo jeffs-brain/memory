@@ -16,6 +16,7 @@ the daemon only needs the wire-equivalent behaviour.
 from __future__ import annotations
 
 import asyncio
+import builtins
 import errno
 import fnmatch
 import logging
@@ -24,6 +25,7 @@ import shutil
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
+from collections.abc import Sequence
 from typing import Any, Awaitable, Callable
 
 from .. import knowledge, memory, retrieval, search
@@ -38,7 +40,9 @@ from ..llm.provider import Embedder, Provider
 from ..memory._memstore import FileInfo as MemFileInfo
 from ..memory._memstore import ListOpts as MemListOpts
 from ..memory._memstore import NotFoundError as MemNotFound
-from ..path import validate_path
+from ..knowledge import SearchHit
+from ..path import BrainPath, DocumentID, validate_path
+from ..store import ListOpts
 from ..retrieval.index_source import IndexedRow
 from .daemon_vectors import backfill_vectors
 from .ingest_root import resolve_ingest_root
@@ -88,7 +92,7 @@ class PassthroughStore:
         self._root = root.resolve()
         self._root.mkdir(parents=True, exist_ok=True)
         self._lock = asyncio.Lock()
-        self._sinks: dict[int, Callable[[ChangeEvent], None]] = {}
+        self._sinks: dict[int, Callable[[ChangeEvent], Awaitable[None] | None]] = {}
         self._next_sink_id = 0
         self._sink_lock = asyncio.Lock()
         self._closed = False
@@ -135,14 +139,15 @@ class PassthroughStore:
 
     async def list(
         self,
-        directory: str = "",
-        *,
-        recursive: bool = False,
-        glob: str | None = None,
-        include_generated: bool = False,
-    ) -> list[FileInfo]:
+        directory: BrainPath | str = "",
+        opts: ListOpts | None = None,
+    ) -> builtins.list[FileInfo]:
         if self._closed:
             raise StoreReadOnly("store closed")
+        opts = opts or ListOpts()
+        recursive = opts.recursive
+        glob = opts.glob
+        include_generated = opts.include_generated
         base = self._root
         if directory:
             validate_path(directory)
@@ -245,7 +250,7 @@ class PassthroughStore:
 
     async def batch(
         self,
-        ops: list[dict[str, Any]],
+        ops: builtins.list[dict[str, Any]],
         *,
         reason: str | None = None,
     ) -> int:
@@ -332,7 +337,7 @@ class BrainResources:
     knowledge_base: knowledge.Base
     embed_model: str = ""
     _unsubscribe: Callable[[], None] | None = None
-    _backfill_task: asyncio.Task[None] | None = None
+    _backfill_task: asyncio.Task[int] | None = None
 
     async def close(self) -> None:
         if self._unsubscribe is not None:
@@ -481,7 +486,7 @@ class BrainManager:
         # served immediately via BM25 while remote embed batches populate
         # the vector index in the background. Matches the Go daemon's
         # goroutine in daemon.go:build().
-        backfill_task: asyncio.Task[None] | None = None
+        backfill_task: asyncio.Task[int] | None = None
         if vector_adapter is not None and self._daemon.embedder is not None:
             backfill_task = asyncio.create_task(
                 backfill_vectors(
@@ -789,7 +794,7 @@ class _FsMemoryStore:
         class _Batch:
             def __init__(self, parent: "_FsMemoryStore") -> None:
                 self.parent = parent
-                self.ops: list[tuple[str, Any, ...]] = []
+                self.ops: list[tuple[Any, ...]] = []
                 self._pending_writes: dict[str, bytes] = {}
                 self._pending_deletes: set[str] = set()
 
@@ -916,7 +921,7 @@ class _IndexForRetrieval:
 
     async def all_rows(self) -> list[IndexedRow]:
         try:
-            cursor = self._index._conn.execute(  # type: ignore[attr-defined]
+            cursor = self._index._conn.execute(
                 "SELECT path, title, summary, content FROM knowledge_chunks"
             )
         except Exception as exc:  # noqa: BLE001
@@ -936,8 +941,9 @@ class _IndexForRetrieval:
 
 
 class _IndexForKnowledge:
-    """Adapter exposing :meth:`update` so ``knowledge.Base`` can trigger
-    a rebuild after writes.
+    """Adapter giving ``knowledge.Base`` the index it expects: BM25 search
+    for :meth:`knowledge.Base.search`, and :meth:`update` so ingest can
+    trigger a rebuild after writes.
 
     Every ingest persists a raw/documents/*.md file through the
     passthrough store; we just rebuild the whole brain here since the
@@ -947,6 +953,23 @@ class _IndexForKnowledge:
     def __init__(self, index: search.Index, store: PassthroughStore) -> None:
         self._index = index
         self._store = store
+
+    async def search_bm25(self, query: str, *, limit: int) -> builtins.list[SearchHit]:
+        hits = self._index.search_bm25(query, top_k=limit)
+        # FTS5 bm25 rank is negative (lower is better); invert it the same
+        # way the retrieval adapter does, so higher is better.
+        return [
+            SearchHit(
+                path=BrainPath(h.path),
+                title=h.title,
+                summary=h.summary,
+                snippet=h.snippet,
+                score=1.0 / (1.0 + abs(h.score)) if h.score else 0.0,
+                document_id=DocumentID(h.document_id) if h.document_id else None,
+                source="bm25",
+            )
+            for h in hits
+        ]
 
     async def update(self) -> None:
         await _rebuild_sync(self._index, self._store)
@@ -960,7 +983,7 @@ async def _rebuild_sync(index: search.Index, store: PassthroughStore) -> None:
     inside a live event loop, so we drive the walk manually here.
     """
     try:
-        entries = await store.list("", recursive=True, include_generated=True)
+        entries = await store.list("", ListOpts(recursive=True, include_generated=True))
     except Exception as exc:  # noqa: BLE001
         _log.debug("rebuild list failed: %s", exc)
         return
@@ -979,7 +1002,7 @@ async def _rebuild_sync(index: search.Index, store: PassthroughStore) -> None:
         except Exception:  # noqa: BLE001
             continue
         from ..search.frontmatter import parse_memory_frontmatter, parse_wiki_frontmatter
-        from ..search.index import (  # type: ignore[attr-defined]
+        from ..search.index import (
             _classify_path,
             _indexed_text_for,
             _session_date_from_fields,
@@ -1030,8 +1053,8 @@ async def _rebuild_sync(index: search.Index, store: PassthroughStore) -> None:
     # rebuilds, so it is still wiped wholesale; it has no dependents.
     new_ids = {c.id for c in chunks}
     try:
-        with index._conn:  # type: ignore[attr-defined]
-            conn = index._conn  # type: ignore[attr-defined]
+        with index._conn:
+            conn = index._conn
             existing_rows = conn.execute("SELECT chunk_id FROM knowledge_chunks").fetchall()
             existing_ids = {row["chunk_id"] for row in existing_rows}
             to_drop = existing_ids - new_ids
@@ -1088,7 +1111,7 @@ class _IndexVectorStore:
 
     async def search(
         self,
-        embedding: list[float],
+        embedding: Sequence[float],
         model: str,
         k: int,
         filters: retrieval.Filters,

@@ -206,7 +206,6 @@ async def test_ingest_url_propagates_fetch_error() -> None:
 
 async def test_ingest_pdf_round_trip() -> None:
     pdfkit = pytest.importorskip("pdfplumber")  # noqa: F841 - skip if unavailable
-    import subprocess
 
     # Build a one-page PDF via the pdfplumber fixture when available, or
     # fall back to a minimal hand-written PDF source the extractor can

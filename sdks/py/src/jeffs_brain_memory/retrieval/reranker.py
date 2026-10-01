@@ -12,7 +12,7 @@ import json
 import os
 import time
 from dataclasses import replace
-from typing import Protocol, runtime_checkable
+from typing import Awaitable, Callable, Protocol, TypeVar, runtime_checkable
 from urllib.parse import urlsplit, urlunsplit
 
 import httpx
@@ -119,7 +119,10 @@ def _rerank_concurrency_limit() -> int:
     return parsed if parsed > 0 else DEFAULT_SHARED_RERANK_CONCURRENCY
 
 
-async def _run_with_shared_rerank_concurrency(task):
+_T = TypeVar("_T")
+
+
+async def _run_with_shared_rerank_concurrency(task: Callable[[], Awaitable[_T]]) -> _T:
     limit = _rerank_concurrency_limit()
     gate = _shared_rerank_gates.get(limit)
     if gate is None:
@@ -134,7 +137,7 @@ async def _reranker_available(reranker: object | None) -> bool:
         return False
     probe = getattr(reranker, "is_available", None)
     if callable(probe):
-        return await probe()
+        return bool(await probe())
     return True
 
 

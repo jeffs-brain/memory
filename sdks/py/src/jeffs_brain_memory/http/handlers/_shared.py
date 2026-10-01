@@ -15,13 +15,12 @@ from ..problem import (
     internal_error,
     not_found,
     payload_too_large,
-    problem_response,
     validation_error,
 )
 
 
 def get_daemon(request: Request) -> Daemon:
-    daemon: Daemon | None = request.app.state.daemon  # type: ignore[attr-defined]
+    daemon: Daemon | None = request.app.state.daemon
     if daemon is None:
         raise RuntimeError("daemon not configured on app.state")
     return daemon

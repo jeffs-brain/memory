@@ -23,7 +23,7 @@ from ..query.temporal import (
     resolve_relative_day,
     resolve_relative_time,
 )
-from ._memstore import ListOpts, NotFoundError
+from ._memstore import Batch, ListOpts, NotFoundError
 from .paths import (
     base_name,
     memory_global_index,
@@ -2398,7 +2398,7 @@ def apply_extractions(
     if not pending:
         return
 
-    def _run(b) -> None:
+    def _run(b: Batch) -> None:
         for path, content in pending:
             b.write(path, content)
 
@@ -2429,7 +2429,7 @@ def apply_extractions(
     mem.store.batch(_run)
 
 
-def _stamp_superseded_by(b, old_path: str, new_file: str) -> bool:
+def _stamp_superseded_by(b: Batch, old_path: str, new_file: str) -> bool:
     try:
         raw = b.read(old_path)
     except NotFoundError:
@@ -2459,7 +2459,7 @@ def _stamp_superseded_by(b, old_path: str, new_file: str) -> bool:
     return True
 
 
-def _append_index_entries(b, index_path: str, entries: list[str]) -> None:
+def _append_index_entries(b: Batch, index_path: str, entries: list[str]) -> None:
     content = ""
     try:
         existing = b.read(index_path)
@@ -2478,7 +2478,7 @@ def _append_index_entries(b, index_path: str, entries: list[str]) -> None:
     b.write(index_path, (content + "\n").encode("utf-8"))
 
 
-def _role_value(role) -> str:
+def _role_value(role: Role | str) -> str:
     if isinstance(role, Role):
         return role.value
     return str(role)

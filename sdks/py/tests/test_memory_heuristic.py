@@ -11,7 +11,6 @@ from jeffs_brain_memory.memory import (
     has_tag,
     heuristic_filename,
     jaccard_similarity,
-    memory_project_topic,
     merge_heuristic,
     significant_words,
     MemoryManager,

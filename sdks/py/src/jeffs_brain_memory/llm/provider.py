@@ -16,11 +16,12 @@ class Provider(Protocol):
         """Run a non-streaming completion."""
         ...
 
-    def complete_stream(self, req: CompleteRequest) -> AsyncIterator[StreamChunk]:
-        """Run a streaming completion.
+    async def complete_stream(self, req: CompleteRequest) -> AsyncIterator[StreamChunk]:
+        """Start a streaming completion.
 
-        Returns an async iterator that yields :class:`StreamChunk` values
-        until generation is done or the caller cancels.
+        Awaiting it validates the request and returns an async iterator
+        that yields :class:`StreamChunk` values until generation is done
+        or the caller cancels.
         """
         ...
 

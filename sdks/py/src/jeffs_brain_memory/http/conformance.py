@@ -65,7 +65,10 @@ SKIP_CASES: dict[str, str] = {
 def load_conformance_doc(spec_dir: Path) -> dict[str, Any]:
     fixture = spec_dir / "conformance" / "http-contract.json"
     with fixture.open("r", encoding="utf-8") as fh:
-        return json.load(fh)
+        doc = json.load(fh)
+    if not isinstance(doc, dict):
+        raise ValueError(f"{fixture}: expected a JSON object")
+    return doc
 
 
 async def replay_cases(
@@ -99,7 +102,7 @@ async def replay_cases(
 def _free_port() -> int:
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.bind(("127.0.0.1", 0))
-    port = sock.getsockname()[1]
+    port: int = sock.getsockname()[1]
     sock.close()
     return port
 
@@ -283,17 +286,17 @@ def _run_step(
         pool[name] = sub
         return
     if kind == "await-sse-event":
-        sub = pool.get(step.get("name", ""))
-        if sub is None:
+        opened = pool.get(step.get("name", ""))
+        if opened is None:
             raise AssertionError(f"SSE subscriber {step.get('name')!r} not opened")
-        _, ok = sub.wait_for_event(step.get("event", ""), timeout=5.0)
+        _, ok = opened.wait_for_event(step.get("event", ""), timeout=5.0)
         if not ok:
             raise AssertionError(f"timeout waiting for SSE event {step.get('event')!r}")
         return
     if kind == "close-sse":
-        sub = pool.pop(step.get("name", ""), None)
-        if sub is not None:
-            sub.close()
+        closing = pool.pop(step.get("name", ""), None)
+        if closing is not None:
+            closing.close()
         return
     if kind == "":
         resp = _do_request(client, step, substitute)
@@ -537,9 +540,9 @@ def _run_body_assertion(assertion: dict[str, Any], body: bytes) -> None:
             raise AssertionError(f"decode body: {exc} body={body!r}") from exc
         if not isinstance(parsed, dict):
             raise AssertionError(f"json-field-equals: body is not an object: {parsed!r}")
-        got = parsed.get(field_name)
-        if got != want_value:
-            raise AssertionError(f"field {field_name!r}: want {want_value!r} got {got!r}")
+        actual = parsed.get(field_name)
+        if actual != want_value:
+            raise AssertionError(f"field {field_name!r}: want {want_value!r} got {actual!r}")
         return
     raise AssertionError(f"unknown bodyAssertion kind {kind!r}")
 

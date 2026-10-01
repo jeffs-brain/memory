@@ -10,15 +10,15 @@ from __future__ import annotations
 
 import asyncio
 import fnmatch
-import posixpath
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import AsyncIterator, Awaitable, Callable
+from typing import AsyncIterator, Callable
 
 from ..errors import ErrNotFound, ErrReadOnly
 from ..path import BrainPath, is_generated, validate_path
 from . import (
     Batch,
+    BatchFn,
     BatchOptions,
     ChangeEvent,
     ChangeKind,
@@ -161,7 +161,7 @@ class MemStore(Store):
 
     async def batch(
         self,
-        fn: Callable[[Batch], Awaitable[None]] | Callable[[Batch], None],
+        fn: BatchFn,
         opts: BatchOptions | None = None,
     ) -> None:
         self._check_open()
@@ -213,7 +213,7 @@ class MemStore(Store):
         self._sinks.clear()
         for queue in list(self._event_queues):
             try:
-                queue.put_nowait(  # type: ignore[arg-type]
+                queue.put_nowait(
                     ChangeEvent(
                         kind=ChangeKind.DELETED,
                         path=BrainPath(""),

@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from jeffs_brain_memory.errors import ErrConflict, ErrInvalidPath, ErrNotFound
+from jeffs_brain_memory.errors import ErrInvalidPath, ErrNotFound
 from jeffs_brain_memory.path import BrainPath
 from jeffs_brain_memory.store import BatchOptions, ListOpts
 from jeffs_brain_memory.store.git import GitStore

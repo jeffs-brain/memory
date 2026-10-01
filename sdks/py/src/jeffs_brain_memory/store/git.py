@@ -13,13 +13,14 @@ signature. The SDK never sees the private key material.
 from __future__ import annotations
 
 import asyncio
+import builtins
 import logging
 import os
 import subprocess
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import AsyncIterator, Awaitable, Callable
+from typing import AsyncIterator, Callable, cast
 
 import pygit2
 
@@ -27,6 +28,7 @@ from ..errors import ErrConflict, ErrNotFound, ErrReadOnly
 from ..path import BrainPath, is_generated, validate_path
 from . import (
     Batch,
+    BatchFn,
     BatchOptions,
     ChangeEvent,
     ChangeKind,
@@ -121,11 +123,14 @@ class GitStore(Store):
         index.write()
         tree = index.write_tree()
         sig = pygit2.Signature(self.author_name, self.author_email)
-        parents: list[pygit2.Oid] = []
+        parents: list[pygit2.Oid | str] = []
         if not self._repo.head_is_unborn:
             parents = [self._repo.head.target]
         if self.sign is not None:
-            commit_hex = self._repo.create_commit_string(sig, sig, message, tree, parents)
+            # pygit2's stub says Oid; at runtime it returns the commit as str.
+            commit_hex = cast(
+                str, self._repo.create_commit_string(sig, sig, message, tree, parents)
+            )
             signature = self.sign(commit_hex.encode())
             new_oid = self._repo.create_commit_with_signature(commit_hex, signature.decode())
             # Update the branch ref to the new commit.
@@ -242,7 +247,7 @@ class GitStore(Store):
 
     async def batch(
         self,
-        fn: Callable[[Batch], Awaitable[None]] | Callable[[Batch], None],
+        fn: BatchFn,
         opts: BatchOptions | None = None,
     ) -> None:
         self._check_open()
@@ -487,7 +492,7 @@ class _GitBatch(Batch):
             raise ErrNotFound(f"gitstore: rename {src}: not found")
         self.ops.append(_Op(kind="rename", path=BrainPath(str(dst)), src=BrainPath(str(src))))
 
-    async def commit(self, opts: BatchOptions) -> list[ChangeEvent]:
+    async def commit(self, opts: BatchOptions) -> builtins.list[ChangeEvent]:
         if not self.ops:
             return []
         touched: list[BrainPath] = []

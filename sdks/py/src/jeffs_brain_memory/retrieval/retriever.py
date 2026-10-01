@@ -33,7 +33,6 @@ from .temporal import (
     build_bm25_query_plan,
     compile_bm25_fanout_query,
     resolved_date_hints,
-    temporal_query_variants,
 )
 from ..query.temporal import parse_question_date
 from .types import (
@@ -618,10 +617,10 @@ def _reweight_temporal_ranking(
 
     wants_recency = RECENCY_QUERY_RE.search(query) is not None
     wants_earliest = not wants_recency and EARLIEST_QUERY_RE.search(query) is not None
-    hint_times = _dedupe_datetimes(
-        [_parse_candidate_time(hint) for hint in resolved_date_hints(query, question_date)]
-    )
-    hint_times = [value for value in hint_times if value is not None]
+    parsed_hints = [
+        _parse_candidate_time(hint) for hint in resolved_date_hints(query, question_date)
+    ]
+    hint_times = _dedupe_datetimes([value for value in parsed_hints if value is not None])
     if not wants_recency and not wants_earliest and not hint_times:
         return filtered_results
 

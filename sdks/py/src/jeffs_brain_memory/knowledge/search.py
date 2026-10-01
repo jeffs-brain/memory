@@ -18,7 +18,6 @@ from typing import Any, Protocol, runtime_checkable
 
 from ..path import BrainPath
 from .frontmatter import Frontmatter, parse_frontmatter
-from .ingest import RAW_DOCUMENTS_PREFIX
 from .types import SearchHit, SearchMode, SearchRequest, SearchResponse
 
 __all__ = [

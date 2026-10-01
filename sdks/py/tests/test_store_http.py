@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import asyncio
 from typing import AsyncIterator
 
 import httpx
@@ -14,7 +13,6 @@ from jeffs_brain_memory.errors import (
     ErrNotFound,
     ErrPayloadTooLarge,
     ErrReadOnly,
-    ErrValidation,
 )
 from jeffs_brain_memory.path import BrainPath
 from jeffs_brain_memory.store import BatchOptions, ListOpts

@@ -8,7 +8,6 @@ the Python implementation honest about the shared wire protocol.
 
 from __future__ import annotations
 
-import asyncio
 import base64
 import json
 import uuid

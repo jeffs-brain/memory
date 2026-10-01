@@ -7,7 +7,7 @@ import re
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
-from ._memstore import ListOpts, NotFoundError
+from ._memstore import Batch, ListOpts, NotFoundError
 from .paths import (
     base_name,
     memory_global_index,
@@ -19,7 +19,6 @@ from .paths import (
 )
 from .reflect import Heuristic
 from .store import parse_frontmatter
-from .types import TopicFile
 
 if TYPE_CHECKING:
     from .manager import MemoryManager
@@ -103,7 +102,7 @@ def apply_heuristics(mem: "MemoryManager", project_slug: str, heuristics: list[H
     if not writes:
         return
 
-    def _run(b) -> None:
+    def _run(b: Batch) -> None:
         for p, c in writes:
             b.write(p, c)
         if project_entries:
@@ -322,7 +321,7 @@ def extract_alternative(rule: str) -> str:
     return ""
 
 
-def _append_index_entries(b, index_path: str, entries: list[str]) -> None:
+def _append_index_entries(b: Batch, index_path: str, entries: list[str]) -> None:
     content = ""
     try:
         existing = b.read(index_path)

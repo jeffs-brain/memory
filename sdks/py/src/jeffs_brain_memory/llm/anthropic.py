@@ -116,11 +116,11 @@ async def _anthropic_stream(
         async for line in resp.aiter_lines():
             if not line.startswith("data: "):
                 continue
-            body = line[len("data: ") :]
-            if not body:
+            data = line[len("data: ") :]
+            if not data:
                 continue
             try:
-                ev = json.loads(body)
+                ev = json.loads(data)
             except json.JSONDecodeError:
                 continue
             etype = ev.get("type")

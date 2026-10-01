@@ -8,9 +8,10 @@ import json
 from typing import Any
 
 from starlette.requests import Request
-from starlette.responses import JSONResponse, Response
+from starlette.responses import Response
 
 from ...errors import ErrInvalidPath
+from ...store import ListOpts
 from ..daemon import StoreNotFound
 from ..problem import (
     internal_error,
@@ -110,9 +111,7 @@ async def doc_list(request: Request) -> Response:
     try:
         entries = await br.store.list(
             directory,
-            recursive=recursive,
-            glob=glob,
-            include_generated=include_generated,
+            ListOpts(recursive=recursive, glob=glob, include_generated=include_generated),
         )
     except ErrInvalidPath as exc:
         return wrap_invalid_path(exc)
