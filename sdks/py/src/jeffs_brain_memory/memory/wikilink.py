@@ -59,9 +59,7 @@ def resolve_wikilink(mem: "MemoryManager", link: str, project_path: str) -> str:
     return _resolve_in(mem, link, memory_global_prefix())
 
 
-def resolve_all_wikilinks(
-    mem: "MemoryManager", content: str, project_path: str
-) -> list[str]:
+def resolve_all_wikilinks(mem: "MemoryManager", content: str, project_path: str) -> list[str]:
     links = extract_wikilinks(content)
     if not links:
         return []

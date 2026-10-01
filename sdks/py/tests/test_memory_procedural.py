@@ -58,9 +58,7 @@ def test_detect_agent_invocation():
                 )
             ],
         ),
-        Message(
-            role=Role.TOOL, content="Review complete", tool_call_id="tc_2", name="agent"
-        ),
+        Message(role=Role.TOOL, content="Review complete", tool_call_id="tc_2", name="agent"),
     ]
     records = detect_procedurals(msgs)
     assert len(records) == 1
@@ -91,9 +89,7 @@ def test_detect_skip_empty_skill_name():
 def test_detect_malformed_args():
     msgs = [
         Message(role=Role.USER, content="x"),
-        Message(
-            role=Role.ASSISTANT, tool_calls=[ToolCall(name="skill", arguments="{bad}")]
-        ),
+        Message(role=Role.ASSISTANT, tool_calls=[ToolCall(name="skill", arguments="{bad}")]),
     ]
     assert detect_procedurals(msgs) == []
 

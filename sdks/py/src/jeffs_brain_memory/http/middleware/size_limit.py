@@ -38,9 +38,7 @@ class SizeLimitMiddleware:
             except (UnicodeDecodeError, ValueError):
                 declared = -1
             if declared > self.cap:
-                response = payload_too_large(
-                    f"request body exceeds {self.cap} bytes"
-                )
+                response = payload_too_large(f"request body exceeds {self.cap} bytes")
                 await response(scope, receive, send)
                 return
         await self.app(scope, receive, send)

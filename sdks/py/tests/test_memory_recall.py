@@ -251,9 +251,7 @@ def test_date_header_fields():
 async def test_recall_selects_and_returns(iso):
     store = MemStore()
     mem = MemoryManager(store)
-    slug = __import__(
-        "jeffs_brain_memory.memory", fromlist=["project_slug"]
-    ).project_slug("/p")
+    slug = __import__("jeffs_brain_memory.memory", fromlist=["project_slug"]).project_slug("/p")
     store.write(
         memory_project_topic(slug, "auth"),
         b"---\nname: Auth\ndescription: Auth notes\ntype: project\n---\n\nbody.",

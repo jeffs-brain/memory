@@ -413,9 +413,7 @@ def parse_deduplication_result(content: str) -> str:
     return str(parsed.get("verdict", "distinct"))
 
 
-def rebuild_with_updated_confidence(
-    fm: Frontmatter, body: str, new_confidence: str
-) -> str:
+def rebuild_with_updated_confidence(fm: Frontmatter, body: str, new_confidence: str) -> str:
     lines = ["---"]
     if fm.name:
         lines.append(f'name: "{fm.name}"')

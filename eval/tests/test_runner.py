@@ -5,6 +5,7 @@ Integration tests that spawn real SDK binaries are skipped. This suite
 only validates CLI parsing, dataset loading, scorer selection, and the
 `SdkRunner` lifecycle via mocks.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -115,10 +116,7 @@ class TestLoadDataset:
     def test_loads_valid_jsonl(self, tmp_path: Path) -> None:
         p = tmp_path / "ds.jsonl"
         p.write_text(
-            '{"id": "a", "question": "q1"}\n'
-            "\n"
-            "# a comment\n"
-            '{"id": "b", "question": "q2"}\n',
+            '{"id": "a", "question": "q1"}\n\n# a comment\n{"id": "b", "question": "q2"}\n',
             encoding="utf-8",
         )
         items = _load_dataset(p, limit=None)
@@ -234,7 +232,9 @@ class TestAskHelpers:
             "rerankTopN": 40,
         }
 
-    def test_build_request_spec_for_search_retrieve_only_omits_optional_knobs_when_zero(self) -> None:
+    def test_build_request_spec_for_search_retrieve_only_omits_optional_knobs_when_zero(
+        self,
+    ) -> None:
         spec = _build_request_spec(
             brain="eval",
             item={},
@@ -260,7 +260,7 @@ class TestAskHelpers:
         assert spec.body["questionDate"] == "2024-05-26T09:00:00Z"
 
     def test_parse_sse_frame_reads_event_and_data(self) -> None:
-        frame = "event: answer_delta\ndata: {\"delta\": \"Hi \"}"
+        frame = 'event: answer_delta\ndata: {"delta": "Hi "}'
         assert _parse_sse_frame(frame) == ("answer_delta", '{"delta": "Hi "}')
 
     def test_parse_sse_frame_skips_comments_and_empty(self) -> None:
@@ -326,8 +326,20 @@ class TestAskHelpers:
                 200,
                 json={
                     "chunks": [
-                        {"chunkId": "c1", "path": "wiki/a.md", "title": "A", "score": 0.9, "text": "alpha"},
-                        {"chunkId": "c2", "path": "wiki/b.md", "title": "B", "score": 0.7, "summary": "beta"},
+                        {
+                            "chunkId": "c1",
+                            "path": "wiki/a.md",
+                            "title": "A",
+                            "score": 0.9,
+                            "text": "alpha",
+                        },
+                        {
+                            "chunkId": "c2",
+                            "path": "wiki/b.md",
+                            "title": "B",
+                            "score": 0.7,
+                            "summary": "beta",
+                        },
                     ]
                 },
             )
@@ -457,7 +469,9 @@ class TestCli:
         result = CliRunner().invoke(main, ["--sdk", "ts", "--scorer", "telepathy"])
         assert result.exit_code != 0
 
-    def test_floor_failure_exits_nonzero(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_floor_failure_exits_nonzero(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         ds = tmp_path / "ds.jsonl"
         ds.write_text('{"id": "x", "question": "q"}\n', encoding="utf-8")
 
@@ -522,7 +536,9 @@ class TestCli:
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         ds = tmp_path / "ds.jsonl"
-        ds.write_text('{"id": "x", "question": "q", "expected_substrings": ["ok"]}\n', encoding="utf-8")
+        ds.write_text(
+            '{"id": "x", "question": "q", "expected_substrings": ["ok"]}\n', encoding="utf-8"
+        )
         captured: dict[str, object] = {}
 
         async def _fake_run_eval_async(**kwargs: object) -> list[QuestionResult]:

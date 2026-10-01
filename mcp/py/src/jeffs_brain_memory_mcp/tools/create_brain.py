@@ -47,9 +47,7 @@ async def _handle(
 
 create_brain_tool = ToolDef(
     name="memory_create_brain",
-    description=(
-        "Create a new brain. Generates a slug from the name if one is not provided."
-    ),
+    description=("Create a new brain. Generates a slug from the name if one is not provided."),
     input_model=CreateBrainInput,
     handler=_handle,
 )

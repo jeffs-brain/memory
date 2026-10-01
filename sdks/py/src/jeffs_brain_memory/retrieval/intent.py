@@ -31,9 +31,7 @@ FIRST_PERSON_PROPERTY_QUERY_RE = re.compile(
     r"\b(?:how often do i|what time do i|what time is my|where do i|where did i|where have i|where am i|where is my|what speed is my|how fast is my|which mode of transport did i|what mode of transport did i|which transport did i|what transport did i)\b",
     re.IGNORECASE,
 )
-SPECIFIC_RECOMMENDATION_QUERY_RE = re.compile(
-    r"\b(?:specific|exact)\b", re.IGNORECASE
-)
+SPECIFIC_RECOMMENDATION_QUERY_RE = re.compile(r"\b(?:specific|exact)\b", re.IGNORECASE)
 FIRST_PERSON_FACT_LOOKUP_RE = re.compile(
     r"\b(?:did i|have i|was i|were i)\b",
     re.IGNORECASE,
@@ -63,9 +61,7 @@ ATOMIC_EVENT_NOTE_RE = re.compile(
     re.IGNORECASE,
 )
 DATE_TAG_RE = re.compile(r"\[(?:date|observed on):", re.IGNORECASE)
-MONEY_EVENT_QUERY_RE = re.compile(
-    r"\b(?:spent|spend|cost|costed|paid|pay)\b", re.IGNORECASE
-)
+MONEY_EVENT_QUERY_RE = re.compile(r"\b(?:spent|spend|cost|costed|paid|pay)\b", re.IGNORECASE)
 DURATION_QUERY_RE = re.compile(r"\bhow long\b", re.IGNORECASE)
 BODY_ABSOLUTE_DATE_RE = re.compile(
     r"\b(?:january|february|march|april|may|june|july|august|september|october|november|december)\s+\d{1,2}(?:st|nd|rd|th)?\b",
@@ -149,8 +145,7 @@ def detect_retrieval_intent(query: str) -> RetrievalIntent:
         concrete_fact_query=(
             bool(PROPERTY_LOOKUP_QUERY_RE.search(normalised))
             or bool(FIRST_PERSON_PROPERTY_QUERY_RE.search(normalised))
-            or
-            bool(ENUMERATION_OR_TOTAL_QUERY_RE.search(normalised))
+            or bool(ENUMERATION_OR_TOTAL_QUERY_RE.search(normalised))
             or bool(_derive_action_date_probes(query))
             or _has_specific_recall_cue(normalised)
             or (
@@ -227,9 +222,7 @@ def _derive_action_date_probes(query: str) -> list[str]:
     return probes
 
 
-def concrete_fact_intent_multiplier(
-    query: str, r: RetrievedChunk, text: str
-) -> float:
+def concrete_fact_intent_multiplier(query: str, r: RetrievedChunk, text: str) -> float:
     path = r.path.lower()
     is_rollup = bool(ROLLUP_NOTE_RE.search(text))
     is_question_like_note = bool(QUESTION_LIKE_NOTE_RE.search(text)) and bool(
@@ -255,18 +248,12 @@ def concrete_fact_intent_multiplier(
         multiplier *= 0.45
     if is_rollup:
         multiplier *= 0.45
-    if (
-        not is_concrete_fact
-        and "memory/global/" not in path
-        and GENERIC_NOTE_RE.search(text)
-    ):
+    if not is_concrete_fact and "memory/global/" not in path and GENERIC_NOTE_RE.search(text):
         multiplier *= 0.75
     return multiplier
 
 
-def retrieval_intent_multiplier(
-    intent: RetrievalIntent, query: str, r: RetrievedChunk
-) -> float:
+def retrieval_intent_multiplier(intent: RetrievalIntent, query: str, r: RetrievedChunk) -> float:
     multiplier = 1.0
     text = retrieval_result_text(r)
     if intent.preference_query:
@@ -298,9 +285,7 @@ def _focus_aligned_concrete_fact_multiplier(query: str, text: str) -> float:
     return 1.0
 
 
-def _first_person_concrete_fact_multiplier(
-    query: str, r: RetrievedChunk, text: str
-) -> float:
+def _first_person_concrete_fact_multiplier(query: str, r: RetrievedChunk, text: str) -> float:
     normalised_query = query.strip().lower()
     if not normalised_query:
         return 1.0
@@ -411,9 +396,7 @@ def _focus_alignment_score(lowered_text: str, phrase: str) -> float:
 def _normalise_focus_alignment_text(raw: str) -> str:
     if not raw:
         return ""
-    return " ".join(
-        re.sub(r"[-/()\[\],.:;?!]", " ", raw.lower()).split()
-    )
+    return " ".join(re.sub(r"[-/()\[\],.:;?!]", " ", raw.lower()).split())
 
 
 def _token_set(tokens: list[str]) -> set[str]:
@@ -495,9 +478,7 @@ def _is_composite_concrete_query(query: str) -> bool:
     return " and " in lowered or " plus " in lowered or " or " in lowered
 
 
-def _best_composite_focus_match(
-    text: str, focuses: list[str]
-) -> _CompositeFocusMatch:
+def _best_composite_focus_match(text: str, focuses: list[str]) -> _CompositeFocusMatch:
     lowered_text = _normalise_focus_alignment_text(text)
     best = _CompositeFocusMatch()
     for index, focus in enumerate(focuses):

@@ -61,9 +61,7 @@ class Source(Protocol):
     standing up FTS5.
     """
 
-    async def search_bm25(
-        self, expr: str, k: int, filters: Filters
-    ) -> list[BM25Hit]: ...
+    async def search_bm25(self, expr: str, k: int, filters: Filters) -> list[BM25Hit]: ...
 
     async def search_vector(
         self, embedding: Sequence[float], k: int, filters: Filters

@@ -32,9 +32,7 @@ def _load_stopwords() -> frozenset[str]:
             with candidate.open("r", encoding="utf-8") as handle:
                 data = json.load(handle)
             return frozenset(str(w).lower() for w in data)
-    raise FileNotFoundError(
-        "query.normalise: could not locate spec/fixtures/stopwords/en.json"
-    )
+    raise FileNotFoundError("query.normalise: could not locate spec/fixtures/stopwords/en.json")
 
 
 STOP_WORD_SET: Final[frozenset[str]] = _load_stopwords()
@@ -87,9 +85,7 @@ def tokenise(text: str) -> list[str]:
     return text.split()
 
 
-def significant_terms(
-    text: str, stopwords: set[str] | frozenset[str] | None = None
-) -> list[str]:
+def significant_terms(text: str, stopwords: set[str] | frozenset[str] | None = None) -> list[str]:
     """Return the list of non-stopword terms in ``text``."""
 
     stops = stopwords if stopwords is not None else STOP_WORD_SET

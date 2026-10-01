@@ -100,9 +100,7 @@ def _detect_agent_invocations(messages: list[Message]) -> list[dict]:
     return out
 
 
-def infer_tool_call_outcome(
-    messages: list[Message], after_index: int, tool_call_id: str
-) -> str:
+def infer_tool_call_outcome(messages: list[Message], after_index: int, tool_call_id: str) -> str:
     for m in messages[after_index:]:
         if m.role != Role.TOOL:
             continue

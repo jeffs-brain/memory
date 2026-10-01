@@ -89,6 +89,7 @@ def test_serve_remember_recall(tmp_path) -> None:
     """Writing via /remember lands on disk and /recall surfaces it via
     the real :class:`MemoryManager`. The Fake provider returns a JSON
     selector payload so recall's LLM pick is deterministic."""
+
     # Prime the Fake provider to pick the memory file we write below.
     async def build() -> Daemon:
         return await Daemon.create(
@@ -176,12 +177,10 @@ def test_serve_search_filters_and_memory_scope_alias_on_fallback(tmp_path) -> No
             _must_create_brain(client, "searchfilters")
             for path, body in {
                 "memory/global/coffee.md": (
-                    b"---\nname: Coffee\n"
-                    b"tags:\n- drink\n---\nAlex likes coffee.\n"
+                    b"---\nname: Coffee\ntags:\n- drink\n---\nAlex likes coffee.\n"
                 ),
                 "memory/project/brain/coffee.md": (
-                    b"---\nname: Brain coffee\n"
-                    b"tags:\n- drink\n---\nProject coffee budget.\n"
+                    b"---\nname: Brain coffee\ntags:\n- drink\n---\nProject coffee budget.\n"
                 ),
                 "wiki/coffee.md": b"---\ntitle: Coffee\n---\nCoffee wiki.\n",
             }.items():
@@ -214,9 +213,7 @@ def test_serve_search_filters_and_memory_scope_alias_on_fallback(tmp_path) -> No
             )
             assert search.status_code == 200, search.text
             chunks = search.json().get("chunks", [])
-            assert [chunk["path"] for chunk in chunks] == [
-                "memory/project/brain/coffee.md"
-            ]
+            assert [chunk["path"] for chunk in chunks] == ["memory/project/brain/coffee.md"]
     asyncio.run(daemon.close())
 
 
@@ -253,9 +250,7 @@ def test_serve_search_retriever_errors_fall_back_to_bm25(tmp_path) -> None:
             )
             assert search.status_code == 200, search.text
             chunks = search.json().get("chunks", [])
-            assert [chunk["path"] for chunk in chunks] == [
-                "memory/project/brain/coffee.md"
-            ]
+            assert [chunk["path"] for chunk in chunks] == ["memory/project/brain/coffee.md"]
     asyncio.run(daemon.close())
 
 
@@ -348,18 +343,16 @@ def test_serve_ask_citations(tmp_path) -> None:
                         break
                     if line == "":
                         if event_name:
-                            events.setdefault(event_name, []).append(
-                                "\n".join(data_buf)
-                            )
+                            events.setdefault(event_name, []).append("\n".join(data_buf))
                         event_name = ""
                         data_buf = []
                         if "done" in events:
                             break
                         continue
                     if line.startswith("event:"):
-                        event_name = line[len("event:"):].strip()
+                        event_name = line[len("event:") :].strip()
                     elif line.startswith("data:"):
-                        data_buf.append(line[len("data:"):].lstrip())
+                        data_buf.append(line[len("data:") :].lstrip())
 
             assert "retrieve" in events
             assert "citation" in events
@@ -546,7 +539,7 @@ def test_serve_ask_forwards_candidate_knobs(tmp_path) -> None:
             ) as stream:
                 assert stream.status_code == 200
                 for line in stream.iter_lines():
-                    if line == "" or line == "data: {\"ok\": true}":
+                    if line == "" or line == 'data: {"ok": true}':
                         continue
                     if line.startswith("event: done"):
                         break
@@ -668,24 +661,20 @@ def test_serve_ask_fallback_respects_exact_path_filters(tmp_path) -> None:
                 for line in stream.iter_lines():
                     if line == "":
                         if event_name:
-                            events.setdefault(event_name, []).append(
-                                "\n".join(data_buf)
-                            )
+                            events.setdefault(event_name, []).append("\n".join(data_buf))
                         if event_name == "done":
                             break
                         event_name = ""
                         data_buf = []
                         continue
                     if line.startswith("event:"):
-                        event_name = line[len("event:"):].strip()
+                        event_name = line[len("event:") :].strip()
                     elif line.startswith("data:"):
-                        data_buf.append(line[len("data:"):].lstrip())
+                        data_buf.append(line[len("data:") :].lstrip())
 
             assert "retrieve" in events
             payload = json.loads(events["retrieve"][0])
-            assert [chunk["path"] for chunk in payload["chunks"]] == [
-                "raw/documents/allowed.md"
-            ]
+            assert [chunk["path"] for chunk in payload["chunks"]] == ["raw/documents/allowed.md"]
     asyncio.run(daemon.close())
 
 
@@ -948,8 +937,7 @@ def test_serve_vector_backfill_populates_embeddings(tmp_path) -> None:
                 conn = _sqlite3.connect(str(db_path))
                 try:
                     row = conn.execute(
-                        "SELECT count(*) FROM knowledge_embeddings "
-                        "WHERE model = ?",
+                        "SELECT count(*) FROM knowledge_embeddings WHERE model = ?",
                         (daemon.embed_model,),
                     ).fetchone()
                     return int((row and row[0]) or 0)

@@ -177,7 +177,7 @@ def ollama_host_from_env(env: Mapping[str, str]) -> str:
     rest = host
     for prefix in ("http://", "https://"):
         if rest.startswith(prefix):
-            rest = rest[len(prefix):]
+            rest = rest[len(prefix) :]
             break
     # OLLAMA_HOST frequently omits the port (e.g. "0.0.0.0"). Default to 11434.
     if ":" not in rest:

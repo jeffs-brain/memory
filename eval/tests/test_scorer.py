@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 """Scorer unit tests."""
+
 from __future__ import annotations
 
 import pytest

@@ -17,9 +17,7 @@ def test_healthz() -> None:
 
 def test_protocol_endpoint_returns_not_found_for_missing_brain() -> None:
     with TestClient(create_app(), base_url="http://127.0.0.1") as client:
-        response = client.get(
-            "/v1/brains/default/documents/read?path=memory/a.md"
-        )
+        response = client.get("/v1/brains/default/documents/read?path=memory/a.md")
         assert response.status_code == 404
         assert response.headers["content-type"].startswith("application/problem+json")
         body = response.json()

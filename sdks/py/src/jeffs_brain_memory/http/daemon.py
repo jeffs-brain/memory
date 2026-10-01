@@ -611,10 +611,7 @@ def _build_llm_reranker(provider: Provider | None) -> retrieval.Reranker | None:
     if provider is None:
         _log.warning("daemon: rerank requested but no llm provider configured")
         return None
-    model = (
-        os.getenv("JB_RERANK_MODEL", "").strip()
-        or os.getenv("JB_LLM_MODEL", "").strip()
-    )
+    model = os.getenv("JB_RERANK_MODEL", "").strip() or os.getenv("JB_LLM_MODEL", "").strip()
     if model == "":
         _log.warning("daemon: rerank requested but no rerank model configured")
         return None
@@ -665,15 +662,11 @@ def _build_contextualiser(
 ) -> memory.Contextualiser | None:
     if provider is None:
         return None
-    turned_on = (
-        enabled if enabled is not None else _env_enabled(os.getenv("JB_CONTEXTUALISE"))
-    )
+    turned_on = enabled if enabled is not None else _env_enabled(os.getenv("JB_CONTEXTUALISE"))
     if not turned_on:
         return None
     resolved_cache_dir = (
-        cache_dir
-        if cache_dir is not None
-        else os.getenv("JB_CONTEXTUALISE_CACHE_DIR", "").strip()
+        cache_dir if cache_dir is not None else os.getenv("JB_CONTEXTUALISE_CACHE_DIR", "").strip()
     )
     return memory.new_contextualiser(
         memory.ContextualiserConfig(
@@ -840,9 +833,7 @@ class _FsMemoryStore:
                     )
                 return self.parent.stat(path)
 
-            def list(
-                self, prefix: str, list_opts: MemListOpts | None = None
-            ) -> list[MemFileInfo]:
+            def list(self, prefix: str, list_opts: MemListOpts | None = None) -> list[MemFileInfo]:
                 base = self.parent.list(prefix, list_opts)
                 seen = {fi.path: fi for fi in base}
                 for p in self._pending_deletes:
@@ -883,9 +874,7 @@ class _IndexForRetrieval:
     def __init__(self, index: search.Index) -> None:
         self._index = index
 
-    async def search_bm25(
-        self, expr: str, k: int, filters: retrieval.Filters
-    ) -> list[IndexedRow]:
+    async def search_bm25(self, expr: str, k: int, filters: retrieval.Filters) -> list[IndexedRow]:
         filter_map: dict[str, Any] = {}
         if filters.scope:
             filter_map["scope"] = filters.scope
@@ -1043,9 +1032,7 @@ async def _rebuild_sync(index: search.Index, store: PassthroughStore) -> None:
     try:
         with index._conn:  # type: ignore[attr-defined]
             conn = index._conn  # type: ignore[attr-defined]
-            existing_rows = conn.execute(
-                "SELECT chunk_id FROM knowledge_chunks"
-            ).fetchall()
+            existing_rows = conn.execute("SELECT chunk_id FROM knowledge_chunks").fetchall()
             existing_ids = {row["chunk_id"] for row in existing_rows}
             to_drop = existing_ids - new_ids
             if to_drop:

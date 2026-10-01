@@ -114,7 +114,11 @@ async def run_search(
             except Exception:  # noqa: BLE001
                 hits, trace = [], {"error": "retriever-failed"}
             if hits:
-                effective = trace.get("effective_mode", mode.value) if isinstance(trace, dict) else mode.value
+                effective = (
+                    trace.get("effective_mode", mode.value)
+                    if isinstance(trace, dict)
+                    else mode.value
+                )
                 return SearchResponse(
                     hits=hits[:max_results],
                     mode=str(effective),

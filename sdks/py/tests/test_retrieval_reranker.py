@@ -37,10 +37,12 @@ async def test_llm_reranker_reorders_by_score() -> None:
 
 async def test_llm_reranker_retries_with_strict_prompt() -> None:
     reranker = LLMReranker(
-        provider=FakeProvider([
-            "not json",
-            '[{"id":0,"score":1},{"id":1,"score":9}]',
-        ]),
+        provider=FakeProvider(
+            [
+                "not json",
+                '[{"id":0,"score":1},{"id":1,"score":9}]',
+            ]
+        ),
         model="judge-m",
     )
 

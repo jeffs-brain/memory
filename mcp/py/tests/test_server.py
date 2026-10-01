@@ -95,9 +95,7 @@ async def test_create_and_list_brain(tmp_path: Path) -> None:
 @pytest.mark.anyio
 async def test_ingest_file_then_search(tmp_path: Path) -> None:
     async with _session(tmp_path) as session:
-        await session.call_tool(
-            "memory_create_brain", {"name": "default", "slug": "default"}
-        )
+        await session.call_tool("memory_create_brain", {"name": "default", "slug": "default"})
 
         ingest_result = await session.call_tool(
             "memory_ingest_file",
@@ -122,9 +120,7 @@ async def test_ingest_file_then_search(tmp_path: Path) -> None:
 @pytest.mark.anyio
 async def test_remember_then_recall(tmp_path: Path) -> None:
     async with _session(tmp_path) as session:
-        await session.call_tool(
-            "memory_create_brain", {"name": "default", "slug": "default"}
-        )
+        await session.call_tool("memory_create_brain", {"name": "default", "slug": "default"})
         remembered = await session.call_tool(
             "memory_remember",
             {
@@ -150,9 +146,7 @@ async def test_remember_then_recall(tmp_path: Path) -> None:
 @pytest.mark.anyio
 async def test_search_and_recall_honour_local_scope_and_sort(tmp_path: Path) -> None:
     async with _session(tmp_path) as session:
-        await session.call_tool(
-            "memory_create_brain", {"name": "default", "slug": "default"}
-        )
+        await session.call_tool("memory_create_brain", {"name": "default", "slug": "default"})
         await session.call_tool(
             "memory_remember",
             {

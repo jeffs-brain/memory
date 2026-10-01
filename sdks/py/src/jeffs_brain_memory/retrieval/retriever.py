@@ -105,15 +105,11 @@ def _join_bm25_attempt_query(queries: list[str]) -> str:
     return " || ".join(compiled)
 
 
-def _bm25_fanout_overlap(
-    primary: list[RRFCandidate], secondary: list[RRFCandidate]
-) -> int:
+def _bm25_fanout_overlap(primary: list[RRFCandidate], secondary: list[RRFCandidate]) -> int:
     if not primary or not secondary:
         return 0
     primary_ids = {
-        candidate.id
-        for candidate in primary[:BM25_FANOUT_PRIMARY_WINDOW]
-        if candidate.id
+        candidate.id for candidate in primary[:BM25_FANOUT_PRIMARY_WINDOW] if candidate.id
     }
     if not primary_ids:
         return 0
@@ -238,9 +234,7 @@ class Retriever:
         attempts: list[Attempt] = []
 
         # BM25 leg with retry ladder on zero hits.
-        bm_candidates, bm_attempts, used_retry = await self._run_bm25_leg(
-            req, candidate_k
-        )
+        bm_candidates, bm_attempts, used_retry = await self._run_bm25_leg(req, candidate_k)
         attempts.extend(bm_attempts)
         trace.used_retry = used_retry
         trace.bm25_hits = len(bm_candidates)
@@ -364,9 +358,7 @@ class Retriever:
         # Rung 4: refreshed strongest term.
         strongest_of_sanitised = strongest_term(sanitised)
         if strongest_of_sanitised:
-            strongest_plan = build_bm25_query_plan(
-                strongest_of_sanitised, req.question_date
-            )
+            strongest_plan = build_bm25_query_plan(strongest_of_sanitised, req.question_date)
             expr = _join_bm25_attempt_query(strongest_plan.queries)
             hits = await self._run_bm25_queries(
                 strongest_plan.queries,
@@ -424,9 +416,7 @@ class Retriever:
 
         return [], attempts, True
 
-    async def _run_bm25(
-        self, expr: str, k: int, filters: Filters
-    ) -> list[RRFCandidate]:
+    async def _run_bm25(self, expr: str, k: int, filters: Filters) -> list[RRFCandidate]:
         if not expr:
             return []
         hits: list[BM25Hit] = await self._source.search_bm25(expr, k, filters)
@@ -489,17 +479,13 @@ class Retriever:
             )
         return out
 
-    async def _run_vector_leg(
-        self, req: Request, k: int
-    ) -> list[RRFCandidate]:
+    async def _run_vector_leg(self, req: Request, k: int) -> list[RRFCandidate]:
         if self._embedder is None:
             return []
         vectors = await self._embedder.embed([req.query])
         if not vectors or not vectors[0]:
             return []
-        hits: list[VectorHit] = await self._source.search_vector(
-            vectors[0], k, req.filters
-        )
+        hits: list[VectorHit] = await self._source.search_vector(vectors[0], k, req.filters)
         out: list[RRFCandidate] = []
         for i, h in enumerate(hits):
             out.append(
@@ -557,9 +543,7 @@ class Retriever:
             trace.rerank_skip_reason = "mode_off"
             return fused
 
-        agreements, shortcut = _unanimity_shortcut(
-            bm, vec, UNANIMITY_WINDOW, UNANIMITY_AGREE_MIN
-        )
+        agreements, shortcut = _unanimity_shortcut(bm, vec, UNANIMITY_WINDOW, UNANIMITY_AGREE_MIN)
         if shortcut:
             trace.rerank_skip_reason = "unanimity"
             trace.unanimity_skipped = True

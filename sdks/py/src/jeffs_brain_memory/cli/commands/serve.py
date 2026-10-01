@@ -67,9 +67,7 @@ def serve(
     token = auth_token or os.environ.get("JB_AUTH_TOKEN")
     _assert_bind_allowed(host, token)
     try:
-        resolved_ingest_root = resolve_ingest_root(
-            ingest_root or os.environ.get("JB_INGEST_ROOT")
-        )
+        resolved_ingest_root = resolve_ingest_root(ingest_root or os.environ.get("JB_INGEST_ROOT"))
     except OSError as exc:
         raise click.BadParameter(str(exc), param_hint="--ingest-root") from exc
     resolved_contextualise = (
@@ -83,8 +81,7 @@ def serve(
         ingest_root=resolved_ingest_root,
         contextualise=resolved_contextualise,
         contextualise_cache_dir=(
-            contextualise_cache_dir
-            or os.environ.get("JB_CONTEXTUALISE_CACHE_DIR")
+            contextualise_cache_dir or os.environ.get("JB_CONTEXTUALISE_CACHE_DIR")
         ),
     )
     uvicorn.run(app, host=host, port=port, log_level="info")

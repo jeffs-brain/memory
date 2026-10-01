@@ -50,9 +50,7 @@ EXISTING_MEMORY_PREVIEW_LIMIT = 400
 TRAILING_COMMA_RE = re.compile(r",(\s*[}\]])")
 
 DATE_TAG_RE = re.compile(r"\b\d{4}[-/]\d{2}[-/]\d{2}\b")
-WEEKDAY_TAG_RE = re.compile(
-    r"\b(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b", re.I
-)
+WEEKDAY_TAG_RE = re.compile(r"\b(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b", re.I)
 QUANTITY_TAG_RE = re.compile(r"\b\d{1,6}(?:\.\d+)?\b")
 PROPER_NOUN_TAG_RE = re.compile(r"\b[A-Z][a-zA-Z]+\b")
 MONEY_TAG_RE = re.compile(r"[\$£€]\s?\d{1,3}(?:,\d{3})*(?:\.\d+)?")
@@ -85,9 +83,7 @@ HEURISTIC_MILESTONE_FACT_LIMIT = 2
 HEURISTIC_PREFERENCE_FACT_LIMIT = 2
 HEURISTIC_PENDING_FACT_LIMIT = 3
 HEURISTIC_EVENT_FACT_LIMIT = 2
-FIRST_PERSON_FACT_RE = re.compile(
-    r"\b(i|i'm|i’ve|i've|my|we|we're|we’ve|we've|our)\b", re.I
-)
+FIRST_PERSON_FACT_RE = re.compile(r"\b(i|i'm|i’ve|i've|my|we|we're|we’ve|we've|our)\b", re.I)
 HEURISTIC_WORD_RE = re.compile(r"[A-Za-z][A-Za-z-]{2,}")
 HEURISTIC_ORDINAL_RE = re.compile(
     r"\b(?:first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth)\b",
@@ -125,13 +121,9 @@ HEURISTIC_PREFERENCE_COMPATIBLE_RE = re.compile(
 HEURISTIC_PREFERENCE_DESIGNED_FOR_RE = re.compile(
     r"\bspecifically designed for\s+([^.!?,\n]+)", re.I
 )
-HEURISTIC_PREFERENCE_AS_USER_RE = re.compile(
-    r"\bas a[n]?\s+([^.!?,\n]+?)\s+user\b", re.I
-)
+HEURISTIC_PREFERENCE_AS_USER_RE = re.compile(r"\bas a[n]?\s+([^.!?,\n]+?)\s+user\b", re.I)
 HEURISTIC_PREFERENCE_FIELD_RE = re.compile(r"\bfield of\s+([^.!?,\n]+)", re.I)
-HEURISTIC_PREFERENCE_ADVANCED_RE = re.compile(
-    r"\badvanced topics in\s+([^.!?,\n]+)", re.I
-)
+HEURISTIC_PREFERENCE_ADVANCED_RE = re.compile(r"\badvanced topics in\s+([^.!?,\n]+)", re.I)
 HEURISTIC_PREFERENCE_SKIP_BASICS_RE = re.compile(r"\bskip the basics\b", re.I)
 HEURISTIC_PREFERENCE_WORKING_IN_FIELD_RE = re.compile(
     r"\b(?:i am|i'm)\s+working in the field\b", re.I
@@ -213,9 +205,7 @@ HEURISTIC_LOCATION_STORAGE_FACT_RE = re.compile(
     r"\b(?:i|i'm|i’ve|i've|i have)\s+(?:been\s+)?(?:keep(?:ing)?|kept|stor(?:e|ing|ed)|stash(?:ed|ing)?|leave|left|put|placed)\b[^.!?\n]*\b(?:under|inside|in|on|at|behind|beside|next to)\b",
     re.I,
 )
-HEURISTIC_SESSION_ID_RE = re.compile(
-    r"(?im)\bsession[_ ]id\s*[:=]\s*([A-Za-z0-9._-]+)\b"
-)
+HEURISTIC_SESSION_ID_RE = re.compile(r"(?im)\bsession[_ ]id\s*[:=]\s*([A-Za-z0-9._-]+)\b")
 HEURISTIC_FILENAME_DATED_RE = re.compile(
     r"^(user-(?:fact|preference))-(\d{4}-\d{2}-\d{2})-(.+)\.md$"
 )
@@ -229,18 +219,10 @@ HEURISTIC_RECOMMENDATION_UNDER_RE = re.compile(
     r"\bunder\s+(\d{1,4}(?:\.\d+)?\s*(?:minutes?|mins?|hours?|hrs?|pages?|£|€|\$))\b",
     re.I,
 )
-HEURISTIC_RECOMMENDATION_NOT_TOO_RE = re.compile(
-    r"\b(?:nothing|not)\s+too\s+([^,.!?;\n]+)", re.I
-)
-HEURISTIC_RECOMMENDATION_WITHOUT_RE = re.compile(
-    r"\bwithout\s+([^,.!?;\n]+)", re.I
-)
-HEURISTIC_RECOMMENDATION_FAMILY_RE = re.compile(
-    r"\b(?:family-friendly|kid-friendly)\b", re.I
-)
-HEURISTIC_RECOMMENDATION_LIGHT_RE = re.compile(
-    r"\b(?:light-hearted|feel-good|cosy|cozy)\b", re.I
-)
+HEURISTIC_RECOMMENDATION_NOT_TOO_RE = re.compile(r"\b(?:nothing|not)\s+too\s+([^,.!?;\n]+)", re.I)
+HEURISTIC_RECOMMENDATION_WITHOUT_RE = re.compile(r"\bwithout\s+([^,.!?;\n]+)", re.I)
+HEURISTIC_RECOMMENDATION_FAMILY_RE = re.compile(r"\b(?:family-friendly|kid-friendly)\b", re.I)
+HEURISTIC_RECOMMENDATION_LIGHT_RE = re.compile(r"\b(?:light-hearted|feel-good|cosy|cozy)\b", re.I)
 RELATIVE_TEMPORAL_TAG_RE = re.compile(
     r"\b(?:today|tomorrow|tonight|this morning|this afternoon|this evening|this weekend|next weekend|"
     r"next week|next month|coming week|next\s+(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)|"
@@ -248,9 +230,7 @@ RELATIVE_TEMPORAL_TAG_RE = re.compile(
     r"coming\s+(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday))\b",
     re.I,
 )
-CLOCK_TIME_TAG_RE = re.compile(
-    r"\b\d{1,2}(?::\d{2})?\s?(?:am|pm)\b|\b\d{1,2}:\d{2}\b", re.I
-)
+CLOCK_TIME_TAG_RE = re.compile(r"\b\d{1,2}(?::\d{2})?\s?(?:am|pm)\b|\b\d{1,2}:\d{2}\b", re.I)
 PENDING_ACTION_TAG_RE = re.compile(
     r"\b(?:pick\s+up|drop\s+off|return|exchange|collect|book|schedule|renew|cancel|follow\s+up)\b",
     re.I,
@@ -544,9 +524,7 @@ class Extractor:
             if self._ctx is not None and self._ctx.enabled():
                 summary = extract_session_summary(recent)
                 for em in result:
-                    prefix = await self._ctx.build_prefix_async(
-                        session_id, summary, em.content
-                    )
+                    prefix = await self._ctx.build_prefix_async(session_id, summary, em.content)
                     if prefix:
                         em.context_prefix = prefix
 
@@ -834,9 +812,7 @@ def normalise_extracted_memory(
     session_date: str,
 ) -> ExtractedMemory:
     resolved_session_id = (
-        _string_field(raw, "sessionId")
-        or _string_field(raw, "session_id")
-        or session_id
+        _string_field(raw, "sessionId") or _string_field(raw, "session_id") or session_id
     ).strip()
     scope = _string_field(raw, "scope")
     if scope not in {"global", "project"}:
@@ -851,7 +827,9 @@ def normalise_extracted_memory(
         memory_type = "project"
 
     tags_value = raw.get("tags", [])
-    tags = [tag for tag in tags_value if isinstance(tag, str)] if isinstance(tags_value, list) else []
+    tags = (
+        [tag for tag in tags_value if isinstance(tag, str)] if isinstance(tags_value, list) else []
+    )
 
     return ExtractedMemory(
         action=action,
@@ -872,8 +850,7 @@ def normalise_extracted_memory(
         session_date=_string_field(raw, "sessionDate")
         or _string_field(raw, "session_date")
         or session_date,
-        context_prefix=_string_field(raw, "contextPrefix")
-        or _string_field(raw, "context_prefix"),
+        context_prefix=_string_field(raw, "contextPrefix") or _string_field(raw, "context_prefix"),
         modified_override=_string_field(raw, "modifiedOverride")
         or _string_field(raw, "modified_override"),
     )
@@ -1096,8 +1073,11 @@ def infer_searchable_summary(content: str) -> str:
         or (preference.summary if preference is not None else "")
     )
 
+
 def strip_search_prefixes(content: str) -> str:
-    return re.sub(r"^\[Observed on [^\]]+\]\n\n", "", re.sub(r"^\[Date:[^\]]+\]\n\n", "", content)).strip()
+    return re.sub(
+        r"^\[Observed on [^\]]+\]\n\n", "", re.sub(r"^\[Date:[^\]]+\]\n\n", "", content)
+    ).strip()
 
 
 def choose_more_specific_summary(current: str, derived: str) -> str:
@@ -1105,7 +1085,9 @@ def choose_more_specific_summary(current: str, derived: str) -> str:
     cleaned_current = current.strip()
     if cleaned_current == "":
         return cleaned_derived
-    return cleaned_derived if is_less_specific_summary(cleaned_current, derived) else cleaned_current
+    return (
+        cleaned_derived if is_less_specific_summary(cleaned_current, derived) else cleaned_current
+    )
 
 
 def choose_more_specific_index_entry(current: str, derived: str) -> str:
@@ -1387,7 +1369,11 @@ def extract_pending_actions(sentence: str) -> list[str]:
     if fragment == "":
         return []
 
-    parts = [part.strip() for part in re.split(r"\s*(?:,|;|\bthen\b|\band\b)\s*", fragment, flags=re.I) if part.strip()]
+    parts = [
+        part.strip()
+        for part in re.split(r"\s*(?:,|;|\bthen\b|\band\b)\s*", fragment, flags=re.I)
+        if part.strip()
+    ]
     out: list[str] = []
     current = ""
     for part in parts:
@@ -1402,7 +1388,11 @@ def extract_pending_actions(sentence: str) -> list[str]:
     if current != "":
         out.append(current)
     if out:
-        return [clean_pending_action_clause(part) for part in out if clean_pending_action_clause(part) != ""]
+        return [
+            clean_pending_action_clause(part)
+            for part in out
+            if clean_pending_action_clause(part) != ""
+        ]
 
     cleaned = clean_pending_action_clause(fragment)
     return [cleaned] if cleaned != "" else []
@@ -1413,9 +1403,7 @@ def clean_pending_action_clause(value: str) -> str:
 
 
 def build_pending_task_summary(action: str) -> str:
-    return ensure_trailing_full_stop(
-        f"The user still needs to {strip_trailing_full_stop(action)}"
-    )
+    return ensure_trailing_full_stop(f"The user still needs to {strip_trailing_full_stop(action)}")
 
 
 def infer_pending_task_summary(text: str) -> str | None:
@@ -1464,7 +1452,9 @@ def infer_event_summary(text: str) -> str | None:
             or sentence.strip().endswith("?")
         ):
             continue
-        title = capture_group(HEURISTIC_EVENT_TITLE_RE, sentence) or extract_loose_event_phrase(sentence)
+        title = capture_group(HEURISTIC_EVENT_TITLE_RE, sentence) or extract_loose_event_phrase(
+            sentence
+        )
         if not title:
             continue
         parts = [f"The user attended {prefix_event_phrase(title)}"]
@@ -1485,9 +1475,7 @@ def infer_religious_service_summary(sentence: str) -> str | None:
     service = capture_group(HEURISTIC_RELIGIOUS_SERVICE_RE, sentence)
     if not service:
         return None
-    return ensure_trailing_full_stop(
-        f"The user attended {prefix_event_phrase(service)}"
-    )
+    return ensure_trailing_full_stop(f"The user attended {prefix_event_phrase(service)}")
 
 
 def extract_loose_event_phrase(sentence: str) -> str | None:
@@ -1848,7 +1836,11 @@ def extract_markdown_table_blocks(content: str) -> list[list[str]]:
             current = []
     if current:
         blocks.append(current)
-    return [block for block in blocks if len(block) >= 3 and any(is_markdown_table_separator(line) for line in block)]
+    return [
+        block
+        for block in blocks
+        if len(block) >= 3 and any(is_markdown_table_separator(line) for line in block)
+    ]
 
 
 def parse_markdown_table(lines: list[str]) -> tuple[list[str], list[list[str]]] | None:
@@ -1956,19 +1948,19 @@ def canonical_weekday_label(value: str) -> str:
 
 def is_weekday_table_lead_header(value: str) -> bool:
     cleaned = " ".join(value.split()).strip().lower().rstrip(".,")
-    return cleaned == "" or re.fullmatch(
-        r"(?:day(?:\s+of\s+week)?|weekday|week\s+day|schedule|roster|date)",
-        cleaned,
-    ) is not None
+    return (
+        cleaned == ""
+        or re.fullmatch(
+            r"(?:day(?:\s+of\s+week)?|weekday|week\s+day|schedule|roster|date)",
+            cleaned,
+        )
+        is not None
+    )
 
 
 def split_into_fact_sentences(content: str) -> list[str]:
     normalised = content.replace("\r\n", "\n").replace("\r", "\n")
-    parts = [
-        part.strip()
-        for part in re.split(r"[\n]+|(?<=[.!?])\s+", normalised)
-        if part.strip()
-    ]
+    parts = [part.strip() for part in re.split(r"[\n]+|(?<=[.!?])\s+", normalised) if part.strip()]
     out: list[str] = []
     index = 0
     while index < len(parts):
@@ -2165,7 +2157,10 @@ def capture_group(pattern: re.Pattern[str], text: str) -> str:
 
 def infer_preference_category(text: str) -> str:
     lower = text.lower()
-    if any(word in lower for word in ("camera", "photography", "lens", "flash", "tripod", "camera bag", "gear")):
+    if any(
+        word in lower
+        for word in ("camera", "photography", "lens", "flash", "tripod", "camera bag", "gear")
+    ):
         return "photography accessories and gear"
     if any(word in lower for word in ("phone", "iphone", "screen protector", "power bank")):
         return "phone accessories"

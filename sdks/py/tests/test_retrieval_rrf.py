@@ -39,12 +39,8 @@ def test_two_lists_sum_contributions() -> None:
         RRFCandidate(id="b", path="b.md", bm25_rank=1, have_bm25_rank=True),
     ]
     list2 = [
-        RRFCandidate(
-            id="c", path="c.md", vector_similarity=0.9, have_vector_sim=True
-        ),
-        RRFCandidate(
-            id="a", path="a.md", vector_similarity=0.8, have_vector_sim=True
-        ),
+        RRFCandidate(id="c", path="c.md", vector_similarity=0.9, have_vector_sim=True),
+        RRFCandidate(id="a", path="a.md", vector_similarity=0.8, have_vector_sim=True),
     ]
     out = reciprocal_rank_fusion([list1, list2], RRF_DEFAULT_K)
     assert len(out) == 3
@@ -66,11 +62,7 @@ def test_tie_break_by_path_asc() -> None:
 
 def test_metadata_fill_from_later_lists() -> None:
     list1 = [RRFCandidate(id="a", path="a.md")]
-    list2 = [
-        RRFCandidate(
-            id="a", path="a.md", title="Hydrated", summary="Sum", content="body"
-        )
-    ]
+    list2 = [RRFCandidate(id="a", path="a.md", title="Hydrated", summary="Sum", content="body")]
     out = reciprocal_rank_fusion([list1, list2], RRF_DEFAULT_K)
     assert out[0].title == "Hydrated"
     assert out[0].summary == "Sum"
@@ -78,16 +70,8 @@ def test_metadata_fill_from_later_lists() -> None:
 
 
 def test_no_overwrite_of_early_metadata() -> None:
-    list1 = [
-        RRFCandidate(
-            id="a", path="a.md", title="First", summary="FirstSum"
-        )
-    ]
-    list2 = [
-        RRFCandidate(
-            id="a", path="a.md", title="Second", summary="SecondSum"
-        )
-    ]
+    list1 = [RRFCandidate(id="a", path="a.md", title="First", summary="FirstSum")]
+    list2 = [RRFCandidate(id="a", path="a.md", title="Second", summary="SecondSum")]
     out = reciprocal_rank_fusion([list1, list2], RRF_DEFAULT_K)
     assert out[0].title == "First"
     assert out[0].summary == "FirstSum"

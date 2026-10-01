@@ -127,9 +127,7 @@ class GitStore(Store):
         if self.sign is not None:
             commit_hex = self._repo.create_commit_string(sig, sig, message, tree, parents)
             signature = self.sign(commit_hex.encode())
-            new_oid = self._repo.create_commit_with_signature(
-                commit_hex, signature.decode()
-            )
+            new_oid = self._repo.create_commit_with_signature(commit_hex, signature.decode())
             # Update the branch ref to the new commit.
             branch_ref = f"refs/heads/{self.branch}"
             try:
@@ -316,15 +314,11 @@ class GitStore(Store):
             self._run_git("rebase", "--abort")
             if stashed:
                 self._run_git("stash", "pop")
-            raise ErrConflict(
-                f"gitstore: rebase conflicted on {_REMOTE_NAME}/{self.branch}: {err}"
-            )
+            raise ErrConflict(f"gitstore: rebase conflicted on {_REMOTE_NAME}/{self.branch}: {err}")
         if stashed:
             rc, _, err = self._run_git("stash", "pop")
             if rc != 0:
-                raise ErrConflict(
-                    f"gitstore: stash pop conflicted after rebase: {err}"
-                )
+                raise ErrConflict(f"gitstore: stash pop conflicted after rebase: {err}")
 
     async def push(self) -> None:
         if not self.remote_url:
@@ -337,9 +331,7 @@ class GitStore(Store):
         rc, out, _ = self._run_git("status", "--porcelain")
         if rc != 0 or not out.strip():
             return False
-        rc, _, _ = self._run_git(
-            "stash", "push", "--include-untracked", "-m", _AUTOSTASH_MARKER
-        )
+        rc, _, _ = self._run_git("stash", "push", "--include-untracked", "-m", _AUTOSTASH_MARKER)
         return rc == 0
 
     async def _push_with_retry(self) -> None:
@@ -358,18 +350,12 @@ class GitStore(Store):
         rc, _, err = self._run_git("push", _REMOTE_NAME, self.branch)
         if rc != 0:
             if _is_non_fast_forward(err):
-                raise ErrConflict(
-                    f"gitstore: push still rejected after rebase: {err}"
-                )
+                raise ErrConflict(f"gitstore: push still rejected after rebase: {err}")
             log.warning("gitstore: push retry failed, commit remains local: %s", err)
 
 
 def _is_non_fast_forward(err: str) -> bool:
-    return (
-        "non-fast-forward" in err
-        or "stale info" in err
-        or "rejected" in err
-    )
+    return "non-fast-forward" in err or "stale info" in err or "rejected" in err
 
 
 # ---------- batch ---------------------------------------------------------
@@ -454,9 +440,7 @@ class _GitBatch(Batch):
         assert content is not None
         return FileInfo(path=path, size=len(content), mtime=_now(), is_dir=False)
 
-    async def list(
-        self, dir: BrainPath | str = "", opts: ListOpts | None = None
-    ) -> list[FileInfo]:
+    async def list(self, dir: BrainPath | str = "", opts: ListOpts | None = None) -> list[FileInfo]:
         opts = opts or ListOpts()
         base = await self.store.list(dir, opts)
         by_path: dict[BrainPath, FileInfo] = {fi.path: fi for fi in base}
@@ -475,9 +459,7 @@ class _GitBatch(Batch):
             assert content is not None
             by_path[p] = FileInfo(path=p, size=len(content), mtime=_now(), is_dir=False)
         result = [
-            fi
-            for fi in by_path.values()
-            if opts.include_generated or not is_generated(fi.path)
+            fi for fi in by_path.values() if opts.include_generated or not is_generated(fi.path)
         ]
         result.sort(key=lambda fi: fi.path)
         return result
@@ -511,7 +493,7 @@ class _GitBatch(Batch):
         touched: list[BrainPath] = []
         seen: set[BrainPath] = set()
         for op in self.ops:
-            for p in ([op.path] + ([op.src] if op.kind == "rename" and op.src else [])):
+            for p in [op.path] + ([op.src] if op.kind == "rename" and op.src else []):
                 if p not in seen:
                     seen.add(p)
                     touched.append(p)
@@ -583,11 +565,7 @@ class _GitBatch(Batch):
                     else ChangeKind.UPDATED
                 )
                 existed_before[op.path] = True
-                events.append(
-                    ChangeEvent(
-                        kind=kind, path=op.path, when=_now(), reason=opts.reason
-                    )
-                )
+                events.append(ChangeEvent(kind=kind, path=op.path, when=_now(), reason=opts.reason))
             elif op.kind == "delete":
                 events.append(
                     ChangeEvent(

@@ -346,9 +346,7 @@ def _document_from_stored(path: BrainPath, data: bytes) -> Document | None:
         title = str(path).rsplit("/", 1)[-1]
         if title.endswith(".md"):
             title = title[:-3]
-    doc_id = DocumentID(
-        __import__("hashlib").sha256(data).hexdigest()[:12]
-    )
+    doc_id = DocumentID(__import__("hashlib").sha256(data).hexdigest()[:12])
     return Document(
         id=doc_id,
         brain_id="",

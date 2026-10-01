@@ -22,12 +22,7 @@ from ._fake_server import build_app
 
 pytestmark = pytest.mark.asyncio
 
-SPEC_PATH = (
-    Path(__file__).resolve().parents[3]
-    / "spec"
-    / "conformance"
-    / "http-contract.json"
-)
+SPEC_PATH = Path(__file__).resolve().parents[3] / "spec" / "conformance" / "http-contract.json"
 
 
 @pytest.fixture(scope="module")
@@ -91,14 +86,12 @@ async def _run_case(
     # ASGI offers no incremental body flush), so the harness skips those
     # two cases here. The SSE dispatch itself is covered by
     # test_sse_dispatch_parses_change_event in test_store_http.py.
-    if case.get("request", {}).get("path", "").endswith("/events") and case["request"].get(
-        "method"
-    ) == "GET":
-        pytest.skip("SSE event stream not supported over ASGITransport")
-    if any(
-        step.get("kind") in ("open-sse", "await-sse-event")
-        for step in case.get("setup", [])
+    if (
+        case.get("request", {}).get("path", "").endswith("/events")
+        and case["request"].get("method") == "GET"
     ):
+        pytest.skip("SSE event stream not supported over ASGITransport")
+    if any(step.get("kind") in ("open-sse", "await-sse-event") for step in case.get("setup", [])):
         pytest.skip("SSE setup steps not supported over ASGITransport")
 
     brain_id = f"brain-{uuid.uuid4().hex[:8]}"
@@ -185,16 +178,12 @@ _PLACEHOLDERS = _contract.get("placeholders", {})
     _CASES,
     ids=[c["name"] for c in _CASES],
 )
-async def test_conformance_case(
-    client: httpx.AsyncClient, case: dict[str, Any]
-) -> None:
+async def test_conformance_case(client: httpx.AsyncClient, case: dict[str, Any]) -> None:
     """Each conformance case is a standalone pytest node."""
     await _run_case(client, case, _PLACEHOLDERS)
 
 
-async def test_conformance_pass_rate(
-    client: httpx.AsyncClient, contract: dict[str, Any]
-) -> None:
+async def test_conformance_pass_rate(client: httpx.AsyncClient, contract: dict[str, Any]) -> None:
     """Aggregate check — require at least 27/29 cases to pass."""
     placeholders = contract.get("placeholders", {})
     passed = 0

@@ -27,6 +27,7 @@ final answer while collecting `citation` events. The retrieve-only scenario
 folds returned chunk `text`, falling back to `summary`, into a retrieval-only
 answer blob and records chunk metadata as citations.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -334,7 +335,9 @@ async def _ask_one(
                     if final_answer_from_done is not None or error is not None:
                         break
         else:
-            resp = await client.post(spec.path, json=spec.body, headers={"Accept": "application/json"})
+            resp = await client.post(
+                spec.path, json=spec.body, headers={"Accept": "application/json"}
+            )
             resp.raise_for_status()
             payload = resp.json()
             if not isinstance(payload, dict):
@@ -368,7 +371,9 @@ async def _ask_one(
         error = f"{type(exc).__name__}: {exc}"
 
     if spec.streaming:
-        answer = final_answer_from_done if final_answer_from_done is not None else "".join(answer_parts)
+        answer = (
+            final_answer_from_done if final_answer_from_done is not None else "".join(answer_parts)
+        )
     else:
         answer = "\n\n".join(part for part in answer_parts if part != "")
     return _ScenarioOutcome(answer=answer, citations=citations, error=error)
@@ -590,7 +595,9 @@ def main(
     try:
         runner.start(port=port)
         if seed_reference_brain:
-            asyncio.run(_seed_reference_brain(endpoint=runner.endpoint, dataset=dataset, brain=brain))
+            asyncio.run(
+                _seed_reference_brain(endpoint=runner.endpoint, dataset=dataset, brain=brain)
+            )
         score = run_eval(
             endpoint=runner.endpoint,
             scenario=scenario,

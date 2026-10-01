@@ -407,9 +407,7 @@ def test_bm25_tag_filter(idx: Index) -> None:
             ),
         ]
     )
-    hits = idx.search_bm25(
-        "Docker", opts=SearchOpts(filters={"tag": "containers"})
-    )
+    hits = idx.search_bm25("Docker", opts=SearchOpts(filters={"tag": "containers"}))
     assert [hit.path for hit in hits] == ["wiki/docker.md"]
 
 
@@ -511,9 +509,7 @@ def test_vector_search_empty_returns_empty(idx: Index) -> None:
 
 
 def test_vector_search_empty_query_returns_empty(idx: Index) -> None:
-    idx.upsert_chunks(
-        [_chunk("wiki/a.md", "alpha", scope="wiki", vector=[1.0, 0.0, 0.0])]
-    )
+    idx.upsert_chunks([_chunk("wiki/a.md", "alpha", scope="wiki", vector=[1.0, 0.0, 0.0])])
     assert idx.search_vectors([], top_k=5) == []
 
 
@@ -721,11 +717,7 @@ def test_rebuild_clears_existing_state(idx: Index) -> None:
 def test_rebuild_indexes_raw_lme_body_without_frontmatter(idx: Index) -> None:
     files = {
         "raw/lme/session-1.md": (
-            b"---\n"
-            b"session_id: sess-1\n"
-            b"session_date: 2024-03-08\n"
-            b"---\n"
-            b"[user]: I bought apples.\n"
+            b"---\nsession_id: sess-1\nsession_date: 2024-03-08\n---\n[user]: I bought apples.\n"
         ),
     }
     idx.rebuild(_FakeStore(files))

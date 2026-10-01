@@ -90,18 +90,14 @@ def _chunk_for_path(path: str, query: str) -> FakeChunk:
     title = " ".join(words)
     summary = "Reference note about " + " ".join(words)
     content = summary + ". Related query context: " + query + "."
-    return FakeChunk(
-        id=path, path=path, title=title, summary=summary, content=content
-    )
+    return FakeChunk(id=path, path=path, title=title, summary=summary, content=content)
 
 
 def _top_paths(chunks) -> list[str]:
     return [c.path for c in chunks]
 
 
-@pytest.mark.skipif(
-    not SPEC_DIR.exists(), reason="spec/fixtures/retrieval not reachable"
-)
+@pytest.mark.skipif(not SPEC_DIR.exists(), reason="spec/fixtures/retrieval not reachable")
 @pytest.mark.parametrize("mode", [Mode.BM25, Mode.HYBRID])
 async def test_golden_public(mode: Mode) -> None:
     queries = _load(GOLDEN_SET)

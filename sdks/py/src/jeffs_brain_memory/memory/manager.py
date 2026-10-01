@@ -147,9 +147,7 @@ class MemoryManager:
 
     # ---- deferred bridges ----
 
-    def apply_extractions(
-        self, project_slug: str, memories: list["ExtractedMemory"]
-    ) -> None:
+    def apply_extractions(self, project_slug: str, memories: list["ExtractedMemory"]) -> None:
         from .extract import apply_extractions as _impl
 
         _impl(self, project_slug, memories)

@@ -38,9 +38,7 @@ def filters_from_body(raw: Any) -> retrieval.Filters:
     tags = [str(t) for t in tags_raw] if isinstance(tags_raw, list) else []
     return retrieval.Filters(
         path_prefix=str(raw.get("pathPrefix") or raw.get("path_prefix") or ""),
-        paths=_path_list_from_raw(
-            raw.get("paths") or raw.get("pathList") or raw.get("path_list")
-        ),
+        paths=_path_list_from_raw(raw.get("paths") or raw.get("pathList") or raw.get("path_list")),
         tags=tags,
         scope=str(raw.get("scope") or ""),
         project=str(raw.get("project") or ""),
@@ -115,25 +113,19 @@ async def search(request: Request) -> Response:
     candidate_k_raw = body.get("candidateK")
     if not isinstance(candidate_k_raw, int) or candidate_k_raw <= 0:
         candidate_k_raw = body.get("candidate_k")
-    candidate_k = (
-        candidate_k_raw if isinstance(candidate_k_raw, int) and candidate_k_raw > 0 else 0
-    )
+    candidate_k = candidate_k_raw if isinstance(candidate_k_raw, int) and candidate_k_raw > 0 else 0
     rerank_top_n_raw = body.get("rerankTopN")
     if not isinstance(rerank_top_n_raw, int) or rerank_top_n_raw <= 0:
         rerank_top_n_raw = body.get("rerank_top_n")
     rerank_top_n = (
-        rerank_top_n_raw
-        if isinstance(rerank_top_n_raw, int) and rerank_top_n_raw > 0
-        else 0
+        rerank_top_n_raw if isinstance(rerank_top_n_raw, int) and rerank_top_n_raw > 0 else 0
     )
     mode_raw = body.get("mode") or ""
     filters = filters_from_body(
         body.get("filters") if isinstance(body.get("filters"), dict) else body
     )
     question_date_raw = body.get("question_date") or body.get("questionDate") or ""
-    question_date = (
-        str(question_date_raw) if isinstance(question_date_raw, str) else ""
-    )
+    question_date = str(question_date_raw) if isinstance(question_date_raw, str) else ""
 
     started = time.perf_counter()
     try:
@@ -160,9 +152,7 @@ async def search(request: Request) -> Response:
         resp = await br.retriever.retrieve(req)
         if resp.chunks:
             chunks = [
-                _chunk_to_wire(c)
-                for c in resp.chunks
-                if path_matches_filters(c.path, filters)
+                _chunk_to_wire(c) for c in resp.chunks if path_matches_filters(c.path, filters)
             ]
         trace = _trace_to_wire(resp.trace)
         attempts = [_attempt_to_wire(a) for a in resp.attempts]

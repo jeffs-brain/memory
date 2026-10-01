@@ -99,9 +99,7 @@ async def test_openai_default_model_used_when_request_blank() -> None:
         http_client=client,
     )
     try:
-        await provider.complete(
-            CompleteRequest(messages=[Message(role=Role.USER, content="hi")])
-        )
+        await provider.complete(CompleteRequest(messages=[Message(role=Role.USER, content="hi")]))
     finally:
         await provider.close()
         await client.aclose()

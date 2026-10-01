@@ -35,7 +35,7 @@ class FakeChunk:
 
 def _tokenise_expr(expr: str) -> list[str]:
     lowered = expr.lower()
-    for ch in "()\"*^:":
+    for ch in '()"*^:':
         lowered = lowered.replace(ch, " ")
     out: list[str] = []
     for tok in lowered.split():
@@ -93,9 +93,7 @@ class FakeSource:
         # call. Used by retry-ladder tests to force zero hits.
         self.bm25_override: Callable[[str], tuple[list[BM25Hit], bool]] | None = None
 
-    async def search_bm25(
-        self, expr: str, k: int, filters: Filters
-    ) -> list[BM25Hit]:
+    async def search_bm25(self, expr: str, k: int, filters: Filters) -> list[BM25Hit]:
         self.bm25_calls.append(expr)
         if self.bm25_fail is not None:
             raise self.bm25_fail
@@ -112,9 +110,7 @@ class FakeSource:
         for c in self.chunks_data:
             if not _matches_filter(c, filters):
                 continue
-            corpus = " \n ".join(
-                [c.path, c.title, c.summary, c.content]
-            ).lower()
+            corpus = " \n ".join([c.path, c.title, c.summary, c.content]).lower()
             score = 0
             for t in tokens:
                 score += corpus.count(t)
@@ -150,9 +146,7 @@ class FakeSource:
         for c in self.chunks_data:
             if not _matches_filter(c, filters):
                 continue
-            seed = " ".join(
-                part for part in (c.title, c.summary, c.content) if part
-            ).strip()
+            seed = " ".join(part for part in (c.title, c.summary, c.content) if part).strip()
             if not seed:
                 seed = c.path
             vecs = await embedder.embed([seed])

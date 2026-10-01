@@ -49,9 +49,7 @@ def test_conformance_replay() -> None:
         if report.failed:
             pytest.fail(
                 f"{report.failed} conformance case(s) failed:\n"
-                + "\n".join(
-                    f"  - {r.name}: {r.error}" for r in report.results if not r.ok
-                )
+                + "\n".join(f"  - {r.name}: {r.error}" for r in report.results if not r.ok)
             )
         # Minimum pass count mirrors the Go reference (28/29 plus the skip).
         assert report.passed >= 28, f"expected 28+ passes, got {report.passed}"

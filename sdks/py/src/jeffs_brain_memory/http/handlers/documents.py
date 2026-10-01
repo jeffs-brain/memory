@@ -230,9 +230,7 @@ async def doc_batch(request: Request) -> Response:
                 return validation_error(f"invalid base64 at op {i}: {exc}")
             decoded_size += len(decoded)
             if decoded_size > BATCH_BODY_LIMIT:
-                return payload_too_large(
-                    "batch payload exceeds 8 MiB after decode"
-                )
+                return payload_too_large("batch payload exceeds 8 MiB after decode")
             prep["_decoded"] = decoded
         else:
             prep["_decoded"] = b""

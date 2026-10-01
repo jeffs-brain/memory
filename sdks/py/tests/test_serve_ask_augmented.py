@@ -64,9 +64,7 @@ class _RecordingProvider:
             tokens_out=len(self.response_text),
         )
 
-    async def complete_stream(
-        self, req: CompleteRequest
-    ) -> AsyncIterator[StreamChunk]:
+    async def complete_stream(self, req: CompleteRequest) -> AsyncIterator[StreamChunk]:
         self.requests.append(req)
         return self._stream(self.response_text)
 
@@ -195,10 +193,7 @@ def test_augmented_prompt_contains_lme_guidance() -> None:
     for kw in ("list", "count", "enumerat", "total", "one per line"):
         assert kw in lower, f"missing enumeration keyword {kw!r}"
     assert "avoid double counting the roll-up" in lower
-    assert (
-        "include all confirmed historical amounts for the same subject across sessions"
-        in lower
-    )
+    assert "include all confirmed historical amounts for the same subject across sessions" in lower
     assert "infer durable preferences from concrete desired features" in lower
     assert "ignore unrelated hostel, budget, or solo-travel examples" in lower
     # Temporal anchor and CoT directive.
@@ -371,9 +366,7 @@ def test_basic_prompt_unchanged() -> None:
         ),
     ]
     prompt = _build_basic_prompt("what are badgers", chunks)
-    expected = (
-        "## Evidence\n\n### badger (raw/documents/badger.md)\nBadgers are nocturnal.\n\n## Question\n\nwhat are badgers"
-    )
+    expected = "## Evidence\n\n### badger (raw/documents/badger.md)\nBadgers are nocturnal.\n\n## Question\n\nwhat are badgers"
     assert prompt == expected
 
 
@@ -656,9 +649,7 @@ def test_ask_basic_keeps_existing_call_params(tmp_path) -> None:  # type: ignore
 
 def test_ask_rejects_invalid_reader_mode(tmp_path) -> None:  # type: ignore[no-untyped-def]
     async def build() -> Daemon:
-        return await Daemon.create(
-            root=tmp_path, llm=_RecordingProvider("ok")
-        )
+        return await Daemon.create(root=tmp_path, llm=_RecordingProvider("ok"))
 
     daemon = asyncio.run(build())
     app = create_app(daemon=daemon)

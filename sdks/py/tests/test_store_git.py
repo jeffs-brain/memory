@@ -173,11 +173,7 @@ async def test_sign_callback_invoked(tmp_path: Path) -> None:
 
     def fake_sign(payload: bytes) -> bytes:
         calls.append(payload)
-        return (
-            b"-----BEGIN PGP SIGNATURE-----\n"
-            b"ZmFrZSBzaWduYXR1cmUK\n"
-            b"-----END PGP SIGNATURE-----\n"
-        )
+        return b"-----BEGIN PGP SIGNATURE-----\nZmFrZSBzaWduYXR1cmUK\n-----END PGP SIGNATURE-----\n"
 
     store = GitStore(tmp_path, sign=fake_sign)
     await store.write(BrainPath("memory/a.md"), b"hello")

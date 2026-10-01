@@ -601,8 +601,7 @@ class Index:
             return []
 
         limit = opts.max_results or top_k or 20
-        sql = (
-            """
+        sql = """
             SELECT
                 fts.path       AS path,
                 fts.title      AS title,
@@ -624,7 +623,6 @@ class Index:
             ORDER BY fts.rank
             LIMIT ?
             """
-        )
         rows = self._conn.execute(sql, (expr, max(limit * 3, 100))).fetchall()
 
         hits: list[BM25Hit] = []

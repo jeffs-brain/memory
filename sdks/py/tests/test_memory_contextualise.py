@@ -16,12 +16,8 @@ from jeffs_brain_memory.memory import (
 
 @pytest.mark.asyncio
 async def test_build_prefix_returns_trimmed(tmp_path):
-    p = FakeProvider(
-        ["  Context: On Monday the user discussed\n  the blue car they bought.  "]
-    )
-    c = Contextualiser(
-        ContextualiserConfig(provider=p, cache_dir=str(tmp_path))
-    )
+    p = FakeProvider(["  Context: On Monday the user discussed\n  the blue car they bought.  "])
+    c = Contextualiser(ContextualiserConfig(provider=p, cache_dir=str(tmp_path)))
     out = await c.build_prefix_async("sess-1", "session_date=2024-03-25", "Blue car.")
     assert out
     assert "\n" not in out
@@ -44,15 +40,14 @@ async def test_caches_by_fingerprint(tmp_path):
         def complete_stream(self, req):
             async def _gen():
                 yield
+
             return _gen()
 
         async def close(self):
             pass
 
     counter = Counter()
-    c = Contextualiser(
-        ContextualiserConfig(provider=counter, cache_dir=str(tmp_path))
-    )
+    c = Contextualiser(ContextualiserConfig(provider=counter, cache_dir=str(tmp_path)))
     a = await c.build_prefix_async("s", "summary", "body")
     b = await c.build_prefix_async("s", "summary", "body")
     assert a == b
@@ -68,14 +63,13 @@ async def test_fails_open_on_provider_error(tmp_path):
         def complete_stream(self, req):
             async def _gen():
                 yield
+
             return _gen()
 
         async def close(self):
             pass
 
-    c = Contextualiser(
-        ContextualiserConfig(provider=Broken(), cache_dir=str(tmp_path))
-    )
+    c = Contextualiser(ContextualiserConfig(provider=Broken(), cache_dir=str(tmp_path)))
     assert await c.build_prefix_async("s", "summary", "body") == ""
 
 
@@ -105,21 +99,18 @@ async def test_cache_busts_on_model_change(tmp_path):
         def complete_stream(self, req):
             async def _gen():
                 yield
+
             return _gen()
 
         async def close(self):
             pass
 
     p1 = Counter("first-model prefix.")
-    c1 = Contextualiser(
-        ContextualiserConfig(provider=p1, model="model-a", cache_dir=str(tmp_path))
-    )
+    c1 = Contextualiser(ContextualiserConfig(provider=p1, model="model-a", cache_dir=str(tmp_path)))
     await c1.build_prefix_async("s", "", "body")
 
     p2 = Counter("second-model prefix.")
-    c2 = Contextualiser(
-        ContextualiserConfig(provider=p2, model="model-b", cache_dir=str(tmp_path))
-    )
+    c2 = Contextualiser(ContextualiserConfig(provider=p2, model="model-b", cache_dir=str(tmp_path)))
     out = await c2.build_prefix_async("s", "", "body")
     assert "second-model prefix" in out
     assert p2.calls == 1

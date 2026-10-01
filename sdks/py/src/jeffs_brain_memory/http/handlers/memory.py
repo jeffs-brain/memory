@@ -93,7 +93,7 @@ async def remember(request: Request) -> Response:
         if scope == "" or scope == "global":
             path = memory_global_topic(slug)
         elif isinstance(scope, str) and scope.startswith("project:"):
-            project = scope[len("project:"):].strip()
+            project = scope[len("project:") :].strip()
             if not project:
                 return validation_error("project slug required for project scope")
             path = memory_project_topic(project, slug)
@@ -114,9 +114,7 @@ async def remember(request: Request) -> Response:
     return ok_json({"path": path, "slug": slug}, status=201)
 
 
-def _build_remember_body(
-    note: str, tags: list[str], source: str | None
-) -> str:
+def _build_remember_body(note: str, tags: list[str], source: str | None) -> str:
     from datetime import datetime, timezone
 
     now = datetime.now(tz=timezone.utc).isoformat()
@@ -221,9 +219,7 @@ async def _decorate_extracted_memories(
             or not getattr(contextualiser, "enabled", lambda: False)()
         ):
             continue
-        prefix = await contextualiser.build_prefix_async(
-            session_id, summary, memory.content
-        )
+        prefix = await contextualiser.build_prefix_async(session_id, summary, memory.content)
         if prefix:
             memory.context_prefix = prefix
     return extracted
@@ -336,11 +332,7 @@ async def consolidate(request: Request) -> Response:
                 body = parsed
         except Exception as exc:  # noqa: BLE001
             return validation_error(f"invalid JSON: {exc}")
-    mode = (
-        "quick"
-        if str(body.get("mode") or "").lower() == "quick"
-        else "full"
-    )
+    mode = "quick" if str(body.get("mode") or "").lower() == "quick" else "full"
     model = str(body.get("model") or "")
 
     daemon = request.app.state.daemon  # type: ignore[attr-defined]

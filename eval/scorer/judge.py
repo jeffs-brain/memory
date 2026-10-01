@@ -10,6 +10,7 @@ Override the model via `JB_EVAL_JUDGE_MODEL`. For LongMemEval, `gpt-4o`
 is the recommended actor + judge. Lighter alternatives for cheap PR
 smoke runs: `gpt-4o-mini`.
 """
+
 from __future__ import annotations
 
 import json
@@ -29,7 +30,7 @@ JUDGE_SYSTEM = (
     "Score each answer from 0.0 to 1.0 against the reference answer. "
     "Rubric: (1) faithfulness to the reference, (2) presence of supporting "
     "citations when the reference includes them, (3) semantic match. "
-    "Reply with a compact JSON object: {\"score\": <float 0..1>, \"reason\": \"<string>\"}."
+    'Reply with a compact JSON object: {"score": <float 0..1>, "reason": "<string>"}.'
 )
 
 

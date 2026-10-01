@@ -279,15 +279,15 @@ def build_document(
 def build_frontmatter_yaml(doc: Document) -> str:
     """Emit the canonical YAML frontmatter block written with each ingest."""
     lines = ["---"]
-    lines.append(f'title: {_quote_yaml(doc.title)}')
+    lines.append(f"title: {_quote_yaml(doc.title)}")
     if doc.summary:
-        lines.append(f'summary: {_quote_yaml(doc.summary)}')
-    lines.append(f'source: {_quote_yaml(doc.source)}')
-    lines.append(f'source_type: {_quote_yaml(_route_source_type(doc.content_type))}')
+        lines.append(f"summary: {_quote_yaml(doc.summary)}")
+    lines.append(f"source: {_quote_yaml(doc.source)}")
+    lines.append(f"source_type: {_quote_yaml(_route_source_type(doc.content_type))}")
     if doc.ingested is not None:
-        lines.append(f'ingested: {_quote_yaml(_fmt_rfc3339(doc.ingested))}')
+        lines.append(f"ingested: {_quote_yaml(_fmt_rfc3339(doc.ingested))}")
     if doc.modified is not None:
-        lines.append(f'modified: {_quote_yaml(_fmt_rfc3339(doc.modified))}')
+        lines.append(f"modified: {_quote_yaml(_fmt_rfc3339(doc.modified))}")
     if doc.tags:
         lines.append("tags:")
         for tag in doc.tags:

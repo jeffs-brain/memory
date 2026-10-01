@@ -50,9 +50,7 @@ class InMemoryIndex:
         expected = aliases.get(want.strip().lower(), {want.strip().lower()})
         return row_scope.strip().lower() in expected if row_scope else True
 
-    async def search_bm25(
-        self, expr: str, k: int, filters: Filters
-    ) -> list[IndexedRow]:
+    async def search_bm25(self, expr: str, k: int, filters: Filters) -> list[IndexedRow]:
         tokens = expr.lower().split()
         if not tokens:
             return []
@@ -82,9 +80,7 @@ class UnfilteredIndex(InMemoryIndex):
         super().__init__(rows)
         self.limits: list[int] = []
 
-    async def search_bm25(
-        self, expr: str, k: int, filters: Filters
-    ) -> list[IndexedRow]:
+    async def search_bm25(self, expr: str, k: int, filters: Filters) -> list[IndexedRow]:
         del filters
         self.limits.append(k)
         tokens = expr.lower().split()
@@ -92,9 +88,7 @@ class UnfilteredIndex(InMemoryIndex):
             return []
         scored: list[tuple[IndexedRow, int]] = []
         for row in self.rows:
-            corpus = " ".join(
-                [row.path, row.title, row.summary, row.content]
-            ).lower()
+            corpus = " ".join([row.path, row.title, row.summary, row.content]).lower()
             score = sum(corpus.count(token) for token in tokens)
             if score > 0:
                 scored.append((row, score))
@@ -190,9 +184,7 @@ async def test_bm25_returns_top_hits_with_path_as_id() -> None:
 
 async def test_bm25_respects_path_prefix() -> None:
     src = IndexSource(InMemoryIndex(_rows()))
-    hits = await src.search_bm25(
-        "invoice", 10, Filters(path_prefix="wiki/invoice")
-    )
+    hits = await src.search_bm25("invoice", 10, Filters(path_prefix="wiki/invoice"))
     assert hits
     for h in hits:
         assert h.path.startswith("wiki/invoice")
@@ -362,9 +354,7 @@ async def test_chunks_returns_all_rows() -> None:
 async def test_end_to_end_bm25_retrieve() -> None:
     src = IndexSource(InMemoryIndex(_rows()))
     r = Retriever(source=src)
-    resp = await r.retrieve(
-        Request(query="invoice processing", mode=Mode.BM25, top_k=3)
-    )
+    resp = await r.retrieve(Request(query="invoice processing", mode=Mode.BM25, top_k=3))
     assert resp.chunks
     assert not resp.trace.embedder_used
     assert resp.trace.effective_mode == Mode.BM25
@@ -373,9 +363,7 @@ async def test_end_to_end_bm25_retrieve() -> None:
 async def test_end_to_end_trigram_fallback() -> None:
     src = IndexSource(InMemoryIndex(_rows()))
     r = Retriever(source=src)
-    resp = await r.retrieve(
-        Request(query="invioce procesing", mode=Mode.BM25, top_k=3)
-    )
+    resp = await r.retrieve(Request(query="invioce procesing", mode=Mode.BM25, top_k=3))
     assert resp.attempts
     # Trigram rung should have fired on the misspelling; the fuzzy slug
     # match surfaces the invoice-processing note.

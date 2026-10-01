@@ -136,7 +136,9 @@ class HttpStore(Store):
     def _url(self, path: str) -> str:
         return f"{self.base_url}{path}"
 
-    def _headers(self, *, accept: str = "application/json", content_type: str | None = None) -> dict[str, str]:
+    def _headers(
+        self, *, accept: str = "application/json", content_type: str | None = None
+    ) -> dict[str, str]:
         headers: dict[str, str] = {"accept": accept, "user-agent": self.user_agent}
         if content_type:
             headers["content-type"] = content_type
@@ -558,9 +560,7 @@ class _HttpBatch(Batch):
             raise ErrNotFound(f"HttpStore: stat {path}: not found")
         return await self.store.stat(path)
 
-    async def list(
-        self, dir: BrainPath | str = "", opts: ListOpts | None = None
-    ) -> list[FileInfo]:
+    async def list(self, dir: BrainPath | str = "", opts: ListOpts | None = None) -> list[FileInfo]:
         opts = opts or ListOpts()
         base = await self.store.list(dir, opts)
         by_path: dict[BrainPath, FileInfo] = {fi.path: fi for fi in base}

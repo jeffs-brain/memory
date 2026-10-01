@@ -141,10 +141,7 @@ def _add_months(anchor: datetime, delta: int) -> datetime:
         if next_month > 12:
             next_month = 1
             next_year += 1
-        last_day = (
-            datetime(next_year, next_month, 1, tzinfo=timezone.utc)
-            - timedelta(days=1)
-        ).day
+        last_day = (datetime(next_year, next_month, 1, tzinfo=timezone.utc) - timedelta(days=1)).day
         overflow = day - last_day
         clamped = anchor.replace(year=year, month=month, day=last_day)
         return clamped + timedelta(days=overflow)
@@ -230,9 +227,7 @@ def resolve_relative_day(text: str, anchor: datetime) -> TemporalAnnotation | No
     if day == "today":
         start = anchor.replace(hour=0, minute=0, second=0, microsecond=0)
     elif day == "yesterday":
-        start = (anchor - timedelta(days=1)).replace(
-            hour=0, minute=0, second=0, microsecond=0
-        )
+        start = (anchor - timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
     else:
         return None
 

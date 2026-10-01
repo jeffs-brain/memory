@@ -367,9 +367,7 @@ def _fts_query(raw: str) -> str:
     return " OR ".join(f'"{t}"' for t in tokens)
 
 
-def _search_index(
-    conn: sqlite3.Connection, query: str, top_k: int
-) -> list[dict[str, Any]]:
+def _search_index(conn: sqlite3.Connection, query: str, top_k: int) -> list[dict[str, Any]]:
     rows = conn.execute(
         "SELECT id, path, ordinal, title, content, metadata, bm25(chunks) AS score "
         "FROM chunks WHERE chunks MATCH ? ORDER BY bm25(chunks) LIMIT ?",
@@ -583,9 +581,7 @@ class LocalMemoryClient:
             ],
         }
 
-    async def ask(
-        self, args: AskArgs, progress: ProgressEmitter | None = None
-    ) -> dict[str, Any]:
+    async def ask(self, args: AskArgs, progress: ProgressEmitter | None = None) -> dict[str, Any]:
         await self._ensure_bootstrap()
         brain_id = self._resolve_brain(args.brain)
         brain = self._open_brain(brain_id)
@@ -750,9 +746,7 @@ class LocalMemoryClient:
                 await progress(1.0, f"session {len(created)}")
             return {"mode": "session", "messages": created}
         brain = self._open_brain(brain_id)
-        transcript_text = "\n\n".join(
-            f"[{msg.role}] {msg.content}" for msg in args.messages
-        )
+        transcript_text = "\n\n".join(f"[{msg.role}] {msg.content}" for msg in args.messages)
         title = f"Transcript {_now_iso()}"
         slug = _slug_from_title(title)
         rel_path = f"transcripts/{slug}.md"
@@ -927,9 +921,7 @@ class HostedMemoryClient:
         )
         if resp.status_code >= 400:
             text = resp.text[:256]
-            raise RuntimeError(
-                f"memory-mcp: hosted {path} failed {resp.status_code}: {text}"
-            )
+            raise RuntimeError(f"memory-mcp: hosted {path} failed {resp.status_code}: {text}")
         if resp.status_code == 204 or not resp.content:
             return None
         return resp.json()
@@ -961,9 +953,7 @@ class HostedMemoryClient:
             params["scope"] = args.scope
         if args.sort is not None:
             params["sort"] = args.sort
-        result = await self._request(
-            "GET", f"/v1/brains/{brain}/search", params=params
-        )
+        result = await self._request("GET", f"/v1/brains/{brain}/search", params=params)
         return result or {}
 
     async def recall(self, args: RecallArgs) -> dict[str, Any]:
@@ -975,22 +965,16 @@ class HostedMemoryClient:
             payload["session_id"] = args.session_id
         if args.top_k is not None:
             payload["top_k"] = args.top_k
-        result = await self._request(
-            "POST", f"/v1/brains/{brain}/recall", json_body=payload
-        )
+        result = await self._request("POST", f"/v1/brains/{brain}/recall", json_body=payload)
         return result or {}
 
-    async def ask(
-        self, args: AskArgs, progress: ProgressEmitter | None = None
-    ) -> dict[str, Any]:
+    async def ask(self, args: AskArgs, progress: ProgressEmitter | None = None) -> dict[str, Any]:
         brain = self._resolve_brain(args.brain)
         payload: dict[str, Any] = {"query": args.query}
         if args.top_k is not None:
             payload["top_k"] = args.top_k
         # TODO: switch to SSE once the Python hosted transport lands.
-        result = await self._request(
-            "POST", f"/v1/brains/{brain}/ask", json_body=payload
-        )
+        result = await self._request("POST", f"/v1/brains/{brain}/ask", json_body=payload)
         return result or {}
 
     async def ingest_file(
@@ -999,9 +983,7 @@ class HostedMemoryClient:
         brain = self._resolve_brain(args.brain)
         abs_path = Path(args.path).expanduser().resolve()
         if not abs_path.is_file():
-            raise FileNotFoundError(
-                f"memory_ingest_file: not a regular file: {abs_path}"
-            )
+            raise FileNotFoundError(f"memory_ingest_file: not a regular file: {abs_path}")
         size = abs_path.stat().st_size
         if size > FILE_LIMIT_BYTES:
             raise ValueError("file_too_large: 25 MiB limit exceeded")
@@ -1053,9 +1035,7 @@ class HostedMemoryClient:
             f"/v1/brains/{brain}/documents",
             json_body={
                 "title": f"Transcript {_now_iso()}",
-                "content": "\n\n".join(
-                    f"[{msg.role}] {msg.content}" for msg in args.messages
-                ),
+                "content": "\n\n".join(f"[{msg.role}] {msg.content}" for msg in args.messages),
                 "source": "extract",
             },
         )

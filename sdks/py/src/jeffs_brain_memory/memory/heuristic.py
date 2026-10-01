@@ -68,9 +68,7 @@ class HeuristicSummary:
         self.is_anti = is_anti
 
 
-def apply_heuristics(
-    mem: "MemoryManager", project_slug: str, heuristics: list[Heuristic]
-) -> None:
+def apply_heuristics(mem: "MemoryManager", project_slug: str, heuristics: list[Heuristic]) -> None:
     project_entries: list[str] = []
     global_entries: list[str] = []
     writes: list[tuple[str, bytes]] = []
@@ -82,9 +80,7 @@ def apply_heuristics(
             prefix = memory_global_prefix()
         else:
             prefix = memory_project_prefix(project_slug)
-        existing_path, existing_content, found = _find_existing_heuristic(
-            mem, h, prefix
-        )
+        existing_path, existing_content, found = _find_existing_heuristic(mem, h, prefix)
         if found:
             content = merge_heuristic(existing_content, h)
             path = existing_path

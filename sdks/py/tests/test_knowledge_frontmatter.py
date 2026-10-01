@@ -16,7 +16,9 @@ def test_basic_yaml_path() -> None:
 
 
 def test_list_form_bullets() -> None:
-    content = '---\ntitle: "With list"\ntags:\n  - alpha\n  - beta\nsources:\n  - a\n  - b\n---\nbody\n'
+    content = (
+        '---\ntitle: "With list"\ntags:\n  - alpha\n  - beta\nsources:\n  - a\n  - b\n---\nbody\n'
+    )
     fm, _ = parse_frontmatter(content)
     assert fm.tags == ["alpha", "beta"]
     assert fm.sources == ["a", "b"]

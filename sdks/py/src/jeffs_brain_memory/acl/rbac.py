@@ -104,9 +104,7 @@ class InMemoryTupleStore:
     def list(self, query: ReadTuplesQuery) -> list[Tuple]:
         out: list[Tuple] = []
         for t in self._rows.values():
-            if query.subject is not None and subject_key(query.subject) != subject_key(
-                t.subject
-            ):
+            if query.subject is not None and subject_key(query.subject) != subject_key(t.subject):
                 continue
             if query.relation is not None and query.relation != t.relation:
                 continue
@@ -171,9 +169,7 @@ class _RbacProvider:
         seen: set[str] = {resource_key(resource)}
         cursor: Resource | None = resource
         while cursor is not None:
-            parents = self._store.list(
-                ReadTuplesQuery(resource=cursor, relation="parent")
-            )
+            parents = self._store.list(ReadTuplesQuery(resource=cursor, relation="parent"))
             if not parents:
                 break
             parent = _decode_parent_subject(parents[0].subject)
@@ -187,9 +183,7 @@ class _RbacProvider:
             cursor = parent
         return chain
 
-    def _highest_granted_role(
-        self, subject: Subject, chain: list[Resource]
-    ) -> Role | None:
+    def _highest_granted_role(self, subject: Subject, chain: list[Resource]) -> Role | None:
         best: Role | None = None
         for resource in chain:
             for role in _ROLES:
@@ -215,9 +209,7 @@ class _RbacProvider:
                 denied.add(role)
         return denied
 
-    async def check(
-        self, subject: Subject, action: Action, resource: Resource
-    ) -> CheckResult:
+    async def check(self, subject: Subject, action: Action, resource: Resource) -> CheckResult:
         required = _ACTION_TO_MIN_ROLE[action]
         chain = self._walk_ancestors(resource)
 
