@@ -275,6 +275,12 @@ describe('memory-pi smoke', () => {
         content: 'extract me',
       } as never,
       toolResults: [],
+      messageEntryId: 'entry-0',
+      toolResultEntryIds: [],
+      entries: [],
+      continue: false,
+      context: {} as never,
+      outcome: {} as never,
     }
     await handlers.turn_end?.(turnEvent)
     // Drain the queue to confirm the job ran.
