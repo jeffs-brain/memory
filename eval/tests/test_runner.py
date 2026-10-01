@@ -12,7 +12,8 @@ import asyncio
 import base64
 import json
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from collections.abc import Iterator
+from unittest.mock import MagicMock, PropertyMock, patch
 
 import httpx
 import pytest
@@ -56,8 +57,18 @@ class TestGetRunner:
             get_runner("rust")
 
 
+@pytest.fixture
+def built_ts(tmp_path: Path) -> Iterator[Path]:
+    """Point TsRunner at a workdir that already has a built CLI, so these
+    unit tests never trigger a real `bun run build`."""
+    (tmp_path / "dist").mkdir()
+    (tmp_path / "dist" / "cli.js").write_text("", encoding="utf-8")
+    with patch.object(TsRunner, "workdir", new_callable=PropertyMock, return_value=tmp_path):
+        yield tmp_path
+
+
 class TestRunnerCommands:
-    def test_ts_command_uses_node_and_port(self) -> None:
+    def test_ts_command_uses_node_and_port(self, built_ts: Path) -> None:
         cmd = TsRunner().build_command(4321)
         assert cmd[0] == "node"
         assert "127.0.0.1:4321" in cmd
@@ -91,7 +102,7 @@ class TestSdkRunnerLifecycle:
     def test_stop_before_start_is_idempotent(self) -> None:
         TsRunner().stop()  # must not raise
 
-    def test_start_invokes_subprocess_and_health_check(self) -> None:
+    def test_start_invokes_subprocess_and_health_check(self, built_ts: Path) -> None:
         inst = TsRunner()
 
         fake_proc = MagicMock()
