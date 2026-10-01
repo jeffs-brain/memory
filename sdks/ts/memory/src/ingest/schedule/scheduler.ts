@@ -5,7 +5,11 @@
  * fires them. No external cron daemon required.
  */
 
-import { isValid as builtInIsValid, nextOccurrence as builtInNextOccurrence, parseCron } from './cron.js'
+import {
+  isValid as builtInIsValid,
+  nextOccurrence as builtInNextOccurrence,
+  parseCron,
+} from './cron.js'
 import type { CronEngine, Scheduler, SchedulerOptions } from './types.js'
 
 const DEFAULT_POLL_INTERVAL_MS = 30_000
@@ -20,9 +24,10 @@ const defaultCronEngine: CronEngine = {
 }
 
 export const createScheduler = (opts: SchedulerOptions): Scheduler => {
-  const pollIntervalMs = (opts.pollIntervalMs !== undefined && opts.pollIntervalMs > 0)
-    ? opts.pollIntervalMs
-    : DEFAULT_POLL_INTERVAL_MS
+  const pollIntervalMs =
+    opts.pollIntervalMs !== undefined && opts.pollIntervalMs > 0
+      ? opts.pollIntervalMs
+      : DEFAULT_POLL_INTERVAL_MS
   const logger = opts.logger
   const now = opts.now ?? (() => new Date())
   const cronEngine = opts.cronEngine ?? defaultCronEngine

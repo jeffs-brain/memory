@@ -60,10 +60,7 @@ const rowText = (row: IndexedChunkRow, cap: number): string => {
   return text.length > cap ? text.slice(0, cap) : text
 }
 
-const rowsMissingVector = (
-  index: SqliteSearchIndex,
-  model: string,
-): readonly IndexedChunkRow[] => {
+const rowsMissingVector = (index: SqliteSearchIndex, model: string): readonly IndexedChunkRow[] => {
   const existing = new Set(index.chunkIdsWithVectorForModel(model))
   const rows = index.db
     .prepare(

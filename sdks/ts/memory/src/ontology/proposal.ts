@@ -9,17 +9,17 @@
  * Port of go/ontology/proposal.go.
  */
 
-import type { Store } from '../store/index.js'
-import { isNotFound } from '../store/errors.js'
-import { type Path, toPath } from '../store/path.js'
-import type { OntologyTypeDefinition, TypeStatus } from './types.js'
-import type { ResolvedOntology } from './store.js'
-import type { Registry } from './registry.js'
-import type { TypeEntry } from './templates.js'
-import type { ExtractionResult } from './extract.js'
 import { hashString } from '../ingest/hash.js'
+import { isNotFound } from '../store/errors.js'
+import type { Store } from '../store/index.js'
+import { type Path, toPath } from '../store/path.js'
 import { Deduplicator } from './dedup.js'
+import type { ExtractionResult } from './extract.js'
 import { formatEdgeTypeLabel, formatNodeTypeLabel } from './format.js'
+import type { Registry } from './registry.js'
+import type { ResolvedOntology } from './store.js'
+import type { TypeEntry } from './templates.js'
+import type { OntologyTypeDefinition, TypeStatus } from './types.js'
 import { hasPrefix } from './validation.js'
 
 export type { ExtractionResult } from './extract.js'
@@ -139,7 +139,8 @@ export class ProposalWorkflow {
     const batchId = computeBatchId(result.domain, sourceDocument, now)
 
     const proposals: Proposal[] = dedupResult.unique.map((unique) => {
-      const category: 'nodeType' | 'edgeType' = hasPrefix(unique.type) !== undefined ? 'nodeType' : 'edgeType'
+      const category: 'nodeType' | 'edgeType' =
+        hasPrefix(unique.type) !== undefined ? 'nodeType' : 'edgeType'
       return {
         id: computeProposalId(unique.type, batchId),
         type: unique.type,
@@ -175,15 +176,18 @@ export class ProposalWorkflow {
     if (proposal.status === 'accepted') return
 
     if (proposal.status !== 'proposed') {
-      throw new Error(`ontology: cannot accept proposal "${proposalId}" with status "${proposal.status}"`)
+      throw new Error(
+        `ontology: cannot accept proposal "${proposalId}" with status "${proposal.status}"`,
+      )
     }
 
     const now = this.clock().toISOString()
-    const label = proposal.label !== ''
-      ? proposal.label
-      : proposal.category === 'nodeType'
-        ? formatNodeTypeLabel(proposal.type)
-        : formatEdgeTypeLabel(proposal.type)
+    const label =
+      proposal.label !== ''
+        ? proposal.label
+        : proposal.category === 'nodeType'
+          ? formatNodeTypeLabel(proposal.type)
+          : formatEdgeTypeLabel(proposal.type)
 
     const def: OntologyTypeDefinition = {
       type: proposal.type,
@@ -210,14 +214,21 @@ export class ProposalWorkflow {
    * change; the decision is recorded for audit purposes.
    * Idempotent for already-merged proposals.
    */
-  async merge(batchId: string, proposalId: string, targetType: string, reviewedBy: string): Promise<void> {
+  async merge(
+    batchId: string,
+    proposalId: string,
+    targetType: string,
+    reviewedBy: string,
+  ): Promise<void> {
     const batch = await this.readBatch(batchId)
     const { proposal, index } = findProposal(batch, proposalId)
 
     if (proposal.status === 'merged') return
 
     if (proposal.status !== 'proposed') {
-      throw new Error(`ontology: cannot merge proposal "${proposalId}" with status "${proposal.status}"`)
+      throw new Error(
+        `ontology: cannot merge proposal "${proposalId}" with status "${proposal.status}"`,
+      )
     }
 
     const now = this.clock().toISOString()
@@ -243,7 +254,9 @@ export class ProposalWorkflow {
     if (proposal.status === 'rejected') return
 
     if (proposal.status !== 'proposed') {
-      throw new Error(`ontology: cannot reject proposal "${proposalId}" with status "${proposal.status}"`)
+      throw new Error(
+        `ontology: cannot reject proposal "${proposalId}" with status "${proposal.status}"`,
+      )
     }
 
     const now = this.clock().toISOString()
@@ -272,11 +285,12 @@ export class ProposalWorkflow {
     for (const p of mutable.proposals) {
       if (p.status !== 'proposed') continue
 
-      const label = p.label !== ''
-        ? p.label
-        : p.category === 'nodeType'
-          ? formatNodeTypeLabel(p.type)
-          : formatEdgeTypeLabel(p.type)
+      const label =
+        p.label !== ''
+          ? p.label
+          : p.category === 'nodeType'
+            ? formatNodeTypeLabel(p.type)
+            : formatEdgeTypeLabel(p.type)
 
       const def: OntologyTypeDefinition = {
         type: p.type,
@@ -378,10 +392,7 @@ export class ProposalWorkflow {
   }
 }
 
-function findProposal(
-  batch: ProposalBatch,
-  id: string,
-): { proposal: Proposal; index: number } {
+function findProposal(batch: ProposalBatch, id: string): { proposal: Proposal; index: number } {
   for (let i = 0; i < batch.proposals.length; i++) {
     const p = batch.proposals[i]
     if (p !== undefined && p.id === id) {
@@ -491,7 +502,10 @@ function validateProposalBatch(parsed: unknown): ProposalBatch {
   }
 }
 
-function extractionToDefinitions(result: ExtractionResult, clock: () => Date): OntologyTypeDefinition[] {
+function extractionToDefinitions(
+  result: ExtractionResult,
+  clock: () => Date,
+): OntologyTypeDefinition[] {
   const now = clock().toISOString()
   const defs: OntologyTypeDefinition[] = []
   for (const nt of result.nodeTypes) {

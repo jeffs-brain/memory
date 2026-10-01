@@ -29,11 +29,13 @@ export const tabularChunker: Chunker = async (
   const dataLines = lines.slice(1)
 
   if (dataLines.length === 0) {
-    return [{
-      id: '',
-      content: header,
-      metadata: { chunker: 'tabular' },
-    }]
+    return [
+      {
+        id: '',
+        content: header,
+        metadata: { chunker: 'tabular' },
+      },
+    ]
   }
 
   const rowsPerChunk = computeRowsPerChunk(header, dataLines, cfg)

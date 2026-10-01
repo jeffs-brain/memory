@@ -5,7 +5,7 @@
  * by name.
  */
 
-import type { ConnectorConfig, Connector, ConnectorFactory } from './types.js'
+import type { Connector, ConnectorConfig, ConnectorFactory } from './types.js'
 
 /** Returned when a registry lookup finds no connector with the given name. */
 export class ConnectorNotFoundError extends Error {

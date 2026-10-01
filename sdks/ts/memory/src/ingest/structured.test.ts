@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from 'vitest'
-import { extractCSV, extractJSON, extractJSONL } from './structured.js'
-import { extractXML } from './xml.js'
 import {
   createCSVExtractor,
   createJSONExtractor,
   createJSONLExtractor,
   createXMLExtractor,
 } from './extractor.js'
+import { extractCSV, extractJSON, extractJSONL } from './structured.js'
+import { extractXML } from './xml.js'
 
 // -------------------------------------------------------------------
 // CSV Extractor
@@ -69,10 +69,8 @@ describe('extractCSV', () => {
 
   it('decodes Latin-1 encoding', () => {
     const input = Buffer.from([
-      0x4e, 0x61, 0xef, 0x76, 0x65, 0x2c,
-      0x43, 0x61, 0x66, 0xe9, 0x0a,
-      0x41, 0x6c, 0x69, 0x63, 0x65, 0x2c,
-      0x5a, 0xfc, 0x72, 0x69, 0x63, 0x68, 0x0a,
+      0x4e, 0x61, 0xef, 0x76, 0x65, 0x2c, 0x43, 0x61, 0x66, 0xe9, 0x0a, 0x41, 0x6c, 0x69, 0x63,
+      0x65, 0x2c, 0x5a, 0xfc, 0x72, 0x69, 0x63, 0x68, 0x0a,
     ])
     const result = extractCSV(input)
     expect(result.metadata.encoding).toBe('latin-1')
@@ -114,7 +112,9 @@ describe('extractCSV', () => {
   })
 
   it('sanitises formula injection values', () => {
-    const input = Buffer.from('Name,Formula\nAlice,=SUM(A1)\nBob,+CMD\nCarol,-1+1\nDave,@INDIRECT(A1)\n')
+    const input = Buffer.from(
+      'Name,Formula\nAlice,=SUM(A1)\nBob,+CMD\nCarol,-1+1\nDave,@INDIRECT(A1)\n',
+    )
     const result = extractCSV(input)
     expect(result.text).toContain("'=SUM(A1)")
     expect(result.text).toContain("'+CMD")
@@ -299,7 +299,9 @@ describe('extractXML', () => {
   })
 
   it('strips namespace prefixes', () => {
-    const input = Buffer.from('<ns:root xmlns:ns="http://example.com"><ns:item>value</ns:item></ns:root>')
+    const input = Buffer.from(
+      '<ns:root xmlns:ns="http://example.com"><ns:item>value</ns:item></ns:root>',
+    )
     const result = extractXML(input)
     expect(result.text).toContain('root/item: value')
   })
@@ -321,7 +323,9 @@ describe('extractXML', () => {
   })
 
   it('renders nested elements with full path', () => {
-    const input = Buffer.from('<root><parent><child><grandchild>deep</grandchild></child></parent></root>')
+    const input = Buffer.from(
+      '<root><parent><child><grandchild>deep</grandchild></child></parent></root>',
+    )
     const result = extractXML(input)
     expect(result.text).toContain('root/parent/child/grandchild: deep')
   })

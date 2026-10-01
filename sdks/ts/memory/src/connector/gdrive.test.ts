@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
-import { describe, expect, it, vi, beforeEach } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { noopLogger } from '../llm/types.js'
 import { GDriveConnector } from './gdrive.js'
 import type { ConnectorConfig, ConnectorDocument, HTTPClient, SyncCursor } from './types.js'
-import { noopLogger } from '../llm/types.js'
 
 // -- Test helpers -------------------------------------------------------------
 
@@ -175,9 +175,27 @@ describe('GDriveConnector', () => {
 
       client.addJSONResponse('drive/v3/files?', 200, {
         files: [
-          { id: 'f1', name: 'doc1.txt', mimeType: 'text/plain', modifiedTime: '2026-01-15T10:00:00Z', size: '100' },
-          { id: 'f2', name: 'doc2.pdf', mimeType: 'application/pdf', modifiedTime: '2026-01-16T10:00:00Z', size: '200' },
-          { id: 'f3', name: 'image.png', mimeType: 'image/png', modifiedTime: '2026-01-17T10:00:00Z', size: '300' },
+          {
+            id: 'f1',
+            name: 'doc1.txt',
+            mimeType: 'text/plain',
+            modifiedTime: '2026-01-15T10:00:00Z',
+            size: '100',
+          },
+          {
+            id: 'f2',
+            name: 'doc2.pdf',
+            mimeType: 'application/pdf',
+            modifiedTime: '2026-01-16T10:00:00Z',
+            size: '200',
+          },
+          {
+            id: 'f3',
+            name: 'image.png',
+            mimeType: 'image/png',
+            modifiedTime: '2026-01-17T10:00:00Z',
+            size: '300',
+          },
         ],
       })
       client.addResponse('f1?alt=media', 200, 'file one content')
@@ -207,12 +225,24 @@ describe('GDriveConnector', () => {
               ? JSON.stringify({
                   nextPageToken: 'page2token',
                   files: [
-                    { id: 'f1', name: 'doc1.txt', mimeType: 'text/plain', modifiedTime: '2026-01-15T10:00:00Z', size: '100' },
+                    {
+                      id: 'f1',
+                      name: 'doc1.txt',
+                      mimeType: 'text/plain',
+                      modifiedTime: '2026-01-15T10:00:00Z',
+                      size: '100',
+                    },
                   ],
                 })
               : JSON.stringify({
                   files: [
-                    { id: 'f2', name: 'doc2.txt', mimeType: 'text/plain', modifiedTime: '2026-01-16T10:00:00Z', size: '200' },
+                    {
+                      id: 'f2',
+                      name: 'doc2.txt',
+                      mimeType: 'text/plain',
+                      modifiedTime: '2026-01-16T10:00:00Z',
+                      size: '200',
+                    },
                   ],
                 })
           return new Response(body, { status: 200 })
@@ -232,7 +262,12 @@ describe('GDriveConnector', () => {
 
       client.addJSONResponse('drive/v3/files?', 200, {
         files: [
-          { id: 'doc1', name: 'My Document', mimeType: 'application/vnd.google-apps.document', modifiedTime: '2026-01-15T10:00:00Z' },
+          {
+            id: 'doc1',
+            name: 'My Document',
+            mimeType: 'application/vnd.google-apps.document',
+            modifiedTime: '2026-01-15T10:00:00Z',
+          },
         ],
       })
       client.addResponse('doc1/export', 200, '# My Document\n\nHello world')
@@ -249,7 +284,12 @@ describe('GDriveConnector', () => {
 
       client.addJSONResponse('drive/v3/files?', 200, {
         files: [
-          { id: 'sheet1', name: 'Budget', mimeType: 'application/vnd.google-apps.spreadsheet', modifiedTime: '2026-01-15T10:00:00Z' },
+          {
+            id: 'sheet1',
+            name: 'Budget',
+            mimeType: 'application/vnd.google-apps.spreadsheet',
+            modifiedTime: '2026-01-15T10:00:00Z',
+          },
         ],
       })
       client.addResponse('sheet1/export', 200, 'Name,Amount\nRent,1500')
@@ -265,7 +305,13 @@ describe('GDriveConnector', () => {
 
       client.addJSONResponse('drive/v3/files?', 200, {
         files: [
-          { id: 'pdf1', name: 'report.pdf', mimeType: 'application/pdf', modifiedTime: '2026-01-15T10:00:00Z', size: '5000' },
+          {
+            id: 'pdf1',
+            name: 'report.pdf',
+            mimeType: 'application/pdf',
+            modifiedTime: '2026-01-15T10:00:00Z',
+            size: '5000',
+          },
         ],
       })
       client.addResponse('pdf1?alt=media', 200, '%PDF-1.4 binary content')
@@ -285,8 +331,20 @@ describe('GDriveConnector', () => {
 
       client.addJSONResponse('drive/v3/files?', 200, {
         files: [
-          { id: 'small', name: 'small.txt', mimeType: 'text/plain', modifiedTime: '2026-01-15T10:00:00Z', size: '50' },
-          { id: 'large', name: 'large.bin', mimeType: 'application/octet-stream', modifiedTime: '2026-01-15T10:00:00Z', size: '500' },
+          {
+            id: 'small',
+            name: 'small.txt',
+            mimeType: 'text/plain',
+            modifiedTime: '2026-01-15T10:00:00Z',
+            size: '50',
+          },
+          {
+            id: 'large',
+            name: 'large.bin',
+            mimeType: 'application/octet-stream',
+            modifiedTime: '2026-01-15T10:00:00Z',
+            size: '500',
+          },
         ],
       })
       client.addResponse('small?alt=media', 200, 'small content')
@@ -306,9 +364,9 @@ describe('GDriveConnector', () => {
         '{"error":{"message":"Forbidden","errors":[{"reason":"forbidden"}]}}',
       )
 
-      await expect(
-        collectDocuments(connector.fetchAll(makeAbortSignal())),
-      ).rejects.toThrow('API error')
+      await expect(collectDocuments(connector.fetchAll(makeAbortSignal()))).rejects.toThrow(
+        'API error',
+      )
     })
 
     it('includes folder ID in query parameter', async () => {
@@ -357,9 +415,9 @@ describe('GDriveConnector', () => {
     })
 
     it('throws when not configured', async () => {
-      await expect(
-        collectDocuments(connector.fetchAll(makeAbortSignal())),
-      ).rejects.toThrow('not configured')
+      await expect(collectDocuments(connector.fetchAll(makeAbortSignal()))).rejects.toThrow(
+        'not configured',
+      )
     })
   })
 
@@ -372,7 +430,13 @@ describe('GDriveConnector', () => {
         changes: [
           {
             fileId: 'f1',
-            file: { id: 'f1', name: 'updated.txt', mimeType: 'text/plain', modifiedTime: '2026-01-20T10:00:00Z', size: '150' },
+            file: {
+              id: 'f1',
+              name: 'updated.txt',
+              mimeType: 'text/plain',
+              modifiedTime: '2026-01-20T10:00:00Z',
+              size: '150',
+            },
             removed: false,
           },
           {
@@ -456,7 +520,9 @@ describe('GDriveConnector', () => {
       await collectDocuments(connector.fetchAll(makeAbortSignal()))
 
       expect(client.requests.length).toBeGreaterThan(0)
-      const authHeader = (client.requests[0].init.headers as Record<string, string>)['Authorization']
+      const authHeader = (client.requests[0].init.headers as Record<string, string>)[
+        'Authorization'
+      ]
       expect(authHeader).toBe('Bearer new-token-value')
     })
   })
@@ -496,7 +562,12 @@ describe('GDriveConnector', () => {
 
       client.addJSONResponse('drive/v3/files?', 200, {
         files: [
-          { id: 'slides1', name: 'Presentation', mimeType: 'application/vnd.google-apps.presentation', modifiedTime: '2026-01-15T10:00:00Z' },
+          {
+            id: 'slides1',
+            name: 'Presentation',
+            mimeType: 'application/vnd.google-apps.presentation',
+            modifiedTime: '2026-01-15T10:00:00Z',
+          },
         ],
       })
       client.addResponse('slides1/export', 200, 'Slide 1: Introduction\nSlide 2: Conclusion')
@@ -515,16 +586,21 @@ describe('GDriveConnector', () => {
 
       client.addJSONResponse('drive/v3/files?', 200, {
         files: [
-          { id: 'bigdoc', name: 'Huge Document', mimeType: 'application/vnd.google-apps.document', modifiedTime: '2026-01-15T10:00:00Z' },
+          {
+            id: 'bigdoc',
+            name: 'Huge Document',
+            mimeType: 'application/vnd.google-apps.document',
+            modifiedTime: '2026-01-15T10:00:00Z',
+          },
         ],
       })
       // 10 MB + 1 byte
       const hugeBody = 'x'.repeat(10 * 1024 * 1024 + 1)
       client.addResponse('bigdoc/export', 200, hugeBody)
 
-      await expect(
-        collectDocuments(connector.fetchAll(makeAbortSignal())),
-      ).rejects.toThrow('exceeds')
+      await expect(collectDocuments(connector.fetchAll(makeAbortSignal()))).rejects.toThrow(
+        'exceeds',
+      )
     })
   })
 
@@ -545,7 +621,17 @@ describe('GDriveConnector', () => {
             )
           }
           return new Response(
-            JSON.stringify({ files: [{ id: 'f1', name: 'doc.txt', mimeType: 'text/plain', modifiedTime: '2026-01-15T10:00:00Z', size: '50' }] }),
+            JSON.stringify({
+              files: [
+                {
+                  id: 'f1',
+                  name: 'doc.txt',
+                  mimeType: 'text/plain',
+                  modifiedTime: '2026-01-15T10:00:00Z',
+                  size: '50',
+                },
+              ],
+            }),
             { status: 200 },
           )
         }
@@ -570,7 +656,9 @@ describe('GDriveConnector', () => {
       await collectDocuments(connector.fetchAll(makeAbortSignal()))
 
       expect(client.requests.length).toBeGreaterThan(0)
-      const authHeader = (client.requests[0].init.headers as Record<string, string>)['Authorization']
+      const authHeader = (client.requests[0].init.headers as Record<string, string>)[
+        'Authorization'
+      ]
       expect(authHeader).toBe('Bearer refreshed-token-abc')
     })
   })
@@ -584,9 +672,9 @@ describe('GDriveConnector', () => {
 
       client.addJSONResponse('drive/v3/files?', 200, { files: [] })
 
-      await expect(
-        collectDocuments(connector.fetchAll(makeAbortSignal())),
-      ).rejects.toThrow('invalid folder ID')
+      await expect(collectDocuments(connector.fetchAll(makeAbortSignal()))).rejects.toThrow(
+        'invalid folder ID',
+      )
     })
 
     it('rejects MIME type filter with injection characters', async () => {
@@ -597,9 +685,9 @@ describe('GDriveConnector', () => {
 
       client.addJSONResponse('drive/v3/files?', 200, { files: [] })
 
-      await expect(
-        collectDocuments(connector.fetchAll(makeAbortSignal())),
-      ).rejects.toThrow('invalid MIME type')
+      await expect(collectDocuments(connector.fetchAll(makeAbortSignal()))).rejects.toThrow(
+        'invalid MIME type',
+      )
     })
   })
 })

@@ -6,8 +6,8 @@
  * for documents, configuration, and sync state.
  */
 
-import type { Store } from '../store/index.js'
 import type { Logger } from '../llm/types.js'
+import type { Store } from '../store/index.js'
 
 /**
  * Minimal HTTP client contract used by connectors that need to call

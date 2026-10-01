@@ -1,18 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from 'vitest'
-import { containsCJK, isCJK, tokenizeCJK } from './trigram-cjk.js'
 import {
-  createStemmer,
   DEFAULT_CONFIDENCE_THRESHOLD,
   DEFAULT_MIN_DETECTION_LENGTH,
+  SUPPORTED_LANGUAGES,
+  UnsupportedLanguageError,
+  createStemmer,
   detectLanguage,
   registerLanguage,
   stopWords,
-  SUPPORTED_LANGUAGES,
-  UnsupportedLanguageError,
 } from './stemmer.js'
 import type { StemmerLanguage } from './stemmer.js'
+import { containsCJK, isCJK, tokenizeCJK } from './trigram-cjk.js'
 
 describe('createStemmer', () => {
   it('stems English words correctly', () => {

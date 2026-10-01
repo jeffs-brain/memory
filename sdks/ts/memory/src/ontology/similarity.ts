@@ -45,9 +45,7 @@ function jaroSimilarity(s1: string, s2: string): number {
     k++
   }
 
-  return (
-    (matches / s1.length + matches / s2.length + (matches - transpositions / 2) / matches) / 3
-  )
+  return (matches / s1.length + matches / s2.length + (matches - transpositions / 2) / matches) / 3
 }
 
 /**
@@ -88,7 +86,9 @@ export function jaroWinklerDistance(s1: string, s2: string): number {
  */
 export function cosineSimilarity(a: readonly number[], b: readonly number[]): number {
   if (a.length !== b.length) {
-    throw new Error(`ontology: cosine similarity requires equal-length vectors (${a.length} vs ${b.length})`)
+    throw new Error(
+      `ontology: cosine similarity requires equal-length vectors (${a.length} vs ${b.length})`,
+    )
   }
   if (a.length === 0) return 0
 

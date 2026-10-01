@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
-import { describe, expect, it, beforeEach } from 'vitest'
+import { beforeEach, describe, expect, it } from 'vitest'
 import { createMemStore } from '../store/memstore.js'
-import { createFileOntologyStore } from './store.js'
+import { type ExtractionResult, type ProposalBatch, ProposalWorkflow } from './proposal.js'
 import { Registry } from './registry.js'
-import { ProposalWorkflow, type ExtractionResult, type ProposalBatch } from './proposal.js'
+import { createFileOntologyStore } from './store.js'
 import type { TypeEntry } from './templates.js'
 
 function fixedClock(date: Date): () => Date {
@@ -76,9 +76,7 @@ describe('ProposalWorkflow', () => {
           { type: 'entity.customer', label: 'Customer (Entity)', description: 'A customer entity' },
           { type: 'entity.invoice', label: 'Invoice', description: 'A financial invoice' },
         ],
-        edgeTypes: [
-          { type: 'triggers', label: 'Triggers', description: 'Triggers relationship' },
-        ],
+        edgeTypes: [{ type: 'triggers', label: 'Triggers', description: 'Triggers relationship' }],
         businessCategories: [],
         domain: 'mixed',
         confidence: 0.8,
@@ -185,9 +183,7 @@ describe('ProposalWorkflow', () => {
       await workflow.reject(batch.id, pid, 'reviewer@test.com')
 
       const resolved = await registry.resolve('brain-1', 'proj-1', 'org-1')
-      const found = resolved.nodeTypes.find(
-        (t) => t.type === typeName && t.scope === 'brain',
-      )
+      const found = resolved.nodeTypes.find((t) => t.type === typeName && t.scope === 'brain')
       expect(found).toBeUndefined()
     })
 
@@ -196,9 +192,7 @@ describe('ProposalWorkflow', () => {
       const pid = batch.proposals[0].id
 
       await workflow.accept(batch.id, pid, 'reviewer')
-      await expect(
-        workflow.reject(batch.id, pid, 'reviewer'),
-      ).rejects.toThrow('cannot reject')
+      await expect(workflow.reject(batch.id, pid, 'reviewer')).rejects.toThrow('cannot reject')
     })
   })
 
@@ -286,10 +280,24 @@ describe('ProposalWorkflow', () => {
       const reg = new Registry({ store: ontologyStore })
       const clock = fixedClock(new Date('2026-05-15T12:00:00.000Z'))
 
-      const wf1 = new ProposalWorkflow({ registry: reg, store: backingStore, brainId: 'brain-1', projectId: 'proj-1', orgId: 'org-1', clock })
+      const wf1 = new ProposalWorkflow({
+        registry: reg,
+        store: backingStore,
+        brainId: 'brain-1',
+        projectId: 'proj-1',
+        orgId: 'org-1',
+        clock,
+      })
       const batch = await wf1.proposeFromExtraction(sampleExtraction(), 'test.pdf')
 
-      const wf2 = new ProposalWorkflow({ registry: reg, store: backingStore, brainId: 'brain-1', projectId: 'proj-1', orgId: 'org-1', clock })
+      const wf2 = new ProposalWorkflow({
+        registry: reg,
+        store: backingStore,
+        brainId: 'brain-1',
+        projectId: 'proj-1',
+        orgId: 'org-1',
+        clock,
+      })
       const readBack = await wf2.getBatch(batch.id)
       expect(readBack.proposals).toHaveLength(batch.proposals.length)
     })

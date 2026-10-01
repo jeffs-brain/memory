@@ -5,11 +5,11 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Readable } from 'node:stream'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { Extractor, ExtractOptions } from './extractor.js'
-import { createPDFExtractor, isSubstantialText } from './pdf.js'
-import { createImageExtractor } from './image.js'
-import { resetBinaryCache } from './subprocess.js'
 import type { Logger } from '../llm/types.js'
+import type { ExtractOptions, Extractor } from './extractor.js'
+import { createImageExtractor } from './image.js'
+import { createPDFExtractor, isSubstantialText } from './pdf.js'
+import { resetBinaryCache } from './subprocess.js'
 
 const writeMockScript = (dir: string, name: string, content: string): string => {
   const path = join(dir, name)
@@ -129,9 +129,7 @@ describe('isSubstantialText', () => {
 
   it('returns true for substantial text', () => {
     expect(
-      isSubstantialText(
-        'This is a real paragraph with enough words to pass the threshold.',
-      ),
+      isSubstantialText('This is a real paragraph with enough words to pass the threshold.'),
     ).toBe(true)
   })
 })
@@ -229,9 +227,9 @@ describe('createPDFExtractor without imageExtractor', () => {
     })
 
     const pdfData = Buffer.from('%PDF-1.4 dummy scanned content')
-    await expect(
-      ext.extract(pdfData, { contentType: 'application/pdf' }),
-    ).rejects.toThrow('imageExtractor')
+    await expect(ext.extract(pdfData, { contentType: 'application/pdf' })).rejects.toThrow(
+      'imageExtractor',
+    )
   })
 })
 

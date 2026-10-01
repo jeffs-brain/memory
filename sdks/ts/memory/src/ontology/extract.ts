@@ -13,11 +13,11 @@
 
 import { Buffer } from 'node:buffer'
 import type { Provider } from '../llm/types.js'
-import { isValidNodeType, isValidEdgeType, type TypeEntry } from './templates.js'
 import type { ResolvedOntology, ResolvedType } from './store.js'
+import { type TypeEntry, isValidEdgeType, isValidNodeType } from './templates.js'
 
-import { jaroWinklerDistance } from './similarity.js'
 import { extractJSON } from '../llm/structured.js'
+import { jaroWinklerDistance } from './similarity.js'
 
 /** Byte count above which content is split into multiple sections. */
 export const SINGLE_SECTION_THRESHOLD = 8000

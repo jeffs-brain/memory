@@ -1,15 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { beforeEach, describe, expect, it } from 'vitest'
-import { createMemStore } from '../store/memstore.js'
 import type { Store } from '../store/index.js'
+import { createMemStore } from '../store/memstore.js'
 import { toPath } from '../store/path.js'
-import type { OntologyTypeDefinition } from './types.js'
 import {
-  createFileOntologyStore,
   type FileOntologyStoreConfig,
   type OntologyStore,
+  createFileOntologyStore,
 } from './store.js'
+import type { OntologyTypeDefinition } from './types.js'
 
 const TEST_CONFIG: FileOntologyStoreConfig = {
   brainId: 'brain-1',
@@ -114,9 +114,9 @@ describe('FileOntologyStore', () => {
     })
 
     it('rejects upsert to built-in scope', async () => {
-      await expect(
-        ontologyStore.upsertType('built-in', makeNodeDef()),
-      ).rejects.toThrow('cannot upsert to built-in scope')
+      await expect(ontologyStore.upsertType('built-in', makeNodeDef())).rejects.toThrow(
+        'cannot upsert to built-in scope',
+      )
     })
 
     it('rejects invalid type definition', async () => {
@@ -147,15 +147,15 @@ describe('FileOntologyStore', () => {
     })
 
     it('throws for nonexistent type', async () => {
-      await expect(
-        ontologyStore.deleteType('brain', 'entity.nonexistent'),
-      ).rejects.toThrow('not found')
+      await expect(ontologyStore.deleteType('brain', 'entity.nonexistent')).rejects.toThrow(
+        'not found',
+      )
     })
 
     it('rejects delete from built-in scope', async () => {
-      await expect(
-        ontologyStore.deleteType('built-in', 'entity.customer'),
-      ).rejects.toThrow('cannot delete from built-in scope')
+      await expect(ontologyStore.deleteType('built-in', 'entity.customer')).rejects.toThrow(
+        'cannot delete from built-in scope',
+      )
     })
   })
 
@@ -175,12 +175,15 @@ describe('FileOntologyStore', () => {
 
     it('filters by status', async () => {
       await ontologyStore.upsertType('brain', makeNodeDef({ status: 'active' }))
-      await ontologyStore.upsertType('brain', makeNodeDef({
-        type: 'entity.proposed_one',
-        label: 'Proposed',
-        description: 'A proposed type',
-        status: 'proposed',
-      }))
+      await ontologyStore.upsertType(
+        'brain',
+        makeNodeDef({
+          type: 'entity.proposed_one',
+          label: 'Proposed',
+          description: 'A proposed type',
+          status: 'proposed',
+        }),
+      )
       const proposed = await ontologyStore.listTypes('brain', { status: 'proposed' })
       expect(proposed).toHaveLength(1)
       expect(proposed[0]!.type).toBe('entity.proposed_one')

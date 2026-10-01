@@ -17,9 +17,9 @@
 
 import { hashChunk as blake3HashChunk } from './hash.js'
 
-import type { Chunk } from './chunker.js'
 import type { Store } from '../store/index.js'
 import { isNotFound, toPath } from '../store/index.js'
+import type { Chunk } from './chunker.js'
 
 const CHUNK_MANIFESTS_PREFIX = 'raw/.chunk-manifests'
 
@@ -61,8 +61,7 @@ export type ChunkDelta = {
  * Delegates to the shared BLAKE3 hasher in hash.ts for cross-SDK
  * conformance with the Go implementation.
  */
-export const hashChunk = (text: string): string =>
-  blake3HashChunk(Buffer.from(text, 'utf8'))
+export const hashChunk = (text: string): string => blake3HashChunk(Buffer.from(text, 'utf8'))
 
 /**
  * Compares new chunks against a stored manifest and returns the delta
@@ -205,7 +204,12 @@ const manifestPath = (documentHash: string): string => {
  */
 const validateChunkManifest = (parsed: unknown): ChunkManifest | undefined => {
   if (parsed === null || typeof parsed !== 'object') return undefined
-  const obj = parsed as { documentHash?: unknown; generation?: unknown; chunks?: unknown; updatedAt?: unknown }
+  const obj = parsed as {
+    documentHash?: unknown
+    generation?: unknown
+    chunks?: unknown
+    updatedAt?: unknown
+  }
   if (typeof obj.documentHash !== 'string') return undefined
   if (typeof obj.generation !== 'number') return undefined
   if (!Array.isArray(obj.chunks)) return undefined
@@ -239,10 +243,7 @@ export const readChunkManifest = async (
  * to increment the generation counter. When no prior manifest exists,
  * generation starts at 1.
  */
-export const writeChunkManifest = async (
-  store: Store,
-  manifest: ChunkManifest,
-): Promise<void> => {
+export const writeChunkManifest = async (store: Store, manifest: ChunkManifest): Promise<void> => {
   const p = toPath(manifestPath(manifest.documentHash))
   const prior = await readChunkManifest(store, manifest.documentHash)
   const generation = prior !== undefined ? prior.generation + 1 : 1

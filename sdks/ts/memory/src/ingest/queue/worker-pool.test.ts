@@ -26,7 +26,9 @@ type FakeAdapterState = {
   pendingDepth: number
 }
 
-const createFakeAdapter = (initialJobs: ReadonlyArray<QueueJob> = []): QueueAdapter & {
+const createFakeAdapter = (
+  initialJobs: ReadonlyArray<QueueJob> = [],
+): QueueAdapter & {
   state: FakeAdapterState
 } => {
   const state: FakeAdapterState = {
@@ -121,16 +123,19 @@ const createFakeAdapter = (initialJobs: ReadonlyArray<QueueJob> = []): QueueAdap
 }
 
 const makeJobs = (count: number, brainId: string): ReadonlyArray<QueueJob> =>
-  Array.from({ length: count }, (_, i): QueueJob => ({
-    id: `job-${i}`,
-    brainId,
-    payload: { kind: 'raw', content: JSON.stringify({ doc: String(i) }) },
-    status: 'pending',
-    retryCount: 0,
-    maxRetries: 3,
-    createdAt: new Date(),
-    updatedAt: new Date(),
-  }))
+  Array.from(
+    { length: count },
+    (_, i): QueueJob => ({
+      id: `job-${i}`,
+      brainId,
+      payload: { kind: 'raw', content: JSON.stringify({ doc: String(i) }) },
+      status: 'pending',
+      retryCount: 0,
+      maxRetries: 3,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    }),
+  )
 
 const makeMultiBrainJobs = (
   perBrain: number,
@@ -138,24 +143,23 @@ const makeMultiBrainJobs = (
 ): ReadonlyArray<QueueJob> => {
   let seq = 0
   return brainIds.flatMap((brainId) =>
-    Array.from({ length: perBrain }, (): QueueJob => ({
-      id: `job-${seq++}`,
-      brainId,
-      payload: { kind: 'raw' },
-      status: 'pending',
-      retryCount: 0,
-      maxRetries: 3,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    })),
+    Array.from(
+      { length: perBrain },
+      (): QueueJob => ({
+        id: `job-${seq++}`,
+        brainId,
+        payload: { kind: 'raw' },
+        status: 'pending',
+        retryCount: 0,
+        maxRetries: 3,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      }),
+    ),
   )
 }
 
-const waitFor = (
-  predicate: () => boolean,
-  timeoutMs: number = 5000,
-  intervalMs: number = 10,
-): Promise<void> =>
+const waitFor = (predicate: () => boolean, timeoutMs = 5000, intervalMs = 10): Promise<void> =>
   new Promise((resolve, reject) => {
     const deadline = Date.now() + timeoutMs
     const tick = () => {
@@ -240,10 +244,7 @@ describe('createWorkerPool', () => {
     // Wait for all 6 jobs to complete. Jobs that hit the per-brain
     // concurrency limit are requeued (not failed), so they re-enter
     // the pending pool and are eventually processed.
-    await waitFor(
-      () => adapter.state.completed.length >= 6,
-      30_000,
-    )
+    await waitFor(() => adapter.state.completed.length >= 6, 30_000)
     await pool.stop()
 
     expect(maxBrainConcurrent).toBeLessThanOrEqual(2)
@@ -363,9 +364,7 @@ describe('createWorkerPool', () => {
     pools.push(pool)
     pool.start()
 
-    await waitFor(
-      () => adapter.state.completed.length >= 4,
-    )
+    await waitFor(() => adapter.state.completed.length >= 4)
     await pool.stop()
 
     expect(bothObserved).toBe(true)
@@ -421,9 +420,7 @@ describe('createWorkerPool', () => {
     pools.push(pool)
     pool.start()
 
-    await waitFor(
-      () => adapter.state.completed.length + adapter.state.failed.length >= 3,
-    )
+    await waitFor(() => adapter.state.completed.length + adapter.state.failed.length >= 3)
     await pool.stop()
 
     const finalMetrics = pool.metrics()

@@ -2,13 +2,13 @@
 
 import { describe, expect, it } from 'vitest'
 import {
+  type Hasher,
   blake3Hasher,
   hashChunk,
   hashDocument,
   hashDocumentId,
   hashSlug,
   hashString,
-  type Hasher,
 } from './hash.js'
 
 describe('hashDocument', () => {
@@ -147,8 +147,6 @@ describe('cross-SDK conformance', () => {
 
     // Hardcoded expected value from BLAKE3 reference implementation.
     // Computed via: blake3.Sum256([]byte("jeff's brain memory system"))
-    expect(hash).toBe(
-      'e311e54b56b26bfef4e5c8501f04c708f1e02233106022f58a7e94b728b7265c',
-    )
+    expect(hash).toBe('e311e54b56b26bfef4e5c8501f04c708f1e02233106022f58a7e94b728b7265c')
   })
 })

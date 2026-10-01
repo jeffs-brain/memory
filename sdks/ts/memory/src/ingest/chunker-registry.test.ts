@@ -1,11 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from 'vitest'
-import {
-  ChunkConfigError,
-  createChunkConfig,
-  defaultChunkConfig,
-} from './chunk-config.js'
+import { ChunkConfigError, createChunkConfig, defaultChunkConfig } from './chunk-config.js'
 import { createChunkerRegistry } from './chunker-registry.js'
 import type { Chunk, Chunker } from './chunker-registry.js'
 import { codeChunker } from './chunkers/code.js'
@@ -123,9 +119,7 @@ describe('markdownChunker', () => {
     const introChunk = chunks[0]
     expect(introChunk?.metadata.headingPath).toContain('Introduction')
 
-    const patternsChunk = chunks.find((c) =>
-      c.metadata.headingPath.includes('Patterns'),
-    )
+    const patternsChunk = chunks.find((c) => c.metadata.headingPath.includes('Patterns'))
     expect(patternsChunk).toBeDefined()
     expect(patternsChunk?.metadata.headingPath).toContain('Architecture')
     expect(patternsChunk?.metadata.headingPath).toContain('Patterns')
@@ -199,11 +193,7 @@ describe('createChunkerRegistry', () => {
   it('normalises content type with charset suffix', async () => {
     const reg = createChunkerRegistry()
     const cfg = defaultChunkConfig()
-    const chunks = await reg.chunk(
-      '# Title\n\nBody',
-      'text/markdown; charset=utf-8',
-      cfg,
-    )
+    const chunks = await reg.chunk('# Title\n\nBody', 'text/markdown; charset=utf-8', cfg)
     expect(chunks[0]?.metadata.chunker).toBe('markdown')
   })
 
@@ -228,15 +218,9 @@ describe('createChunkerRegistry', () => {
   it('assigns sequential IDs when chunks have no ID', async () => {
     const reg = createChunkerRegistry()
     const cfg = defaultChunkConfig()
-    const content = [
-      '# Section A',
-      '',
-      'Content A.',
-      '',
-      '# Section B',
-      '',
-      'Content B.',
-    ].join('\n')
+    const content = ['# Section A', '', 'Content A.', '', '# Section B', '', 'Content B.'].join(
+      '\n',
+    )
     const chunks = await reg.chunk(content, 'text/markdown', cfg)
     expect(chunks.length).toBeGreaterThanOrEqual(2)
     expect(chunks[0]?.id).toBe('0')
@@ -248,9 +232,7 @@ describe('createChunkerRegistry', () => {
     const cfg = defaultChunkConfig()
     const controller = new AbortController()
     controller.abort()
-    await expect(
-      reg.chunk('test', 'text/plain', cfg, controller.signal),
-    ).rejects.toThrow()
+    await expect(reg.chunk('test', 'text/plain', cfg, controller.signal)).rejects.toThrow()
   })
 })
 

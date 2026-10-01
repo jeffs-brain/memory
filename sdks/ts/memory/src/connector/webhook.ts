@@ -10,7 +10,7 @@
  * protection with a configurable expiry window (default: 5 minutes).
  */
 
-import { createHmac, timingSafeEqual, createHash } from 'node:crypto'
+import { createHash, createHmac, timingSafeEqual } from 'node:crypto'
 
 import type { ConnectorDocument, DocumentDispatcher } from './types.js'
 
@@ -139,7 +139,7 @@ class IdempotencyStore {
 
   private evictOldest(): void {
     let oldestKey: string | undefined
-    let oldestTime = Infinity
+    let oldestTime = Number.POSITIVE_INFINITY
     for (const [key, entry] of this.entries) {
       if (entry.expiresAt < oldestTime) {
         oldestKey = key
@@ -211,12 +211,7 @@ const authenticateBearer: Authenticator = (headers, _body, secret): boolean => {
   return timingSafeEqual(actualHash, expectedHash)
 }
 
-const authenticateHMAC: Authenticator = (
-  headers,
-  body,
-  secret,
-  timestampExpiryMs,
-): boolean => {
+const authenticateHMAC: Authenticator = (headers, body, secret, timestampExpiryMs): boolean => {
   const sigHeader = headers.get('x-webhook-signature') ?? ''
   if (sigHeader === '') {
     return false
@@ -227,7 +222,7 @@ const authenticateHMAC: Authenticator = (
   if (tsHeader === '') {
     return false
   }
-  const ts = parseInt(tsHeader, 10)
+  const ts = Number.parseInt(tsHeader, 10)
   if (Number.isNaN(ts)) {
     return false
   }
@@ -360,7 +355,11 @@ const validateDocument = (raw: unknown): ValidationResult<WebhookDocument> => {
 
   // Optional metadata: must be Record<string, string> for parity with Go.
   if (obj['metadata'] !== undefined) {
-    if (obj['metadata'] === null || typeof obj['metadata'] !== 'object' || Array.isArray(obj['metadata'])) {
+    if (
+      obj['metadata'] === null ||
+      typeof obj['metadata'] !== 'object' ||
+      Array.isArray(obj['metadata'])
+    ) {
       return { error: 'metadata must be an object' }
     }
     const meta = obj['metadata'] as Record<string, unknown>
@@ -378,7 +377,9 @@ const validateDocument = (raw: unknown): ValidationResult<WebhookDocument> => {
     ...(obj['mime'] !== undefined ? { mime: obj['mime'] as string } : {}),
     ...(obj['title'] !== undefined ? { title: obj['title'] as string } : {}),
     ...(obj['url'] !== undefined ? { url: obj['url'] as string } : {}),
-    ...(obj['metadata'] !== undefined ? { metadata: obj['metadata'] as Readonly<Record<string, string>> } : {}),
+    ...(obj['metadata'] !== undefined
+      ? { metadata: obj['metadata'] as Readonly<Record<string, string>> }
+      : {}),
   }
   return { value: doc }
 }
@@ -491,10 +492,7 @@ export class WebhookReceiver {
       return this.errorResponse(400, 'documents array is empty')
     }
     if (payload.documents.length > this.maxDocuments) {
-      return this.errorResponse(
-        400,
-        `exceeds maximum of ${String(this.maxDocuments)} documents`,
-      )
+      return this.errorResponse(400, `exceeds maximum of ${String(this.maxDocuments)} documents`)
     }
 
     // Process each document
@@ -540,9 +538,7 @@ export class WebhookReceiver {
     return result
   }
 
-  private async processDocuments(
-    docs: readonly WebhookDocument[],
-  ): Promise<WebhookResponse> {
+  private async processDocuments(docs: readonly WebhookDocument[]): Promise<WebhookResponse> {
     const results: WebhookDocumentResult[] = []
     let accepted = 0
     let rejected = 0
@@ -550,8 +546,12 @@ export class WebhookReceiver {
     for (const doc of docs) {
       const result = await this.processDocument(doc)
       const statusUpdaters: Record<'accepted' | 'rejected', () => void> = {
-        accepted: () => { accepted++ },
-        rejected: () => { rejected++ },
+        accepted: () => {
+          accepted++
+        },
+        rejected: () => {
+          rejected++
+        },
       }
       statusUpdaters[result.status]()
       results.push(result)
@@ -560,9 +560,7 @@ export class WebhookReceiver {
     return { accepted, rejected, results }
   }
 
-  private async processDocument(
-    doc: WebhookDocument,
-  ): Promise<WebhookDocumentResult> {
+  private async processDocument(doc: WebhookDocument): Promise<WebhookDocumentResult> {
     // Validate required fields.
     if (typeof doc.externalId !== 'string' || doc.externalId === '') {
       return {
@@ -645,13 +643,10 @@ export class WebhookReceiver {
   }
 
   private errorResponse(status: number, detail: string): Response {
-    return new Response(
-      JSON.stringify({ status, title: statusText(status), detail }),
-      {
-        status,
-        headers: { 'content-type': 'application/problem+json' },
-      },
-    )
+    return new Response(JSON.stringify({ status, title: statusText(status), detail }), {
+      status,
+      headers: { 'content-type': 'application/problem+json' },
+    })
   }
 }
 

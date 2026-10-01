@@ -86,9 +86,10 @@ type HashMigrator = {
  */
 export const createHashMigrator = (storeOrOpts: Store | HashMigratorOptions): HashMigrator => {
   const store = 'store' in storeOrOpts ? storeOrOpts.store : storeOrOpts
-  const stateBackend = 'stateBackend' in storeOrOpts && storeOrOpts.stateBackend !== undefined
-    ? storeOrOpts.stateBackend
-    : createFileMigrationStateBackend(store)
+  const stateBackend =
+    'stateBackend' in storeOrOpts && storeOrOpts.stateBackend !== undefined
+      ? storeOrOpts.stateBackend
+      : createFileMigrationStateBackend(store)
 
   const rawDocumentPath = (slug: string): Path => joinPath(RAW_DOCUMENTS_PREFIX, `${slug}.md`)
 
@@ -101,7 +102,10 @@ export const createHashMigrator = (storeOrOpts: Store | HashMigratorOptions): Ha
     return name.slice(0, -3)
   }
 
-  const migrateDocument = async (docPath: Path, dryRun: boolean): Promise<'migrated' | 'skipped' | 'not_found'> => {
+  const migrateDocument = async (
+    docPath: Path,
+    dryRun: boolean,
+  ): Promise<'migrated' | 'skipped' | 'not_found'> => {
     const slug = extractSlug(docPath)
     if (slug === '') return 'skipped'
 

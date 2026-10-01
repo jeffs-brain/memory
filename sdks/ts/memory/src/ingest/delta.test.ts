@@ -7,8 +7,8 @@
  */
 
 import { afterEach, describe, expect, it } from 'vitest'
-import { createMemStore } from '../store/memstore.js'
 import type { Store } from '../store/index.js'
+import { createMemStore } from '../store/memstore.js'
 import type { Chunk } from './chunker.js'
 import {
   buildChunkManifest,
@@ -64,10 +64,7 @@ describe('computeChunkDeltas', () => {
   })
 
   it('marks all chunks as unchanged when hashes match', () => {
-    const chunks: Chunk[] = [
-      makeChunk('alpha content', 0),
-      makeChunk('beta content', 1),
-    ]
+    const chunks: Chunk[] = [makeChunk('alpha content', 0), makeChunk('beta content', 1)]
 
     const manifest = buildChunkManifest('doc1hash', chunks)
 
@@ -83,10 +80,7 @@ describe('computeChunkDeltas', () => {
   })
 
   it('detects added chunks by hash not in old manifest', () => {
-    const oldChunks: Chunk[] = [
-      makeChunk('alpha content', 0),
-      makeChunk('beta content', 1),
-    ]
+    const oldChunks: Chunk[] = [makeChunk('alpha content', 0), makeChunk('beta content', 1)]
     const manifest = buildChunkManifest('doc1hash', oldChunks)
 
     const newChunks: Chunk[] = [
@@ -108,10 +102,7 @@ describe('computeChunkDeltas', () => {
   })
 
   it('detects removed chunks by hash in old but not new', () => {
-    const oldChunks: Chunk[] = [
-      makeChunk('alpha content', 0),
-      makeChunk('beta content', 1),
-    ]
+    const oldChunks: Chunk[] = [makeChunk('alpha content', 0), makeChunk('beta content', 1)]
     const manifest = buildChunkManifest('doc1hash', oldChunks)
 
     const newChunks: Chunk[] = [makeChunk('alpha content', 0)]
@@ -152,10 +143,7 @@ describe('computeChunkDeltas', () => {
   })
 
   it('handles complete document rewrite (all new hashes)', () => {
-    const oldChunks: Chunk[] = [
-      makeChunk('old alpha', 0),
-      makeChunk('old beta', 1),
-    ]
+    const oldChunks: Chunk[] = [makeChunk('old alpha', 0), makeChunk('old beta', 1)]
     const manifest = buildChunkManifest('doc1hash', oldChunks)
 
     const newChunks: Chunk[] = [
@@ -225,10 +213,7 @@ describe('computeChunkDeltas', () => {
   })
 
   it('marks all old chunks as removed when new set is empty', () => {
-    const oldChunks: Chunk[] = [
-      makeChunk('alpha content', 0),
-      makeChunk('beta content', 1),
-    ]
+    const oldChunks: Chunk[] = [makeChunk('alpha content', 0), makeChunk('beta content', 1)]
     const manifest = buildChunkManifest('doc1hash', oldChunks)
 
     const deltas = computeChunkDeltas([], manifest)
@@ -305,17 +290,29 @@ describe('readChunkManifest/writeChunkManifest', () => {
   it('increments generation on subsequent writes', async () => {
     const store = freshStore()
     const chunks1: Chunk[] = [makeChunk('content v1', 0)]
-    const manifest1 = buildChunkManifest('d0c000000000000000000000000000000000000000000000000000000000abcd', chunks1)
+    const manifest1 = buildChunkManifest(
+      'd0c000000000000000000000000000000000000000000000000000000000abcd',
+      chunks1,
+    )
 
     await writeChunkManifest(store, manifest1)
-    const first = await readChunkManifest(store, 'd0c000000000000000000000000000000000000000000000000000000000abcd')
+    const first = await readChunkManifest(
+      store,
+      'd0c000000000000000000000000000000000000000000000000000000000abcd',
+    )
     expect(first?.generation).toBe(1)
 
     const chunks2: Chunk[] = [makeChunk('content v2', 0)]
-    const manifest2 = buildChunkManifest('d0c000000000000000000000000000000000000000000000000000000000abcd', chunks2)
+    const manifest2 = buildChunkManifest(
+      'd0c000000000000000000000000000000000000000000000000000000000abcd',
+      chunks2,
+    )
 
     await writeChunkManifest(store, manifest2)
-    const second = await readChunkManifest(store, 'd0c000000000000000000000000000000000000000000000000000000000abcd')
+    const second = await readChunkManifest(
+      store,
+      'd0c000000000000000000000000000000000000000000000000000000000abcd',
+    )
     expect(second?.generation).toBe(2)
   })
 })

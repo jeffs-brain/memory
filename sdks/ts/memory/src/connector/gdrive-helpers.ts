@@ -90,7 +90,9 @@ export const buildFileQuery = (cfg: GDriveConnectorConfig): string => {
  */
 const validateFolderId = (folderId: string): void => {
   if (!FOLDER_ID_PATTERN.test(folderId)) {
-    throw new Error(`gdrive: invalid folder ID "${folderId}" — must be alphanumeric with hyphens/underscores`)
+    throw new Error(
+      `gdrive: invalid folder ID "${folderId}" — must be alphanumeric with hyphens/underscores`,
+    )
   }
 }
 
@@ -166,7 +168,10 @@ export const parseRateLimitError = (body: string, statusCode: number): RateLimit
  * Calculate backoff duration with exponential increase and jitter.
  * Respects the Retry-After header when present.
  */
-export const calculateBackoff = (attempt: number, retryAfterHeader: string | null | undefined): number => {
+export const calculateBackoff = (
+  attempt: number,
+  retryAfterHeader: string | null | undefined,
+): number => {
   if (retryAfterHeader !== null && retryAfterHeader !== undefined) {
     const retryAfterSeconds = Number(retryAfterHeader)
     if (!Number.isNaN(retryAfterSeconds) && retryAfterSeconds > 0) {

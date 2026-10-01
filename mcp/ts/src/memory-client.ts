@@ -29,7 +29,10 @@ import {
   createSearchIndex,
   createStoreBackedCursorStore,
 } from '@jeffs-brain/memory'
-import { ingestDocument, extractAfterIngest as sdkExtractAfterIngest } from '@jeffs-brain/memory/ingest'
+import {
+  ingestDocument,
+  extractAfterIngest as sdkExtractAfterIngest,
+} from '@jeffs-brain/memory/ingest'
 import { type SafeFetchResult, safeFetch } from '@jeffs-brain/memory/net'
 import { createRetrieval } from '@jeffs-brain/memory/retrieval'
 import type { ConfigMode, HostedConfig, LocalConfig } from './config.js'
@@ -163,7 +166,12 @@ type BrainListItem = {
 const parseBrainConfig = (raw: string): BrainConfigFile | undefined => {
   const parsed: unknown = JSON.parse(raw)
   if (typeof parsed !== 'object' || parsed === null) return undefined
-  const obj = parsed as { slug?: unknown; name?: unknown; visibility?: unknown; createdAt?: unknown }
+  const obj = parsed as {
+    slug?: unknown
+    name?: unknown
+    visibility?: unknown
+    createdAt?: unknown
+  }
   return {
     ...(typeof obj.slug === 'string' ? { slug: obj.slug } : {}),
     ...(typeof obj.name === 'string' ? { name: obj.name } : {}),
@@ -1169,8 +1177,7 @@ const createHostedClient = (cfg: HostedConfig): MemoryClient => {
       if (args.content.trim() === '') return emptyResult
 
       const brain = hostedResolveBrain(deps, args.brain)
-      const content =
-        args.content.length > 128_000 ? args.content.slice(0, 128_000) : args.content
+      const content = args.content.length > 128_000 ? args.content.slice(0, 128_000) : args.content
 
       try {
         const doc = await hostedFetch(deps, `/v1/brains/${encodeURIComponent(brain)}/documents`, {

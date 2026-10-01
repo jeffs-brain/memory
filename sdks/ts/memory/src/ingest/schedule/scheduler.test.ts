@@ -23,7 +23,9 @@ describe('scheduler', () => {
 
     const scheduler = createScheduler({
       scheduleStore: store,
-      dispatch: (j) => { dispatched.push(j) },
+      dispatch: (j) => {
+        dispatched.push(j)
+      },
     })
 
     const fired = await scheduler.runDueJobs()
@@ -47,7 +49,9 @@ describe('scheduler', () => {
 
     const scheduler = createScheduler({
       scheduleStore: store,
-      dispatch: (j) => { dispatched.push(j) },
+      dispatch: (j) => {
+        dispatched.push(j)
+      },
     })
 
     const fired = await scheduler.runDueJobs()
@@ -86,7 +90,9 @@ describe('scheduler', () => {
 
     const scheduler = createScheduler({
       scheduleStore: store,
-      dispatch: (j) => { dispatched.push(j) },
+      dispatch: (j) => {
+        dispatched.push(j)
+      },
     })
 
     const fired = await scheduler.runDueJobs()
@@ -146,7 +152,9 @@ describe('scheduler', () => {
     const scheduler = createScheduler({
       scheduleStore: store,
       pollIntervalMs: 50,
-      dispatch: () => { dispatched++ },
+      dispatch: () => {
+        dispatched++
+      },
     })
 
     scheduler.start()

@@ -8,7 +8,12 @@
  */
 
 import type { OntologyTypeDefinition, TypeStatus } from './types.js'
-import { BUILT_IN_EDGE_TYPES, BUILT_IN_NODE_TYPES, BUSINESS_CATEGORIES, _nodeTypePrefixesRef } from './types.js'
+import {
+  BUILT_IN_EDGE_TYPES,
+  BUILT_IN_NODE_TYPES,
+  BUSINESS_CATEGORIES,
+  _nodeTypePrefixesRef,
+} from './types.js'
 
 const SNAKE_CASE_NAME_RE = /^[a-z][a-z0-9]*(_[a-z0-9]+)*$/
 

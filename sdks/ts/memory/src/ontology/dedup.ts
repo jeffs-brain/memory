@@ -104,14 +104,27 @@ export class Deduplicator {
     const existingByPrefix = groupByPrefix(existing)
 
     const afterExact = deduplicateExact(extracted, existingByID, autoMerged)
-    const afterFuzzy = deduplicateFuzzy(afterExact, existingByPrefix, autoMerged, this.fuzzyThreshold, this.similarityFn)
+    const afterFuzzy = deduplicateFuzzy(
+      afterExact,
+      existingByPrefix,
+      autoMerged,
+      this.fuzzyThreshold,
+      this.similarityFn,
+    )
 
     if (this.embedder === undefined || afterFuzzy.length === 0) {
       unique.push(...afterFuzzy)
       return { unique, autoMerged, reviewCandidates }
     }
 
-    await this.deduplicateSemantic(afterFuzzy, existing, unique, autoMerged, reviewCandidates, signal)
+    await this.deduplicateSemantic(
+      afterFuzzy,
+      existing,
+      unique,
+      autoMerged,
+      reviewCandidates,
+      signal,
+    )
     return { unique, autoMerged, reviewCandidates }
   }
 

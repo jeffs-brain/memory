@@ -8,7 +8,13 @@
  *   connector/<name>/<brainId>/oauth-token.enc.json
  */
 
-import { createCipheriv, createDecipheriv, randomBytes, createHash, timingSafeEqual } from 'node:crypto'
+import {
+  createCipheriv,
+  createDecipheriv,
+  createHash,
+  randomBytes,
+  timingSafeEqual,
+} from 'node:crypto'
 import type { Store } from '../store/index.js'
 import { isNotFound, toPath } from '../store/index.js'
 import type { OAuth2Token } from './oauth2.js'
@@ -81,8 +87,7 @@ const deserialiseToken = (json: string): OAuth2Token => {
  * supporting user-chosen passphrases, upgrade to PBKDF2 (>=100 000
  * iterations) or scrypt/argon2 for brute-force resistance.
  */
-const deriveKey = (passphrase: Buffer): Buffer =>
-  createHash('sha256').update(passphrase).digest()
+const deriveKey = (passphrase: Buffer): Buffer => createHash('sha256').update(passphrase).digest()
 
 /** Encrypt plaintext using AES-256-GCM. */
 const encrypt = (key: Buffer, plaintext: Buffer): EncryptedEnvelope => {

@@ -7,11 +7,13 @@
  * via the ImageExtractor delegate. Implements the Extractor interface.
  */
 
-import { readdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { Readable } from 'node:stream'
+import type { Logger } from '../llm/types.js'
+import { noopLogger } from '../llm/types.js'
 import type {
   ExtractOptions,
   ExtractResult,
@@ -20,8 +22,6 @@ import type {
   MagicSignature,
 } from './extractor.js'
 import { DEFAULT_SUBPROCESS_TIMEOUT_MS, checkBinaryAvailable, runSubprocess } from './subprocess.js'
-import type { Logger } from '../llm/types.js'
-import { noopLogger } from '../llm/types.js'
 
 /** Configuration for the PDF OCR extractor. */
 export type PDFExtractorConfig = {
@@ -77,8 +77,7 @@ export const isSubstantialText = (text: string): boolean =>
  * to images via pdftoppm and then OCR-ed via the image extractor.
  */
 export const createPDFExtractor = (config?: PDFExtractorConfig): Extractor => {
-  const pdftoppmBinary =
-    config?.pdftoppmBinary ?? envOrDefault('MEMORY_PDFTOPPM_PATH', 'pdftoppm')
+  const pdftoppmBinary = config?.pdftoppmBinary ?? envOrDefault('MEMORY_PDFTOPPM_PATH', 'pdftoppm')
   const pdftotextBinary =
     config?.pdftotextBinary ?? envOrDefault('MEMORY_PDFTOTEXT_PATH', 'pdftotext')
   const imageExtractor = config?.imageExtractor
@@ -86,10 +85,7 @@ export const createPDFExtractor = (config?: PDFExtractorConfig): Extractor => {
   const maxPages = config?.maxPages ?? DEFAULT_MAX_PDF_PAGES
   const logger = config?.logger ?? noopLogger
 
-  const extractWithPdftotext = async (
-    pdfPath: string,
-    signal?: AbortSignal,
-  ): Promise<string> => {
+  const extractWithPdftotext = async (pdfPath: string, signal?: AbortSignal): Promise<string> => {
     const subprocessOpts = signal !== undefined ? { timeout, signal } : { timeout }
     const result = await runSubprocess(
       pdftotextBinary,
@@ -127,9 +123,7 @@ export const createPDFExtractor = (config?: PDFExtractorConfig): Extractor => {
     }
 
     const files = await readdir(tmpDir)
-    const pageImages = files
-      .filter((f) => f.startsWith('page') && f.endsWith('.png'))
-      .sort()
+    const pageImages = files.filter((f) => f.startsWith('page') && f.endsWith('.png')).sort()
 
     if (pageImages.length === 0) {
       throw new Error('ingest: pdftoppm produced no page images')

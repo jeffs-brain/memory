@@ -7,7 +7,14 @@
  */
 
 import type { Logger } from '../../llm/types.js'
-import type { IngestTriggerEvent, SubscribeOptions, TriggerBus, TriggerBusOptions, TriggerHandler, Unsubscribe } from './types.js'
+import type {
+  IngestTriggerEvent,
+  SubscribeOptions,
+  TriggerBus,
+  TriggerBusOptions,
+  TriggerHandler,
+  Unsubscribe,
+} from './types.js'
 import { validateTriggerEvent } from './types.js'
 
 const DEFAULT_MAX_QUEUE_DEPTH = 1000

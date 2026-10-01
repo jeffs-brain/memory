@@ -1,10 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from 'vitest'
-import {
-  createNotionConnector,
-  type NotionHTTPFetcher,
-} from './notion.js'
+import { type NotionHTTPFetcher, createNotionConnector } from './notion.js'
 import type { ConnectorConfig, ConnectorDocument } from './types.js'
 
 // ---------- Test helpers ----------
@@ -27,19 +24,13 @@ const createMockFetcher = (
   const calls: { url: string; method: string; body: string }[] = []
 
   const fetcher: NotionHTTPFetcher = async (url, options) => {
-    const bodyText =
-      options.body !== undefined && options.body !== null
-        ? String(options.body)
-        : ''
+    const bodyText = options.body !== undefined && options.body !== null ? String(options.body) : ''
     calls.push({ url, method: options.method ?? 'GET', body: bodyText })
 
     const idx = callIndex
     callIndex++
 
-    const resp =
-      idx < responses.length
-        ? responses[idx]
-        : { status: 200, body: '{}' }
+    const resp = idx < responses.length ? responses[idx] : { status: 200, body: '{}' }
 
     return new Response(resp.body, {
       status: resp.status,
@@ -94,9 +85,7 @@ describe('NotionConnector', () => {
     it('rejects empty apiToken', async () => {
       const { fetcher } = createMockFetcher([])
       const conn = createNotionConnector(testDeps(), { fetcher })
-      await expect(conn.configure({ apiToken: '' })).rejects.toThrow(
-        'apiToken is required',
-      )
+      await expect(conn.configure({ apiToken: '' })).rejects.toThrow('apiToken is required')
     })
 
     it('accepts valid configuration', async () => {
@@ -118,9 +107,7 @@ describe('NotionConnector', () => {
       const { fetcher } = createMockFetcher([])
       const conn = createNotionConnector(testDeps(), { fetcher })
       const signal = AbortSignal.timeout(5000)
-      await expect(collectDocs(conn.fetchAll(signal))).rejects.toThrow(
-        'not configured',
-      )
+      await expect(collectDocs(conn.fetchAll(signal))).rejects.toThrow('not configured')
     })
 
     it('fetches page via markdown API', async () => {
@@ -195,9 +182,7 @@ describe('NotionConnector', () => {
             type: 'paragraph',
             has_children: false,
             paragraph: {
-              rich_text: [
-                { type: 'text', plain_text: 'Paragraph content here.' },
-              ],
+              rich_text: [{ type: 'text', plain_text: 'Paragraph content here.' }],
             },
           },
         ],
@@ -360,9 +345,7 @@ describe('NotionConnector', () => {
       })
       const rootMD = JSON.stringify({ markdown: 'Root content' })
       const rootChildren = JSON.stringify({
-        results: [
-          { id: 'child-1', type: 'child_page', has_children: false },
-        ],
+        results: [{ id: 'child-1', type: 'child_page', has_children: false }],
         has_more: false,
       })
       const childPage = JSON.stringify({
@@ -413,9 +396,7 @@ describe('NotionConnector', () => {
       })
       const md = JSON.stringify({ markdown: 'content' })
       const children = JSON.stringify({
-        results: [
-          { id: 'child-1', type: 'child_page', has_children: false },
-        ],
+        results: [{ id: 'child-1', type: 'child_page', has_children: false }],
         has_more: false,
       })
       const childPage = JSON.stringify({
@@ -472,9 +453,7 @@ describe('NotionConnector', () => {
       })
       const md = JSON.stringify({ markdown: 'content' })
       const childrenA = JSON.stringify({
-        results: [
-          { id: 'page-b', type: 'child_page', has_children: false },
-        ],
+        results: [{ id: 'page-b', type: 'child_page', has_children: false }],
         has_more: false,
       })
       const pageB = JSON.stringify({
@@ -487,9 +466,7 @@ describe('NotionConnector', () => {
         parent: { type: 'page_id', page_id: 'page-a' },
       })
       const childrenB = JSON.stringify({
-        results: [
-          { id: 'page-a', type: 'child_page', has_children: false },
-        ],
+        results: [{ id: 'page-a', type: 'child_page', has_children: false }],
         has_more: false,
       })
 
@@ -547,9 +524,7 @@ describe('NotionConnector', () => {
         has_more: false,
       })
 
-      const { fetcher } = createMockFetcher([
-        { status: 200, body: searchResp },
-      ])
+      const { fetcher } = createMockFetcher([{ status: 200, body: searchResp }])
 
       const conn = createNotionConnector(testDeps(), { fetcher })
       await conn.configure({ apiToken: 'secret_test' })
@@ -681,9 +656,7 @@ describe('NotionConnector', () => {
 
       const signal = AbortSignal.timeout(5000)
       const docs = await collectDocs(conn.fetchAll(signal))
-      expect(docs[0].modifiedAt).toEqual(
-        new Date('2026-05-15T10:00:00.000Z'),
-      )
+      expect(docs[0].modifiedAt).toEqual(new Date('2026-05-15T10:00:00.000Z'))
     })
   })
 
@@ -918,9 +891,7 @@ describe('NotionConnector', () => {
             type: 'code',
             has_children: false,
             code: {
-              rich_text: [
-                { type: 'text', plain_text: 'const x = 1' },
-              ],
+              rich_text: [{ type: 'text', plain_text: 'const x = 1' }],
               language: 'typescript',
             },
           },
@@ -1046,9 +1017,7 @@ describe('NotionConnector', () => {
             type: 'paragraph',
             has_children: false,
             paragraph: {
-              rich_text: [
-                { type: 'text', plain_text: 'Nested paragraph' },
-              ],
+              rich_text: [{ type: 'text', plain_text: 'Nested paragraph' }],
             },
           },
           {
@@ -1056,9 +1025,7 @@ describe('NotionConnector', () => {
             type: 'bulleted_list_item',
             has_children: false,
             bulleted_list_item: {
-              rich_text: [
-                { type: 'text', plain_text: 'Nested list item' },
-              ],
+              rich_text: [{ type: 'text', plain_text: 'Nested list item' }],
             },
           },
         ],
@@ -1123,9 +1090,7 @@ describe('NotionConnector', () => {
             type: 'paragraph',
             has_children: false,
             paragraph: {
-              rich_text: [
-                { type: 'text', plain_text: 'After synced block' },
-              ],
+              rich_text: [{ type: 'text', plain_text: 'After synced block' }],
             },
           },
         ],
@@ -1302,9 +1267,7 @@ describe('NotionConnector', () => {
             type: 'paragraph',
             has_children: false,
             paragraph: {
-              rich_text: [
-                { type: 'text', plain_text: 'Filtered paragraph' },
-              ],
+              rich_text: [{ type: 'text', plain_text: 'Filtered paragraph' }],
             },
           },
         ],
@@ -1368,9 +1331,10 @@ describe('NotionConnector', () => {
 
       const fetcher: NotionHTTPFetcher = async (url, options) => {
         const idx = callIndex++
-        const resp = idx < responses.length
-          ? responses[idx]
-          : { status: 200, body: '{}', retryAfter: undefined }
+        const resp =
+          idx < responses.length
+            ? responses[idx]
+            : { status: 200, body: '{}', retryAfter: undefined }
 
         const headers = new Headers({ 'Content-Type': 'application/json' })
         if (resp.retryAfter !== undefined) {
@@ -1401,15 +1365,18 @@ describe('NotionConnector', () => {
   describe('context cancellation', () => {
     it('does not hang when signal is already aborted', async () => {
       const { fetcher } = createMockFetcher([
-        { status: 200, body: JSON.stringify({
-          id: 'p1',
-          url: 'https://notion.so/p1',
-          last_edited_time: '2026-05-10T14:00:00.000Z',
-          properties: {
-            Title: { type: 'title', title: [{ plain_text: 'T' }] },
-          },
-          parent: { type: 'workspace' },
-        }) },
+        {
+          status: 200,
+          body: JSON.stringify({
+            id: 'p1',
+            url: 'https://notion.so/p1',
+            last_edited_time: '2026-05-10T14:00:00.000Z',
+            properties: {
+              Title: { type: 'title', title: [{ plain_text: 'T' }] },
+            },
+            parent: { type: 'workspace' },
+          }),
+        },
         { status: 200, body: JSON.stringify({ markdown: 'content' }) },
         { status: 200, body: JSON.stringify({ results: [], has_more: false }) },
       ])

@@ -137,7 +137,9 @@ maybe('document graph integration', () => {
       maxEdges: 1,
     })
 
-    expect(graph.nodes.every((node) => node.entityType === 'memory' || node.entityType === 'article')).toBe(true)
+    expect(
+      graph.nodes.every((node) => node.entityType === 'memory' || node.entityType === 'article'),
+    ).toBe(true)
     expect(graph.edges.every((edge) => edge.edgeType === 'shared_tag')).toBe(true)
     expect(graph.meta.truncated).toBe(true)
   }, 120_000)

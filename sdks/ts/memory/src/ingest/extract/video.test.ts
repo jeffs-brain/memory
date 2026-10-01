@@ -43,9 +43,15 @@ const hasFFprobe = (): boolean => {
 const generateTestVideo = (outputPath: string, withAudio: boolean): void => {
   const args = [
     '-y',
-    '-f', 'lavfi', '-i', 'testsrc=duration=1:size=160x120:rate=10',
+    '-f',
+    'lavfi',
+    '-i',
+    'testsrc=duration=1:size=160x120:rate=10',
     ...(withAudio ? ['-f', 'lavfi', '-i', 'sine=frequency=440:duration=1'] : []),
-    '-c:v', 'libx264', '-preset', 'ultrafast',
+    '-c:v',
+    'libx264',
+    '-preset',
+    'ultrafast',
     ...(withAudio ? ['-c:a', 'aac', '-shortest'] : ['-an']),
     outputPath,
   ]
@@ -486,8 +492,6 @@ describe('writeStreamToFile size enforcement', () => {
     // just the pre-check.
     const e = makeExtractor({ maxFileSizeBytes: 64 })
     const oversizedStream = Readable.from(Buffer.alloc(128))
-    await expect(
-      e.extractStream(oversizedStream, {}),
-    ).rejects.toThrow('exceeds maximum')
+    await expect(e.extractStream(oversizedStream, {})).rejects.toThrow('exceeds maximum')
   })
 })

@@ -9,13 +9,13 @@
 
 import { RAW_DOCUMENTS_PREFIX } from '../knowledge/ingest.js'
 import { appendLogInBatch } from '../knowledge/log.js'
-import { hashDocument } from './hash.js'
 import type { Embedder, Logger } from '../llm/index.js'
 import { noopLogger } from '../llm/index.js'
 import type { Chunk as IndexChunk, SearchIndex as SqliteSearchIndex } from '../search/index.js'
 import type { Store } from '../store/index.js'
 import { toPath } from '../store/index.js'
 import { type Chunk, chunkAuto, chunkMarkdown, chunkPlainText } from './chunker.js'
+import { hashDocument } from './hash.js'
 import {
   type PipelineStage,
   type PipelineState,

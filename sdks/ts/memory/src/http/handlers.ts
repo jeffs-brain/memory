@@ -783,9 +783,7 @@ export const handleAsk = async (
                 content: buildAugmentedAskPrompt(question, augmentedEvidence ?? '', questionDate),
               },
             ]
-          : [
-              { role: 'user' as const, content: buildAskPrompt(question, chunks) },
-            ]
+          : [{ role: 'user' as const, content: buildAskPrompt(question, chunks) }]
       const systemPrompt = readerMode === 'augmented' ? undefined : ASK_SYSTEM_PROMPT
       const maxTokens = readerMode === 'augmented' ? READER_AUGMENTED_MAX_TOKENS : 1024
       const temperature = readerMode === 'augmented' ? READER_AUGMENTED_TEMPERATURE : 0.2
@@ -1140,7 +1138,12 @@ export const handleIngestUrl = async (
     return serverError(daemon, err)
   }
   const slug = slugify(url).slice(0, 64)
-  return runIngest(daemon, br, brainId, bytes, { name: `${slug}.md`, title: url, contentType, source: url })
+  return runIngest(daemon, br, brainId, bytes, {
+    name: `${slug}.md`,
+    title: url,
+    contentType,
+    source: url,
+  })
 }
 
 type IngestMeta = {

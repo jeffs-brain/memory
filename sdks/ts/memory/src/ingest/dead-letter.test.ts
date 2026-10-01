@@ -6,14 +6,14 @@
  * adapters are tested separately with real database connections.
  */
 
-import { describe, expect, it, beforeEach } from 'vitest'
+import { beforeEach, describe, expect, it } from 'vitest'
 import {
-  createInMemoryDeadLetterAdapter,
-  DeadLetterNotFoundError,
-  DeadLetterAlreadyResolvedError,
   type DeadLetterAdapter,
+  DeadLetterAlreadyResolvedError,
   type DeadLetterEntry,
+  DeadLetterNotFoundError,
   type ReEnqueueFn,
+  createInMemoryDeadLetterAdapter,
 } from './dead-letter.js'
 
 const makeEntry = (overrides: Partial<DeadLetterEntry> = {}): DeadLetterEntry => ({
@@ -91,11 +91,13 @@ describe('InMemoryDeadLetterAdapter', () => {
   describe('list', () => {
     it('returns unresolved entries by default', async () => {
       await adapter.move(makeEntry({ id: 'dlq-unresolved' }))
-      await adapter.move(makeEntry({
-        id: 'dlq-resolved',
-        resolvedAt: new Date(),
-        resolvedBy: 'operator',
-      }))
+      await adapter.move(
+        makeEntry({
+          id: 'dlq-resolved',
+          resolvedAt: new Date(),
+          resolvedBy: 'operator',
+        }),
+      )
 
       const result = await adapter.list()
       expect(result.total).toBe(1)
@@ -105,11 +107,13 @@ describe('InMemoryDeadLetterAdapter', () => {
 
     it('includes resolved entries when requested', async () => {
       await adapter.move(makeEntry({ id: 'dlq-a' }))
-      await adapter.move(makeEntry({
-        id: 'dlq-b',
-        resolvedAt: new Date(),
-        resolvedBy: 'operator',
-      }))
+      await adapter.move(
+        makeEntry({
+          id: 'dlq-b',
+          resolvedAt: new Date(),
+          resolvedBy: 'operator',
+        }),
+      )
 
       const result = await adapter.list({ includeResolved: true })
       expect(result.total).toBe(2)
@@ -127,10 +131,12 @@ describe('InMemoryDeadLetterAdapter', () => {
 
     it('paginates results', async () => {
       for (let i = 0; i < 5; i++) {
-        await adapter.move(makeEntry({
-          id: `dlq-page-${i}`,
-          movedAt: new Date(Date.UTC(2026, 4, 1, 12, 0, i)),
-        }))
+        await adapter.move(
+          makeEntry({
+            id: `dlq-page-${i}`,
+            movedAt: new Date(Date.UTC(2026, 4, 1, 12, 0, i)),
+          }),
+        )
       }
 
       const page1 = await adapter.list({ limit: 2, offset: 0 })
@@ -145,18 +151,24 @@ describe('InMemoryDeadLetterAdapter', () => {
     })
 
     it('returns entries sorted by movedAt descending', async () => {
-      await adapter.move(makeEntry({
-        id: 'dlq-oldest',
-        movedAt: new Date('2026-01-01T00:00:00Z'),
-      }))
-      await adapter.move(makeEntry({
-        id: 'dlq-newest',
-        movedAt: new Date('2026-06-01T00:00:00Z'),
-      }))
-      await adapter.move(makeEntry({
-        id: 'dlq-middle',
-        movedAt: new Date('2026-03-01T00:00:00Z'),
-      }))
+      await adapter.move(
+        makeEntry({
+          id: 'dlq-oldest',
+          movedAt: new Date('2026-01-01T00:00:00Z'),
+        }),
+      )
+      await adapter.move(
+        makeEntry({
+          id: 'dlq-newest',
+          movedAt: new Date('2026-06-01T00:00:00Z'),
+        }),
+      )
+      await adapter.move(
+        makeEntry({
+          id: 'dlq-middle',
+          movedAt: new Date('2026-03-01T00:00:00Z'),
+        }),
+      )
 
       const result = await adapter.list()
       expect(result.entries[0].id).toBe('dlq-newest')
@@ -184,16 +196,18 @@ describe('InMemoryDeadLetterAdapter', () => {
     })
 
     it('throws DeadLetterNotFoundError for non-existent ID', async () => {
-      await expect(adapter.retry('nonexistent', 'operator'))
-        .rejects.toThrow(DeadLetterNotFoundError)
+      await expect(adapter.retry('nonexistent', 'operator')).rejects.toThrow(
+        DeadLetterNotFoundError,
+      )
     })
 
     it('throws DeadLetterAlreadyResolvedError on double retry', async () => {
       await adapter.move(makeEntry())
       await adapter.retry('dlq-001', 'operator-1')
 
-      await expect(adapter.retry('dlq-001', 'operator-2'))
-        .rejects.toThrow(DeadLetterAlreadyResolvedError)
+      await expect(adapter.retry('dlq-001', 'operator-2')).rejects.toThrow(
+        DeadLetterAlreadyResolvedError,
+      )
     })
 
     it('calls reEnqueue callback with resolved entry', async () => {
@@ -218,8 +232,9 @@ describe('InMemoryDeadLetterAdapter', () => {
         throw new Error('queue is full')
       }
 
-      await expect(adapter.retry('dlq-001', 'operator', failingReEnqueue))
-        .rejects.toThrow('queue is full')
+      await expect(adapter.retry('dlq-001', 'operator', failingReEnqueue)).rejects.toThrow(
+        'queue is full',
+      )
 
       const got = await adapter.get('dlq-001')
       expect(got?.resolvedAt).toBeUndefined()
@@ -263,14 +278,18 @@ describe('InMemoryDeadLetterAdapter', () => {
     })
 
     it('removes entries older than threshold', async () => {
-      await adapter.move(makeEntry({
-        id: 'dlq-old',
-        movedAt: new Date(Date.now() - 60 * 24 * 60 * 60 * 1000),
-      }))
-      await adapter.move(makeEntry({
-        id: 'dlq-recent',
-        movedAt: new Date(),
-      }))
+      await adapter.move(
+        makeEntry({
+          id: 'dlq-old',
+          movedAt: new Date(Date.now() - 60 * 24 * 60 * 60 * 1000),
+        }),
+      )
+      await adapter.move(
+        makeEntry({
+          id: 'dlq-recent',
+          movedAt: new Date(),
+        }),
+      )
 
       const removed = await adapter.purge({ kind: 'older-than', days: 30 })
       expect(removed).toBe(1)
@@ -282,11 +301,13 @@ describe('InMemoryDeadLetterAdapter', () => {
 
     it('removes all resolved entries', async () => {
       await adapter.move(makeEntry({ id: 'dlq-unres' }))
-      await adapter.move(makeEntry({
-        id: 'dlq-res',
-        resolvedAt: new Date(),
-        resolvedBy: 'operator',
-      }))
+      await adapter.move(
+        makeEntry({
+          id: 'dlq-res',
+          resolvedAt: new Date(),
+          resolvedBy: 'operator',
+        }),
+      )
 
       const removed = await adapter.purge({ kind: 'all-resolved' })
       expect(removed).toBe(1)
@@ -328,10 +349,12 @@ describe('InMemoryDeadLetterAdapter', () => {
 
   describe('metadata round-trip', () => {
     it('preserves metadata and groupId', async () => {
-      await adapter.move(makeEntry({
-        metadata: { source: 'webhook', requestId: 'req-12345' },
-        groupId: 'batch-001',
-      }))
+      await adapter.move(
+        makeEntry({
+          metadata: { source: 'webhook', requestId: 'req-12345' },
+          groupId: 'batch-001',
+        }),
+      )
 
       const got = await adapter.get('dlq-001')
       expect(got?.metadata?.source).toBe('webhook')
@@ -342,18 +365,15 @@ describe('InMemoryDeadLetterAdapter', () => {
 
   describe('input validation', () => {
     it('rejects negative limit', async () => {
-      await expect(adapter.list({ limit: -1 }))
-        .rejects.toThrow(RangeError)
+      await expect(adapter.list({ limit: -1 })).rejects.toThrow(RangeError)
     })
 
     it('rejects negative offset', async () => {
-      await expect(adapter.list({ offset: -1 }))
-        .rejects.toThrow(RangeError)
+      await expect(adapter.list({ offset: -1 })).rejects.toThrow(RangeError)
     })
 
     it('rejects negative days in purge', async () => {
-      await expect(adapter.purge({ kind: 'older-than', days: -5 }))
-        .rejects.toThrow(RangeError)
+      await expect(adapter.purge({ kind: 'older-than', days: -5 })).rejects.toThrow(RangeError)
     })
   })
 
@@ -415,13 +435,15 @@ describe('InMemoryDeadLetterAdapter', () => {
 
   describe('error history', () => {
     it('preserves error history array', async () => {
-      await adapter.move(makeEntry({
-        errorHistory: [
-          'attempt 1: connection refused',
-          'attempt 2: timeout after 30s',
-          'attempt 3: context deadline exceeded',
-        ],
-      }))
+      await adapter.move(
+        makeEntry({
+          errorHistory: [
+            'attempt 1: connection refused',
+            'attempt 2: timeout after 30s',
+            'attempt 3: context deadline exceeded',
+          ],
+        }),
+      )
 
       const got = await adapter.get('dlq-001')
       expect(got?.errorHistory).toHaveLength(3)

@@ -13,13 +13,19 @@ import { execFile } from 'node:child_process'
 import { createWriteStream } from 'node:fs'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join, extname } from 'node:path'
+import { extname, join } from 'node:path'
 import type { Readable } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
 import type { Logger } from '../llm/types.js'
 import { noopLogger } from '../llm/types.js'
 import { bufferStream } from './extractor.js'
-import type { Extractor, ExtractOptions, ExtractResult, ExtractorCapability, MagicSignature } from './extractor.js'
+import type {
+  ExtractOptions,
+  ExtractResult,
+  Extractor,
+  ExtractorCapability,
+  MagicSignature,
+} from './extractor.js'
 
 /** Default configuration values for the AudioExtractor. */
 const DEFAULT_PYTHON_BINARY = 'python3'
@@ -115,19 +121,26 @@ const AUDIO_CONTENT_TYPES: readonly string[] = [
 
 /** File extensions handled by AudioExtractor. */
 const AUDIO_EXTENSIONS: readonly string[] = [
-  '.mp3', '.wav', '.flac', '.m4a', '.ogg', '.aac', '.wma', '.opus',
+  '.mp3',
+  '.wav',
+  '.flac',
+  '.m4a',
+  '.ogg',
+  '.aac',
+  '.wma',
+  '.opus',
 ]
 
 /** Magic byte patterns for audio format detection. */
 const AUDIO_MAGIC_SIGNATURES: readonly MagicSignature[] = [
-  { offset: 0, bytes: new Uint8Array([0x52, 0x49, 0x46, 0x46]) },  // WAV (RIFF)
-  { offset: 8, bytes: new Uint8Array([0x57, 0x41, 0x56, 0x45]) },  // WAV (WAVE)
-  { offset: 0, bytes: new Uint8Array([0x66, 0x4c, 0x61, 0x43]) },  // FLAC
-  { offset: 0, bytes: new Uint8Array([0x4f, 0x67, 0x67, 0x53]) },  // OGG
-  { offset: 0, bytes: new Uint8Array([0x49, 0x44, 0x33]) },         // MP3 ID3
-  { offset: 0, bytes: new Uint8Array([0xff, 0xfb]) },               // MP3 sync
-  { offset: 0, bytes: new Uint8Array([0xff, 0xf3]) },               // MP3 sync
-  { offset: 0, bytes: new Uint8Array([0xff, 0xf2]) },               // MP3 sync
+  { offset: 0, bytes: new Uint8Array([0x52, 0x49, 0x46, 0x46]) }, // WAV (RIFF)
+  { offset: 8, bytes: new Uint8Array([0x57, 0x41, 0x56, 0x45]) }, // WAV (WAVE)
+  { offset: 0, bytes: new Uint8Array([0x66, 0x4c, 0x61, 0x43]) }, // FLAC
+  { offset: 0, bytes: new Uint8Array([0x4f, 0x67, 0x67, 0x53]) }, // OGG
+  { offset: 0, bytes: new Uint8Array([0x49, 0x44, 0x33]) }, // MP3 ID3
+  { offset: 0, bytes: new Uint8Array([0xff, 0xfb]) }, // MP3 sync
+  { offset: 0, bytes: new Uint8Array([0xff, 0xf3]) }, // MP3 sync
+  { offset: 0, bytes: new Uint8Array([0xff, 0xf2]) }, // MP3 sync
 ]
 
 /** Maps content type to file extension for temp file creation. */
@@ -169,7 +182,7 @@ export const formatTranscription = (segments: readonly TranscriptionSegment[]): 
   let paragraphStarted = false
 
   for (const seg of segments) {
-    if (!paragraphStarted || (seg.start - currentParagraphStart) >= PARAGRAPH_BREAK_SECONDS) {
+    if (!paragraphStarted || seg.start - currentParagraphStart >= PARAGRAPH_BREAK_SECONDS) {
       if (paragraphStarted) {
         parts.push('\n\n')
       }
@@ -237,7 +250,11 @@ const runSubprocess = (
  * duration from file size using conservative ratios, then applies the
  * per-minute timeout budget with a minimum floor.
  */
-const computeTimeout = (fileSize: number, timeoutPerMinMs: number, minTimeoutMs: number): number => {
+const computeTimeout = (
+  fileSize: number,
+  timeoutPerMinMs: number,
+  minTimeoutMs: number,
+): number => {
   // Conservative: 1 MB/min for compressed audio.
   const estimatedMinutes = fileSize / (1024 * 1024)
   const timeout = estimatedMinutes * timeoutPerMinMs
@@ -249,9 +266,8 @@ const computeTimeout = (fileSize: number, timeoutPerMinMs: number, minTimeoutMs:
  * faster-whisper via a Python subprocess.
  */
 export const createAudioExtractor = (config?: AudioExtractorConfig): Extractor => {
-  const pythonBinary = config?.pythonBinary
-    ?? process.env['MEMORY_WHISPER_PATH']
-    ?? DEFAULT_PYTHON_BINARY
+  const pythonBinary =
+    config?.pythonBinary ?? process.env['MEMORY_WHISPER_PATH'] ?? DEFAULT_PYTHON_BINARY
 
   const modelSize = config?.modelSize ?? DEFAULT_WHISPER_MODEL
   const defaultLanguage = config?.defaultLanguage
@@ -262,8 +278,11 @@ export const createAudioExtractor = (config?: AudioExtractorConfig): Extractor =
 
   const envTimeoutMs = process.env['MEMORY_EXTRACTOR_TIMEOUT_MS']
   const parsedEnvTimeout = envTimeoutMs ? Number.parseInt(envTimeoutMs, 10) : Number.NaN
-  const minTimeoutMs = config?.minTimeoutMs
-    ?? (Number.isFinite(parsedEnvTimeout) && parsedEnvTimeout > 0 ? parsedEnvTimeout : DEFAULT_MIN_TIMEOUT_MS)
+  const minTimeoutMs =
+    config?.minTimeoutMs ??
+    (Number.isFinite(parsedEnvTimeout) && parsedEnvTimeout > 0
+      ? parsedEnvTimeout
+      : DEFAULT_MIN_TIMEOUT_MS)
 
   // Availability cache. Uses a pending-promise pattern to dedup concurrent
   // calls that would otherwise spawn multiple Python subprocesses before the
@@ -274,7 +293,7 @@ export const createAudioExtractor = (config?: AudioExtractorConfig): Extractor =
 
   const checkAvailability = async (): Promise<boolean> => {
     const now = Date.now()
-    if (cachedAvailable !== undefined && (now - cachedAt) < AVAILABILITY_CACHE_TTL_MS) {
+    if (cachedAvailable !== undefined && now - cachedAt < AVAILABILITY_CACHE_TTL_MS) {
       return cachedAvailable
     }
 
@@ -404,9 +423,11 @@ export const createAudioExtractor = (config?: AudioExtractorConfig): Extractor =
           transform(chunk: Buffer, _encoding, callback) {
             written += chunk.length
             if (written > maxFileSize) {
-              callback(new Error(
-                `ingest: audio stream size ${written} bytes exceeds maximum ${maxFileSize} bytes`,
-              ))
+              callback(
+                new Error(
+                  `ingest: audio stream size ${written} bytes exceeds maximum ${maxFileSize} bytes`,
+                ),
+              )
               return
             }
             callback(null, chunk)

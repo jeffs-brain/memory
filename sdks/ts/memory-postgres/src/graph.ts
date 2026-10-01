@@ -20,7 +20,14 @@ export type GraphNode = {
   id: string
   path: string
   label: string
-  entityType: 'memory' | 'article' | 'episode' | 'heuristic' | 'procedural' | 'ontology' | 'ingested'
+  entityType:
+    | 'memory'
+    | 'article'
+    | 'episode'
+    | 'heuristic'
+    | 'procedural'
+    | 'ontology'
+    | 'ingested'
   ontologyType?: string
   ontologyLabel?: string
   scope: string
@@ -188,13 +195,15 @@ export async function getDocumentGraph(
       ...(ontologyLabel === undefined ? {} : { ontologyLabel }),
       scope: resolved.scope,
       size: row.size,
-      modTime: row.updated_at instanceof Date ? row.updated_at.toISOString() : String(row.updated_at),
+      modTime:
+        row.updated_at instanceof Date ? row.updated_at.toISOString() : String(row.updated_at),
       chunkCount: row.chunk_count,
       metadata: row.metadata ?? {},
     } satisfies GraphNode
   })
 
-  const entityFilterSet = options.entityTypes === undefined ? undefined : new Set(options.entityTypes)
+  const entityFilterSet =
+    options.entityTypes === undefined ? undefined : new Set(options.entityTypes)
   const nodes =
     entityFilterSet === undefined
       ? allNodes
@@ -331,10 +340,11 @@ export async function getDocumentStats(
     edgeCount: docs[0]?.edge_count ?? 0,
     entityTypeCounts,
     edgeTypeCounts,
-    lastActivityAt: docs[0]?.last_activity_at instanceof Date
-      ? docs[0].last_activity_at.toISOString()
-      : docs[0]?.last_activity_at !== null && docs[0]?.last_activity_at !== undefined
-        ? String(docs[0].last_activity_at)
-        : null,
+    lastActivityAt:
+      docs[0]?.last_activity_at instanceof Date
+        ? docs[0].last_activity_at.toISOString()
+        : docs[0]?.last_activity_at !== null && docs[0]?.last_activity_at !== undefined
+          ? String(docs[0].last_activity_at)
+          : null,
   }
 }

@@ -60,11 +60,15 @@ const resolveNames = (custom?: HeaderNameOptions) => ({
 /** Generic getter abstraction — unifies Headers (fetch API) and plain records. */
 type HeaderGetter = (name: string) => string | undefined
 
-const getterFromHeaders = (h: Headers): HeaderGetter =>
-  (name) => h.get(name) ?? undefined
+const getterFromHeaders =
+  (h: Headers): HeaderGetter =>
+  (name) =>
+    h.get(name) ?? undefined
 
-const getterFromRecord = (r: Readonly<Record<string, string | undefined>>): HeaderGetter =>
-  (name) => r[name]
+const getterFromRecord =
+  (r: Readonly<Record<string, string | undefined>>): HeaderGetter =>
+  (name) =>
+    r[name]
 
 /** Parse rate-limit headers from a fetch API Headers object. */
 export const parseRateLimitHeaders = (
@@ -122,7 +126,10 @@ const firstDate = (get: HeaderGetter, candidates: readonly string[]): Date | und
   return undefined
 }
 
-const parseRetryAfterValue = (get: HeaderGetter, candidates: readonly string[]): number | undefined => {
+const parseRetryAfterValue = (
+  get: HeaderGetter,
+  candidates: readonly string[],
+): number | undefined => {
   for (const name of candidates) {
     const v = get(name)?.trim()
     if (v === undefined || v === '') continue

@@ -7,11 +7,7 @@
  */
 
 import type { Logger } from '../../llm/types.js'
-import type {
-  DocumentDetectedEvent,
-  IngestHookEvent,
-  Plugin,
-} from '../../memory/types.js'
+import type { DocumentDetectedEvent, IngestHookEvent, Plugin } from '../../memory/types.js'
 
 /**
  * Fire onDocumentDetected on all plugins. If any plugin returns `false`,

@@ -11,12 +11,12 @@ import {
   BACKOFF_BASE_DELAY_MS,
   BACKOFF_JITTER_MAX,
   BACKOFF_JITTER_MIN,
+  type ClaimOptions,
   DEFAULT_BATCH_SIZE,
   DEFAULT_HEARTBEAT_INTERVAL_MS,
   DEFAULT_MAX_RETRIES,
   DEFAULT_NOTIFY_CHANNEL,
   DEFAULT_STALE_THRESHOLD_MS,
-  type ClaimOptions,
   type EnqueueInput,
   type Logger,
   type QueueAdapter,
@@ -45,7 +45,10 @@ export type PgClient = {
  * provided, the adapter subscribes for immediate wake on new jobs.
  */
 export type PgListenClient = PgClient & {
-  on(event: 'notification', listener: (msg: { readonly channel: string; readonly payload?: string }) => void): void
+  on(
+    event: 'notification',
+    listener: (msg: { readonly channel: string; readonly payload?: string }) => void,
+  ): void
   query<R = Record<string, unknown>>(
     text: string,
     values?: ReadonlyArray<unknown>,
@@ -180,7 +183,9 @@ export const createPostgresQueue = (opts: PostgresQueueOptions): QueueAdapter =>
 
     const parsedMeta: Record<string, string> | undefined =
       row.metadata !== null && row.metadata !== undefined
-        ? (typeof row.metadata === 'string' ? JSON.parse(row.metadata) : row.metadata)
+        ? typeof row.metadata === 'string'
+          ? JSON.parse(row.metadata)
+          : row.metadata
         : undefined
 
     const status = parseJobStatus(row.status)
@@ -358,7 +363,10 @@ export const createPostgresQueue = (opts: PostgresQueueOptions): QueueAdapter =>
     }
   }
 
-  const complete = async (jobId: string, result?: Readonly<Record<string, string>>): Promise<void> => {
+  const complete = async (
+    jobId: string,
+    result?: Readonly<Record<string, string>>,
+  ): Promise<void> => {
     ensureOpen()
     const resultJson = result !== undefined ? JSON.stringify(result) : null
 
@@ -529,7 +537,9 @@ export const createPostgresQueue = (opts: PostgresQueueOptions): QueueAdapter =>
     return result.rowCount
   }
 
-  const countByStatus = async (brainId?: string): Promise<Readonly<Record<QueueJobStatus, number>>> => {
+  const countByStatus = async (
+    brainId?: string,
+  ): Promise<Readonly<Record<QueueJobStatus, number>>> => {
     ensureOpen()
 
     const counts: Record<QueueJobStatus, number> = {

@@ -42,9 +42,7 @@ export const codeChunker: Chunker = async (
     const text = section.trim()
     if (text === '') continue
 
-    const full = header !== '' && !text.startsWith(header)
-      ? header + '\n\n' + text
-      : text
+    const full = header !== '' && !text.startsWith(header) ? header + '\n\n' + text : text
 
     if (estimateTokens(full) <= cfg.maxTokens) {
       chunks.push({
@@ -147,7 +145,11 @@ const mergeUndersized = (chunks: Chunk[], cfg: ChunkConfig): readonly Chunk[] =>
   return merged
 }
 
-const recursiveSplitLocal = (text: string, maxTokens: number, sepIdx: number): readonly string[] => {
+const recursiveSplitLocal = (
+  text: string,
+  maxTokens: number,
+  sepIdx: number,
+): readonly string[] => {
   if (estimateTokens(text) <= maxTokens) return [text]
   if (sepIdx >= SEPARATORS.length) return hardSplit(text, maxTokens)
   const sep = SEPARATORS[sepIdx]

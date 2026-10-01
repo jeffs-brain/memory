@@ -162,7 +162,10 @@ export class FilePipelineStateStore implements PipelineStateStore {
     await this.store.write(statePath(this.prefix, entry.documentHash), serialize(entry))
   }
 
-  async listIncomplete(brainId: string, _signal?: AbortSignal): Promise<readonly PipelineStateEntry[]> {
+  async listIncomplete(
+    brainId: string,
+    _signal?: AbortSignal,
+  ): Promise<readonly PipelineStateEntry[]> {
     const dir = toPath(this.prefix)
     const exists = await this.store.exists(dir)
     if (!exists) return []

@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
-import { describe, expect, it, beforeEach } from 'vitest'
+import { beforeEach, describe, expect, it } from 'vitest'
 import { createMemStore } from '../store/memstore.js'
-import type { OntologyTypeDefinition } from './types.js'
-import { createFileOntologyStore, type OntologyStore } from './store.js'
 import { Registry } from './registry.js'
+import { type OntologyStore, createFileOntologyStore } from './store.js'
+import type { OntologyTypeDefinition } from './types.js'
 
 function makeRegistry(): Registry {
   const backingStore = createMemStore()
@@ -59,19 +59,24 @@ describe('Registry', () => {
     })
 
     it('throws for nonexistent type', async () => {
-      await expect(
-        registry.deprecateType('brain', 'entity.missing'),
-      ).rejects.toThrow('not found')
+      await expect(registry.deprecateType('brain', 'entity.missing')).rejects.toThrow('not found')
     })
   })
 
   describe('proposeType', () => {
     it('creates a proposed type for genuinely new types', async () => {
-      await registry.proposeType('brain', 'nodeType', 'entity.invoice', 'Discovered in procurement docs')
+      await registry.proposeType(
+        'brain',
+        'nodeType',
+        'entity.invoice',
+        'Discovered in procurement docs',
+      )
 
       // Proposed types should NOT appear in resolved (only active resolve)
       const resolved = await registry.resolve('brain-1', 'proj-1', 'org-1')
-      const invoice = resolved.nodeTypes.find((t) => t.type === 'entity.invoice' && t.scope === 'brain')
+      const invoice = resolved.nodeTypes.find(
+        (t) => t.type === 'entity.invoice' && t.scope === 'brain',
+      )
       expect(invoice).toBeUndefined()
     })
 

@@ -12,11 +12,11 @@
  */
 
 import type { Embedder } from '../llm/types.js'
-import type { TypeEntry, IndustryTemplate } from './templates.js'
 import type { ExtractionResult } from './extract.js'
+import type { IndustryTemplate, TypeEntry } from './templates.js'
 
-import { listTemplates, getTemplate } from './templates.js'
 import { cosineSimilarity } from './similarity.js'
+import { getTemplate, listTemplates } from './templates.js'
 
 export type { ExtractionResult } from './extract.js'
 

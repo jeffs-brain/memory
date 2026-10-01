@@ -10,7 +10,6 @@
  * shared RateLimiter. 429 responses trigger backoff with Retry-After.
  */
 
-import type { Connector, ConnectorDocument, SyncCursor } from './types.js'
 import { createRateLimiter } from './rate-limiter.js'
 import {
   convertMrkdwn,
@@ -19,6 +18,7 @@ import {
   readResponseWithLimit,
   validateDownloadURL,
 } from './slack_helpers.js'
+import type { Connector, ConnectorDocument, SyncCursor } from './types.js'
 
 // ---------------------------------------------------------------------------
 // Configuration
@@ -132,7 +132,10 @@ export class SlackConnector implements Connector {
       throw new Error('slack: at least one channel is required')
     }
 
-    const channels = channelsRaw.split(',').map(ch => ch.trim()).filter(Boolean)
+    const channels = channelsRaw
+      .split(',')
+      .map((ch) => ch.trim())
+      .filter(Boolean)
     if (channels.length === 0) {
       throw new Error('slack: at least one channel is required')
     }
@@ -158,13 +161,17 @@ export class SlackConnector implements Connector {
     const includeThreads =
       typeof includeThreadsRaw === 'boolean'
         ? includeThreadsRaw
-        : (typeof includeThreadsRaw === 'string' ? includeThreadsRaw !== 'false' : (this.config.includeThreads ?? true))
+        : typeof includeThreadsRaw === 'string'
+          ? includeThreadsRaw !== 'false'
+          : (this.config.includeThreads ?? true)
 
     const includeFilesRaw = config['includeFiles']
     const includeFiles =
       typeof includeFilesRaw === 'boolean'
         ? includeFilesRaw
-        : (typeof includeFilesRaw === 'string' ? includeFilesRaw !== 'false' : (this.config.includeFiles ?? true))
+        : typeof includeFilesRaw === 'string'
+          ? includeFilesRaw !== 'false'
+          : (this.config.includeFiles ?? true)
 
     this.config = {
       ...this.config,
@@ -173,7 +180,9 @@ export class SlackConnector implements Connector {
       includeThreads,
       includeFiles,
       ...(resolvedMaxFileSize !== undefined ? { maxFileSize: resolvedMaxFileSize } : {}),
-      ...(resolvedOldestTimestamp !== undefined ? { oldestTimestamp: resolvedOldestTimestamp } : {}),
+      ...(resolvedOldestTimestamp !== undefined
+        ? { oldestTimestamp: resolvedOldestTimestamp }
+        : {}),
     }
   }
 
@@ -220,7 +229,10 @@ export class SlackConnector implements Connector {
   // Internal: message fetching
   // -------------------------------------------------------------------------
 
-  private async *fetchMessages(signal: AbortSignal, oldest: string): AsyncIterable<ConnectorDocument> {
+  private async *fetchMessages(
+    signal: AbortSignal,
+    oldest: string,
+  ): AsyncIterable<ConnectorDocument> {
     for (const channelId of this.config.channels) {
       yield* this.fetchChannelMessages(signal, channelId, oldest)
     }
@@ -286,7 +298,12 @@ export class SlackConnector implements Connector {
     while (true) {
       await this.rateLimiter.acquire(1, signal)
 
-      const resp = await this.callConversationsReplies(signal, channelId, parent.thread_ts ?? parent.ts, cursor)
+      const resp = await this.callConversationsReplies(
+        signal,
+        channelId,
+        parent.thread_ts ?? parent.ts,
+        cursor,
+      )
 
       if (resp.messages) {
         allReplies.push(...resp.messages)

@@ -7,7 +7,13 @@
  */
 
 import { noopLogger } from '../llm/types.js'
-import type { AdaptiveOptions, RateLimitHeaders, RateLimitMetrics, RateLimitToken, RateLimiter } from './types.js'
+import type {
+  AdaptiveOptions,
+  RateLimitHeaders,
+  RateLimitMetrics,
+  RateLimitToken,
+  RateLimiter,
+} from './types.js'
 
 const DEFAULT_MIN_REFILL_RATE = 1
 const DEFAULT_MAX_REFILL_RATE = 100

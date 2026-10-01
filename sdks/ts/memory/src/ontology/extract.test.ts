@@ -9,11 +9,11 @@ import {
   CONFIDENCE_CAP,
   CONFIDENCE_FLOOR,
   Extractor,
+  SINGLE_SECTION_THRESHOLD,
+  buildOntologyExtractionPrompt,
   isTabularContent,
   noisyOr,
-  buildOntologyExtractionPrompt,
   splitContent,
-  SINGLE_SECTION_THRESHOLD,
 } from './extract.js'
 
 function makeFakeProvider(responses: string[]): Provider {
@@ -50,7 +50,13 @@ function makeLLMResponse(
   edgeTypes: Array<{ type: string; label: string; description: string }>,
   categories: string[],
 ): string {
-  return JSON.stringify({ domain, confidence, nodeTypes, edgeTypes, businessCategories: categories })
+  return JSON.stringify({
+    domain,
+    confidence,
+    nodeTypes,
+    edgeTypes,
+    businessCategories: categories,
+  })
 }
 
 function generateLongContent(minBytes: number): string {
@@ -202,9 +208,9 @@ describe('Extractor', () => {
     const ext = new Extractor({
       provider: makeFakeProvider(['not json', 'still not', 'nope']),
     })
-    await expect(
-      ext.extract({ content: 'Some document.', fileName: 'doc.md' }),
-    ).rejects.toThrow(/extraction failed/)
+    await expect(ext.extract({ content: 'Some document.', fileName: 'doc.md' })).rejects.toThrow(
+      /extraction failed/,
+    )
   })
 
   it('handles JSON wrapped in prose', async () => {
@@ -275,9 +281,9 @@ describe('Extractor', () => {
     const ext = new Extractor({
       provider: makeFakeProvider(['garbage response one', 'garbage response two', 'garbage final']),
     })
-    await expect(
-      ext.extract({ content: 'Some document.', fileName: 'doc.md' }),
-    ).rejects.toThrow(/garbage final/)
+    await expect(ext.extract({ content: 'Some document.', fileName: 'doc.md' })).rejects.toThrow(
+      /garbage final/,
+    )
   })
 })
 

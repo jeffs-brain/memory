@@ -28,9 +28,7 @@ describe('expand (alias expansion)', () => {
 
   it('expands multi-target aliases into phrase tokens for hyphenated values', () => {
     const ast = parseQuery('evolt production')
-    const table = new Map<string, readonly string[]>([
-      ['evolt', ['nova-evolt', 'e-volt', 'evolt']],
-    ])
+    const table = new Map<string, readonly string[]>([['evolt', ['nova-evolt', 'e-volt', 'evolt']]])
     const out = expand(ast, table)
     const surface = out.tokens.map((t) => `${t.kind}:${t.text}`).sort()
     expect(surface).toContain('phrase:nova evolt')

@@ -6,10 +6,7 @@
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
-  "files": [
-    "dist",
-    "README.md"
-  ],
+  "files": ["dist", "README.md"],
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -29,9 +26,7 @@
     }
   },
   "pi": {
-    "extensions": [
-      "./dist/index.js"
-    ]
+    "extensions": ["./dist/index.js"]
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
@@ -57,14 +52,7 @@
   "engines": {
     "node": ">=20.0.0"
   },
-  "keywords": [
-    "pi-extension",
-    "memory",
-    "rag",
-    "retrieval",
-    "embedding",
-    "knowledge-base"
-  ],
+  "keywords": ["pi-extension", "memory", "rag", "retrieval", "embedding", "knowledge-base"],
   "repository": {
     "type": "git",
     "url": "git+https://github.com/jeffs-brain/memory.git",

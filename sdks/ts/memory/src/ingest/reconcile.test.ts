@@ -361,12 +361,7 @@ describe('createReconciler', () => {
     await writeStoreDoc(store, 'mixed-missing', 'Missing from index.')
 
     // Create a document in both store and index, then delete from store (orphaned).
-    const orphanPath = await indexDoc(
-      store,
-      searchIndex,
-      'mixed-orphan',
-      'Will become orphaned.',
-    )
+    const orphanPath = await indexDoc(store, searchIndex, 'mixed-orphan', 'Will become orphaned.')
     await store.delete(toPath(orphanPath))
 
     const reconciler = createReconciler({

@@ -1,7 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from 'vitest'
-import { SlackConnector, convertMrkdwn, createSlackConnector, parseSlackTimestamp } from './slack.js'
+import {
+  SlackConnector,
+  convertMrkdwn,
+  createSlackConnector,
+  parseSlackTimestamp,
+} from './slack.js'
 import type { ConnectorDocument } from './types.js'
 
 // ---------------------------------------------------------------------------
@@ -55,12 +60,16 @@ describe('SlackConnector', () => {
   describe('configure', () => {
     it('throws when botToken is missing', async () => {
       const connector = createSlackConnector()
-      await expect(connector.configure({ channels: 'C123' })).rejects.toThrow('botToken is required')
+      await expect(connector.configure({ channels: 'C123' })).rejects.toThrow(
+        'botToken is required',
+      )
     })
 
     it('throws when channels is missing', async () => {
       const connector = createSlackConnector()
-      await expect(connector.configure({ botToken: 'xoxb-test' })).rejects.toThrow('at least one channel')
+      await expect(connector.configure({ botToken: 'xoxb-test' })).rejects.toThrow(
+        'at least one channel',
+      )
     })
 
     it('throws when channels is empty after split', async () => {
@@ -136,12 +145,20 @@ describe('SlackConnector', () => {
               jsonResponse({
                 ok: true,
                 messages: [
-                  { type: 'message', user: 'U001', text: `Page ${callCount} msg 1`, ts: `${1700000000 + callCount * 2 - 1}.000000` },
-                  { type: 'message', user: 'U001', text: `Page ${callCount} msg 2`, ts: `${1700000000 + callCount * 2}.000000` },
+                  {
+                    type: 'message',
+                    user: 'U001',
+                    text: `Page ${callCount} msg 1`,
+                    ts: `${1700000000 + callCount * 2 - 1}.000000`,
+                  },
+                  {
+                    type: 'message',
+                    user: 'U001',
+                    text: `Page ${callCount} msg 2`,
+                    ts: `${1700000000 + callCount * 2}.000000`,
+                  },
                 ],
-                ...(hasNextCursor
-                  ? { response_metadata: { next_cursor: 'cursor_page2' } }
-                  : {}),
+                ...(hasNextCursor ? { response_metadata: { next_cursor: 'cursor_page2' } } : {}),
               }),
             )
           },
@@ -212,7 +229,8 @@ describe('SlackConnector', () => {
 
       const threadDoc = docs[1]
       expect(threadDoc?.metadata['type']).toBe('thread')
-      const content = typeof threadDoc?.content === 'string' ? threadDoc.content : threadDoc?.content.toString()
+      const content =
+        typeof threadDoc?.content === 'string' ? threadDoc.content : threadDoc?.content.toString()
       expect(content).toContain('## Thread: Thread parent')
       expect(content).toContain('Reply one')
       expect(content).toContain('Reply two')
@@ -327,8 +345,7 @@ describe('SlackConnector', () => {
       const mockFetch = createMockFetch([
         {
           pattern: 'conversations.history',
-          handler: () =>
-            Promise.resolve(jsonResponse({ ok: true, messages: [] })),
+          handler: () => Promise.resolve(jsonResponse({ ok: true, messages: [] })),
         },
       ])
 
@@ -348,8 +365,7 @@ describe('SlackConnector', () => {
       const mockFetch = createMockFetch([
         {
           pattern: 'conversations.history',
-          handler: () =>
-            Promise.resolve(jsonResponse({ ok: false, error: 'channel_not_found' })),
+          handler: () => Promise.resolve(jsonResponse({ ok: false, error: 'channel_not_found' })),
         },
       ])
 
@@ -376,7 +392,12 @@ describe('SlackConnector', () => {
               jsonResponse({
                 ok: true,
                 messages: [
-                  { type: 'message', user: 'U001', text: `Message in ${channel}`, ts: '1700000001.000000' },
+                  {
+                    type: 'message',
+                    user: 'U001',
+                    text: `Message in ${channel}`,
+                    ts: '1700000001.000000',
+                  },
                 ],
               }),
             )
@@ -532,9 +553,7 @@ describe('convertMrkdwn', () => {
   })
 
   it('converts channel mentions', () => {
-    expect(convertMrkdwn('Check <#C123ABC|general> for updates')).toBe(
-      'Check #general for updates',
-    )
+    expect(convertMrkdwn('Check <#C123ABC|general> for updates')).toBe('Check #general for updates')
   })
 
   it('converts user mentions', () => {

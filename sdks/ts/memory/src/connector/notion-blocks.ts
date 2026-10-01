@@ -46,12 +46,7 @@ export type NotionBlock = {
  * Set of block types considered list items for indentation.
  * Module-level constant avoids per-call allocation.
  */
-const LIST_BLOCK_TYPES = new Set([
-  'bulleted_list_item',
-  'numbered_list_item',
-  'to_do',
-  'toggle',
-])
+const LIST_BLOCK_TYPES = new Set(['bulleted_list_item', 'numbered_list_item', 'to_do', 'toggle'])
 
 // ---------- Rich text helpers ----------
 
@@ -90,9 +85,8 @@ export const renderRichText = (texts: readonly NotionRichText[]): string => {
 /**
  * Extracts plain text from rich text without formatting.
  */
-export const renderPlainRichText = (
-  texts: readonly NotionRichText[],
-): string => texts.map((t) => t.plain_text).join('')
+export const renderPlainRichText = (texts: readonly NotionRichText[]): string =>
+  texts.map((t) => t.plain_text).join('')
 
 // ---------- Block rendering ----------
 
@@ -100,10 +94,7 @@ export const renderPlainRichText = (
  * Converts a single Notion block to markdown. Blocks whose type is
  * not in the allowedTypes filter (when provided) are skipped.
  */
-export const blockToMarkdown = (
-  block: NotionBlock,
-  allowedTypes?: ReadonlySet<string>,
-): string => {
+export const blockToMarkdown = (block: NotionBlock, allowedTypes?: ReadonlySet<string>): string => {
   // Apply block type filter when configured.
   if (allowedTypes !== undefined && !allowedTypes.has(block.type)) {
     return ''
@@ -143,9 +134,7 @@ export const blockToMarkdown = (
     image: () => {
       const capText = renderRichText(caption)
       const url = extractFileUrl(blockData)
-      return capText !== ''
-        ? `![${capText}](${url})\n`
-        : `![](${url})\n`
+      return capText !== '' ? `![${capText}](${url})\n` : `![](${url})\n`
     },
     file: () => {
       const url = extractFileUrl(blockData)
@@ -191,8 +180,7 @@ export const blockToMarkdown = (
 /**
  * Checks whether a block type is a list item.
  */
-export const isListBlock = (blockType: string): boolean =>
-  LIST_BLOCK_TYPES.has(blockType)
+export const isListBlock = (blockType: string): boolean => LIST_BLOCK_TYPES.has(blockType)
 
 /**
  * Extracts a file URL from a file-type block's data.

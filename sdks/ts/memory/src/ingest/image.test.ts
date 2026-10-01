@@ -1,15 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 
-import { existsSync, writeFileSync, chmodSync } from 'node:fs'
+import { chmodSync, existsSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readdirSync, statSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { mkdtempSync, readdirSync, statSync } from 'node:fs'
 import { Readable } from 'node:stream'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import type { Logger } from '../llm/types.js'
 import type { ExtractOptions, Extractor, ExtractorCapability } from './extractor.js'
 import { createImageExtractor, parsePaddleOCROutput } from './image.js'
 import { resetBinaryCache } from './subprocess.js'
-import type { Logger } from '../llm/types.js'
 
 describe('createImageExtractor', () => {
   const ext = createImageExtractor({

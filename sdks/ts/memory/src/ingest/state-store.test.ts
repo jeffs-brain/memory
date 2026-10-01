@@ -10,12 +10,12 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { createMemStore } from '../store/memstore.js'
 import type { Store } from '../store/index.js'
-import type { PipelineStateEntry, PipelineStateStore } from './state-store.js'
-import { FilePipelineStateStore } from './state-store.js'
+import { createMemStore } from '../store/memstore.js'
 import { PostgresPipelineStateStore } from './state-store-pg.js'
 import type { PgSql } from './state-store-pg.js'
+import type { PipelineStateEntry, PipelineStateStore } from './state-store.js'
+import { FilePipelineStateStore } from './state-store.js'
 
 const BRAIN_ID = 'test-brain'
 
@@ -147,7 +147,9 @@ for (const factory of factories) {
     })
 
     it('returns undefined when no state exists', async () => {
-      const entry = await stateStore.get('0000000000000000000000000000000000000000000000000000000000000000')
+      const entry = await stateStore.get(
+        '0000000000000000000000000000000000000000000000000000000000000000',
+      )
       expect(entry).toBeUndefined()
     })
 
@@ -181,11 +183,26 @@ for (const factory of factories) {
     })
 
     it('lists only incomplete entries', async () => {
-      const received = makeEntry({ documentHash: '1111111111111111111111111111111111111111111111111111111111111111', stage: 'received' })
-      const stored = makeEntry({ documentHash: '2222222222222222222222222222222222222222222222222222222222222222', stage: 'stored' })
-      const completed = makeEntry({ documentHash: '3333333333333333333333333333333333333333333333333333333333333333', stage: 'completed' })
-      const failed = makeEntry({ documentHash: '4444444444444444444444444444444444444444444444444444444444444444', stage: 'failed' })
-      const embedded = makeEntry({ documentHash: '5555555555555555555555555555555555555555555555555555555555555555', stage: 'embedded' })
+      const received = makeEntry({
+        documentHash: '1111111111111111111111111111111111111111111111111111111111111111',
+        stage: 'received',
+      })
+      const stored = makeEntry({
+        documentHash: '2222222222222222222222222222222222222222222222222222222222222222',
+        stage: 'stored',
+      })
+      const completed = makeEntry({
+        documentHash: '3333333333333333333333333333333333333333333333333333333333333333',
+        stage: 'completed',
+      })
+      const failed = makeEntry({
+        documentHash: '4444444444444444444444444444444444444444444444444444444444444444',
+        stage: 'failed',
+      })
+      const embedded = makeEntry({
+        documentHash: '5555555555555555555555555555555555555555555555555555555555555555',
+        stage: 'embedded',
+      })
 
       await stateStore.set(received)
       await stateStore.set(stored)
@@ -199,13 +216,21 @@ for (const factory of factories) {
       expect(hashes).toContain('1111111111111111111111111111111111111111111111111111111111111111')
       expect(hashes).toContain('2222222222222222222222222222222222222222222222222222222222222222')
       expect(hashes).toContain('5555555555555555555555555555555555555555555555555555555555555555')
-      expect(hashes).not.toContain('3333333333333333333333333333333333333333333333333333333333333333')
-      expect(hashes).not.toContain('4444444444444444444444444444444444444444444444444444444444444444')
+      expect(hashes).not.toContain(
+        '3333333333333333333333333333333333333333333333333333333333333333',
+      )
+      expect(hashes).not.toContain(
+        '4444444444444444444444444444444444444444444444444444444444444444',
+      )
       expect(incomplete).toHaveLength(3)
     })
 
     it('listIncomplete filters by brainId', async () => {
-      const ours = makeEntry({ documentHash: 'aaaa000000000000000000000000000000000000000000000000000000000000', brainId: BRAIN_ID, stage: 'stored' })
+      const ours = makeEntry({
+        documentHash: 'aaaa000000000000000000000000000000000000000000000000000000000000',
+        brainId: BRAIN_ID,
+        stage: 'stored',
+      })
       const theirs = makeEntry({
         documentHash: 'bbbb000000000000000000000000000000000000000000000000000000000000',
         brainId: 'other-brain',
@@ -217,7 +242,9 @@ for (const factory of factories) {
 
       const incomplete = await stateStore.listIncomplete(BRAIN_ID)
       expect(incomplete).toHaveLength(1)
-      expect(incomplete[0]!.documentHash).toBe('aaaa000000000000000000000000000000000000000000000000000000000000')
+      expect(incomplete[0]!.documentHash).toBe(
+        'aaaa000000000000000000000000000000000000000000000000000000000000',
+      )
     })
 
     it('deletes state by document hash', async () => {
@@ -230,7 +257,9 @@ for (const factory of factories) {
     })
 
     it('delete on non-existent hash does not throw', async () => {
-      await expect(stateStore.delete('0000000000000000000000000000000000000000000000000000000000000001')).resolves.toBeUndefined()
+      await expect(
+        stateStore.delete('0000000000000000000000000000000000000000000000000000000000000001'),
+      ).resolves.toBeUndefined()
     })
 
     it('preserves lastError field', async () => {

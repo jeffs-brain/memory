@@ -6,10 +6,10 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 import type { ConnectorDocument, DocumentDispatcher } from './types.js'
 import {
-  WebhookReceiver,
   type WebhookAuthConfig,
   type WebhookDocument,
   type WebhookPayload,
+  WebhookReceiver,
   type WebhookReceiverConfig,
   type WebhookResponse,
 } from './webhook.js'
@@ -54,9 +54,7 @@ const hmacAuth = (): WebhookAuthConfig => ({
 const makePayload = (docs: WebhookDocument[]): string =>
   JSON.stringify({ documents: docs } satisfies WebhookPayload)
 
-const singleDoc = (): WebhookDocument[] => [
-  { externalId: 'ext-1', content: 'hello world' },
-]
+const singleDoc = (): WebhookDocument[] => [{ externalId: 'ext-1', content: 'hello world' }]
 
 const doRequest = async (
   receiver: WebhookReceiver,
@@ -79,11 +77,7 @@ const doRequest = async (
   return handler(req)
 }
 
-const computeHMAC = (
-  secret: string,
-  timestamp: number,
-  body: string,
-): string => {
+const computeHMAC = (secret: string, timestamp: number, body: string): string => {
   const mac = createHmac('sha256', secret)
   mac.update(String(timestamp))
   mac.update('.')
@@ -91,10 +85,7 @@ const computeHMAC = (
   return `sha256=${mac.digest('hex')}`
 }
 
-const hmacHeaders = (
-  secret: string,
-  body: string,
-): Record<string, string> => {
+const hmacHeaders = (secret: string, body: string): Record<string, string> => {
   const ts = Math.floor(Date.now() / 1000)
   return {
     'x-webhook-signature': computeHMAC(secret, ts, body),
@@ -292,9 +283,7 @@ describe('WebhookReceiver', () => {
         maxPayloadBytes: 100,
       })
       const bigContent = 'x'.repeat(200)
-      const body = makePayload([
-        { externalId: 'ext-1', content: bigContent },
-      ])
+      const body = makePayload([{ externalId: 'ext-1', content: bigContent }])
       const res = await doRequest(receiver, 'POST', body, {
         authorization: 'Bearer test-secret-token',
       })
@@ -457,9 +446,7 @@ describe('WebhookReceiver', () => {
     it('rejects unsupported encoding', async () => {
       receiver = createTestReceiver(bearerAuth(), dispatcher)
       const body = JSON.stringify({
-        documents: [
-          { externalId: 'ext-1', content: 'data', encoding: 'gzip' },
-        ],
+        documents: [{ externalId: 'ext-1', content: 'data', encoding: 'gzip' }],
       })
       const res = await doRequest(receiver, 'POST', body, {
         authorization: 'Bearer test-secret-token',
@@ -492,9 +479,7 @@ describe('WebhookReceiver', () => {
 
     it('sets default MIME to text/plain', async () => {
       receiver = createTestReceiver(bearerAuth(), dispatcher)
-      const body = makePayload([
-        { externalId: 'ext-1', content: 'plain text' },
-      ])
+      const body = makePayload([{ externalId: 'ext-1', content: 'plain text' }])
       await doRequest(receiver, 'POST', body, {
         authorization: 'Bearer test-secret-token',
       })

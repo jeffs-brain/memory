@@ -167,9 +167,14 @@ export class AudioExtractor implements Extractor {
     if (!hasPython) return false
 
     try {
-      const result = await runSubprocess(this.cfg.pythonBinary, ['-c', 'import faster_whisper'], undefined, {
-        timeout: 10_000,
-      })
+      const result = await runSubprocess(
+        this.cfg.pythonBinary,
+        ['-c', 'import faster_whisper'],
+        undefined,
+        {
+          timeout: 10_000,
+        },
+      )
       return result.exitCode === 0
     } catch {
       return false
@@ -252,10 +257,7 @@ export class AudioExtractor implements Extractor {
     }
   }
 
-  async extractStream(
-    source: Readable,
-    opts: ExtractOptions,
-  ): Promise<ExtractResult> {
+  async extractStream(source: Readable, opts: ExtractOptions): Promise<ExtractResult> {
     const raw = await bufferStream(source, opts.maxBytes)
     return this.extract(raw, opts)
   }

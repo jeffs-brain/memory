@@ -16,13 +16,7 @@ export type Strategy = 'recursive' | 'markdown' | 'code' | 'table' | 'conversati
  * Named chunking strategies. Empty string means auto-detect from
  * content type. Explicit values override the registry routing.
  */
-export type ChunkStrategy =
-  | ''
-  | 'recursive'
-  | 'markdown'
-  | 'code'
-  | 'tabular'
-  | 'page_level'
+export type ChunkStrategy = '' | 'recursive' | 'markdown' | 'code' | 'tabular' | 'page_level'
 
 /** All valid strategy values for membership checks. */
 const VALID_STRATEGIES: ReadonlySet<string> = new Set([
@@ -157,14 +151,10 @@ export const createChunkConfig = (
   const min = minTokens !== undefined && minTokens >= 0 ? minTokens : DEFAULT_MIN_TOKENS
 
   if (min >= max) {
-    throw new ChunkConfigError(
-      `minTokens (${min}) must be less than maxTokens (${max})`,
-    )
+    throw new ChunkConfigError(`minTokens (${min}) must be less than maxTokens (${max})`)
   }
   if (overlap >= max) {
-    throw new ChunkConfigError(
-      `overlapTokens (${overlap}) must be less than maxTokens (${max})`,
-    )
+    throw new ChunkConfigError(`overlapTokens (${overlap}) must be less than maxTokens (${max})`)
   }
   return {
     maxTokens: max,

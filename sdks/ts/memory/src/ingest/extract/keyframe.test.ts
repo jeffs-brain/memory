@@ -5,17 +5,17 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 
-import type { ExtractOptions, ExtractResult, Extractor, ExtractorCapability } from './types.js'
-import { resetBinaryCache } from './subprocess.js'
 import {
+  type KeyframeConfig,
+  type KeyframeResult,
   extractKeyframes,
   formatKeyframeText,
   formatKeyframeTimestamp,
   mergeKeyframeMetadata,
   resolveKeyframeConfig,
-  type KeyframeConfig,
-  type KeyframeResult,
 } from './keyframe.js'
+import { resetBinaryCache } from './subprocess.js'
+import type { ExtractOptions, ExtractResult, Extractor, ExtractorCapability } from './types.js'
 
 // ---- Test helpers ----
 
@@ -224,9 +224,7 @@ describe('mergeKeyframeMetadata', () => {
 
   it('handles single result', () => {
     const metadata: Record<string, string> = {}
-    const results: readonly KeyframeResult[] = [
-      { timestampSecs: 30, text: 'a', confidence: 0.95 },
-    ]
+    const results: readonly KeyframeResult[] = [{ timestampSecs: 30, text: 'a', confidence: 0.95 }]
     mergeKeyframeMetadata(metadata, results)
     expect(metadata['keyframe_count']).toBe('1')
     expect(metadata['keyframe_avg_confidence']).toBe('0.9500')

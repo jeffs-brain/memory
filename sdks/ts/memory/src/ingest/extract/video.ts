@@ -9,10 +9,10 @@
 
 import { type ChildProcess, spawn } from 'node:child_process'
 import { createWriteStream } from 'node:fs'
-import { mkdtemp, rm, writeFile as fsWriteFile } from 'node:fs/promises'
+import { writeFile as fsWriteFile, mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { Transform, type Readable } from 'node:stream'
+import { type Readable, Transform } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
 
 import type { AudioExtractor } from './audio.js'
@@ -135,7 +135,8 @@ const buildVideoMetadata = (probe: FFprobeOutput): VideoMetadata => {
     }
   }
 
-  const duration = probe.format.duration !== undefined ? Number.parseFloat(probe.format.duration) : 0
+  const duration =
+    probe.format.duration !== undefined ? Number.parseFloat(probe.format.duration) : 0
 
   return {
     duration_seconds: Number.isNaN(duration) ? 0 : duration,
@@ -266,10 +267,7 @@ export class VideoExtractor implements Extractor {
   /**
    * Extract content from a video stream by buffering into extract().
    */
-  async extractStream(
-    source: Readable,
-    opts: ExtractOptions,
-  ): Promise<ExtractResult> {
+  async extractStream(source: Readable, opts: ExtractOptions): Promise<ExtractResult> {
     const raw = await bufferStream(source, opts.maxBytes)
     return this.extract(raw, opts)
   }
@@ -319,7 +317,12 @@ export class VideoExtractor implements Extractor {
 
     // Extract audio via FFmpeg to a temp WAV file instead of buffering
     // the entire WAV payload in memory (~230 MB for a 2-hour video).
-    const wavPath = await this.extractAudioToFile(videoPath, tmpDir, videoMeta.duration_seconds, opts.signal)
+    const wavPath = await this.extractAudioToFile(
+      videoPath,
+      tmpDir,
+      videoMeta.duration_seconds,
+      opts.signal,
+    )
 
     // Read the WAV file for the AudioExtractor.
     const { readFile } = await import('node:fs/promises')
@@ -354,8 +357,7 @@ export class VideoExtractor implements Extractor {
         }
         mergeKeyframeMetadata(metadata, keyframes)
       } catch (kfErr: unknown) {
-        metadata['keyframe_error'] =
-          kfErr instanceof Error ? kfErr.message : String(kfErr)
+        metadata['keyframe_error'] = kfErr instanceof Error ? kfErr.message : String(kfErr)
       }
     }
 
@@ -453,7 +455,11 @@ export class VideoExtractor implements Extractor {
  * Write a Readable stream to a file, enforcing a maximum size limit.
  * Returns the number of bytes written.
  */
-const writeStreamToFile = async (filePath: string, input: Readable, maxSize: number): Promise<number> => {
+const writeStreamToFile = async (
+  filePath: string,
+  input: Readable,
+  maxSize: number,
+): Promise<number> => {
   const out = createWriteStream(filePath, { mode: 0o600 })
   let written = 0
 

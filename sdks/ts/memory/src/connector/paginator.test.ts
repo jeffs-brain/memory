@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it, vi } from 'vitest'
-import { collectPages, paginate, MaxPagesExceededError } from './paginator.js'
+import { MaxPagesExceededError, collectPages, paginate } from './paginator.js'
 import { createRateLimiter } from './rate-limiter.js'
 import type { PageResult } from './types.js'
 
@@ -62,9 +62,7 @@ describe('paginate', () => {
     const items = await collectPages({
       fetchPage: async () => {
         const current = page++
-        return current < 2
-          ? { items: ['item'], nextCursor: 'next' }
-          : { items: ['last'] }
+        return current < 2 ? { items: ['item'], nextCursor: 'next' } : { items: ['last'] }
       },
       rateLimiter: rl,
     })

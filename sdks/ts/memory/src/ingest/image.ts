@@ -10,6 +10,8 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { Readable } from 'node:stream'
+import type { Logger } from '../llm/types.js'
+import { noopLogger } from '../llm/types.js'
 import type {
   ExtractOptions,
   ExtractResult,
@@ -18,8 +20,6 @@ import type {
   MagicSignature,
 } from './extractor.js'
 import { DEFAULT_SUBPROCESS_TIMEOUT_MS, checkBinaryAvailable, runSubprocess } from './subprocess.js'
-import type { Logger } from '../llm/types.js'
-import { noopLogger } from '../llm/types.js'
 
 /** Configuration for the image OCR extractor. */
 export type ImageExtractorConfig = {

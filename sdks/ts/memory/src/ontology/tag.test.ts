@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from 'vitest'
-import type { ResolvedOntology, ResolvedType } from './store.js'
 import type { ClassificationResult } from './classify.js'
-import { tagChunk, tagChunks } from './tag.js'
 import { Classifier } from './classify.js'
+import type { ResolvedOntology, ResolvedType } from './store.js'
+import { tagChunk, tagChunks } from './tag.js'
 
 function sampleOntology(): ResolvedOntology {
   return {

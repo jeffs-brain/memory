@@ -376,7 +376,16 @@ export const extractJSON = (raw: Buffer, config: JsonExtractorConfig = {}): Extr
     metadata.detected_schema = schema
   }
 
-  return { text: content, contentType: 'application/json', encoding: 'UTF-8', metadata, pages: 0, language: '', confidence: 0, skipped: false }
+  return {
+    text: content,
+    contentType: 'application/json',
+    encoding: 'UTF-8',
+    metadata,
+    pages: 0,
+    language: '',
+    confidence: 0,
+    skipped: false,
+  }
 }
 
 type ResolvedJsonConfig = {
@@ -456,10 +465,7 @@ const renderJSONArray = (arr: readonly unknown[], cfg: ResolvedJsonConfig): Rend
   }
 }
 
-const renderJSONObject = (
-  obj: Record<string, unknown>,
-  cfg: ResolvedJsonConfig,
-): RenderResult => {
+const renderJSONObject = (obj: Record<string, unknown>, cfg: ResolvedJsonConfig): RenderResult => {
   const keys = Object.keys(obj).sort()
   if (keys.length === 0) {
     return { content: '{}', structureType: 'empty_object', schema: '' }
@@ -654,8 +660,7 @@ export const maxNestingDepth = (v: unknown, current: number): number => {
   return max
 }
 
-const escapeMdTableCell = (s: string): string =>
-  s.replaceAll('|', '\\|').replaceAll('\n', ' ')
+const escapeMdTableCell = (s: string): string => s.replaceAll('|', '\\|').replaceAll('\n', ' ')
 
 // -------------------------------------------------------------------
 // JSONL support

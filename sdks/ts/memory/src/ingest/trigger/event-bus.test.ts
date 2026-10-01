@@ -32,9 +32,15 @@ describe('event-bus', () => {
     const bus = createEventBus()
     const counts = [0, 0, 0]
 
-    bus.subscribe(() => { counts[0]++ })
-    bus.subscribe(() => { counts[1]++ })
-    bus.subscribe(() => { counts[2]++ })
+    bus.subscribe(() => {
+      counts[0]++
+    })
+    bus.subscribe(() => {
+      counts[1]++
+    })
+    bus.subscribe(() => {
+      counts[2]++
+    })
 
     bus.publish(validEvent('e2'))
     await bus.close()
@@ -47,8 +53,12 @@ describe('event-bus', () => {
     let firstCount = 0
     let secondCount = 0
 
-    const unsub = bus.subscribe(() => { firstCount++ })
-    bus.subscribe(() => { secondCount++ })
+    const unsub = bus.subscribe(() => {
+      firstCount++
+    })
+    bus.subscribe(() => {
+      secondCount++
+    })
 
     bus.publish(validEvent('e3'))
     await bus.close()
@@ -61,8 +71,12 @@ describe('event-bus', () => {
     let first2 = 0
     let second2 = 0
 
-    const unsub2 = bus2.subscribe(() => { first2++ })
-    bus2.subscribe(() => { second2++ })
+    const unsub2 = bus2.subscribe(() => {
+      first2++
+    })
+    bus2.subscribe(() => {
+      second2++
+    })
 
     bus2.publish(validEvent('e3b'))
 
@@ -77,8 +91,12 @@ describe('event-bus', () => {
     let fA = 0
     let fB = 0
 
-    const unsubA = bus3.subscribe(() => { fA++ })
-    bus3.subscribe(() => { fB++ })
+    const unsubA = bus3.subscribe(() => {
+      fA++
+    })
+    bus3.subscribe(() => {
+      fB++
+    })
 
     bus3.publish(validEvent('e3c'))
     await bus3.close()
@@ -90,8 +108,12 @@ describe('event-bus', () => {
     // isolation is per-bus. The original test intent is preserved.
     let countA = 0
     let countB = 0
-    const unsubX = bus4.subscribe(() => { countA++ })
-    bus4.subscribe(() => { countB++ })
+    const unsubX = bus4.subscribe(() => {
+      countA++
+    })
+    bus4.subscribe(() => {
+      countB++
+    })
 
     bus4.publish(validEvent('e3d'))
     await bus4.close()
@@ -99,9 +121,11 @@ describe('event-bus', () => {
     unsubX()
 
     const bus5 = createEventBus()
-    let cntA = 0
+    const cntA = 0
     let cntB = 0
-    bus5.subscribe(() => { cntB++ })
+    bus5.subscribe(() => {
+      cntB++
+    })
 
     bus5.publish(validEvent('e3e'))
     await bus5.close()
@@ -243,7 +267,9 @@ describe('event-bus', () => {
     const fileEvents: IngestTriggerEvent[] = []
 
     bus.subscribe(
-      (event) => { fileEvents.push(event) },
+      (event) => {
+        fileEvents.push(event)
+      },
       { filter: (event) => event.payload.kind === 'file' },
     )
 
@@ -266,7 +292,9 @@ describe('event-bus', () => {
     const bus = createEventBus()
     const allEvents: IngestTriggerEvent[] = []
 
-    bus.subscribe((event) => { allEvents.push(event) })
+    bus.subscribe((event) => {
+      allEvents.push(event)
+    })
 
     const urlEvent: IngestTriggerEvent = {
       id: 'url-2',

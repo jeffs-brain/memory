@@ -7,13 +7,6 @@
  * are exported to markdown, CSV, and plain text respectively.
  */
 
-import type {
-  Connector,
-  ConnectorConfig,
-  ConnectorDocument,
-  HTTPClient,
-  SyncCursor,
-} from './types.js'
 import {
   RATE_LIMIT_MAX_RETRIES,
   buildFileMetadata,
@@ -26,6 +19,13 @@ import {
   sleep,
   truncateBody,
 } from './gdrive-helpers.js'
+import type {
+  Connector,
+  ConnectorConfig,
+  ConnectorDocument,
+  HTTPClient,
+  SyncCursor,
+} from './types.js'
 
 // -- Google Drive API constants -----------------------------------------------
 
@@ -45,8 +45,7 @@ const DRIVE_FILE_FIELDS = 'id,name,mimeType,modifiedTime,size,parents,webViewLin
 const DRIVE_LIST_FIELDS = `nextPageToken,files(${DRIVE_FILE_FIELDS})`
 
 /** Response fields for changes.list. */
-const DRIVE_CHANGES_FIELDS =
-  `nextPageToken,newStartPageToken,changes(fileId,removed,file(${DRIVE_FILE_FIELDS}))`
+const DRIVE_CHANGES_FIELDS = `nextPageToken,newStartPageToken,changes(fileId,removed,file(${DRIVE_FILE_FIELDS}))`
 
 /** Number of results per API page. */
 const DRIVE_DEFAULT_PAGE_SIZE = 100
@@ -184,8 +183,10 @@ export class GDriveConnector implements Connector {
    * Accepts Record<string, unknown> to match the P5-1 Connector interface.
    */
   async configure(rawConfig: Record<string, unknown>): Promise<void> {
-    const clientId = typeof rawConfig['oauth2_client_id'] === 'string' ? rawConfig['oauth2_client_id'] : ''
-    const clientSecret = typeof rawConfig['oauth2_client_secret'] === 'string' ? rawConfig['oauth2_client_secret'] : ''
+    const clientId =
+      typeof rawConfig['oauth2_client_id'] === 'string' ? rawConfig['oauth2_client_id'] : ''
+    const clientSecret =
+      typeof rawConfig['oauth2_client_secret'] === 'string' ? rawConfig['oauth2_client_secret'] : ''
 
     if (clientId === '') {
       throw new Error('gdrive: oauth2_client_id is required')
@@ -209,15 +210,21 @@ export class GDriveConnector implements Connector {
       parsedMaxFileSize = maxFileSizeRaw
     }
 
-    const redirectUri = typeof rawConfig['oauth2_redirect_uri'] === 'string' ? rawConfig['oauth2_redirect_uri'] : undefined
-    const accessToken = typeof rawConfig['access_token'] === 'string' ? rawConfig['access_token'] : undefined
+    const redirectUri =
+      typeof rawConfig['oauth2_redirect_uri'] === 'string'
+        ? rawConfig['oauth2_redirect_uri']
+        : undefined
+    const accessToken =
+      typeof rawConfig['access_token'] === 'string' ? rawConfig['access_token'] : undefined
     const folderId = typeof rawConfig['folder_id'] === 'string' ? rawConfig['folder_id'] : undefined
 
     const includeSharedRaw = rawConfig['include_shared_drives']
     const includeSharedDrives =
       typeof includeSharedRaw === 'boolean'
         ? includeSharedRaw
-        : (typeof includeSharedRaw === 'string' ? includeSharedRaw === 'true' : false)
+        : typeof includeSharedRaw === 'string'
+          ? includeSharedRaw === 'true'
+          : false
 
     const cfg: GDriveConnectorConfig = {
       oauth2ClientId: clientId,
@@ -487,7 +494,12 @@ export class GDriveConnector implements Connector {
     targetMime: string,
   ): Promise<{ content: string; mime: string }> {
     const exportUrl = `${DRIVE_FILES_URL}/${encodeURIComponent(fileId)}/export?mimeType=${encodeURIComponent(targetMime)}`
-    const body = await this.doAPIGet(exportUrl, signal, HTTP_DOWNLOAD_TIMEOUT_MS, DRIVE_EXPORT_MAX_BYTES)
+    const body = await this.doAPIGet(
+      exportUrl,
+      signal,
+      HTTP_DOWNLOAD_TIMEOUT_MS,
+      DRIVE_EXPORT_MAX_BYTES,
+    )
 
     if (body.length > DRIVE_EXPORT_MAX_BYTES) {
       throw new Error(`gdrive: export of ${fileId} exceeds ${DRIVE_EXPORT_MAX_BYTES} byte limit`)

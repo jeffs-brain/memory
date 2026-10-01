@@ -7,23 +7,10 @@
  * Supports incremental sync via last_edited_time filtering.
  */
 
-import type {
-  Connector,
-  ConnectorConfig,
-  ConnectorDocument,
-  SyncCursor,
-} from './types.js'
-import { createRateLimiter } from './rate-limiter.js'
+import { type NotionBlock, blockToMarkdown, isListBlock } from './notion-blocks.js'
+import { parseDatabaseEntry, parsePageResponse } from './notion-properties.js'
 import {
-  blockToMarkdown,
-  isListBlock,
-  type NotionBlock,
-} from './notion-blocks.js'
-import {
-  parseDatabaseEntry,
-  parsePageResponse,
-} from './notion-properties.js'
-import {
+  type NotionHTTPFetcher,
   combineSignals,
   globalFetch,
   interruptibleSleep,
@@ -31,8 +18,9 @@ import {
   parseRetryAfterHeader,
   parseStringArray,
   readResponseWithLimit,
-  type NotionHTTPFetcher,
 } from './notion-utils.js'
+import { createRateLimiter } from './rate-limiter.js'
+import type { Connector, ConnectorConfig, ConnectorDocument, SyncCursor } from './types.js'
 
 // Re-export types that consumers may need.
 export type { NotionBlock } from './notion-blocks.js'
@@ -98,10 +86,12 @@ export const createNotionConnector = (
   let abortController: AbortController | undefined
   const baseUrl = options?.baseUrl ?? NOTION_DEFAULT_BASE_URL
   const fetcher: NotionHTTPFetcher = options?.fetcher ?? globalFetch
-  const rateLimiter = deps.rateLimiter ?? createRateLimiter({
-    maxTokens: NOTION_DEFAULT_RATE_LIMIT,
-    refillRate: NOTION_DEFAULT_RATE_LIMIT,
-  })
+  const rateLimiter =
+    deps.rateLimiter ??
+    createRateLimiter({
+      maxTokens: NOTION_DEFAULT_RATE_LIMIT,
+      refillRate: NOTION_DEFAULT_RATE_LIMIT,
+    })
 
   const ensureConfigured = (): NotionConnectorConfig => {
     if (config === undefined) {
@@ -127,12 +117,7 @@ export const createNotionConnector = (
     for (let attempt = 0; attempt <= NOTION_MAX_RETRY_ATTEMPTS; attempt++) {
       await acquireRateLimit(signal)
 
-      const { data, retryAfterSeconds, error } = await doSingleRequest(
-        signal,
-        method,
-        path,
-        body,
-      )
+      const { data, retryAfterSeconds, error } = await doSingleRequest(signal, method, path, body)
 
       if (error === undefined) {
         return data
@@ -147,16 +132,15 @@ export const createNotionConnector = (
         throw error
       }
 
-      const waitMs = retryAfterSeconds >= 0
-        ? retryAfterSeconds * 1000
-        : Math.min(1000 * Math.pow(2, attempt) + Math.random() * 500, 60_000)
+      const waitMs =
+        retryAfterSeconds >= 0
+          ? retryAfterSeconds * 1000
+          : Math.min(1000 * Math.pow(2, attempt) + Math.random() * 500, 60_000)
 
       await interruptibleSleep(signal, waitMs)
     }
 
-    throw new Error(
-      `connector/notion: exhausted retries for ${method} ${path}`,
-    )
+    throw new Error(`connector/notion: exhausted retries for ${method} ${path}`)
   }
 
   /**
@@ -220,9 +204,7 @@ export const createNotionConnector = (
       if (response.status < 200 || response.status >= 300) {
         const text = await response.text()
         return {
-          error: new Error(
-            `connector/notion: HTTP ${String(response.status)}: ${text}`,
-          ),
+          error: new Error(`connector/notion: HTTP ${String(response.status)}: ${text}`),
         }
       }
 
@@ -259,11 +241,7 @@ export const createNotionConnector = (
         endpoint += `&start_cursor=${cursor}`
       }
 
-      const resp = (await doRequest(
-        signal,
-        'GET',
-        endpoint,
-      )) as NotionPaginatedResponse
+      const resp = (await doRequest(signal, 'GET', endpoint)) as NotionPaginatedResponse
       for (const result of resp.results) {
         allBlocks.push(result as unknown as NotionBlock)
       }
@@ -284,11 +262,9 @@ export const createNotionConnector = (
   ): Promise<string> => {
     // Try Markdown API first.
     try {
-      const mdResp = (await doRequest(
-        signal,
-        'GET',
-        `/pages/${pageId}/markdown`,
-      )) as { markdown?: string }
+      const mdResp = (await doRequest(signal, 'GET', `/pages/${pageId}/markdown`)) as {
+        markdown?: string
+      }
       if (mdResp.markdown !== undefined) {
         return mdResp.markdown
       }
@@ -317,12 +293,7 @@ export const createNotionConnector = (
       }
 
       if (block.has_children) {
-        const childContent = await fetchBlocksAsMarkdown(
-          signal,
-          block.id,
-          depth + 1,
-          maxDepth,
-        )
+        const childContent = await fetchBlocksAsMarkdown(signal, block.id, depth + 1, maxDepth)
         if (childContent !== '') {
           const lines = childContent.split('\n')
           const prefix = isListBlock(block.type) ? '  ' : ''
@@ -366,11 +337,7 @@ export const createNotionConnector = (
 
     let pageData: Record<string, unknown>
     try {
-      pageData = (await doRequest(
-        signal,
-        'GET',
-        `/pages/${pageId}`,
-      )) as Record<string, unknown>
+      pageData = (await doRequest(signal, 'GET', `/pages/${pageId}`)) as Record<string, unknown>
     } catch {
       return
     }
@@ -383,11 +350,7 @@ export const createNotionConnector = (
       if (page.lastEditedTime < cursorTime) return
     }
 
-    const content = await fetchPageContent(
-      signal,
-      pageId,
-      cfg.maxDepth ?? NOTION_DEFAULT_MAX_DEPTH,
-    )
+    const content = await fetchPageContent(signal, pageId, cfg.maxDepth ?? NOTION_DEFAULT_MAX_DEPTH)
 
     yield {
       externalId: pageId,
@@ -508,12 +471,7 @@ export const createNotionConnector = (
         body.start_cursor = cursor
       }
 
-      const resp = (await doRequest(
-        signal,
-        'POST',
-        '/search',
-        body,
-      )) as NotionPaginatedResponse
+      const resp = (await doRequest(signal, 'POST', '/search', body)) as NotionPaginatedResponse
 
       for (const result of resp.results) {
         const objectType = result.object as string
@@ -595,10 +553,7 @@ export const createNotionConnector = (
       yield* syncPages(signal, undefined)
     },
 
-    async *fetchSince(
-      signal: AbortSignal,
-      cursor: SyncCursor,
-    ): AsyncIterable<ConnectorDocument> {
+    async *fetchSince(signal: AbortSignal, cursor: SyncCursor): AsyncIterable<ConnectorDocument> {
       yield* syncPages(signal, cursor.value)
     },
 
@@ -609,10 +564,7 @@ export const createNotionConnector = (
       const interval = deps.pollInterval ?? NOTION_DEFAULT_POLL_INTERVAL
 
       while (!signal.aborted && !abortController.signal.aborted) {
-        const combinedSignal = combineSignals(
-          signal,
-          abortController.signal,
-        )
+        const combinedSignal = combineSignals(signal, abortController.signal)
         for await (const _doc of syncPages(combinedSignal, undefined)) {
           // Documents consumed by the sync loop.
         }
@@ -636,4 +588,3 @@ export const createNotionConnector = (
     },
   }
 }
-

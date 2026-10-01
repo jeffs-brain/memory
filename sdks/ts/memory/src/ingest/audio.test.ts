@@ -1,15 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 
-import { mkdtemp, writeFile, rm } from 'node:fs/promises'
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Readable } from 'node:stream'
 import { describe, expect, it, vi } from 'vitest'
 import {
-  createAudioExtractor,
-  formatTranscription,
   type AudioExtractorConfig,
   type TranscriptionSegment,
+  createAudioExtractor,
+  formatTranscription,
 } from './audio.js'
 import { createExtractorRegistry } from './extractor.js'
 
@@ -19,7 +19,13 @@ import { createExtractorRegistry } from './extractor.js'
  * to the specified mode. Returns the script path and a cleanup function.
  */
 const createMockScript = async (
-  mode: 'success' | 'language_detect' | 'corrupt' | 'timeout' | 'availability_ok' | 'availability_fail',
+  mode:
+    | 'success'
+    | 'language_detect'
+    | 'corrupt'
+    | 'timeout'
+    | 'availability_ok'
+    | 'availability_fail',
 ): Promise<{ scriptPath: string; cleanup: () => Promise<void> }> => {
   const dir = await mkdtemp(join(tmpdir(), 'audio-test-'))
 
@@ -122,17 +128,17 @@ describe('createAudioExtractor - extract', () => {
   it('throws for file exceeding max size', async () => {
     const ext = createAudioExtractor({ maxFileSizeBytes: 100 })
     const largeBuffer = Buffer.alloc(200)
-    await expect(
-      ext.extract(largeBuffer, { contentType: 'audio/wav' }),
-    ).rejects.toThrow('exceeds maximum')
+    await expect(ext.extract(largeBuffer, { contentType: 'audio/wav' })).rejects.toThrow(
+      'exceeds maximum',
+    )
   })
 
   it('throws for stream exceeding max size', async () => {
     const ext = createAudioExtractor({ maxFileSizeBytes: 50 })
     const source = Readable.from([Buffer.alloc(100)])
-    await expect(
-      ext.extractStream(source, { contentType: 'audio/wav' }),
-    ).rejects.toThrow('exceeds maximum')
+    await expect(ext.extractStream(source, { contentType: 'audio/wav' })).rejects.toThrow(
+      'exceeds maximum',
+    )
   })
 })
 
@@ -167,9 +173,7 @@ describe('formatTranscription', () => {
   })
 
   it('formats a single segment with timestamp', () => {
-    const segments: TranscriptionSegment[] = [
-      { start: 0, end: 5, text: 'Hello world' },
-    ]
+    const segments: TranscriptionSegment[] = [{ start: 0, end: 5, text: 'Hello world' }]
     const result = formatTranscription(segments)
     expect(result).toContain('[00:00')
     expect(result).toContain('Hello world')
@@ -190,17 +194,13 @@ describe('formatTranscription', () => {
   })
 
   it('formats timestamps correctly for times over a minute', () => {
-    const segments: TranscriptionSegment[] = [
-      { start: 65, end: 90, text: 'One minute five.' },
-    ]
+    const segments: TranscriptionSegment[] = [{ start: 65, end: 90, text: 'One minute five.' }]
     const result = formatTranscription(segments)
     expect(result).toContain('[01:05')
   })
 
   it('formats timestamps for hour-long content', () => {
-    const segments: TranscriptionSegment[] = [
-      { start: 3661, end: 3690, text: 'Over an hour in.' },
-    ]
+    const segments: TranscriptionSegment[] = [{ start: 3661, end: 3690, text: 'Over an hour in.' }]
     const result = formatTranscription(segments)
     expect(result).toContain('[61:01')
   })
@@ -359,9 +359,9 @@ describe('createAudioExtractor - subprocess mocking', () => {
       })
 
       const input = Buffer.from('corrupt audio bytes')
-      await expect(
-        ext.extract(input, { contentType: 'audio/wav' }),
-      ).rejects.toThrow('transcription failed')
+      await expect(ext.extract(input, { contentType: 'audio/wav' })).rejects.toThrow(
+        'transcription failed',
+      )
     } finally {
       await cleanup()
     }
@@ -377,9 +377,7 @@ describe('createAudioExtractor - subprocess mocking', () => {
       })
 
       const input = Buffer.from('audio data that will time out')
-      await expect(
-        ext.extract(input, { contentType: 'audio/wav' }),
-      ).rejects.toThrow('timed out')
+      await expect(ext.extract(input, { contentType: 'audio/wav' })).rejects.toThrow('timed out')
     } finally {
       await cleanup()
     }
@@ -401,8 +399,8 @@ describe('createAudioExtractor - subprocess mocking', () => {
       // created in the last 5 seconds.
       const { readdirSync, statSync } = await import('node:fs')
       const tempBase = tmpdir()
-      const entries = readdirSync(tempBase).filter(e => e.startsWith('memory-audio-'))
-      const recent = entries.filter(e => {
+      const entries = readdirSync(tempBase).filter((e) => e.startsWith('memory-audio-'))
+      const recent = entries.filter((e) => {
         try {
           const info = statSync(join(tempBase, e))
           return Date.now() - info.mtimeMs < 5000
@@ -506,11 +504,7 @@ describe('createAudioExtractor - availability race condition', () => {
       // Fire multiple concurrent calls. If the pending-promise pattern
       // works, they should all resolve to the same value without spawning
       // separate subprocesses.
-      const results = await Promise.all([
-        ext.available(),
-        ext.available(),
-        ext.available(),
-      ])
+      const results = await Promise.all([ext.available(), ext.available(), ext.available()])
 
       expect(results).toEqual([true, true, true])
     } finally {

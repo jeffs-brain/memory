@@ -8,9 +8,9 @@
  * Port of go/ontology/registry.go.
  */
 
-import type { OntologyScope, OntologyTypeDefinition, TypeStatus } from './types.js'
-import type { OntologyStore, ResolvedOntology } from './store.js'
 import { formatEdgeTypeLabel, formatNodeTypeLabel } from './format.js'
+import type { OntologyStore, ResolvedOntology } from './store.js'
+import type { OntologyScope, OntologyTypeDefinition, TypeStatus } from './types.js'
 
 /**
  * Jaro-Winkler similarity threshold above which ProposeType considers

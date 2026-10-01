@@ -6,7 +6,7 @@
  * parses database entries into structured data.
  */
 
-import { renderPlainRichText, type NotionRichText } from './notion-blocks.js'
+import { type NotionRichText, renderPlainRichText } from './notion-blocks.js'
 
 // ---------- Types ----------
 
@@ -53,18 +53,12 @@ export const extractTitleFromProperties = (
 /**
  * Converts a Notion property to its string representation.
  */
-export const extractPropertyValue = (
-  prop: Record<string, unknown>,
-): string => {
+export const extractPropertyValue = (prop: Record<string, unknown>): string => {
   const propType = prop.type as string
 
   const renderers: Readonly<Record<string, () => string>> = {
-    title: () =>
-      renderPlainRichText((prop.title ?? []) as readonly NotionRichText[]),
-    rich_text: () =>
-      renderPlainRichText(
-        (prop.rich_text ?? []) as readonly NotionRichText[],
-      ),
+    title: () => renderPlainRichText((prop.title ?? []) as readonly NotionRichText[]),
+    rich_text: () => renderPlainRichText((prop.rich_text ?? []) as readonly NotionRichText[]),
     number: () => {
       const num = prop.number as number | null
       return num !== null && num !== undefined ? String(num) : ''
@@ -80,9 +74,7 @@ export const extractPropertyValue = (
     date: () => {
       const d = prop.date as { start: string; end?: string } | null
       if (d === null || d === undefined) return ''
-      return d.end !== undefined && d.end !== ''
-        ? `${d.start} to ${d.end}`
-        : d.start
+      return d.end !== undefined && d.end !== '' ? `${d.start} to ${d.end}` : d.start
     },
     checkbox: () => (prop.checkbox === true ? 'true' : 'false'),
     url: () => (prop.url as string) ?? '',
@@ -111,13 +103,8 @@ export const extractPropertyValue = (
 /**
  * Parses a database entry from the query response.
  */
-export const parseDatabaseEntry = (
-  raw: Record<string, unknown>,
-): ParsedDatabaseEntry => {
-  const properties = (raw.properties ?? {}) as Record<
-    string,
-    Record<string, unknown>
-  >
+export const parseDatabaseEntry = (raw: Record<string, unknown>): ParsedDatabaseEntry => {
+  const properties = (raw.properties ?? {}) as Record<string, Record<string, unknown>>
   const lastEditedStr = raw.last_edited_time as string
   const lastEditedTime = new Date(lastEditedStr)
 
@@ -164,13 +151,8 @@ export const parseDatabaseEntry = (
 /**
  * Parses a Notion API page response into structured metadata.
  */
-export const parsePageResponse = (
-  data: Record<string, unknown>,
-): ParsedPage => {
-  const properties = (data.properties ?? {}) as Record<
-    string,
-    Record<string, unknown>
-  >
+export const parsePageResponse = (data: Record<string, unknown>): ParsedPage => {
+  const properties = (data.properties ?? {}) as Record<string, Record<string, unknown>>
   const title = extractTitleFromProperties(properties)
   const lastEditedStr = data.last_edited_time as string
   const lastEditedTime = new Date(lastEditedStr)

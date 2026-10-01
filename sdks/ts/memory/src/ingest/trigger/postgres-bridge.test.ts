@@ -33,7 +33,9 @@ describe('postgres-bridge', () => {
   it('NOTIFY payload -> parsed and published to bus', async () => {
     const bus = createEventBus()
     const received: IngestTriggerEvent[] = []
-    bus.subscribe((event) => { received.push(event) })
+    bus.subscribe((event) => {
+      received.push(event)
+    })
 
     const event = validEvent('pg-1')
     const listener = mockPgListener([JSON.stringify(event)])
@@ -49,7 +51,9 @@ describe('postgres-bridge', () => {
   it('invalid JSON payload -> logged and discarded', async () => {
     const bus = createEventBus()
     const received: IngestTriggerEvent[] = []
-    bus.subscribe((event) => { received.push(event) })
+    bus.subscribe((event) => {
+      received.push(event)
+    })
 
     const warn = vi.fn()
     const listener = mockPgListener(['{broken'])

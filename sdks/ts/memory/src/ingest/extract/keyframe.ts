@@ -82,16 +82,19 @@ export const extractKeyframes = async (
   const outputPattern = join(framesDir, 'frame-%04d.png')
 
   const args = [
-    '-i', videoPath,
-    '-vf', fpsFilter,
-    '-frames:v', String(cfg.maxKeyframes),
-    '-vsync', 'vfr',
+    '-i',
+    videoPath,
+    '-vf',
+    fpsFilter,
+    '-frames:v',
+    String(cfg.maxKeyframes),
+    '-vsync',
+    'vfr',
     outputPattern,
   ]
 
-  const subprocessOpts = signal !== undefined
-    ? { timeout: cfg.timeout, signal }
-    : { timeout: cfg.timeout }
+  const subprocessOpts =
+    signal !== undefined ? { timeout: cfg.timeout, signal } : { timeout: cfg.timeout }
 
   const result = await runSubprocess(cfg.ffmpegBinary, args, undefined, subprocessOpts)
   if (result.exitCode !== 0) {
@@ -101,9 +104,7 @@ export const extractKeyframes = async (
   }
 
   const files = await readdir(framesDir)
-  let frameFiles = files
-    .filter((f) => f.startsWith('frame-') && f.endsWith('.png'))
-    .sort()
+  let frameFiles = files.filter((f) => f.startsWith('frame-') && f.endsWith('.png')).sort()
 
   if (frameFiles.length > cfg.maxKeyframes) {
     frameFiles = frameFiles.slice(0, cfg.maxKeyframes)

@@ -6,7 +6,7 @@
  * external services.
  */
 
-import type { RateLimiter, RateLimiterConfig, RateLimitHeaders } from './types.js'
+import type { RateLimitHeaders, RateLimiter, RateLimiterConfig } from './types.js'
 
 const DEFAULT_REFILL_INTERVAL = 1000
 const DEFAULT_MAX_RETRIES = 5
@@ -85,20 +85,18 @@ export const createRateLimiter = (config: RateLimiterConfig): RateLimiter => {
 
     adjustFromHeaders(headers: RateLimitHeaders): void {
       if (headers.remaining !== undefined) {
-        const rem = parseFloat(headers.remaining)
+        const rem = Number.parseFloat(headers.remaining)
         if (!Number.isNaN(rem)) {
           currentTokens = Math.min(rem, config.maxTokens)
         }
       }
 
       if (headers.remaining !== undefined && headers.limit !== undefined) {
-        const rem = parseFloat(headers.remaining)
-        const lim = parseFloat(headers.limit)
+        const rem = Number.parseFloat(headers.remaining)
+        const lim = Number.parseFloat(headers.limit)
         if (!Number.isNaN(rem) && !Number.isNaN(lim) && lim > 0) {
           const ratio = rem / lim
-          currentRefillRate = ratio < 0.1
-            ? config.refillRate / 2
-            : config.refillRate
+          currentRefillRate = ratio < 0.1 ? config.refillRate / 2 : config.refillRate
         }
       }
     },
@@ -113,7 +111,7 @@ export const createRateLimiter = (config: RateLimiterConfig): RateLimiter => {
 
     async retryAfter(headers: RateLimitHeaders, signal?: AbortSignal): Promise<void> {
       if (headers.retryAfter === undefined) return
-      const seconds = parseFloat(headers.retryAfter)
+      const seconds = Number.parseFloat(headers.retryAfter)
       if (Number.isNaN(seconds)) return
       await sleep(seconds * 1000, signal)
     },

@@ -3,9 +3,9 @@
 import { describe, expect, it } from 'vitest'
 import {
   DEFAULT_INIT_LOCK_TIMEOUT_MS,
-  PostgresStore,
   type PgPendingQuery,
   type PgSql,
+  PostgresStore,
 } from './store.js'
 
 const TENANT_ID = '11111111-1111-1111-1111-111111111111'
@@ -24,10 +24,7 @@ type Recorder = {
  * recorded against the same recorder, mirroring postgres.js semantics closely
  * enough to assert on the ensure-schema path without a live database.
  */
-const makeFakeSql = (
-  recorder: Recorder,
-  opts: { failBegin?: boolean } = {},
-): PgSql => {
+const makeFakeSql = (recorder: Recorder, opts: { failBegin?: boolean } = {}): PgSql => {
   const resolved = <T>(rows: ReadonlyArray<T>): PgPendingQuery<T> => {
     const p = Promise.resolve(rows) as PgPendingQuery<T>
     p.simple = async () => undefined
