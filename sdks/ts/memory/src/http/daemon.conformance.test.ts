@@ -203,7 +203,7 @@ const buildRequest = (step: ConformanceStep, ctx: RunCtx): Request => {
       headers.set(k, ctx.substitute(String(v)))
     }
   }
-  let body: BodyInit | undefined
+  let body: RequestInit['body']
   if (step.bodyBase64 !== undefined && step.bodyBase64 !== '') {
     const decoded = Buffer.from(ctx.substitute(step.bodyBase64), 'base64')
     body = new Uint8Array(decoded)
@@ -458,7 +458,7 @@ const assertExpectedResponse = async (
     try {
       while (seen.size < want.size && Date.now() < deadline) {
         const race = Promise.race([
-          reader.read(),
+          reader!.read(),
           new Promise<{ done: true; value?: undefined }>((resolve) =>
             setTimeout(() => resolve({ done: true }), 200),
           ),
@@ -481,7 +481,7 @@ const assertExpectedResponse = async (
         }
       }
     } finally {
-      await reader.cancel().catch(() => undefined)
+      await reader!.cancel().catch(() => undefined)
     }
     expect(Array.from(seen).sort()).toEqual(Array.from(want).sort())
   }

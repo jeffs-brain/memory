@@ -23,7 +23,7 @@ const capturingProvider = (capture: Capture, content: string): Provider & { call
     name: () => 'capture',
     modelName: () => 'capture-model',
     async *stream() {
-      yield { type: 'done', stopReason: 'end_turn' as const }
+      yield { type: 'done', stopReason: 'end_turn' } as const
     },
     complete: async (req: CompletionRequest, signal?: AbortSignal): Promise<CompletionResponse> => {
       provider.calls += 1
@@ -147,7 +147,7 @@ describe('extract with codec priors — edge', () => {
       name: () => 'aborting',
       modelName: () => 'aborting-model',
       async *stream() {
-        yield { type: 'done', stopReason: 'end_turn' as const }
+        yield { type: 'done', stopReason: 'end_turn' } as const
       },
       complete: async (
         req: CompletionRequest,

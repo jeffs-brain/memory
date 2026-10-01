@@ -21,8 +21,9 @@ import type {
 } from '../llm/index.js'
 import { createHashEmbedder } from '../llm/index.js'
 import { createContextualPrefixBuilder } from '../memory/index.js'
-import type { DocumentBodyLimits } from '../store/index.js'
+import { type DocumentBodyLimits, toPath } from '../store/index.js'
 import { Daemon, createRouter } from './index.js'
+import type { Handler } from './router.js'
 
 const makeFakeProvider = (text: string): Provider => ({
   name: () => 'fake',
@@ -101,7 +102,7 @@ const makeQueuedProvider = (responses: readonly string[]): Provider => {
 
 type Fixture = {
   daemon: Daemon
-  handler: (req: Request) => Promise<Response>
+  handler: Handler
   tempDir: string
 }
 
@@ -118,21 +119,20 @@ type MakeDaemonOpts = {
 
 const makeDaemon = async (opts: MakeDaemonOpts = {}): Promise<Fixture> => {
   const tempDir = await mkdtemp(join(tmpdir(), 'memory-daemon-'))
+  const contextualPrefixBuilder = opts.contextualise
+    ? createContextualPrefixBuilder({
+        provider: opts.provider ?? makeFakeProvider('The hedgehog lives in hedgerows.'),
+        ...(opts.contextualiseCacheDir !== undefined
+          ? { cacheDir: opts.contextualiseCacheDir }
+          : {}),
+      })
+    : undefined
   const daemon = new Daemon({
     root: tempDir,
     provider: opts.provider ?? makeFakeProvider('The hedgehog lives in hedgerows.'),
     ...(opts.embedder !== undefined ? { embedder: opts.embedder } : {}),
     ...(opts.authToken !== undefined ? { authToken: opts.authToken } : {}),
-    ...(opts.contextualise
-      ? {
-          contextualPrefixBuilder: createContextualPrefixBuilder({
-            provider: opts.provider ?? makeFakeProvider('The hedgehog lives in hedgerows.'),
-            ...(opts.contextualiseCacheDir !== undefined
-              ? { cacheDir: opts.contextualiseCacheDir }
-              : {}),
-          }),
-        }
-      : {}),
+    ...(contextualPrefixBuilder !== undefined ? { contextualPrefixBuilder } : {}),
     ...(opts.bodyLimits !== undefined ? { bodyLimits: opts.bodyLimits } : {}),
   })
   await daemon.start()
@@ -158,7 +158,7 @@ afterEach(async () => {
 const makeRequest = (
   method: string,
   path: string,
-  init: { body?: BodyInit; headers?: Record<string, string> } = {},
+  init: { body?: RequestInit['body']; headers?: Record<string, string> } = {},
 ): Request => {
   const headers = new Headers(init.headers ?? {})
   return new Request(`http://localhost${path}`, {
@@ -560,17 +560,8 @@ describe('memory daemon integration', () => {
     )
 
     const brain = await daemon.brains.get('searchknobs')
-    expect(brain.retrieval).toBeDefined()
-    const capture: { request?: Record<string, unknown> } = {}
-    const originalSearchRaw = brain.retrieval?.searchRaw.bind(brain.retrieval)
-    ;(
-      brain.retrieval as {
-        searchRaw: (request: Record<string, unknown>) => ReturnType<typeof originalSearchRaw>
-      }
-    ).searchRaw = async (request) => {
-      capture.request = request
-      return originalSearchRaw(request)
-    }
+    if (brain.retrieval === undefined) throw new Error('expected retrieval')
+    const searchRaw = vi.spyOn(brain.retrieval, 'searchRaw')
 
     const search = await handler(
       makeRequest('POST', '/v1/brains/searchknobs/search', {
@@ -586,8 +577,8 @@ describe('memory daemon integration', () => {
     )
 
     expect(search.status).toBe(200)
-    expect(capture.request?.candidateK).toBe(80)
-    expect(capture.request?.rerankTopN).toBe(40)
+    expect(searchRaw.mock.lastCall?.[0].candidateK).toBe(80)
+    expect(searchRaw.mock.lastCall?.[0].rerankTopN).toBe(40)
   })
 
   it('6. /events streams a ready frame then a change on mutation', async () => {
@@ -604,7 +595,7 @@ describe('memory daemon integration', () => {
       const deadline = Date.now() + budgetMs
       while (!pred(collected) && Date.now() < deadline) {
         const race = Promise.race([
-          reader.read(),
+          reader!.read(),
           new Promise<{ done: true; value?: undefined }>((resolve) =>
             setTimeout(() => resolve({ done: true }), 250),
           ),
@@ -631,7 +622,7 @@ describe('memory daemon integration', () => {
     expect(collected).toContain('event: change')
     expect(collected).toContain('"path":"evt.md"')
 
-    await reader.cancel()
+    await reader!.cancel()
   })
 
   it('6b. /events emits ping heartbeats and stops them on disconnect', async () => {
@@ -980,7 +971,9 @@ describe('memory daemon integration', () => {
     expect(extracted?.scope).toBe('global')
     const exists = await daemon.brains
       .get('extracted')
-      .then((brain) => brain.store.exists('memory/global/alex/user-preference-commit-style.md'))
+      .then((brain) =>
+        brain.store.exists(toPath('memory/global/alex/user-preference-commit-style.md')),
+      )
     expect(exists).toBe(false)
   })
 
@@ -1048,7 +1041,7 @@ describe('memory daemon integration', () => {
 
     const exists = await fixtures[fixtures.length - 1]?.daemon.brains
       .get('contextualised')
-      .then((brain) => brain.store.exists('memory/project/alex/bike-status.md'))
+      .then((brain) => brain.store.exists(toPath('memory/project/alex/bike-status.md')))
     expect(exists).toBe(false)
   })
 
@@ -1147,7 +1140,7 @@ describe('memory daemon integration', () => {
     // active model once the backfill has drained.
     await waitFor(() => {
       const withVectors = br.index?.chunkIdsWithVectorForModel('hash-1024')
-      expect(withVectors.sort()).toEqual(['memory/global/alpha.md', 'memory/global/beta.md'])
+      expect(withVectors!.sort()).toEqual(['memory/global/alpha.md', 'memory/global/beta.md'])
     })
   })
 

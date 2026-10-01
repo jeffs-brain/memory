@@ -13,7 +13,7 @@ import {
 const makeEvent = (kind: ChangeEvent['kind'], path: string, reason?: string): ChangeEvent => ({
   kind,
   path: path as Path,
-  reason,
+  ...(reason !== undefined ? { reason } : {}),
   when: new Date(),
 })
 

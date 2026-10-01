@@ -32,8 +32,8 @@ const createMockFetcher = (
 
     const resp = idx < responses.length ? responses[idx] : { status: 200, body: '{}' }
 
-    return new Response(resp.body, {
-      status: resp.status,
+    return new Response(resp!.body, {
+      status: resp!.status,
       headers: { 'Content-Type': 'application/json' },
     })
   }
@@ -147,11 +147,11 @@ describe('NotionConnector', () => {
       const docs = await collectDocs(conn.fetchAll(signal))
 
       expect(docs).toHaveLength(1)
-      expect(docs[0].externalId).toBe('page-123')
-      expect(docs[0].title).toBe('Test Page')
-      expect(docs[0].mime).toBe('text/markdown')
-      expect(String(docs[0].content)).toContain('This is test content')
-      expect(docs[0].metadata.source).toBe('notion')
+      expect(docs[0]!.externalId).toBe('page-123')
+      expect(docs[0]!.title).toBe('Test Page')
+      expect(docs[0]!.mime).toBe('text/markdown')
+      expect(String(docs[0]!.content)).toContain('This is test content')
+      expect(docs[0]!.metadata.source).toBe('notion')
     })
 
     it('falls back to block retrieval when markdown API returns 404', async () => {
@@ -210,7 +210,7 @@ describe('NotionConnector', () => {
       const docs = await collectDocs(conn.fetchAll(signal))
 
       expect(docs).toHaveLength(1)
-      const content = String(docs[0].content)
+      const content = String(docs[0]!.content)
       expect(content).toContain('# Heading One')
       expect(content).toContain('Paragraph content here.')
     })
@@ -273,10 +273,10 @@ describe('NotionConnector', () => {
       const docs = await collectDocs(conn.fetchAll(signal))
 
       expect(docs).toHaveLength(2)
-      expect(docs[0].title).toBe('Entry One')
-      expect(docs[0].metadata.type).toBe('database_entry')
-      expect(String(docs[0].content)).toContain('## Entry One')
-      expect(String(docs[0].content)).toContain('Active')
+      expect(docs[0]!.title).toBe('Entry One')
+      expect(docs[0]!.metadata.type).toBe('database_entry')
+      expect(String(docs[0]!.content)).toContain('## Entry One')
+      expect(String(docs[0]!.content)).toContain('Active')
     })
 
     it('handles paginated database query', async () => {
@@ -576,7 +576,7 @@ describe('NotionConnector', () => {
       const signal = AbortSignal.timeout(5000)
       const docs = await collectDocs(conn.fetchAll(signal))
       expect(docs).toHaveLength(1)
-      expect(docs[0].title).toBe('WS Page')
+      expect(docs[0]!.title).toBe('WS Page')
     })
   })
 
@@ -621,7 +621,7 @@ describe('NotionConnector', () => {
       expect(docs).toHaveLength(1)
       // Verify the filter was sent.
       const dbCall = calls[0]
-      expect(dbCall.body).toContain('on_or_after')
+      expect(dbCall!.body).toContain('on_or_after')
     })
 
     it('tracks modified time for cursor updates', async () => {
@@ -656,7 +656,7 @@ describe('NotionConnector', () => {
 
       const signal = AbortSignal.timeout(5000)
       const docs = await collectDocs(conn.fetchAll(signal))
-      expect(docs[0].modifiedAt).toEqual(new Date('2026-05-15T10:00:00.000Z'))
+      expect(docs[0]!.modifiedAt).toEqual(new Date('2026-05-15T10:00:00.000Z'))
     })
   })
 
@@ -712,7 +712,7 @@ describe('NotionConnector', () => {
 
       const signal = AbortSignal.timeout(5000)
       const docs = await collectDocs(conn.fetchAll(signal))
-      expect(String(docs[0].content)).toContain('High')
+      expect(String(docs[0]!.content)).toContain('High')
     })
 
     it('handles multi_select properties', async () => {
@@ -751,7 +751,7 @@ describe('NotionConnector', () => {
 
       const signal = AbortSignal.timeout(5000)
       const docs = await collectDocs(conn.fetchAll(signal))
-      expect(String(docs[0].content)).toContain('Tag1, Tag2')
+      expect(String(docs[0]!.content)).toContain('Tag1, Tag2')
     })
 
     it('handles date range properties', async () => {
@@ -790,7 +790,7 @@ describe('NotionConnector', () => {
 
       const signal = AbortSignal.timeout(5000)
       const docs = await collectDocs(conn.fetchAll(signal))
-      expect(String(docs[0].content)).toContain('2026-05-01 to 2026-05-15')
+      expect(String(docs[0]!.content)).toContain('2026-05-01 to 2026-05-15')
     })
 
     it('handles checkbox properties', async () => {
@@ -829,7 +829,7 @@ describe('NotionConnector', () => {
 
       const signal = AbortSignal.timeout(5000)
       const docs = await collectDocs(conn.fetchAll(signal))
-      expect(String(docs[0].content)).toContain('true')
+      expect(String(docs[0]!.content)).toContain('true')
     })
 
     it('handles null select property', async () => {
@@ -869,7 +869,7 @@ describe('NotionConnector', () => {
       const signal = AbortSignal.timeout(5000)
       const docs = await collectDocs(conn.fetchAll(signal))
       // Null select should not appear in property listing.
-      expect(String(docs[0].content)).not.toContain('Category')
+      expect(String(docs[0]!.content)).not.toContain('Category')
     })
   })
 
@@ -918,7 +918,7 @@ describe('NotionConnector', () => {
 
       const signal = AbortSignal.timeout(5000)
       const docs = await collectDocs(conn.fetchAll(signal))
-      const content = String(docs[0].content)
+      const content = String(docs[0]!.content)
       expect(content).toContain('```typescript')
       expect(content).toContain('const x = 1')
     })
@@ -978,7 +978,7 @@ describe('NotionConnector', () => {
 
       const signal = AbortSignal.timeout(5000)
       const docs = await collectDocs(conn.fetchAll(signal))
-      const content = String(docs[0].content)
+      const content = String(docs[0]!.content)
       expect(content).toContain('**bold**')
       expect(content).toContain('*italic*')
     })
@@ -1055,7 +1055,7 @@ describe('NotionConnector', () => {
       const docs = await collectDocs(conn.fetchAll(signal))
 
       expect(docs).toHaveLength(1)
-      const content = String(docs[0].content)
+      const content = String(docs[0]!.content)
       // The parent item should be present.
       expect(content).toContain('- Parent item')
       // Child content should be indented (list block gets "  " prefix).
@@ -1118,7 +1118,7 @@ describe('NotionConnector', () => {
       const docs = await collectDocs(conn.fetchAll(signal))
 
       expect(docs).toHaveLength(1)
-      const content = String(docs[0].content)
+      const content = String(docs[0]!.content)
       // synced_block renders as empty string, so only the paragraph
       // after it should appear.
       expect(content).toContain('After synced block')
@@ -1173,7 +1173,7 @@ describe('NotionConnector', () => {
       const docs = await collectDocs(conn.fetchAll(signal))
 
       expect(docs).toHaveLength(1)
-      const content = String(docs[0].content)
+      const content = String(docs[0]!.content)
       expect(content).toContain('$$')
       expect(content).toContain('E = mc^2')
     })
@@ -1235,7 +1235,7 @@ describe('NotionConnector', () => {
       const docs = await collectDocs(conn.fetchAll(signal))
 
       expect(docs).toHaveLength(1)
-      const content = String(docs[0].content)
+      const content = String(docs[0]!.content)
       expect(content).toContain('![My photo](https://example.com/photo.png)')
       expect(content).toContain('[Document](https://example.com/doc.pdf)')
     })
@@ -1296,7 +1296,7 @@ describe('NotionConnector', () => {
       const docs = await collectDocs(conn.fetchAll(signal))
 
       expect(docs).toHaveLength(1)
-      const content = String(docs[0].content)
+      const content = String(docs[0]!.content)
       expect(content).toContain('# Allowed Heading')
       expect(content).not.toContain('Filtered paragraph')
     })
@@ -1337,12 +1337,12 @@ describe('NotionConnector', () => {
             : { status: 200, body: '{}', retryAfter: undefined }
 
         const headers = new Headers({ 'Content-Type': 'application/json' })
-        if (resp.retryAfter !== undefined) {
-          headers.set('Retry-After', resp.retryAfter)
+        if (resp!.retryAfter !== undefined) {
+          headers.set('Retry-After', resp!.retryAfter)
         }
 
-        return new Response(resp.body, {
-          status: resp.status,
+        return new Response(resp!.body, {
+          status: resp!.status,
           headers,
         })
       }
@@ -1357,8 +1357,8 @@ describe('NotionConnector', () => {
       const docs = await collectDocs(conn.fetchAll(signal))
 
       expect(docs).toHaveLength(1)
-      expect(docs[0].title).toBe('Retry')
-      expect(String(docs[0].content)).toContain('retried content')
+      expect(docs[0]!.title).toBe('Retry')
+      expect(String(docs[0]!.content)).toContain('retried content')
     })
   })
 

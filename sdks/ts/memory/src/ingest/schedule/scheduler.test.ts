@@ -31,7 +31,7 @@ describe('scheduler', () => {
     const fired = await scheduler.runDueJobs()
     expect(fired).toBe(1)
     expect(dispatched).toHaveLength(1)
-    expect(dispatched[0].name).toBe('test job')
+    expect(dispatched[0]!.name).toBe('test job')
   })
 
   it('disabled job skipped even when due', async () => {
@@ -316,7 +316,7 @@ describe('memory-store CRUD', () => {
 
     const due = await store.findDue(new Date())
     expect(due).toHaveLength(1)
-    expect(due[0].id).toBe(job1.id)
+    expect(due[0]!.id).toBe(job1.id)
   })
 
   it('invalid cron expression rejected on create', async () => {

@@ -58,7 +58,12 @@ const makeFakeSql = (recorder: Recorder, opts: { failBegin?: boolean } = {}): Pg
 const newRecorder = (): Recorder => ({ ddl: [], setConfig: [], beginCalls: 0 })
 
 const makeStore = (sql: PgSql, initLockTimeoutMs?: number): PostgresStore =>
-  new PostgresStore({ sql, tenantId: TENANT_ID, brainId: BRAIN_ID, initLockTimeoutMs })
+  new PostgresStore({
+    sql,
+    tenantId: TENANT_ID,
+    brainId: BRAIN_ID,
+    ...(initLockTimeoutMs !== undefined ? { initLockTimeoutMs } : {}),
+  })
 
 describe('PostgresStore.init ensure-schema guard', () => {
   it('runs the additive content + metadata DDL exactly once across many init() calls', async () => {

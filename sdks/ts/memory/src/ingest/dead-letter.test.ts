@@ -102,7 +102,7 @@ describe('InMemoryDeadLetterAdapter', () => {
       const result = await adapter.list()
       expect(result.total).toBe(1)
       expect(result.entries).toHaveLength(1)
-      expect(result.entries[0].id).toBe('dlq-unresolved')
+      expect(result.entries[0]!.id).toBe('dlq-unresolved')
     })
 
     it('includes resolved entries when requested', async () => {
@@ -126,7 +126,7 @@ describe('InMemoryDeadLetterAdapter', () => {
 
       const result = await adapter.list({ brainId: 'brain-alpha' })
       expect(result.total).toBe(1)
-      expect(result.entries[0].brainId).toBe('brain-alpha')
+      expect(result.entries[0]!.brainId).toBe('brain-alpha')
     })
 
     it('paginates results', async () => {
@@ -171,9 +171,9 @@ describe('InMemoryDeadLetterAdapter', () => {
       )
 
       const result = await adapter.list()
-      expect(result.entries[0].id).toBe('dlq-newest')
-      expect(result.entries[1].id).toBe('dlq-middle')
-      expect(result.entries[2].id).toBe('dlq-oldest')
+      expect(result.entries[0]!.id).toBe('dlq-newest')
+      expect(result.entries[1]!.id).toBe('dlq-middle')
+      expect(result.entries[2]!.id).toBe('dlq-oldest')
     })
   })
 
@@ -274,7 +274,7 @@ describe('InMemoryDeadLetterAdapter', () => {
 
       const result = await adapter.list({ includeResolved: true })
       expect(result.total).toBe(1)
-      expect(result.entries[0].brainId).toBe('brain-keep')
+      expect(result.entries[0]!.brainId).toBe('brain-keep')
     })
 
     it('removes entries older than threshold', async () => {
@@ -296,7 +296,7 @@ describe('InMemoryDeadLetterAdapter', () => {
 
       const result = await adapter.list({ includeResolved: true })
       expect(result.total).toBe(1)
-      expect(result.entries[0].id).toBe('dlq-recent')
+      expect(result.entries[0]!.id).toBe('dlq-recent')
     })
 
     it('removes all resolved entries', async () => {
@@ -314,7 +314,7 @@ describe('InMemoryDeadLetterAdapter', () => {
 
       const result = await adapter.list({ includeResolved: true })
       expect(result.total).toBe(1)
-      expect(result.entries[0].id).toBe('dlq-unres')
+      expect(result.entries[0]!.id).toBe('dlq-unres')
     })
   })
 
@@ -413,7 +413,7 @@ describe('InMemoryDeadLetterAdapter', () => {
 
       const result = await adapter.list()
       ;(result.entries[0] as Record<string, unknown>).failureReason = 'tampered'
-      ;(result.entries[0].metadata as Record<string, string>).key = 'tampered'
+      ;(result.entries[0]!.metadata as Record<string, string>).key = 'tampered'
 
       const fresh = await adapter.get('dlq-001')
       expect(fresh?.failureReason).toBe('embedding provider returned 500')

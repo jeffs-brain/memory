@@ -29,7 +29,7 @@ const createMockScript = async (
 ): Promise<{ scriptPath: string; cleanup: () => Promise<void> }> => {
   const dir = await mkdtemp(join(tmpdir(), 'audio-test-'))
 
-  const scripts: Record<string, string> = {
+  const scripts: Record<typeof mode, string> = {
     success: `#!/bin/sh
 echo '{"language":"en","language_probability":0.98,"duration":15.5,"segments":[{"start":0,"end":5.0,"text":"Hello world from the test.","words":[{"start":0,"end":0.5,"word":"Hello","probability":0.99},{"start":0.6,"end":1.0,"word":"world","probability":0.97}]},{"start":5.0,"end":15.5,"text":"This is a longer segment for testing."}]}'
 `,

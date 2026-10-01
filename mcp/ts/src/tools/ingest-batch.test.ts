@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from 'vitest'
-import type { MemoryClient, ProgressEmitter } from '../memory-client.js'
+import type { IngestFileArgs, MemoryClient, ProgressEmitter } from '../memory-client.js'
 import { ingestBatchTool } from './ingest-batch.js'
 import type { ToolContext } from './types.js'
 
@@ -18,6 +18,7 @@ const noopClient = (): MemoryClient => ({
   consolidate: async () => ({}),
   createBrain: async () => ({}),
   listBrains: async () => ({}),
+  extractAfterIngest: async () => ({ factsExtracted: 0, memories: [] }),
   close: async () => undefined,
 })
 
@@ -31,7 +32,7 @@ describe('memory_ingest_batch tool', () => {
   it('processes a batch of 3 valid files and returns all succeeded', async () => {
     const calls: IngestFileCall[] = []
     const client = noopClient()
-    client.ingestFile = async (args: { path: string; brain?: string; as?: string }) => {
+    client.ingestFile = async (args: IngestFileArgs) => {
       calls.push({ path: args.path, brain: args.brain, as: args.as })
       return {
         status: 'completed',
@@ -115,7 +116,7 @@ describe('memory_ingest_batch tool', () => {
     const progressCalls: { progress: number; message?: string }[] = []
     const ctx: ToolContext = {
       progress: (p: number, m?: string) => {
-        progressCalls.push({ progress: p, message: m })
+        progressCalls.push({ progress: p, ...(m !== undefined ? { message: m } : {}) })
       },
     }
 
@@ -139,7 +140,7 @@ describe('memory_ingest_batch tool', () => {
   it('applies brain parameter to all files in the batch', async () => {
     const brainsSeen: (string | undefined)[] = []
     const client = noopClient()
-    client.ingestFile = async (args: { brain?: string }) => {
+    client.ingestFile = async (args: IngestFileArgs) => {
       brainsSeen.push(args.brain)
       return { status: 'completed', document_id: 'doc', hash: 'h', byte_size: 1 }
     }

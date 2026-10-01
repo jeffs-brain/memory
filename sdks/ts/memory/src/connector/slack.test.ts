@@ -19,7 +19,7 @@ type MockHandler = {
 }
 
 function createMockFetch(handlers: readonly MockHandler[]): typeof fetch {
-  return async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+  return (async (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
     const url = typeof input === 'string' ? input : input.toString()
     for (const h of handlers) {
       if (url.includes(h.pattern)) {
@@ -27,7 +27,7 @@ function createMockFetch(handlers: readonly MockHandler[]): typeof fetch {
       }
     }
     return new Response('Not Found', { status: 404 })
-  }
+  }) as typeof fetch
 }
 
 function jsonResponse(data: Record<string, unknown>): Response {

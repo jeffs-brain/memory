@@ -44,7 +44,7 @@ describe('postgres-bridge', () => {
     await bus.close()
 
     expect(received).toHaveLength(1)
-    expect(received[0].id).toBe('pg-1')
+    expect(received[0]!.id).toBe('pg-1')
     await bridge.close()
   })
 

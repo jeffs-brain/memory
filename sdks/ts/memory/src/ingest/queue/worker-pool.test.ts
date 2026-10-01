@@ -91,11 +91,10 @@ const createFakeAdapter = (
       // preserving the original brain ID and retry count.
       const original = state.claimedJobs.get(jobId)
       if (original !== undefined) {
+        const { claimedBy: _claimedBy, claimedAt: _claimedAt, ...unclaimed } = original
         state.jobs.push({
-          ...original,
+          ...unclaimed,
           status: 'pending',
-          claimedBy: undefined,
-          claimedAt: undefined,
           updatedAt: new Date(),
         })
         state.claimedJobs.delete(jobId)

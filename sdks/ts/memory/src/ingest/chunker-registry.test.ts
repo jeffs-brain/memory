@@ -119,7 +119,7 @@ describe('markdownChunker', () => {
     const introChunk = chunks[0]
     expect(introChunk?.metadata.headingPath).toContain('Introduction')
 
-    const patternsChunk = chunks.find((c) => c.metadata.headingPath.includes('Patterns'))
+    const patternsChunk = chunks.find((c) => c.metadata.headingPath!.includes('Patterns'))
     expect(patternsChunk).toBeDefined()
     expect(patternsChunk?.metadata.headingPath).toContain('Architecture')
     expect(patternsChunk?.metadata.headingPath).toContain('Patterns')

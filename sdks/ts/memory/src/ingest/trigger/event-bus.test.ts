@@ -25,7 +25,7 @@ describe('event-bus', () => {
     await bus.close()
 
     expect(received).toHaveLength(1)
-    expect(received[0].id).toBe('e1')
+    expect(received[0]!.id).toBe('e1')
   })
 
   it('multiple subscribers all receive the same event', async () => {
@@ -33,13 +33,13 @@ describe('event-bus', () => {
     const counts = [0, 0, 0]
 
     bus.subscribe(() => {
-      counts[0]++
+      counts[0]!++
     })
     bus.subscribe(() => {
-      counts[1]++
+      counts[1]!++
     })
     bus.subscribe(() => {
-      counts[2]++
+      counts[2]!++
     })
 
     bus.publish(validEvent('e2'))
@@ -285,7 +285,7 @@ describe('event-bus', () => {
     await bus.close()
 
     expect(fileEvents).toHaveLength(1)
-    expect(fileEvents[0].id).toBe('file-1')
+    expect(fileEvents[0]!.id).toBe('file-1')
   })
 
   it('subscribe without filter receives all events (existing behaviour)', async () => {

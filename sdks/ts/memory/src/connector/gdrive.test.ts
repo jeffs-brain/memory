@@ -205,10 +205,10 @@ describe('GDriveConnector', () => {
       const docs = await collectDocuments(connector.fetchAll(makeAbortSignal()))
 
       expect(docs).toHaveLength(3)
-      expect(docs[0].externalId).toBe('f1')
-      expect(docs[0].title).toBe('doc1.txt')
-      expect(docs[1].externalId).toBe('f2')
-      expect(docs[2].externalId).toBe('f3')
+      expect(docs[0]!.externalId).toBe('f1')
+      expect(docs[0]!.title).toBe('doc1.txt')
+      expect(docs[1]!.externalId).toBe('f2')
+      expect(docs[2]!.externalId).toBe('f3')
     })
 
     it('handles paginated file listing', async () => {
@@ -253,8 +253,8 @@ describe('GDriveConnector', () => {
       const docs = await collectDocuments(connector.fetchAll(makeAbortSignal()))
 
       expect(docs).toHaveLength(2)
-      expect(docs[0].externalId).toBe('f1')
-      expect(docs[1].externalId).toBe('f2')
+      expect(docs[0]!.externalId).toBe('f1')
+      expect(docs[1]!.externalId).toBe('f2')
     })
 
     it('exports Google Doc as markdown', async () => {
@@ -275,8 +275,8 @@ describe('GDriveConnector', () => {
       const docs = await collectDocuments(connector.fetchAll(makeAbortSignal()))
 
       expect(docs).toHaveLength(1)
-      expect(docs[0].mime).toBe('text/markdown')
-      expect(docs[0].content).toBe('# My Document\n\nHello world')
+      expect(docs[0]!.mime).toBe('text/markdown')
+      expect(docs[0]!.content).toBe('# My Document\n\nHello world')
     })
 
     it('exports Google Sheet as CSV', async () => {
@@ -297,7 +297,7 @@ describe('GDriveConnector', () => {
       const docs = await collectDocuments(connector.fetchAll(makeAbortSignal()))
 
       expect(docs).toHaveLength(1)
-      expect(docs[0].mime).toBe('text/csv')
+      expect(docs[0]!.mime).toBe('text/csv')
     })
 
     it('directly downloads PDF files', async () => {
@@ -319,8 +319,8 @@ describe('GDriveConnector', () => {
       const docs = await collectDocuments(connector.fetchAll(makeAbortSignal()))
 
       expect(docs).toHaveLength(1)
-      expect(docs[0].mime).toBe('application/pdf')
-      expect(docs[0].content).toContain('%PDF')
+      expect(docs[0]!.mime).toBe('application/pdf')
+      expect(docs[0]!.content).toContain('%PDF')
     })
 
     it('skips files exceeding size limit', async () => {
@@ -352,7 +352,7 @@ describe('GDriveConnector', () => {
       const docs = await collectDocuments(connector.fetchAll(makeAbortSignal()))
 
       expect(docs).toHaveLength(1)
-      expect(docs[0].externalId).toBe('small')
+      expect(docs[0]!.externalId).toBe('small')
     })
 
     it('throws on non-retryable 403', async () => {
@@ -380,7 +380,7 @@ describe('GDriveConnector', () => {
       await collectDocuments(connector.fetchAll(makeAbortSignal()))
 
       expect(client.requests.length).toBeGreaterThan(0)
-      const reqUrl = client.requests[0].url
+      const reqUrl = client.requests[0]!.url
       expect(reqUrl).toContain('folder-abc')
     })
 
@@ -395,7 +395,7 @@ describe('GDriveConnector', () => {
       await collectDocuments(connector.fetchAll(makeAbortSignal()))
 
       expect(client.requests.length).toBeGreaterThan(0)
-      const reqUrl = client.requests[0].url
+      const reqUrl = client.requests[0]!.url
       expect(reqUrl).toContain('application%2Fpdf')
     })
 
@@ -410,7 +410,7 @@ describe('GDriveConnector', () => {
       await collectDocuments(connector.fetchAll(makeAbortSignal()))
 
       expect(client.requests.length).toBeGreaterThan(0)
-      const reqUrl = client.requests[0].url
+      const reqUrl = client.requests[0]!.url
       expect(reqUrl).toContain('supportsAllDrives=true')
     })
 
@@ -454,16 +454,16 @@ describe('GDriveConnector', () => {
       expect(docs).toHaveLength(3)
 
       // First: modified file.
-      expect(docs[0].externalId).toBe('f1')
-      expect(docs[0].deleted).toBeFalsy()
+      expect(docs[0]!.externalId).toBe('f1')
+      expect(docs[0]!.deleted).toBeFalsy()
 
       // Second: deleted file.
-      expect(docs[1].externalId).toBe('f2')
-      expect(docs[1].deleted).toBe(true)
+      expect(docs[1]!.externalId).toBe('f2')
+      expect(docs[1]!.deleted).toBe(true)
 
       // Third: cursor update.
-      expect(docs[2].externalId).toBe('__cursor_update__')
-      expect(docs[2].metadata.new_start_page_token).toBe('new-token-abc')
+      expect(docs[2]!.externalId).toBe('__cursor_update__')
+      expect(docs[2]!.metadata.new_start_page_token).toBe('new-token-abc')
     })
 
     it('updates cursor after sync with no changes', async () => {
@@ -478,7 +478,7 @@ describe('GDriveConnector', () => {
       const docs = await collectDocuments(connector.fetchSince(makeAbortSignal(), cursor))
 
       expect(docs).toHaveLength(1)
-      expect(docs[0].metadata.new_start_page_token).toBe('updated-cursor-token')
+      expect(docs[0]!.metadata.new_start_page_token).toBe('updated-cursor-token')
     })
   })
 
@@ -520,7 +520,7 @@ describe('GDriveConnector', () => {
       await collectDocuments(connector.fetchAll(makeAbortSignal()))
 
       expect(client.requests.length).toBeGreaterThan(0)
-      const authHeader = (client.requests[0].init.headers as Record<string, string>).Authorization
+      const authHeader = (client.requests[0]!.init.headers as Record<string, string>).Authorization
       expect(authHeader).toBe('Bearer new-token-value')
     })
   })
@@ -546,11 +546,11 @@ describe('GDriveConnector', () => {
       const docs = await collectDocuments(connector.fetchAll(makeAbortSignal()))
 
       expect(docs).toHaveLength(1)
-      expect(docs[0].metadata.source).toBe('gdrive')
-      expect(docs[0].metadata.file_id).toBe('file-123')
-      expect(docs[0].metadata.mime_type).toBe('text/plain')
-      expect(docs[0].metadata.parent_id).toBe('parent-456')
-      expect(docs[0].metadata.size).toBe('1024')
+      expect(docs[0]!.metadata.source).toBe('gdrive')
+      expect(docs[0]!.metadata.file_id).toBe('file-123')
+      expect(docs[0]!.metadata.mime_type).toBe('text/plain')
+      expect(docs[0]!.metadata.parent_id).toBe('parent-456')
+      expect(docs[0]!.metadata.size).toBe('1024')
     })
   })
 
@@ -573,8 +573,8 @@ describe('GDriveConnector', () => {
       const docs = await collectDocuments(connector.fetchAll(makeAbortSignal()))
 
       expect(docs).toHaveLength(1)
-      expect(docs[0].mime).toBe('text/plain')
-      expect(docs[0].content).toContain('Introduction')
+      expect(docs[0]!.mime).toBe('text/plain')
+      expect(docs[0]!.content).toContain('Introduction')
     })
   })
 
@@ -639,7 +639,7 @@ describe('GDriveConnector', () => {
       const docs = await collectDocuments(connector.fetchAll(makeAbortSignal()))
 
       expect(docs).toHaveLength(1)
-      expect(docs[0].externalId).toBe('f1')
+      expect(docs[0]!.externalId).toBe('f1')
       expect(callCount).toBeGreaterThanOrEqual(2)
     })
   })
@@ -654,7 +654,7 @@ describe('GDriveConnector', () => {
       await collectDocuments(connector.fetchAll(makeAbortSignal()))
 
       expect(client.requests.length).toBeGreaterThan(0)
-      const authHeader = (client.requests[0].init.headers as Record<string, string>).Authorization
+      const authHeader = (client.requests[0]!.init.headers as Record<string, string>).Authorization
       expect(authHeader).toBe('Bearer refreshed-token-abc')
     })
   })

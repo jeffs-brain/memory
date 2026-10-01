@@ -14,8 +14,8 @@ describe('FeedbackClassifier', () => {
 
       expect(result.events).toHaveLength(1)
       const ev = result.events[0]
-      expect(ev.reaction).toBe('reinforced')
-      expect(ev.confidence).toBeGreaterThan(0)
+      expect(ev!.reaction).toBe('reinforced')
+      expect(ev!.confidence).toBeGreaterThan(0)
     })
 
     it('detects negative signal', () => {
@@ -24,7 +24,7 @@ describe('FeedbackClassifier', () => {
 
       expect(result.events).toHaveLength(1)
       const ev = result.events[0]
-      expect(ev.reaction).toBe('corrected')
+      expect(ev!.reaction).toBe('corrected')
     })
 
     it('returns neutral when no patterns match', () => {
@@ -33,8 +33,8 @@ describe('FeedbackClassifier', () => {
 
       expect(result.events).toHaveLength(1)
       const ev = result.events[0]
-      expect(ev.reaction).toBe('neutral')
-      expect(ev.confidence).toBe(0.0)
+      expect(ev!.reaction).toBe('neutral')
+      expect(ev!.confidence).toBe(0.0)
     })
 
     it('positive wins when more positive matches', () => {
@@ -43,7 +43,7 @@ describe('FeedbackClassifier', () => {
 
       expect(result.events).toHaveLength(1)
       const ev = result.events[0]
-      expect(ev.reaction).toBe('reinforced')
+      expect(ev!.reaction).toBe('reinforced')
     })
 
     it('negative wins when more negative matches', () => {
@@ -52,7 +52,7 @@ describe('FeedbackClassifier', () => {
 
       expect(result.events).toHaveLength(1)
       const ev = result.events[0]
-      expect(ev.reaction).toBe('corrected')
+      expect(ev!.reaction).toBe('corrected')
     })
 
     it('tie goes to neutral with 0.2 confidence', () => {
@@ -61,8 +61,8 @@ describe('FeedbackClassifier', () => {
 
       expect(result.events).toHaveLength(1)
       const ev = result.events[0]
-      expect(ev.reaction).toBe('neutral')
-      expect(ev.confidence).toBe(0.2)
+      expect(ev!.reaction).toBe('neutral')
+      expect(ev!.confidence).toBe(0.2)
     })
 
     it('returns no events for empty input', () => {
@@ -90,8 +90,8 @@ describe('FeedbackClassifier', () => {
 
       expect(result.events).toHaveLength(3)
       for (let i = 0; i < result.events.length; i++) {
-        expect(result.events[i].memoryPath).toBe(paths[i])
-        expect(result.events[i].reaction).toBe('reinforced')
+        expect(result.events[i]!.memoryPath).toBe(paths[i])
+        expect(result.events[i]!.reaction).toBe('reinforced')
       }
     })
 
@@ -106,8 +106,8 @@ describe('FeedbackClassifier', () => {
       expect(r1.events).toHaveLength(1)
       expect(r2.events).toHaveLength(1)
 
-      const c1 = r1.events[0].confidence
-      const c2 = r2.events[0].confidence
+      const c1 = r1.events[0]!.confidence
+      const c2 = r2.events[0]!.confidence
 
       expect(c1).toBeLessThan(c2)
       expect(Math.abs(c1 - 0.3)).toBeLessThan(0.001)
@@ -120,8 +120,8 @@ describe('FeedbackClassifier', () => {
 
       expect(result.events).toHaveLength(1)
       const ev = result.events[0]
-      expect(ev.pattern).not.toBe('')
-      expect(ev.reaction).toBe('reinforced')
+      expect(ev!.pattern).not.toBe('')
+      expect(ev!.reaction).toBe('reinforced')
     })
 
     it('truncates snippet to 200 characters', () => {
@@ -131,8 +131,8 @@ describe('FeedbackClassifier', () => {
 
       expect(result.events).toHaveLength(1)
       const ev = result.events[0]
-      expect(ev.snippet.length).toBeLessThanOrEqual(203)
-      expect(ev.snippet).toMatch(/\.\.\.$/)
+      expect(ev!.snippet.length).toBeLessThanOrEqual(203)
+      expect(ev!.snippet).toMatch(/\.\.\.$/)
     })
 
     it('truncates turnContent to 500 characters', () => {
@@ -150,7 +150,7 @@ describe('FeedbackClassifier', () => {
       const result = c.classify("that's correct", [testPath])
 
       expect(result.events).toHaveLength(1)
-      expect(result.events[0].reaction).toBe('reinforced')
+      expect(result.events[0]!.reaction).toBe('reinforced')
     })
 
     it('classifies "good job" as neutral (no memory-specific pattern)', () => {
@@ -164,7 +164,7 @@ describe('FeedbackClassifier', () => {
 
       expect(result.events).toHaveLength(1)
       // "good job" does not match any pattern — neutral.
-      expect(result.events[0].reaction).toBe('neutral')
+      expect(result.events[0]!.reaction).toBe('neutral')
     })
 
     it('classifies "that\'s wrong" as corrected', () => {
@@ -172,7 +172,7 @@ describe('FeedbackClassifier', () => {
       const result = c.classify("that's wrong", [testPath])
 
       expect(result.events).toHaveLength(1)
-      expect(result.events[0].reaction).toBe('corrected')
+      expect(result.events[0]!.reaction).toBe('corrected')
     })
 
     it('classifies "no, incorrect" as corrected', () => {
@@ -180,7 +180,7 @@ describe('FeedbackClassifier', () => {
       const result = c.classify('no, incorrect', [testPath])
 
       expect(result.events).toHaveLength(1)
-      expect(result.events[0].reaction).toBe('corrected')
+      expect(result.events[0]!.reaction).toBe('corrected')
     })
 
     it('classifies "actually it\'s X not Y" as corrected', () => {
@@ -188,7 +188,7 @@ describe('FeedbackClassifier', () => {
       const result = c.classify("actually it's TypeScript not JavaScript", [testPath])
 
       expect(result.events).toHaveLength(1)
-      expect(result.events[0].reaction).toBe('corrected')
+      expect(result.events[0]!.reaction).toBe('corrected')
     })
 
     it('classifies normal conversational text as neutral', () => {
@@ -196,8 +196,8 @@ describe('FeedbackClassifier', () => {
       const result = c.classify('can you explain how the build system works', [testPath])
 
       expect(result.events).toHaveLength(1)
-      expect(result.events[0].reaction).toBe('neutral')
-      expect(result.events[0].confidence).toBe(0.0)
+      expect(result.events[0]!.reaction).toBe('neutral')
+      expect(result.events[0]!.confidence).toBe(0.0)
     })
 
     it('returns empty events for whitespace-only input', () => {

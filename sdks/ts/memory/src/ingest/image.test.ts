@@ -431,7 +431,7 @@ describe('createImageExtractor PaddleOCR fallback to Tesseract', () => {
 
     expect(mockLogger.warn).toHaveBeenCalled()
     const warnCall = (mockLogger.warn as ReturnType<typeof vi.fn>).mock.calls[0]
-    expect(warnCall[0]).toContain('paddleocr extraction failed')
+    expect(warnCall![0]).toContain('paddleocr extraction failed')
   })
 })
 

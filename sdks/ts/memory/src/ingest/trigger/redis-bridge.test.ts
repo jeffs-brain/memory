@@ -44,7 +44,7 @@ describe('redis-bridge', () => {
     await bus.close()
 
     expect(received).toHaveLength(1)
-    expect(received[0].id).toBe('redis-1')
+    expect(received[0]!.id).toBe('redis-1')
     await bridge.close()
   })
 
@@ -104,7 +104,7 @@ describe('redis-bridge', () => {
 
     expect(callCount).toBe(2)
     expect(received).toHaveLength(1)
-    expect(received[0].id).toBe('redis-reconnect')
+    expect(received[0]!.id).toBe('redis-reconnect')
     expect(warn).toHaveBeenCalledWith(
       expect.stringContaining('reconnecting'),
       expect.objectContaining({ error: expect.stringContaining('connection dropped') }),

@@ -60,7 +60,7 @@ describe('OKF helpers', () => {
     expect(
       normaliseOkfDocument(doc, {
         path: 'wiki/projects/jeffs-brain-memory.md',
-        defaultType: deriveOkfTypeFromPath('wiki/projects/jeffs-brain-memory.md'),
+        defaultType: deriveOkfTypeFromPath('wiki/projects/jeffs-brain-memory.md')!,
       }),
     ).toMatchObject({
       type: 'Article',
