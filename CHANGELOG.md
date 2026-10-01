@@ -7,7 +7,126 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
-Nothing yet.
+Proposed versions: `@jeffs-brain/memory` and `@jeffs-brain/memory-pi`
+1.2.0, `@jeffs-brain/memory-mcp` 1.1.0, Go module and `memory-mcp` binary
+1.2.0. The other npm packages have no shipped changes and stay at 1.0.0.
+
+### Upgrade notes
+
+- `memory serve` (TypeScript, Go, Python) listens on `127.0.0.1:8080` by
+  default and refuses to start on a non-loopback address unless an auth
+  token is set. A daemon without a token answers only requests addressed
+  to a loopback host and refuses cross-origin browser requests.
+- `POST /v1/brains/{id}/ingest/file` no longer reads a server-side `path`
+  unless the daemon is started with `--ingest-root <dir>` (or
+  `JB_INGEST_ROOT`); paths are then confined to that directory, symlinks
+  included. Clients sending `contentBase64` are unaffected.
+- The Go module requires Go 1.26 or newer.
+- TypeScript cron schedules are evaluated in UTC (as in Go) instead of the
+  host's local time zone. Pass `{ timeZone }` to `nextOccurrence` for a
+  wall-clock zone.
+- `memory-pi` accepts pi `>=0.78.1 <1.0.0` (was 0.74 only).
+
+### Security
+
+- Daemon, all three SDKs: arbitrary file read through `ingest/file` with a
+  server-side path; SSRF through `ingest/url` (TypeScript and Python had
+  no guard; Go's missed CGNAT, multicast and other reserved ranges, and
+  did not cap redirects); bearer tokens compared in variable time
+  (TypeScript, Python); 500 responses and `/ask` stream errors carried
+  internal error detail; the TypeScript and Go daemons listened on every
+  interface with no token by default.
+- The SSRF guard checks every redirect hop, pins the connection to the
+  vetted address (no DNS rebinding between check and connect), refuses
+  credentials in URLs and bounds time and body size. It also covers the
+  MCP servers' and the pi extension's `memory_ingest_url`.
+- Dependencies: every reachable Go vulnerability (go-git, go-billy,
+  x/crypto, x/net, x/text), and every advisory reported by `bun audit`
+  and `pip-audit`, including starlette, mcp, cryptography, pyjwt,
+  `@stackone/defender`'s pinned nanoid, vitest and the docs site's Astro.
+
+### memory
+
+#### Added
+
+- `@jeffs-brain/memory/net`: `safeFetch`, `isBlockedAddress`,
+  `UnsafeUrlError`, `FetchFailedError`.
+- `memory serve --ingest-root`; `nextOccurrence(schedule, after,
+  { timeZone })`.
+
+#### Fixed
+
+- Video extraction from a buffer always failed: the temporary directory
+  was deleted before `ffprobe` read the file.
+- Cron: starting on the 29th to 31st skipped the following month, and
+  schedules followed the host time zone.
+- `memory --version` errored instead of printing the version.
+- `/ask` reported `done: { ok: true }` after a generation error.
+
+#### Changed
+
+- Error responses: `bad_gateway` (502) for upstream fetch failures,
+  `misdirected_request` (421) for a foreign `Host`, `forbidden` (403) for
+  refused paths and cross-origin requests.
+- `@stackone/defender` ^0.8.3.
+
+### memory-mcp
+
+#### Fixed
+
+- Every tool advertised an empty input schema, so clients saw no
+  parameters. Schemas now carry fields, types, limits and descriptions.
+- The server reports its package version (it said 1.0.0).
+
+### memory-pi
+
+#### Fixed
+
+- `memory_ingest_url` uses the core SSRF guard; its own guard re-resolved
+  DNS after checking and followed redirects unchecked.
+
+### Go
+
+#### Added
+
+- `knowledge.ErrInvalidURL`, `ErrInvalidContent`, `ErrBlockedAddress` and
+  `FetchError`; `httpd.ResolveBindAddr`, `LoopbackGuard`, `IsLoopbackHost`,
+  `BadGateway` and `MisdirectedRequest`.
+
+#### Fixed
+
+- The planned CLI commands exited 0 after printing "not implemented";
+  they exit 1.
+- `memory-mcp` and the CLI share one version constant.
+
+### Python (unpublished)
+
+- The same daemon hardening; `jeffs_brain_memory.net.safe_fetch`.
+- `/extract` kept a raw `sessionDate` where Go and TypeScript use the
+  parsed ISO date.
+- `Provider.complete_stream` is declared `async`, as every implementation
+  is; the daemon's store honours the `Store.list` contract; the daemon's
+  knowledge base can search its brain's index.
+- Planned CLI commands exit 1 and are hidden from `--help`.
+- Ships `py.typed`; ruff and strict mypy are clean.
+
+### Specification
+
+- `PROTOCOL.md` gains a daemon security section and the new error codes.
+- `MCP-TOOLS.md`: the batch tool's schema sat under a duplicated
+  directory heading; the intro named paths and a variable from another
+  repository. Every MCP server is now tested against the spec.
+- The retrieval golden fixtures are a synthetic public set.
+
+### Repository
+
+- Removed retrieval captures that embedded a private brain's paths, a
+  committed debug binary and stale example and eval output.
+- CI gates lint, typecheck (tests included), tests and build for
+  TypeScript; ruff, format, strict mypy and tests for Python on 3.11 and
+  3.13; the docs build; and vulnerability scans for Go, npm and Python.
+  Dependabot covers every ecosystem.
+- Releases publish only from a matching tag, and every gate blocks.
 
 ## [1.1.0] - 2026-08-25
 
