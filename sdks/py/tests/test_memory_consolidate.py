@@ -12,8 +12,6 @@ from jeffs_brain_memory.memory import (
     Consolidator,
     MemoryManager,
     MemStore,
-    memory_global_index,
-    memory_global_topic,
     memory_project_index,
     memory_project_topic,
     project_slug,
@@ -95,9 +93,7 @@ async def test_staleness_detects_old_files(iso):
     store = MemStore()
     mem = MemoryManager(store)
     slug = project_slug("/x")
-    old = (datetime.now(timezone.utc) - timedelta(days=200)).strftime(
-        "%Y-%m-%dT%H:%M:%SZ"
-    )
+    old = (datetime.now(timezone.utc) - timedelta(days=200)).strftime("%Y-%m-%dT%H:%M:%SZ")
     write(
         store,
         memory_project_topic(slug, "stale"),

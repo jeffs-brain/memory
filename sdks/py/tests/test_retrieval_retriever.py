@@ -71,9 +71,7 @@ class _Reranker:
     def __init__(self) -> None:
         self.calls = 0
 
-    async def rerank(
-        self, query: str, chunks: list[RetrievedChunk]
-    ) -> list[RetrievedChunk]:
+    async def rerank(self, query: str, chunks: list[RetrievedChunk]) -> list[RetrievedChunk]:
         self.calls += 1
         out: list[RetrievedChunk] = []
         n = len(chunks)
@@ -103,9 +101,7 @@ class _Reranker:
 async def test_bm25_mode() -> None:
     src = FakeSource(_test_corpus())
     r = Retriever(source=src)
-    resp = await r.retrieve(
-        Request(query="invoice automation", top_k=3, mode=Mode.BM25)
-    )
+    resp = await r.retrieve(Request(query="invoice automation", top_k=3, mode=Mode.BM25))
     assert resp.chunks
     assert resp.trace.effective_mode == Mode.BM25
     assert not resp.trace.embedder_used
@@ -126,9 +122,7 @@ async def test_semantic_mode() -> None:
 async def test_hybrid_mode_fuses_both_legs() -> None:
     src = FakeSource(_test_corpus())
     r = Retriever(source=src, embedder=FakeEmbedder(src.embed_dim))
-    resp = await r.retrieve(
-        Request(query="invoice automation", top_k=3, mode=Mode.HYBRID)
-    )
+    resp = await r.retrieve(Request(query="invoice automation", top_k=3, mode=Mode.HYBRID))
     assert resp.trace.effective_mode == Mode.HYBRID
     assert resp.trace.bm25_hits > 0
     assert resp.trace.vector_hits > 0
@@ -140,12 +134,8 @@ async def test_hybrid_mode_fuses_both_legs() -> None:
 async def test_hybrid_rerank_applies_reranker() -> None:
     src = FakeSource(_test_corpus())
     rr = _Reranker()
-    r = Retriever(
-        source=src, embedder=FakeEmbedder(src.embed_dim), reranker=rr
-    )
-    resp = await r.retrieve(
-        Request(query="invoice automation", top_k=5, mode=Mode.HYBRID_RERANK)
-    )
+    r = Retriever(source=src, embedder=FakeEmbedder(src.embed_dim), reranker=rr)
+    resp = await r.retrieve(Request(query="invoice automation", top_k=5, mode=Mode.HYBRID_RERANK))
     # Either the unanimity shortcut fired (no reranker call) or the
     # reranker ran and trace reflects it.
     if resp.trace.unanimity_skipped:
@@ -181,12 +171,8 @@ async def test_unanimity_shortcut_skips_rerank() -> None:
     ]
     src = FakeSource(corpus)
     rr = _Reranker()
-    r = Retriever(
-        source=src, embedder=FakeEmbedder(src.embed_dim), reranker=rr
-    )
-    resp = await r.retrieve(
-        Request(query="alpha bravo", top_k=3, mode=Mode.HYBRID_RERANK)
-    )
+    r = Retriever(source=src, embedder=FakeEmbedder(src.embed_dim), reranker=rr)
+    resp = await r.retrieve(Request(query="alpha bravo", top_k=3, mode=Mode.HYBRID_RERANK))
     if resp.trace.unanimity_skipped:
         assert rr.calls == 0
         assert resp.trace.rerank_skip_reason == "unanimity"
@@ -463,11 +449,7 @@ async def test_bm25_fanout_drops_drifted_token_probes() -> None:
                 ],
                 True,
             )
-        if (
-            "radiation" in lowered
-            and "amplified" in lowered
-            and "zombie" in lowered
-        ):
+        if "radiation" in lowered and "amplified" in lowered and "zombie" in lowered:
             return (
                 [
                     BM25Hit(

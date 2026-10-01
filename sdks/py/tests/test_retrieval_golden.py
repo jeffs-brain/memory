@@ -1,12 +1,11 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Golden fixtures: synthesise a minimal corpus keyed to the golden
-``any_of`` expectations and assert the top-5 contains at least one of
-the expected paths.
+"""Golden fixtures: synthesise a minimal corpus keyed to the public golden
+set and assert the top-5 satisfies the fixture pass criterion.
 
-The fixtures were captured against a 5K-article corpus that cannot be
-redistributed. This port mirrors the Go golden tests: synthesise chunks
-with title/summary/content seeded by the slug so both BM25 and semantic
-cosine plausibly surface them.
+``spec/fixtures/retrieval/golden-public.yaml`` is fully synthetic. This
+port mirrors the Go golden tests: synthesise chunks with
+title/summary/content seeded by the slug so both BM25 and semantic cosine
+plausibly surface them.
 """
 
 from __future__ import annotations
@@ -17,11 +16,9 @@ import pytest
 import yaml
 
 from jeffs_brain_memory.llm.fake import FakeEmbedder
-from jeffs_brain_memory.retrieval import Mode, Request, Retriever
+from jeffs_brain_memory.retrieval import Mode, Request, Retriever, slug_text_for
 
 from ._retrieval_fakes import FakeChunk, FakeSource
-from jeffs_brain_memory.retrieval import slug_text_for
-
 
 SPEC_DIR = Path(__file__).resolve().parents[3] / "spec" / "fixtures" / "retrieval"
 
@@ -32,9 +29,15 @@ def _load(name: str) -> list[dict]:
     return list(data.get("queries") or [])
 
 
-def _pick(queries: list[dict], ids: list[str]) -> list[dict]:
-    idx = {q["id"]: q for q in queries if "id" in q}
-    return [idx[i] for i in ids if i in idx]
+GOLDEN_SET = "golden-public.yaml"
+
+
+def _passes(hit_paths: list[str], query: dict) -> bool:
+    got = set(hit_paths)
+    if got & set(query.get("any_of") or []):
+        return True
+    must = query.get("must_retrieve") or []
+    return bool(must) and all(p in got for p in must)
 
 
 def _corpus_for(queries: list[dict]) -> list[FakeChunk]:
@@ -87,76 +90,26 @@ def _chunk_for_path(path: str, query: str) -> FakeChunk:
     title = " ".join(words)
     summary = "Reference note about " + " ".join(words)
     content = summary + ". Related query context: " + query + "."
-    return FakeChunk(
-        id=path, path=path, title=title, summary=summary, content=content
-    )
+    return FakeChunk(id=path, path=path, title=title, summary=summary, content=content)
 
 
 def _top_paths(chunks) -> list[str]:
     return [c.path for c in chunks]
 
 
-@pytest.mark.skipif(
-    not SPEC_DIR.exists(), reason="spec/fixtures/retrieval not reachable"
-)
-async def test_golden_hybrid_bm25() -> None:
-    queries = _pick(
-        _load("golden-hybrid.yaml"),
-        ["invoice-automation", "quote-generation-tools"],
-    )
+@pytest.mark.skipif(not SPEC_DIR.exists(), reason="spec/fixtures/retrieval not reachable")
+@pytest.mark.parametrize("mode", [Mode.BM25, Mode.HYBRID])
+async def test_golden_public(mode: Mode) -> None:
+    queries = _load(GOLDEN_SET)
     assert queries, "expected at least one golden query"
     corpus = _corpus_for(queries)
     src = FakeSource(corpus)
-    r = Retriever(source=src)
+    embedder = FakeEmbedder(src.embed_dim) if mode is Mode.HYBRID else None
+    r = Retriever(source=src, embedder=embedder)
     for q in queries:
-        resp = await r.retrieve(
-            Request(query=q["q"], mode=Mode.BM25, top_k=5)
-        )
+        resp = await r.retrieve(Request(query=q["q"], mode=mode, top_k=5))
         hit_paths = _top_paths(resp.chunks)
-        wanted = set(q.get("any_of") or [])
-        assert wanted & set(hit_paths), (
-            f"{q['id']}: top-5 {hit_paths} missed any_of {sorted(wanted)}"
-        )
-
-
-@pytest.mark.skipif(
-    not SPEC_DIR.exists(), reason="spec/fixtures/retrieval not reachable"
-)
-async def test_golden_hybrid_mode() -> None:
-    queries = _pick(
-        _load("golden-hybrid.yaml"),
-        ["invoice-automation", "quote-generation-tools"],
-    )
-    corpus = _corpus_for(queries)
-    src = FakeSource(corpus)
-    r = Retriever(source=src, embedder=FakeEmbedder(src.embed_dim))
-    for q in queries:
-        resp = await r.retrieve(
-            Request(query=q["q"], mode=Mode.HYBRID, top_k=5)
-        )
-        hit_paths = _top_paths(resp.chunks)
-        wanted = set(q.get("any_of") or [])
-        assert wanted & set(hit_paths), (
-            f"{q['id']} (hybrid): top-5 {hit_paths} missed any_of {sorted(wanted)}"
-        )
-
-
-@pytest.mark.skipif(
-    not SPEC_DIR.exists(), reason="spec/fixtures/retrieval not reachable"
-)
-async def test_golden_realworld_bm25() -> None:
-    queries = _pick(_load("golden-realworld.yaml"), ["bosch-direct"])
-    if not queries:
-        pytest.skip("bosch-direct query missing from fixture")
-    corpus = _corpus_for(queries)
-    src = FakeSource(corpus)
-    r = Retriever(source=src)
-    for q in queries:
-        resp = await r.retrieve(
-            Request(query=q["q"], mode=Mode.BM25, top_k=5)
-        )
-        hit_paths = _top_paths(resp.chunks)
-        wanted = set(q.get("any_of") or [])
-        assert wanted & set(hit_paths), (
-            f"{q['id']}: top-5 {hit_paths} missed any_of {sorted(wanted)}"
+        assert _passes(hit_paths, q), (
+            f"{q['id']} ({mode.value}): top-5 {hit_paths} did not satisfy "
+            f"any_of {q.get('any_of')} / must_retrieve {q.get('must_retrieve')}"
         )

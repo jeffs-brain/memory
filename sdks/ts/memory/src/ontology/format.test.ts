@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from 'vitest'
-import { formatNodeTypeLabel, formatEdgeTypeLabel } from './format.js'
+import { formatEdgeTypeLabel, formatNodeTypeLabel } from './format.js'
 
 describe('formatNodeTypeLabel', () => {
   it('formats a dotted entity type into "Name (Prefix)" form', () => {

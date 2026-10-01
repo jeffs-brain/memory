@@ -7,9 +7,9 @@ import {
   BUILT_IN_NODE_TYPES,
   BUSINESS_CATEGORIES,
   NODE_TYPE_PREFIXES,
+  _resetPrefixes,
   getNodeTypePrefixes,
   registerPrefix,
-  _resetPrefixes,
 } from './types.js'
 import { hasPrefix, isValidNodeType } from './validation.js'
 

@@ -136,7 +136,7 @@ describe('BM25 weight ordering', () => {
     const contentResult = results.find((r) => r.chunk.id === 'content-hit')
     expect(titleResult).toBeDefined()
     expect(contentResult).toBeDefined()
-    expect(titleResult?.score).toBeLessThan(contentResult?.score)
+    expect(titleResult!.score).toBeLessThan(contentResult!.score)
     // And the ordering in the returned array matches: title first.
     const firstMatching = results.find(
       (r) => r.chunk.id === 'title-hit' || r.chunk.id === 'content-hit',
@@ -190,7 +190,7 @@ describe('vector search', () => {
     expect(results).toHaveLength(3)
     expect(results[0]?.chunk.id).toBe('b')
     // Distance to the nearest should be strictly less than to the others.
-    expect(results[0]?.distance).toBeLessThan(results[1]?.distance)
+    expect(results[0]!.distance).toBeLessThan(results[1]!.distance)
   })
 })
 
@@ -214,7 +214,7 @@ describe('roundtrip', () => {
     const bm25 = idx.searchBM25('widgets', 50)
     expect(bm25.length).toBeGreaterThanOrEqual(50)
 
-    const nearest = idx.searchVector(chunks[42]?.embedding, 5)
+    const nearest = idx.searchVector(chunks[42]!.embedding, 5)
     expect(nearest[0]?.chunk.id).toBe('chunk-42')
 
     // Spot-check hydration

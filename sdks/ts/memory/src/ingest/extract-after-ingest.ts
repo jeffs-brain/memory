@@ -9,7 +9,7 @@
 
 import type { Logger } from '../llm/index.js'
 import { noopLogger } from '../llm/index.js'
-import type { Memory, ExtractedMemory } from '../memory/types.js'
+import type { ExtractedMemory, Memory } from '../memory/types.js'
 
 /** Default maximum content length (in characters) passed to the extractor. */
 const DEFAULT_MAX_CONTENT_CHARS = 128_000

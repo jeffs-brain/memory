@@ -157,9 +157,7 @@ def test_serve_document_crud(tmp_path) -> None:
                     {"type": "delete", "path": "memory/global/a.md"},
                 ],
             }
-            batch = client.post(
-                "/v1/brains/docs/documents/batch-ops", json=batch_body
-            )
+            batch = client.post("/v1/brains/docs/documents/batch-ops", json=batch_body)
             assert batch.status_code == 200, batch.text
 
             deleted = client.delete(
@@ -184,9 +182,7 @@ def test_serve_ingest_search(tmp_path) -> None:
                     b"# hedgehog\n\nThe hedgehog lives in hedgerows."
                 ).decode(),
             }
-            ingest = client.post(
-                "/v1/brains/ingest/ingest/file", json=ingest_body
-            )
+            ingest = client.post("/v1/brains/ingest/ingest/file", json=ingest_body)
             assert ingest.status_code == 200, ingest.text
 
             search = client.post(
@@ -222,9 +218,7 @@ def test_serve_ask_sse(tmp_path) -> None:
                     b"# hedgehog\n\nThe hedgehog lives in hedgerows."
                 ).decode(),
             }
-            resp = client.post(
-                "/v1/brains/asksse/ingest/file", json=ingest_body
-            )
+            resp = client.post("/v1/brains/asksse/ingest/file", json=ingest_body)
             assert resp.status_code == 200, resp.text
 
             events: dict[str, str] = {}
@@ -250,9 +244,9 @@ def test_serve_ask_sse(tmp_path) -> None:
                             break
                         continue
                     if line.startswith("event:"):
-                        event_name = line[len("event:"):].strip()
+                        event_name = line[len("event:") :].strip()
                     elif line.startswith("data:"):
-                        data_buf.append(line[len("data:"):].lstrip())
+                        data_buf.append(line[len("data:") :].lstrip())
 
             for expected_event in ("retrieve", "answer_delta", "done"):
                 assert expected_event in events, f"missing {expected_event!r} in {events!r}"
@@ -293,7 +287,7 @@ def test_serve_events_sse(tmp_path) -> None:
                                 event_name = ""
                                 continue
                             if line.startswith("event:"):
-                                event_name = line[len("event:"):].strip()
+                                event_name = line[len("event:") :].strip()
                 except Exception:
                     pass
 
@@ -427,6 +421,6 @@ def test_serve_preseeded_brain_scan_on_open(tmp_path) -> None:
             assert search.status_code == 200, search.text
             chunks = search.json().get("chunks", [])
             assert chunks, "expected pre-seeded hedgehog.md to surface after scan-on-open"
-            assert any(
-                chunk.get("path", "").endswith("hedgehog.md") for chunk in chunks
-            ), f"expected hedgehog.md in chunks, got: {chunks}"
+            assert any(chunk.get("path", "").endswith("hedgehog.md") for chunk in chunks), (
+                f"expected hedgehog.md in chunks, got: {chunks}"
+            )

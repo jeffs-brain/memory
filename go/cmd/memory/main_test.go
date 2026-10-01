@@ -13,6 +13,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/jeffs-brain/memory/go/internal/version"
 )
 
 // TestSmokeVersion verifies `memory version` runs and prints the version.
@@ -25,8 +27,8 @@ func TestSmokeVersion(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("version execute: %v", err)
 	}
-	if got := strings.TrimSpace(stdout.String()); got != version {
-		t.Fatalf("version output = %q, want %q", got, version)
+	if got := strings.TrimSpace(stdout.String()); got != version.Version {
+		t.Fatalf("version output = %q, want %q", got, version.Version)
 	}
 }
 
@@ -45,6 +47,32 @@ func TestPlannedCommandsHiddenFromHelp(t *testing.T) {
 		if strings.Contains(help, "\n  "+name) {
 			t.Fatalf("planned command %q should be hidden from help:\n%s", name, help)
 		}
+	}
+}
+
+func TestPlannedCommandsFail(t *testing.T) {
+	for _, args := range [][]string{
+		{"init"}, {"ingest", "./docs"}, {"search", "hello"}, {"ask", "why?"},
+		{"remember", "a note"}, {"recall", "hello"}, {"reflect"}, {"consolidate"},
+		{"create-brain", "b"}, {"list-brains"},
+	} {
+		t.Run(args[0], func(t *testing.T) {
+			var out bytes.Buffer
+			cmd := rootCmd()
+			cmd.SetArgs(args)
+			cmd.SetOut(&out)
+			cmd.SetErr(&out)
+			err := cmd.Execute()
+			if err == nil {
+				t.Fatalf("%s succeeded; a planned command must fail", args[0])
+			}
+			if !strings.Contains(err.Error(), "not implemented") {
+				t.Fatalf("%s error = %q, want a not-implemented message", args[0], err)
+			}
+			if out.Len() != 0 {
+				t.Fatalf("%s wrote %q; main prints the error once", args[0], out.String())
+			}
+		})
 	}
 }
 

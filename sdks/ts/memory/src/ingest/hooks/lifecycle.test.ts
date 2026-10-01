@@ -2,21 +2,25 @@
 
 import { describe, expect, it, vi } from 'vitest'
 import type { Logger } from '../../llm/types.js'
-import type {
-  DocumentDetectedEvent,
-  IngestHookEvent,
-  Plugin,
-} from '../../memory/types.js'
+import type { DocumentDetectedEvent, IngestHookEvent, Plugin } from '../../memory/types.js'
 import { fireDocumentDetected, fireIngestEnd, fireIngestStart } from './lifecycle.js'
 
 const makeLogger = (): Logger & { calls: { method: string; msg: string }[] } => {
   const calls: { method: string; msg: string }[] = []
   return {
     calls,
-    debug: (msg: string) => { calls.push({ method: 'debug', msg }) },
-    info: (msg: string) => { calls.push({ method: 'info', msg }) },
-    warn: (msg: string) => { calls.push({ method: 'warn', msg }) },
-    error: (msg: string) => { calls.push({ method: 'error', msg }) },
+    debug: (msg: string) => {
+      calls.push({ method: 'debug', msg })
+    },
+    info: (msg: string) => {
+      calls.push({ method: 'info', msg })
+    },
+    warn: (msg: string) => {
+      calls.push({ method: 'warn', msg })
+    },
+    error: (msg: string) => {
+      calls.push({ method: 'error', msg })
+    },
   }
 }
 
@@ -39,9 +43,27 @@ describe('fireDocumentDetected', () => {
   it('fires onDocumentDetected on all plugins in order', async () => {
     const order: string[] = []
     const plugins: Plugin[] = [
-      { name: 'a', onDocumentDetected: () => { order.push('a'); return true } },
-      { name: 'b', onDocumentDetected: () => { order.push('b'); return true } },
-      { name: 'c', onDocumentDetected: () => { order.push('c'); return true } },
+      {
+        name: 'a',
+        onDocumentDetected: () => {
+          order.push('a')
+          return true
+        },
+      },
+      {
+        name: 'b',
+        onDocumentDetected: () => {
+          order.push('b')
+          return true
+        },
+      },
+      {
+        name: 'c',
+        onDocumentDetected: () => {
+          order.push('c')
+          return true
+        },
+      },
     ]
     const logger = makeLogger()
 
@@ -67,12 +89,26 @@ describe('fireDocumentDetected', () => {
   it('swallows plugin errors and continues (fail open)', async () => {
     const order: string[] = []
     const plugins: Plugin[] = [
-      { name: 'a', onDocumentDetected: () => { order.push('a'); return true } },
+      {
+        name: 'a',
+        onDocumentDetected: () => {
+          order.push('a')
+          return true
+        },
+      },
       {
         name: 'crasher',
-        onDocumentDetected: () => { throw new Error('boom') },
+        onDocumentDetected: () => {
+          throw new Error('boom')
+        },
       },
-      { name: 'c', onDocumentDetected: () => { order.push('c'); return true } },
+      {
+        name: 'c',
+        onDocumentDetected: () => {
+          order.push('c')
+          return true
+        },
+      },
     ]
     const logger = makeLogger()
 
@@ -80,7 +116,9 @@ describe('fireDocumentDetected', () => {
 
     expect(result.cancelled).toBe(false)
     expect(order).toEqual(['a', 'c'])
-    expect(logger.calls.some((c) => c.method === 'warn' && c.msg.includes('onDocumentDetected'))).toBe(true)
+    expect(
+      logger.calls.some((c) => c.method === 'warn' && c.msg.includes('onDocumentDetected')),
+    ).toBe(true)
   })
 
   it('skips plugins without onDocumentDetected', async () => {
@@ -117,8 +155,20 @@ describe('fireIngestStart', () => {
   it('fires onIngestStart on all plugins in registration order', async () => {
     const order: string[] = []
     const plugins: Plugin[] = [
-      { name: 'a', onIngestStart: () => { order.push('a'); return true } },
-      { name: 'b', onIngestStart: () => { order.push('b'); return true } },
+      {
+        name: 'a',
+        onIngestStart: () => {
+          order.push('a')
+          return true
+        },
+      },
+      {
+        name: 'b',
+        onIngestStart: () => {
+          order.push('b')
+          return true
+        },
+      },
     ]
     const logger = makeLogger()
 
@@ -145,7 +195,9 @@ describe('fireIngestStart', () => {
     const plugins: Plugin[] = [
       {
         name: 'crasher',
-        onIngestStart: () => { throw new Error('fail') },
+        onIngestStart: () => {
+          throw new Error('fail')
+        },
       },
     ]
     const logger = makeLogger()
@@ -170,9 +222,24 @@ describe('fireIngestEnd', () => {
   it('fires onIngestEnd in reverse registration order', async () => {
     const order: string[] = []
     const plugins: Plugin[] = [
-      { name: 'a', onIngestEnd: () => { order.push('a') } },
-      { name: 'b', onIngestEnd: () => { order.push('b') } },
-      { name: 'c', onIngestEnd: () => { order.push('c') } },
+      {
+        name: 'a',
+        onIngestEnd: () => {
+          order.push('a')
+        },
+      },
+      {
+        name: 'b',
+        onIngestEnd: () => {
+          order.push('b')
+        },
+      },
+      {
+        name: 'c',
+        onIngestEnd: () => {
+          order.push('c')
+        },
+      },
     ]
     const logger = makeLogger()
 
@@ -193,12 +260,24 @@ describe('fireIngestEnd', () => {
   it('swallows errors and continues to remaining plugins', async () => {
     const order: string[] = []
     const plugins: Plugin[] = [
-      { name: 'a', onIngestEnd: () => { order.push('a') } },
+      {
+        name: 'a',
+        onIngestEnd: () => {
+          order.push('a')
+        },
+      },
       {
         name: 'crasher',
-        onIngestEnd: () => { throw new Error('end fail') },
+        onIngestEnd: () => {
+          throw new Error('end fail')
+        },
       },
-      { name: 'c', onIngestEnd: () => { order.push('c') } },
+      {
+        name: 'c',
+        onIngestEnd: () => {
+          order.push('c')
+        },
+      },
     ]
     const logger = makeLogger()
 
@@ -206,7 +285,9 @@ describe('fireIngestEnd', () => {
 
     // Reverse order: c runs first, crasher throws (swallowed), then a
     expect(order).toEqual(['c', 'a'])
-    expect(logger.calls.some((c) => c.method === 'warn' && c.msg.includes('onIngestEnd'))).toBe(true)
+    expect(logger.calls.some((c) => c.method === 'warn' && c.msg.includes('onIngestEnd'))).toBe(
+      true,
+    )
   })
 
   it('supports async hooks', async () => {

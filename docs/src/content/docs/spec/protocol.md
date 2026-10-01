@@ -5,8 +5,7 @@ sidebar:
   order: 1
 ---
 
-
-This document describes the wire surface consumed by an HTTP-backed Jeffs Brain `Store` implementation. The TypeScript reference lives in `packages/memory/src/store/http.ts` and the reference server routes live in `apps/backend/src/routes/documents-fs.ts` and `apps/backend/src/routes/events.ts`. Any SDK that ships an HTTP store must drive these endpoints with byte-equivalent behaviour.
+This document describes the wire surface consumed by an HTTP-backed Jeffs Brain `Store` implementation and served by the `memory serve` daemons. The client references are `sdks/ts/memory/src/store/http.ts`, `go/store/http/http.go` and `sdks/py/src/jeffs_brain_memory/store/http.py`; the reference daemons are `go/cmd/memory`, `sdks/ts/memory/src/http` and `sdks/py/src/jeffs_brain_memory/http`. Any SDK that ships an HTTP store must drive these endpoints with byte-equivalent behaviour.
 
 ## Base URL and brain scoping
 
@@ -27,6 +26,61 @@ Authorization: Bearer <apiKey or token>
 ```
 
 `apiKey` wins over `token` when both are set. Requests without an authentication header hit unauthenticated routes only (used by in-process test harnesses). The server enforces API key scopes such as `documents:read` and `documents:write` on top of tenant-level RBAC.
+
+## Daemon security
+
+Every `memory serve` daemon MUST apply the rules below. They exist because the daemon reads and writes a brain on the host it runs on, and can be asked to fetch URLs and read files: exposed carelessly, it is a file-read and request-forgery primitive.
+
+### Bind address
+
+- The default bind address is `127.0.0.1:8080`. An empty host (`:8080`) binds loopback, never every interface.
+- A daemon MUST refuse to start on a non-loopback address unless a bearer token is configured (`--auth-token` or `JB_AUTH_TOKEN`).
+
+### Bearer token
+
+- With a token configured, every request except `GET /healthz` MUST carry `Authorization: Bearer <token>`. The scheme is case-insensitive (RFC 7235).
+- A missing header is `401 unauthorized`; a present but wrong token is `403 forbidden`.
+- The comparison MUST run in constant time. The reference daemons hash both sides with SHA-256 and compare the digests, so neither content nor length leaks through timing.
+
+### Loopback guard
+
+Without a token the daemon only answers local clients that address it by a loopback name. This closes DNS rebinding (a foreign `Host`) and cross-site requests from a browser (a foreign `Origin`).
+
+- The `Host` header MUST name `localhost` or a loopback IP literal in any spelling (`127.0.0.0/8`, `::1`, IPv4-mapped IPv6). Anything else, including a malformed header carrying userinfo or a path, is `421 misdirected_request`.
+- An `Origin` header, when present, MUST be an `http` or `https` origin on a loopback host. Anything else is `403 forbidden`.
+- `GET /healthz` is exempt so local probes always work.
+
+A configured token replaces the guard: an authenticated daemon may be reached by any host name.
+
+### Server-side path ingest
+
+`POST /v1/brains/{brainId}/ingest/file` takes the document inline as `contentBase64`. With inline content, `path` is only a name hint for content-type detection and the stored title; it is never read.
+
+Reading a server-side `path` instead is disabled unless the daemon was started with an ingest root (`--ingest-root` or `JB_INGEST_ROOT`). When enabled:
+
+- A relative `path` is resolved against the ingest root.
+- Containment is checked on the normalised path before touching the filesystem, and again after resolving symlinks, so a symlink inside the root cannot point the read elsewhere.
+- A request with no ingest root configured, or naming a path outside the root, is `403 forbidden`. A path outside the root is refused whether or not it exists, so the response cannot be used to probe the filesystem.
+- A path inside the root that is missing or is not a regular file is `400 validation_error`.
+- A body with neither `contentBase64` nor `path` is `400 validation_error`.
+
+### URL ingest
+
+`POST /v1/brains/{brainId}/ingest/url`, the MCP `memory_ingest_url` tool in local mode and the pi extension's `memory_ingest_url` fetch only URLs that pass this guard:
+
+- The scheme is `http` or `https`, and the URL carries no credentials.
+- Every address the host resolves to is public. A host with any non-public address is refused. Non-public means `0.0.0.0/8`, `10.0.0.0/8`, `100.64.0.0/10`, `127.0.0.0/8`, `169.254.0.0/16`, `172.16.0.0/12`, `192.0.0.0/24`, `192.168.0.0/16`, `198.18.0.0/15`, `224.0.0.0/4`, `240.0.0.0/4`, `::/128`, `::1/128`, `fc00::/7`, `fe80::/10`, `fec0::/10` and `ff00::/8`, with IPv4-mapped (`::ffff:0:0/96`) and NAT64 (`64:ff9b::/96`) addresses judged by the IPv4 address they embed.
+- The connection is pinned to the validated address, so a second DNS answer cannot swap in an internal one between the check and the connect.
+- Each redirect is validated the same way, up to 5 redirects.
+- The whole fetch is bounded by a 30 second timeout and a body limit enforced while streaming: 50 MiB for the daemons and the Go MCP server, 5 MiB for the TypeScript and Python MCP servers and the pi extension.
+
+A refused URL is `400 validation_error`. An upstream failure (DNS lookup, connect, non-2xx status, body over the limit, timeout) is `502 bad_gateway`, with a `detail` describing the failure.
+
+### Internal errors
+
+A `500 internal_error` body carries the fixed `detail` `"internal error"`. The cause is logged by the daemon and never returned, so file paths, SQL and upstream messages cannot leak to a caller. Content the caller can fix (unsupported type, invalid UTF-8, unreadable PDF) is `400 validation_error` with a descriptive `detail`.
+
+On `POST /v1/brains/{brainId}/ask`, a provider failure emits `event: error` with `{"code": "llm_error", "message": "answer generation failed"}` followed by `event: done` with `{"ok": false}`.
 
 ## Common headers
 
@@ -70,6 +124,35 @@ Paths are POSIX-style, relative, and validated client-side before reaching the w
 - Must already be canonical (i.e. `cleanPosix(p) === p`)
 
 Paths travel as the `path` query parameter (or `dir` for listing) and are URL-encoded using standard `URLSearchParams` semantics. See `spec/STORAGE.md` for the full validation rules.
+
+## URI conventions
+
+Some consumers reference stored documents via URIs instead of raw relative paths. These URIs are an overlay on the path-based document protocol: `/documents/*` endpoints still accept only canonical relative `path` values, and callers MUST resolve any URI to such a path before issuing an HTTP request.
+
+Canonical URI forms:
+
+- `memory://global/<topic-stem>` -> `memory/global/<topic-stem>.md`
+- `memory://project/<project-slug>/<topic-stem>` -> `memory/project/<project-slug>/<topic-stem>.md`
+- `memory://agent/<actor-id>/<topic-stem>` -> `memory/agent/<actor-id>/<topic-stem>.md`
+- `wiki://<article-stem>` -> `wiki/<article-stem>.md`
+- `wiki://architecture/events` -> `wiki/architecture/events.md`
+
+Rules:
+
+- Resolved document paths stay relative and POSIX-normalised. They never carry a leading slash.
+- `memory://` uses the URI authority as the namespace selector. Valid authorities are `global`, `project`, and `agent`.
+- `project` and `agent` URIs require the first path segment after the authority to be the project or actor slug.
+- `wiki://` resolves the full article stem from `authority + path`. A single-segment article therefore looks like `wiki://release-checklist`, while a nested article can look like `wiki://architecture/events`.
+- URI stems omit the `.md` suffix.
+- Path segments use standard percent-encoding. Callers MUST decode before resolution and MUST re-encode reserved characters when serialising.
+- Resolution is exact. Consumers MUST NOT invent cross-scope fallbacks when resolving a URI.
+
+Server-side URI resolution:
+
+- A surface that accepts these URIs MUST resolve them to a canonical relative path, run the normal path validation rules from this spec and `spec/STORAGE.md`, and then authorise the read exactly as if the caller had requested that path directly.
+- Resolution MUST preserve the same ACL and auth checks as `GET /v1/brains/{brainId}/documents/read` on the resolved path.
+- Missing targets return `404 Not Found`.
+- Callers that lack read access return `403 Forbidden`.
 
 ## Endpoints
 
@@ -238,7 +321,7 @@ Change event stream for the brain.
 
 **Frames**
 
-- `event: ready` emitted once after the stream attaches. `data: ok`.
+- `event: ready` emitted once after the stream attaches and the subscription is active. `data: ok`. A change made after the client receives `ready` MUST be delivered.
 - `event: ping` emitted every `pingIntervalMs` (default 25s) to keep proxies from closing idle streams. `data: keepalive`.
 - `event: change` emitted for every committed mutation. Payload:
 
@@ -279,12 +362,13 @@ The TypeScript client in `http.ts` maps on status only: `404` becomes `ErrNotFou
 | `not_found` | `404` | `GET /documents/read`, `HEAD /documents`, `GET /documents/stat`, `DELETE /documents`, `POST /documents/rename` | Target path does not exist. Maps to `ErrNotFound` client-side. |
 | `conflict` | `409` | `POST /documents/batch-ops` backed by a concurrency-aware store (e.g. `PostgresStore`, `GitStore` with push contention) | Optimistic concurrency or git push/rebase rejection. Maps to `ErrConflict` client-side. See `spec/STORAGE.md`. |
 | `unauthorized` | `401` | Any endpoint when authentication is required but absent or malformed | Missing or unparseable `Authorization` header. |
-| `forbidden` | `403` | Any endpoint when the authenticated principal lacks the scope or RBAC right (`documents:read`, `documents:write`, etc.) | Scope or role does not permit the requested action. |
+| `forbidden` | `403` | Any endpoint when the authenticated principal lacks the scope or RBAC right (`documents:read`, `documents:write`, etc.); a daemon on a wrong bearer token, a foreign `Origin` or a refused server-side ingest path | Scope or role does not permit the requested action, or the daemon refuses it. See "Daemon security". |
 | `payload_too_large` | `413` | `PUT /documents`, `POST /documents/append`, `POST /documents/batch-ops` | Body or decoded batch payload exceeds the limits under "Body size limits". |
 | `unsupported_media_type` | `415` | `PUT /documents`, `POST /documents/append`, `POST /documents/rename`, `POST /documents/batch-ops` | `Content-Type` header does not match the expected value for the endpoint. |
 | `rate_limited` | `429` | Any endpoint | Per-principal or per-tenant quota exceeded. The response SHOULD include `Retry-After`. Reserved: the reference client does not implement automatic retry. |
-| `internal_error` | `500` | Any endpoint | Unhandled server-side failure. |
-| `bad_gateway` | `502` | Any endpoint backed by an upstream store that returned an unusable response | Upstream failure distinct from `internal_error`. |
+| `misdirected_request` | `421` | Any endpoint on a daemon without a token | The `Host` header does not name a loopback host. See "Daemon security". |
+| `internal_error` | `500` | Any endpoint | Unhandled server-side failure. `detail` is always `"internal error"`; the cause is logged, never returned. |
+| `bad_gateway` | `502` | Any endpoint backed by an upstream store that returned an unusable response; `POST /ingest/url` when the fetch fails | Upstream failure distinct from `internal_error`. |
 | `timeout` | `504` | Long-running operations (batch, SSE attach) | Server-side deadline exceeded. Clients retry with their own back-off. |
 
 Servers MAY omit `code` when `status` and `title` unambiguously identify the failure, but SHOULD populate it for every response listed above. Clients MUST NOT reject an unknown `code`.
@@ -302,7 +386,7 @@ Example:
 
 ## Body size limits
 
-The following limits are part of the wire contract. Servers MAY enforce stricter limits and surface `413 payload_too_large`; clients MUST NOT send requests that exceed the values below.
+The following values are the interoperable defaults for v1.0. Servers MAY enforce stricter ceilings, and deployments MAY be configured with higher ceilings. Clients that do not know a deployment-specific ceiling MUST assume the defaults below. Clients that are explicitly configured with deployment-specific ceilings MUST honour those configured ceilings.
 
 | Endpoint | Limit | Field |
 | --- | --- | --- |
@@ -313,7 +397,7 @@ The following limits are part of the wire contract. Servers MAY enforce stricter
 | `GET /documents` listing | `10000` items | `items` array length in the response; callers that need more MUST paginate with `glob` + recursive flags |
 | `GET /documents/read` | No client-enforced upper bound | Reference server streams arbitrarily large documents back |
 
-Servers that choose to honour larger limits MUST still produce `413 payload_too_large` at their own ceiling. Servers that choose stricter limits MUST produce `413 payload_too_large` rather than silently truncating. Byte counts are measured after decompression when a `Content-Encoding` is applied.
+Servers MUST produce `413 payload_too_large` at the configured ceiling rather than silently truncating. SDKs SHOULD raise a client-side error before sending a request when they can determine that the configured ceiling would be exceeded. Byte counts are measured after decompression when a `Content-Encoding` is applied.
 
 ## Tenant and workspace scoping
 
@@ -369,3 +453,124 @@ Reserved for v1.1:
 - `If-Match` preconditions on `PUT /documents` and `DELETE /documents` enabling optimistic concurrency via ETag.
 
 Clients MAY already send `If-None-Match` / `If-Match`; v1.0 servers MUST ignore them and respond as if they were absent.
+
+## Webhook receiver endpoint
+
+The webhook receiver provides a push-based ingestion path. External systems POST document payloads to the receiver, which validates authentication and schema before dispatching accepted documents to the ingestion pipeline.
+
+### `POST /webhook/ingest`
+
+Accept one or more documents for ingestion via push delivery.
+
+**Headers**
+
+| Header | Required | Description |
+| --- | --- | --- |
+| `Content-Type` | Yes | Must be `application/json`. |
+| `Authorization` | Conditional | `Bearer <token>` when the receiver is configured with bearer authentication. |
+| `X-Webhook-Signature` | Conditional | `sha256=<hex-encoded HMAC>` when the receiver is configured with HMAC authentication. The HMAC-SHA256 is computed over `<timestamp>.<body>` using the shared secret. |
+| `X-Webhook-Timestamp` | Conditional | Unix timestamp in seconds. Required when using HMAC authentication. The receiver rejects requests where `abs(now - timestamp)` exceeds the configured expiry window (default: 5 minutes). |
+| `X-Idempotency-Key` | No | Opaque string. When present and idempotency is enabled, the receiver caches the response and returns it on subsequent requests with the same key. Cached entries expire after 24 hours. |
+
+**Body**
+
+```json
+{
+  "documents": [
+    {
+      "externalId": "ext-123",
+      "content": "Document text or base64-encoded binary",
+      "encoding": "utf8",
+      "mime": "text/plain",
+      "title": "Optional title",
+      "url": "https://example.com/source",
+      "metadata": {
+        "author": "jane",
+        "source": "webhook"
+      }
+    }
+  ]
+}
+```
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `documents` | array | Yes | Non-empty array of documents. Maximum count is configurable (default: 50). |
+| `documents[].externalId` | string | Yes | Caller-assigned unique identifier for the document. |
+| `documents[].content` | string | Yes | Document content. Interpreted according to `encoding`. |
+| `documents[].encoding` | string | No | `"utf8"` (default) or `"base64"`. |
+| `documents[].mime` | string | No | MIME type. Defaults to `"text/plain"`. |
+| `documents[].title` | string | No | Human-readable title. |
+| `documents[].url` | string | No | Source URL for provenance tracking. |
+| `documents[].metadata` | object | No | Arbitrary key-value pairs. All values must be strings. |
+
+**Response** `200 OK`
+
+```json
+{
+  "accepted": 1,
+  "rejected": 0,
+  "results": [
+    {
+      "externalId": "ext-123",
+      "status": "accepted",
+      "documentId": "doc-1"
+    }
+  ]
+}
+```
+
+Each entry in `results` corresponds positionally to the input `documents` array.
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `accepted` | integer | Count of successfully dispatched documents. |
+| `rejected` | integer | Count of documents that failed validation or dispatch. |
+| `results[].externalId` | string | The `externalId` from the input document. |
+| `results[].status` | string | `"accepted"` or `"rejected"`. |
+| `results[].documentId` | string | Pipeline-assigned document ID. Present only when `status` is `"accepted"`. |
+| `results[].error` | string | Human-readable error description. Present only when `status` is `"rejected"`. |
+
+**Errors**
+
+| Status | Condition |
+| --- | --- |
+| `400` | Missing or invalid `Content-Type`, malformed JSON, empty `documents` array, document count exceeds maximum. |
+| `401` | Authentication failed or missing. Response body is empty to prevent information leakage. |
+| `405` | Request method is not `POST`. |
+| `413` | Payload exceeds the configured maximum size (default: 8 MiB). |
+| `429` | Rate limit exceeded. The receiver uses a token bucket (default: 60 tokens, 10/sec refill). |
+
+Error responses (except `401`) carry a `application/problem+json` body:
+
+```json
+{
+  "status": 413,
+  "title": "Payload Too Large",
+  "detail": "payload too large"
+}
+```
+
+### Authentication methods
+
+The receiver supports two authentication methods, configured per instance:
+
+**Bearer token** (`method: "bearer"`): The client sends `Authorization: Bearer <token>`. The receiver compares the token against the configured secret using a timing-safe comparison (SHA-256 hash of both sides followed by constant-time byte comparison) to prevent length-based side-channel attacks.
+
+**HMAC-SHA256** (`method: "hmac"`): The client computes `HMAC-SHA256(secret, "<timestamp>.<body>")` and sends it as `X-Webhook-Signature: sha256=<hex>`. The timestamp in `X-Webhook-Timestamp` binds the signature to a time window, preventing replay attacks beyond the configured expiry (default: 5 minutes). The receiver uses `hmac.Equal` (Go) or `timingSafeEqual` (TS) for constant-time comparison.
+
+### Size limits
+
+| Limit | Default | Description |
+| --- | --- | --- |
+| Maximum payload size | 8 MiB | Total request body size. Enforced at the wire level (streaming read with abort). |
+| Maximum document size | 10 MiB | Individual document content size after decoding. |
+| Maximum document count | 50 | Number of documents per request. |
+
+### Idempotency
+
+When `X-Idempotency-Key` is present and idempotency is enabled, the receiver caches the response for 24 hours. Subsequent requests with the same key return the cached response without re-processing. The in-memory idempotency store is bounded to 100,000 entries; when full, the oldest entry (by expiry time) is evicted. A background sweep removes expired entries every hour.
+
+### Rate limiting
+
+The receiver enforces a global token bucket rate limiter. Default configuration: 60 tokens maximum, refilling at 10 tokens per second. When the bucket is empty, requests receive `429 Too Many Requests`.

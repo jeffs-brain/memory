@@ -54,9 +54,7 @@ class KnowledgeTestStore:
             prefix = prefix + "/"
 
         recursive = getattr(opts, "recursive", False) if opts is not None else False
-        include_generated = (
-            getattr(opts, "include_generated", False) if opts is not None else False
-        )
+        include_generated = getattr(opts, "include_generated", False) if opts is not None else False
 
         out: list[_Entry] = []
         for key in sorted(self._docs.keys()):

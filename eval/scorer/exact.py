@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 """Deterministic scorer. No network. Substring match against `expected_substrings`."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass

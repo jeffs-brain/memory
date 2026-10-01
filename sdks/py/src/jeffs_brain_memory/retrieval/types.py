@@ -39,9 +39,7 @@ class Filters:
     project: str = ""
 
     def has_any(self) -> bool:
-        return bool(
-            self.path_prefix or self.paths or self.tags or self.scope or self.project
-        )
+        return bool(self.path_prefix or self.paths or self.tags or self.scope or self.project)
 
     def matches_path(self, path: str) -> bool:
         prefix = self.path_prefix.strip()

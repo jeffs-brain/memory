@@ -11,12 +11,12 @@ import {
   BACKOFF_BASE_DELAY_MS,
   BACKOFF_JITTER_MAX,
   BACKOFF_JITTER_MIN,
+  type ClaimOptions,
   DEFAULT_BATCH_SIZE,
   DEFAULT_HEARTBEAT_INTERVAL_MS,
   DEFAULT_MAX_RETRIES,
   DEFAULT_NOTIFY_CHANNEL,
   DEFAULT_STALE_THRESHOLD_MS,
-  type ClaimOptions,
   type EnqueueInput,
   type Logger,
   type QueueAdapter,
@@ -45,7 +45,10 @@ export type PgClient = {
  * provided, the adapter subscribes for immediate wake on new jobs.
  */
 export type PgListenClient = PgClient & {
-  on(event: 'notification', listener: (msg: { readonly channel: string; readonly payload?: string }) => void): void
+  on(
+    event: 'notification',
+    listener: (msg: { readonly channel: string; readonly payload?: string }) => void,
+  ): void
   query<R = Record<string, unknown>>(
     text: string,
     values?: ReadonlyArray<unknown>,
@@ -180,7 +183,9 @@ export const createPostgresQueue = (opts: PostgresQueueOptions): QueueAdapter =>
 
     const parsedMeta: Record<string, string> | undefined =
       row.metadata !== null && row.metadata !== undefined
-        ? (typeof row.metadata === 'string' ? JSON.parse(row.metadata) : row.metadata)
+        ? typeof row.metadata === 'string'
+          ? JSON.parse(row.metadata)
+          : row.metadata
         : undefined
 
     const status = parseJobStatus(row.status)
@@ -220,8 +225,8 @@ export const createPostgresQueue = (opts: PostgresQueueOptions): QueueAdapter =>
        LIMIT 1`,
       [key],
     )
-    if (result.rows.length === 0) return undefined
-    return rowToJob(result.rows[0]!)
+    const row = result.rows[0]
+    return row === undefined ? undefined : rowToJob(row)
   }
 
   const enqueue = async (input: EnqueueInput): Promise<QueueJob> => {
@@ -275,7 +280,9 @@ export const createPostgresQueue = (opts: PostgresQueueOptions): QueueAdapter =>
         ],
       )
 
-      const job = rowToJob(result.rows[0]!)
+      const row = result.rows[0]
+      if (row === undefined) throw new Error('ingest: enqueue returned no row')
+      const job = rowToJob(row)
       log.info('ingest: job enqueued', { jobId: job.id, brainId: job.brainId })
       return job
     } catch (err: unknown) {
@@ -358,7 +365,10 @@ export const createPostgresQueue = (opts: PostgresQueueOptions): QueueAdapter =>
     }
   }
 
-  const complete = async (jobId: string, result?: Readonly<Record<string, string>>): Promise<void> => {
+  const complete = async (
+    jobId: string,
+    result?: Readonly<Record<string, string>>,
+  ): Promise<void> => {
     ensureOpen()
     const resultJson = result !== undefined ? JSON.stringify(result) : null
 
@@ -377,12 +387,13 @@ export const createPostgresQueue = (opts: PostgresQueueOptions): QueueAdapter =>
          RETURNING brain_id`,
         ['completed', jobId, resultJson, 'processing'],
       )
-      if (res.rows.length === 0) {
+      const completed = res.rows[0]
+      if (completed === undefined) {
         await client.query('ROLLBACK')
         throw new Error(`ingest: complete found no processing job with id ${jobId}`)
       }
 
-      const brainId = res.rows[0]!.brain_id
+      const brainId = completed.brain_id
       const lockKey = advisoryLockKey(brainId)
       await client.query('SELECT pg_advisory_unlock($1)', [lockKey.toString()])
       await client.query('COMMIT')
@@ -414,12 +425,12 @@ export const createPostgresQueue = (opts: PostgresQueueOptions): QueueAdapter =>
         [jobId, 'processing'],
       )
 
-      if (fetchResult.rows.length === 0) {
+      const row = fetchResult.rows[0]
+      if (row === undefined) {
         await client.query('ROLLBACK')
         throw new Error(`ingest: fail found no processing job with id ${jobId}`)
       }
 
-      const row = fetchResult.rows[0]!
       const newRetryCount = row.retry_count + 1
       const canRetry = retryable && newRetryCount < row.max_retries
 
@@ -428,7 +439,7 @@ export const createPostgresQueue = (opts: PostgresQueueOptions): QueueAdapter =>
         ? new Date(
             Date.now() +
               BACKOFF_BASE_DELAY_MS *
-                Math.pow(2, newRetryCount) *
+                2 ** newRetryCount *
                 (BACKOFF_JITTER_MIN + Math.random() * (BACKOFF_JITTER_MAX - BACKOFF_JITTER_MIN)),
           )
         : null
@@ -487,12 +498,13 @@ export const createPostgresQueue = (opts: PostgresQueueOptions): QueueAdapter =>
         ['pending', jobId, 'processing'],
       )
 
-      if (res.rows.length === 0) {
+      const requeued = res.rows[0]
+      if (requeued === undefined) {
         await client.query('ROLLBACK')
         throw new Error(`ingest: requeue found no processing job with id ${jobId}`)
       }
 
-      const brainId = res.rows[0]!.brain_id
+      const brainId = requeued.brain_id
       const lockKey = advisoryLockKey(brainId)
       await client.query('SELECT pg_advisory_unlock($1)', [lockKey.toString()])
       await client.query('COMMIT')
@@ -529,7 +541,9 @@ export const createPostgresQueue = (opts: PostgresQueueOptions): QueueAdapter =>
     return result.rowCount
   }
 
-  const countByStatus = async (brainId?: string): Promise<Readonly<Record<QueueJobStatus, number>>> => {
+  const countByStatus = async (
+    brainId?: string,
+  ): Promise<Readonly<Record<QueueJobStatus, number>>> => {
     ensureOpen()
 
     const counts: Record<QueueJobStatus, number> = {

@@ -10,8 +10,8 @@
  * and compatibility with concurrent migration workers.
  */
 
-import type { PgSql } from './store.js'
 import type { MigrationState, MigrationStateBackend } from '@jeffs-brain/memory/ingest'
+import type { PgSql } from './store.js'
 
 type Blake3MigrationRow = {
   cursor: string

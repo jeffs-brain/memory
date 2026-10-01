@@ -12,11 +12,11 @@
  */
 
 import type { Embedder } from '../llm/types.js'
-import type { TypeEntry, IndustryTemplate } from './templates.js'
 import type { ExtractionResult } from './extract.js'
+import type { IndustryTemplate, TypeEntry } from './templates.js'
 
-import { listTemplates, getTemplate } from './templates.js'
 import { cosineSimilarity } from './similarity.js'
+import { getTemplate, listTemplates } from './templates.js'
 
 export type { ExtractionResult } from './extract.js'
 
@@ -77,7 +77,7 @@ export class TemplateMatcher {
       return this.matchExact(extracted)
     }
 
-    return this.matchSemantic(extracted, signal)
+    return this.matchSemantic(this.embedder, extracted, signal)
   }
 
   /**
@@ -152,6 +152,7 @@ export class TemplateMatcher {
   }
 
   private async matchSemantic(
+    embedder: Embedder,
     extracted: ExtractionResult,
     signal?: AbortSignal,
   ): Promise<TemplateSuggestion | undefined> {
@@ -159,7 +160,7 @@ export class TemplateMatcher {
     if (extractedTypes.length === 0) return undefined
 
     const extractedTexts = extractedTypes.map((t) => `${t.label}: ${t.description}`)
-    const extractedEmbeddings = await this.embedder!.embed(extractedTexts, signal)
+    const extractedEmbeddings = await embedder.embed(extractedTexts, signal)
 
     let best: TemplateSuggestion | undefined
     let bestCombined = 0
@@ -175,7 +176,7 @@ export class TemplateMatcher {
       let templateEmbeddings = this.embeddingCache.get(key)
       if (templateEmbeddings === undefined) {
         const templateTexts = templateTypes.map((t) => `${t.label}: ${t.description}`)
-        templateEmbeddings = await this.embedder!.embed(templateTexts, signal)
+        templateEmbeddings = await embedder.embed(templateTexts, signal)
         this.embeddingCache.set(key, templateEmbeddings)
       }
 

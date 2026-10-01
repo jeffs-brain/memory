@@ -30,8 +30,12 @@ import (
 // via [BrainManager]. The LLM provider and embedder come from
 // environment configuration and are shared across brains.
 type Daemon struct {
-	Root           string
-	AuthToken      string
+	Root      string
+	AuthToken string
+	// IngestRoot is the absolute directory POST /ingest/file may read a
+	// server-side path from, as validated by resolveIngestRoot. Empty disables path ingest, so callers must
+	// send contentBase64.
+	IngestRoot     string
 	LLM            llm.Provider
 	Embedder       llm.Embedder
 	EmbedModel     string

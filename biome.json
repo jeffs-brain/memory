@@ -6,7 +6,18 @@
     "useIgnoreFile": true
   },
   "files": {
-    "ignore": ["dist", "node_modules", ".turbo", "coverage", "docs/.astro", "eval/results"]
+    "ignore": [
+      "dist",
+      "node_modules",
+      ".turbo",
+      "coverage",
+      "docs/.astro",
+      "eval",
+      "go",
+      "sdks/py",
+      "mcp/py",
+      "spec/fixtures"
+    ]
   },
   "formatter": {
     "enabled": true,
@@ -23,6 +34,18 @@
       "recommended": true
     }
   },
+  "overrides": [
+    {
+      "include": ["**/*.test.ts", "**/test/**"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noNonNullAssertion": "off"
+          }
+        }
+      }
+    }
+  ],
   "javascript": {
     "formatter": {
       "quoteStyle": "single",

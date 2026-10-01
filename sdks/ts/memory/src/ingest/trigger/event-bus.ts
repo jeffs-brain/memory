@@ -7,7 +7,14 @@
  */
 
 import type { Logger } from '../../llm/types.js'
-import type { IngestTriggerEvent, SubscribeOptions, TriggerBus, TriggerBusOptions, TriggerHandler, Unsubscribe } from './types.js'
+import type {
+  IngestTriggerEvent,
+  SubscribeOptions,
+  TriggerBus,
+  TriggerBusOptions,
+  TriggerHandler,
+  Unsubscribe,
+} from './types.js'
 import { validateTriggerEvent } from './types.js'
 
 const DEFAULT_MAX_QUEUE_DEPTH = 1000
@@ -51,8 +58,7 @@ export const createEventBus = (opts?: TriggerBusOptions): TriggerBus => {
     if (flushing) return
     flushing = true
     try {
-      while (queue.length > 0) {
-        const event = queue.shift()!
+      for (let event = queue.shift(); event !== undefined; event = queue.shift()) {
         await deliverToAll(event)
       }
     } finally {

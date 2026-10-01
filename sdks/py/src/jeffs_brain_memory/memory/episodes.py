@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
-from typing import Protocol
+from typing import Any, Protocol
 
 from ..llm.provider import Provider
 from ..llm.types import CompleteRequest
@@ -135,7 +135,7 @@ def build_episode_prompt(messages: list[Message]) -> str:
     return "\n".join(parts)
 
 
-def parse_episode_result(content: str) -> dict:
+def parse_episode_result(content: str) -> dict[str, Any]:
     content = content.strip()
     start = content.find("{")
     if start >= 0:
@@ -143,9 +143,10 @@ def parse_episode_result(content: str) -> dict:
         if end > start:
             content = content[start : end + 1]
     try:
-        return json.loads(content)
+        parsed = json.loads(content)
     except json.JSONDecodeError:
         return {}
+    return parsed if isinstance(parsed, dict) else {}
 
 
 class InMemoryEpisodeStore:

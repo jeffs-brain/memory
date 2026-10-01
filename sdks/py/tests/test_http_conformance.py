@@ -215,13 +215,10 @@ def test_conformance_case(case: dict[str, Any]) -> None:
             with httpx.Client(base_url=base_url, timeout=5.0) as client:
                 sse_pool: dict[str, _SSESubscriber] = {}
                 try:
-                    created = client.post(
-                        "/v1/brains", json={"brainId": BRAIN_ID}
-                    )
+                    created = client.post("/v1/brains", json={"brainId": BRAIN_ID})
                     if created.status_code not in (201, 409):
                         pytest.fail(
-                            f"provisioning brain failed: {created.status_code} "
-                            f"{created.text}"
+                            f"provisioning brain failed: {created.status_code} {created.text}"
                         )
                     for step in case.get("setup", []) or []:
                         _run_step(client, sse_pool, step, substitute, base_url)
@@ -231,15 +228,11 @@ def test_conformance_case(case: dict[str, Any]) -> None:
                     if request.get("kind") == "await-sse-event":
                         sub = sse_pool.get(request.get("name", ""))
                         if sub is None:
-                            pytest.fail(
-                                f"SSE subscriber {request.get('name')!r} not opened"
-                            )
+                            pytest.fail(f"SSE subscriber {request.get('name')!r} not opened")
                         event_name = request.get("event", "")
                         raw, ok = sub.wait_for_event(event_name, timeout=5.0)
                         if not ok:
-                            pytest.fail(
-                                f"timeout waiting for SSE event {event_name!r}"
-                            )
+                            pytest.fail(f"timeout waiting for SSE event {event_name!r}")
                         _assert_sse_event(expected, raw)
                     else:
                         if _is_sse_expected(expected):
@@ -299,9 +292,7 @@ def _run_step(
         if expected_body:
             want = base64.b64decode(substitute(expected_body))
             if resp.content != want:
-                pytest.fail(
-                    f"setup step body mismatch: want {want!r} got {resp.content!r}"
-                )
+                pytest.fail(f"setup step body mismatch: want {want!r} got {resp.content!r}")
         return
     pytest.fail(f"unknown step kind {kind!r}")
 
@@ -362,9 +353,7 @@ def _handle_sse_request(
             timeout=httpx.Timeout(connect=3.0, read=3.0, write=3.0, pool=3.0),
         ) as resp:
             if "status" in expected and resp.status_code != int(expected["status"]):
-                pytest.fail(
-                    f"want status {expected['status']} got {resp.status_code}"
-                )
+                pytest.fail(f"want status {expected['status']} got {resp.status_code}")
             deadline = time.monotonic() + 3.0
             event_name = ""
             for line in resp.iter_lines():
@@ -378,7 +367,7 @@ def _handle_sse_request(
                     event_name = ""
                     continue
                 if line.startswith("event:"):
-                    event_name = line[len("event:"):].strip()
+                    event_name = line[len("event:") :].strip()
     except httpx.ReadTimeout:
         pass
     missing = wanted - seen
@@ -403,17 +392,13 @@ def _assert_expected_response(
 ) -> None:
     status = expected.get("status")
     if isinstance(status, (int, float)) and int(status) != resp.status_code:
-        pytest.fail(
-            f"want status {int(status)} got {resp.status_code} body={resp.content!r}"
-        )
+        pytest.fail(f"want status {int(status)} got {resp.status_code} body={resp.content!r}")
 
     content_type = expected.get("contentType")
     if isinstance(content_type, str):
         actual_ct = resp.headers.get("content-type", "")
         if content_type not in actual_ct:
-            pytest.fail(
-                f"want content-type containing {content_type!r} got {actual_ct!r}"
-            )
+            pytest.fail(f"want content-type containing {content_type!r} got {actual_ct!r}")
 
     body_b64 = expected.get("bodyBase64")
     if isinstance(body_b64, str):
@@ -512,27 +497,17 @@ def _run_body_assertion(assertion: dict[str, Any], body: bytes) -> None:
         items = _extract_items(body)
         for item in items:
             if item.get("path") == unwanted:
-                pytest.fail(
-                    f"items unexpectedly include {unwanted!r}. items={items}"
-                )
+                pytest.fail(f"items unexpectedly include {unwanted!r}. items={items}")
     elif kind == "items-files-equal":
         want = assertion.get("paths") or []
         items = _extract_items(body)
-        got = [
-            it["path"]
-            for it in items
-            if not it.get("is_dir") and it.get("path")
-        ]
+        got = [it["path"] for it in items if not it.get("is_dir") and it.get("path")]
         if sorted(got) != sorted(want):
             pytest.fail(f"items-files-equal: want {want} got {got}")
     elif kind == "items-dirs-equal":
         want = assertion.get("paths") or []
         items = _extract_items(body)
-        got = [
-            it["path"]
-            for it in items
-            if it.get("is_dir") and it.get("path")
-        ]
+        got = [it["path"] for it in items if it.get("is_dir") and it.get("path")]
         if sorted(got) != sorted(want):
             pytest.fail(f"items-dirs-equal: want {want} got {got}")
     elif kind == "json-field-equals":

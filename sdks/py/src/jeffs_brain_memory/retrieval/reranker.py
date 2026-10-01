@@ -12,7 +12,7 @@ import json
 import os
 import time
 from dataclasses import replace
-from typing import Protocol, runtime_checkable
+from typing import Awaitable, Callable, Protocol, TypeVar, runtime_checkable
 from urllib.parse import urlsplit, urlunsplit
 
 import httpx
@@ -26,9 +26,7 @@ from .types import RetrievedChunk
 class Reranker(Protocol):
     """Pluggable cross-encoder surface."""
 
-    async def rerank(
-        self, query: str, chunks: list[RetrievedChunk]
-    ) -> list[RetrievedChunk]: ...
+    async def rerank(self, query: str, chunks: list[RetrievedChunk]) -> list[RetrievedChunk]: ...
 
     def name(self) -> str: ...
 
@@ -65,11 +63,7 @@ def compose_rerank_text(r: RetrievedChunk) -> str:
     summary = r.summary.strip()
     body = " ".join(r.text.split())
     if body:
-        snippet = (
-            body
-            if len(body) <= RERANK_SNIPPET_LIMIT
-            else body[:RERANK_SNIPPET_LIMIT] + "..."
-        )
+        snippet = body if len(body) <= RERANK_SNIPPET_LIMIT else body[:RERANK_SNIPPET_LIMIT] + "..."
     else:
         snippet = "(no body excerpt available)"
     summary_line = summary if summary else "(no summary available)"
@@ -125,7 +119,10 @@ def _rerank_concurrency_limit() -> int:
     return parsed if parsed > 0 else DEFAULT_SHARED_RERANK_CONCURRENCY
 
 
-async def _run_with_shared_rerank_concurrency(task):
+_T = TypeVar("_T")
+
+
+async def _run_with_shared_rerank_concurrency(task: Callable[[], Awaitable[_T]]) -> _T:
     limit = _rerank_concurrency_limit()
     gate = _shared_rerank_gates.get(limit)
     if gate is None:
@@ -140,7 +137,7 @@ async def _reranker_available(reranker: object | None) -> bool:
         return False
     probe = getattr(reranker, "is_available", None)
     if callable(probe):
-        return await probe()
+        return bool(await probe())
     return True
 
 
@@ -166,9 +163,7 @@ class AutoReranker:
             return True
         return await _reranker_available(self._fallback)
 
-    async def rerank(
-        self, query: str, chunks: list[RetrievedChunk]
-    ) -> list[RetrievedChunk]:
+    async def rerank(self, query: str, chunks: list[RetrievedChunk]) -> list[RetrievedChunk]:
         primary_available = await _reranker_available(self._primary)
         if primary_available:
             try:
@@ -210,18 +205,12 @@ class HTTPReranker:
         self._availability_memo: tuple[bool, float] | None = None
         self._availability_probe: asyncio.Task[bool] | None = None
 
-    async def rerank(
-        self, query: str, chunks: list[RetrievedChunk]
-    ) -> list[RetrievedChunk]:
+    async def rerank(self, query: str, chunks: list[RetrievedChunk]) -> list[RetrievedChunk]:
         if not chunks:
             return []
-        return await _run_with_shared_rerank_concurrency(
-            lambda: self._rerank_impl(query, chunks)
-        )
+        return await _run_with_shared_rerank_concurrency(lambda: self._rerank_impl(query, chunks))
 
-    async def _rerank_impl(
-        self, query: str, chunks: list[RetrievedChunk]
-    ) -> list[RetrievedChunk]:
+    async def _rerank_impl(self, query: str, chunks: list[RetrievedChunk]) -> list[RetrievedChunk]:
 
         headers = {
             "content-type": "application/json",
@@ -291,9 +280,7 @@ class HTTPReranker:
             replace(
                 chunk,
                 metadata=dict(chunk.metadata),
-                rerank_score=(
-                    0.0 if scores[idx] == float("-inf") else scores[idx]
-                ),
+                rerank_score=(0.0 if scores[idx] == float("-inf") else scores[idx]),
             )
             for idx, chunk in ranked
         ]
@@ -314,9 +301,7 @@ class HTTPReranker:
 
         async def _probe() -> bool:
             try:
-                value = await _run_with_shared_rerank_concurrency(
-                    self._probe_availability
-                )
+                value = await _run_with_shared_rerank_concurrency(self._probe_availability)
             finally:
                 self._availability_probe = None
             self._set_availability(value)
@@ -361,9 +346,7 @@ class LLMReranker:
         self._model = model
         self._max_batch = max_batch if max_batch > 0 else LLM_RERANK_DEFAULT_MAX_BATCH
 
-    async def rerank(
-        self, query: str, chunks: list[RetrievedChunk]
-    ) -> list[RetrievedChunk]:
+    async def rerank(self, query: str, chunks: list[RetrievedChunk]) -> list[RetrievedChunk]:
         if not chunks:
             return []
 

@@ -5,8 +5,8 @@
  */
 
 import { afterEach, describe, expect, it } from 'vitest'
-import type { RateLimiterFactory } from './types.js'
 import { createRateLimiterFactory } from './factory.js'
+import type { RateLimiterFactory } from './types.js'
 
 describe('createRateLimiterFactory', () => {
   const factoriesToTeardown: RateLimiterFactory[] = []
@@ -108,16 +108,20 @@ describe('createRateLimiterFactory', () => {
   })
 
   it('constructor throws for zero defaultMaxTokens', () => {
-    expect(() => createRateLimiterFactory({
-      defaultMaxTokens: 0,
-      defaultRefillRate: 10,
-    })).toThrow('defaultMaxTokens must be a positive number')
+    expect(() =>
+      createRateLimiterFactory({
+        defaultMaxTokens: 0,
+        defaultRefillRate: 10,
+      }),
+    ).toThrow('defaultMaxTokens must be a positive number')
   })
 
   it('constructor throws for zero defaultRefillRate', () => {
-    expect(() => createRateLimiterFactory({
-      defaultMaxTokens: 10,
-      defaultRefillRate: 0,
-    })).toThrow('defaultRefillRate must be a positive number')
+    expect(() =>
+      createRateLimiterFactory({
+        defaultMaxTokens: 10,
+        defaultRefillRate: 0,
+      }),
+    ).toThrow('defaultRefillRate must be a positive number')
   })
 })

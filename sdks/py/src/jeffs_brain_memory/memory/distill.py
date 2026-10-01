@@ -51,7 +51,5 @@ async def distilled_recall(
                 if txt:
                     search_query = txt
 
-    memories = await recall(
-        mem, provider, model, project_path, search_query, surfaced, weights
-    )
+    memories = await recall(mem, provider, model, project_path, search_query, surfaced, weights)
     return memories, trace

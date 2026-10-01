@@ -56,7 +56,11 @@ export const pageLevelChunker: Chunker = async (
   return chunks
 }
 
-const recursiveSplitLocal = (text: string, maxTokens: number, sepIdx: number): readonly string[] => {
+const recursiveSplitLocal = (
+  text: string,
+  maxTokens: number,
+  sepIdx: number,
+): readonly string[] => {
   if (estimateTokens(text) <= maxTokens) return [text]
   if (sepIdx >= SEPARATORS.length) return hardSplit(text, maxTokens)
   const sep = SEPARATORS[sepIdx]

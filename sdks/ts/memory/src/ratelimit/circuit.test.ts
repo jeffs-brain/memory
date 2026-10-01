@@ -175,8 +175,16 @@ describe('CircuitBreaker', () => {
     expect(result).toBe(42)
 
     const err = new Error('downstream error')
-    await expect(cb.execute(async () => { throw err })).rejects.toThrow('downstream error')
-    await expect(cb.execute(async () => { throw err })).rejects.toThrow('downstream error')
+    await expect(
+      cb.execute(async () => {
+        throw err
+      }),
+    ).rejects.toThrow('downstream error')
+    await expect(
+      cb.execute(async () => {
+        throw err
+      }),
+    ).rejects.toThrow('downstream error')
 
     await expect(cb.execute(async () => 0)).rejects.toThrow(CircuitOpenError)
   })
@@ -214,7 +222,11 @@ describe('CircuitBreaker', () => {
     cb.allow()
     cb.recordFailure()
 
-    try { cb.allow() } catch { /* expected */ }
+    try {
+      cb.allow()
+    } catch {
+      /* expected */
+    }
 
     const m = cb.metrics()
     expect(m.totalSuccesses).toBe(1)
@@ -247,33 +259,35 @@ describe('CircuitBreaker', () => {
     cb.allow()
     cb.recordSuccess()
 
-    expect(transitions).toEqual([
-      'closed->open',
-      'open->half_open',
-      'half_open->closed',
-    ])
+    expect(transitions).toEqual(['closed->open', 'open->half_open', 'half_open->closed'])
   })
 
   it('throws on invalid options', () => {
-    expect(() => createCircuitBreaker({
-      failureThreshold: 0,
-      resetTimeoutMs: 1000,
-      halfOpenMaxAttempts: 1,
-      name: 'test',
-    })).toThrow('failureThreshold')
+    expect(() =>
+      createCircuitBreaker({
+        failureThreshold: 0,
+        resetTimeoutMs: 1000,
+        halfOpenMaxAttempts: 1,
+        name: 'test',
+      }),
+    ).toThrow('failureThreshold')
 
-    expect(() => createCircuitBreaker({
-      failureThreshold: 1,
-      resetTimeoutMs: 0,
-      halfOpenMaxAttempts: 1,
-      name: 'test',
-    })).toThrow('resetTimeoutMs')
+    expect(() =>
+      createCircuitBreaker({
+        failureThreshold: 1,
+        resetTimeoutMs: 0,
+        halfOpenMaxAttempts: 1,
+        name: 'test',
+      }),
+    ).toThrow('resetTimeoutMs')
 
-    expect(() => createCircuitBreaker({
-      failureThreshold: 1,
-      resetTimeoutMs: 1000,
-      halfOpenMaxAttempts: 0,
-      name: 'test',
-    })).toThrow('halfOpenMaxAttempts')
+    expect(() =>
+      createCircuitBreaker({
+        failureThreshold: 1,
+        resetTimeoutMs: 1000,
+        halfOpenMaxAttempts: 0,
+        name: 'test',
+      }),
+    ).toThrow('halfOpenMaxAttempts')
   })
 })

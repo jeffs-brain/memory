@@ -18,11 +18,11 @@ func TestParseQuery_WithAlias(t *testing.T) {
 	t.Cleanup(func() { SetAliasMap(prev) })
 
 	m := NewAliasMap()
-	m.entries["a-ware"] = []string{"royal-aware", "royal-a-ware", "a-ware"}
-	m.entries["bosch"] = []string{"bosch", "robert-bosch"}
+	m.entries["e-volt"] = []string{"nova-evolt", "nova-e-volt", "e-volt"}
+	m.entries["zenco"] = []string{"zenco", "zenco-group"}
 	SetAliasMap(m)
 
-	tokens := ParseQuery("a-ware production")
+	tokens := ParseQuery("e-volt production")
 	if len(tokens) == 0 {
 		t.Fatal("ParseQuery returned no tokens")
 	}
@@ -44,9 +44,9 @@ func TestParseQuery_WithAlias(t *testing.T) {
 	sort.Strings(got)
 
 	want := []string{
-		"phrase:a ware",
-		"phrase:royal a ware",
-		"phrase:royal aware",
+		"phrase:e volt",
+		"phrase:nova e volt",
+		"phrase:nova evolt",
 		"term:production",
 	}
 	sort.Strings(want)
@@ -61,7 +61,7 @@ func TestParseQuery_WithAlias(t *testing.T) {
 	}
 
 	expr := BuildFTS5Expr(tokens)
-	for _, needle := range []string{`"royal aware"`, `"royal a ware"`, `"a ware"`, "production"} {
+	for _, needle := range []string{`"nova evolt"`, `"nova e volt"`, `"e volt"`, "production"} {
 		if !strings.Contains(expr, needle) {
 			t.Errorf("BuildFTS5Expr(%v) = %q, missing %q", tokens, expr, needle)
 		}
@@ -75,7 +75,7 @@ func TestParseQuery_AliasMiss(t *testing.T) {
 	t.Cleanup(func() { SetAliasMap(prev) })
 
 	m := NewAliasMap()
-	m.entries["a-ware"] = []string{"royal-aware", "a-ware"}
+	m.entries["e-volt"] = []string{"nova-evolt", "e-volt"}
 	SetAliasMap(m)
 
 	tokens := ParseQuery("lleverage")
@@ -95,11 +95,11 @@ func TestParseQuery_AliasCaseInsensitive(t *testing.T) {
 	t.Cleanup(func() { SetAliasMap(prev) })
 
 	m := NewAliasMap()
-	m.entries["bosch"] = []string{"bosch", "robert-bosch"}
+	m.entries["zenco"] = []string{"zenco", "zenco-group"}
 	SetAliasMap(m)
 
-	tokens := ParseQuery("BOSCH")
+	tokens := ParseQuery("ZENCO")
 	if len(tokens) != 2 {
-		t.Fatalf("ParseQuery(BOSCH) = %d tokens, want 2 (%v)", len(tokens), tokens)
+		t.Fatalf("ParseQuery(ZENCO) = %d tokens, want 2 (%v)", len(tokens), tokens)
 	}
 }

@@ -3,8 +3,8 @@
 
 set -euo pipefail
 
-ROOT_DIR="${ROOT_DIR:-$HOME/code/jeffs-brain}"
-MEMORY_DIR="${MEMORY_DIR:-$ROOT_DIR/memory}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+MEMORY_DIR="${MEMORY_DIR:-$(cd "$SCRIPT_DIR/../.." && pwd)}"
 GO_SDK_DIR="${GO_SDK_DIR:-$MEMORY_DIR/go}"
 RESULTS_DIR="${RESULTS_DIR:-$MEMORY_DIR/eval/results}"
 

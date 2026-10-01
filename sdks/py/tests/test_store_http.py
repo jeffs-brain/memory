@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import asyncio
 from typing import AsyncIterator
 
 import httpx
@@ -14,7 +13,6 @@ from jeffs_brain_memory.errors import (
     ErrNotFound,
     ErrPayloadTooLarge,
     ErrReadOnly,
-    ErrValidation,
 )
 from jeffs_brain_memory.path import BrainPath
 from jeffs_brain_memory.store import BatchOptions, ListOpts
@@ -209,9 +207,7 @@ async def test_sse_dispatch_parses_change_event(client: httpx.AsyncClient) -> No
         received.append(evt)
 
     s.subscribe(sink)
-    frame = (
-        '{"kind":"created","path":"memory/e.md","when":"2025-01-01T00:00:00Z"}'
-    )
+    frame = '{"kind":"created","path":"memory/e.md","when":"2025-01-01T00:00:00Z"}'
     s._dispatch_sse("change", frame)
     assert len(received) == 1
     assert str(received[0].path) == "memory/e.md"

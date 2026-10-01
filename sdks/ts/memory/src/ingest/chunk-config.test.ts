@@ -65,7 +65,12 @@ describe('validateChunkConfig', () => {
 
   it('accepts markdown strategy', () => {
     expect(() =>
-      validateChunkConfig({ ...validBase, maxTokens: 1024, overlapTokens: 128, strategy: 'markdown' }),
+      validateChunkConfig({
+        ...validBase,
+        maxTokens: 1024,
+        overlapTokens: 128,
+        strategy: 'markdown',
+      }),
     ).not.toThrow()
   })
 
@@ -88,15 +93,15 @@ describe('validateChunkConfig', () => {
   })
 
   it('rejects overlap equal to max', () => {
-    expect(() =>
-      validateChunkConfig({ ...validBase, maxTokens: 100, overlapTokens: 100 }),
-    ).toThrow('overlapTokens (100) must be < maxTokens (100)')
+    expect(() => validateChunkConfig({ ...validBase, maxTokens: 100, overlapTokens: 100 })).toThrow(
+      'overlapTokens (100) must be < maxTokens (100)',
+    )
   })
 
   it('rejects overlap exceeding max', () => {
-    expect(() =>
-      validateChunkConfig({ ...validBase, maxTokens: 100, overlapTokens: 200 }),
-    ).toThrow('overlapTokens (200) must be < maxTokens (100)')
+    expect(() => validateChunkConfig({ ...validBase, maxTokens: 100, overlapTokens: 200 })).toThrow(
+      'overlapTokens (200) must be < maxTokens (100)',
+    )
   })
 
   it('rejects negative overlap', () => {

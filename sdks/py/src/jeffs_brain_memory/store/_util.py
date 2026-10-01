@@ -11,7 +11,6 @@ import fnmatch
 import os
 import posixpath
 import tempfile
-from collections.abc import Iterable
 from datetime import datetime, timezone
 from pathlib import Path
 

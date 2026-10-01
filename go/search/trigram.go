@@ -31,12 +31,12 @@ type TrigramHit struct {
 
 // defaultFuzzyThreshold is the minimum Jaccard similarity a slug must
 // clear before FuzzySearch will return it. 0.3 keeps single-character
-// typos (Dude to Oude) inside the net while rejecting unrelated slugs
+// typos (Dude to Mill) inside the net while rejecting unrelated slugs
 // that share only one or two trigrams.
 const defaultFuzzyThreshold = 0.3
 
 // BuildTrigramIndex walks every supplied path and builds the trigram
-// map. "bosch" produces {"$bo", "bos", "osc", "sch", "ch$"} where $ is
+// map. "zenco" produces {"$ze", "zen", "enc", "nco", "co$"} where $ is
 // a boundary marker that biases matches toward word start and end.
 func BuildTrigramIndex(paths []string) *TrigramIndex {
 	idx := &TrigramIndex{
@@ -197,7 +197,7 @@ func trigrams(text string) map[string]struct{} {
 // token string suitable for trigram generation. Only the filename
 // stem is considered so short queries that match the slug itself are
 // not drowned out by parent-directory noise:
-// "clients/oude-reimer.md" becomes "oude reimer".
+// "clients/mill-brook.md" becomes "mill brook".
 func slugText(p string) string {
 	s := strings.ToLower(p)
 	if i := strings.LastIndex(s, "/"); i >= 0 {

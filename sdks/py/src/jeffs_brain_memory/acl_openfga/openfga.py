@@ -167,9 +167,7 @@ class _OpenFgaProvider:
     async def _post(self, endpoint: str, body: dict[str, Any]) -> Any:
         url = f"{self._store_path}{endpoint}"
         try:
-            response = await self._client.post(
-                url, json=body, headers=self._headers()
-            )
+            response = await self._client.post(url, json=body, headers=self._headers())
         except httpx.HTTPError as exc:
             raise OpenFgaRequestError(endpoint, exc) from exc
         if response.status_code < 200 or response.status_code >= 300:
@@ -183,9 +181,7 @@ class _OpenFgaProvider:
         except Exception as exc:
             raise OpenFgaRequestError(endpoint, exc) from exc
 
-    async def check(
-        self, subject: Subject, action: Action, resource: Resource
-    ) -> CheckResult:
+    async def check(self, subject: Subject, action: Action, resource: Resource) -> CheckResult:
         body: dict[str, Any] = {
             "tuple_key": {
                 "user": encode_subject(subject),
@@ -241,7 +237,11 @@ class _OpenFgaProvider:
             user = key.get("user")
             relation = key.get("relation")
             obj = key.get("object")
-            if not isinstance(user, str) or not isinstance(relation, str) or not isinstance(obj, str):
+            if (
+                not isinstance(user, str)
+                or not isinstance(relation, str)
+                or not isinstance(obj, str)
+            ):
                 continue
             subject = decode_subject(user)
             resource = decode_resource(obj)

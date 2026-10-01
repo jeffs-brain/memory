@@ -5,7 +5,7 @@
  * invoke external binaries (FFmpeg, faster-whisper, Tesseract, etc.).
  */
 
-import { execFile, type ExecFileException } from 'node:child_process'
+import { type ExecFileException, execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 
 const execFileAsync = promisify(execFile)

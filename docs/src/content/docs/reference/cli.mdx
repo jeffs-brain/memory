@@ -17,6 +17,11 @@ subcommand surface is not identical.
 The stable cross-SDK baseline assumed by the docs and eval harness is
 `memory serve` plus the shared HTTP protocol it exposes.
 
+In Go and Python, the planned local workflow commands (`init`, `ingest`,
+`search` and the rest) are hidden from `--help` and exit with status `1`
+and a message pointing at `memory serve`, so a script never mistakes one
+for a success.
+
 Exit codes:
 
 - `0` — success
@@ -109,11 +114,14 @@ memory serve --addr 127.0.0.1:8080
 
 Flags:
 
-- `--addr <host:port>` — shared bind address flag across Go, Python, and the cross-SDK runner.
-- `--root <path>` — override `JB_HOME` for this process.
-- `--auth-token <token>` — optional shared bearer token for the daemon.
+- `--addr <host:port>`: bind address, shared by every SDK and the cross-SDK runner. Defaults to `127.0.0.1:8080`; an empty host (`:8080`) also binds loopback.
+- `--root <path>`: override `JB_HOME` for this process.
+- `--auth-token <token>`: shared bearer token. Required to bind a non-loopback address; the daemon refuses to start without one.
+- `--ingest-root <dir>`: directory `ingest/file` may read server-side paths from. Unset, the daemon only accepts inline `contentBase64`.
 
 TypeScript also accepts the older `--host` and `--port` pair, but `--addr` is the cross-SDK canonical form.
+
+Without a token the daemon answers only local clients that address it as `localhost` or a loopback IP, and refuses browser requests from other origins. URL ingest refuses private, loopback and link-local targets. See [daemon security](/spec/protocol/#daemon-security) for the full rules.
 
 Cross-SDK eval parity against `memory serve` is standardised around three scenarios: `ask-basic`, `ask-augmented`, and `search-retrieve-only`.
 The shared runner defaults `--mode` to `auto`, matching daemon semantics and leaving resolution inside the SDK.

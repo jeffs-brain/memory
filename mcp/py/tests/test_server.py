@@ -19,7 +19,7 @@ import pytest
 from mcp import ClientSession
 from mcp.shared.memory import create_connected_server_and_client_session
 
-from jeffs_brain_memory_mcp.client import create_memory_client
+from jeffs_brain_memory_mcp.client import IngestUrlArgs, create_memory_client
 from jeffs_brain_memory_mcp.config import resolve_config
 from jeffs_brain_memory_mcp.server import create_server
 
@@ -95,9 +95,7 @@ async def test_create_and_list_brain(tmp_path: Path) -> None:
 @pytest.mark.anyio
 async def test_ingest_file_then_search(tmp_path: Path) -> None:
     async with _session(tmp_path) as session:
-        await session.call_tool(
-            "memory_create_brain", {"name": "default", "slug": "default"}
-        )
+        await session.call_tool("memory_create_brain", {"name": "default", "slug": "default"})
 
         ingest_result = await session.call_tool(
             "memory_ingest_file",
@@ -122,9 +120,7 @@ async def test_ingest_file_then_search(tmp_path: Path) -> None:
 @pytest.mark.anyio
 async def test_remember_then_recall(tmp_path: Path) -> None:
     async with _session(tmp_path) as session:
-        await session.call_tool(
-            "memory_create_brain", {"name": "default", "slug": "default"}
-        )
+        await session.call_tool("memory_create_brain", {"name": "default", "slug": "default"})
         remembered = await session.call_tool(
             "memory_remember",
             {
@@ -150,9 +146,7 @@ async def test_remember_then_recall(tmp_path: Path) -> None:
 @pytest.mark.anyio
 async def test_search_and_recall_honour_local_scope_and_sort(tmp_path: Path) -> None:
     async with _session(tmp_path) as session:
-        await session.call_tool(
-            "memory_create_brain", {"name": "default", "slug": "default"}
-        )
+        await session.call_tool("memory_create_brain", {"name": "default", "slug": "default"})
         await session.call_tool(
             "memory_remember",
             {
@@ -213,6 +207,26 @@ async def test_search_and_recall_honour_local_scope_and_sort(tmp_path: Path) -> 
         chunks = recall_payload["chunks"]
         assert isinstance(chunks, list)
         assert all(chunk["path"].startswith("memory/project/") for chunk in chunks)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("url", "reason"),
+    [
+        ("http://127.0.0.1:9/internal", "non-public address"),
+        ("http://169.254.169.254/latest/meta-data/", "non-public address"),
+        ("http://[::1]/", "non-public address"),
+        ("file:///etc/passwd", "unsupported scheme"),
+    ],
+)
+async def test_ingest_url_refuses_internal_targets(tmp_path: Path, url: str, reason: str) -> None:
+    cfg = resolve_config({"JB_HOME": str(tmp_path), "OLLAMA_HOST": "http://127.0.0.1:9"})
+    memory_client = create_memory_client(cfg)
+    try:
+        with pytest.raises(ValueError, match=reason):
+            await memory_client.ingest_url(IngestUrlArgs(url=url))
+    finally:
+        await memory_client.close()
 
 
 @pytest.fixture

@@ -12,7 +12,9 @@ from collections import defaultdict
 from typing import Any
 
 
-def deterministic_select(items: list[dict[str, Any]], count: int, seed: int) -> list[dict[str, Any]]:
+def deterministic_select(
+    items: list[dict[str, Any]], count: int, seed: int
+) -> list[dict[str, Any]]:
     if count >= len(items):
         return list(items)
 
@@ -111,7 +113,9 @@ def normalise_extract_heuristics(raw: str) -> str:
 def build_inputs(args: argparse.Namespace) -> dict[str, Any]:
     raw_dataset = pathlib.Path(args.dataset).read_bytes()
     questions = json.loads(raw_dataset.decode("utf-8"))
-    sample_ids = selected_question_ids(questions, args.sample_size, args.seed, args.sample_ids_file or "")
+    sample_ids = selected_question_ids(
+        questions, args.sample_size, args.seed, args.sample_ids_file or ""
+    )
     sample_signature = hashlib.sha256("\n".join(sample_ids).encode("utf-8")).hexdigest()
     return {
         "dataset_sha": hashlib.sha256(raw_dataset).hexdigest(),
@@ -150,7 +154,11 @@ def command_validate(args: argparse.Namespace) -> int:
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     actual_inputs = manifest.get("cache_signature_inputs")
     actual_signature = manifest.get("cache_signature")
-    if not isinstance(actual_inputs, dict) or not isinstance(actual_signature, str) or not actual_signature:
+    if (
+        not isinstance(actual_inputs, dict)
+        or not isinstance(actual_signature, str)
+        or not actual_signature
+    ):
         print(f"ERROR: cache manifest at {manifest_path} has no cache signature", file=sys.stderr)
         return 1
 

@@ -43,13 +43,7 @@ export const BUILT_IN_NODE_TYPES = [
 
 export type BuiltInNodeType = (typeof BUILT_IN_NODE_TYPES)[number]
 
-const BUILT_IN_PREFIXES = [
-  'entity.',
-  'rule.',
-  'exception.',
-  'decision.',
-  'process.',
-] as const
+const BUILT_IN_PREFIXES = ['entity.', 'rule.', 'exception.', 'decision.', 'process.'] as const
 
 /**
  * Mutable list of valid node type prefixes. Starts with the 5 built-in

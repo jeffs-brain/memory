@@ -45,7 +45,7 @@ def test_detect_preference(query: str, want: bool) -> None:
         ("have I finished the report", True),
         ("was I booked for dinner", True),
         ("were I the one who ordered", True),
-        ("did i travelled to bosch yesterday", True),
+        ("did i travelled to zenco yesterday", True),
         ("How long is my daily commute to work?", True),
         ("How often do I see Dr. Smith?", True),
         ("What time do I leave for work?", True),

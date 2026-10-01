@@ -161,9 +161,7 @@ def test_has_memory_writes_elsewhere():
         Message(
             role=Role.ASSISTANT,
             content="",
-            tool_calls=[
-                ToolCall(name="write", arguments='{"file_path": "/tmp/other.md"}')
-            ],
+            tool_calls=[ToolCall(name="write", arguments='{"file_path": "/tmp/other.md"}')],
         )
     ]
     assert not has_memory_writes(msgs, "/home/jeff/memory")
@@ -761,11 +759,7 @@ async def test_extract_from_messages_adds_heuristic_user_fact_for_storage_locati
     )
 
     heuristic = next(
-        (
-            memory
-            for memory in out
-            if "keeping the spare blankets under my bed" in memory.content
-        ),
+        (memory for memory in out if "keeping the spare blankets under my bed" in memory.content),
         None,
     )
     assert heuristic is not None
@@ -977,8 +971,7 @@ async def test_extract_from_messages_adds_airbnb_booking_lead_time_fact(iso):
         (
             memory
             for memory in out
-            if "Airbnb" in memory.content
-            and "book three months in advance" in memory.content
+            if "Airbnb" in memory.content and "book three months in advance" in memory.content
         ),
         None,
     )
@@ -1016,9 +1009,7 @@ async def test_extract_from_messages_adds_pending_task_fact_without_event_drift(
         "The user still needs to schedule a dentist appointment." in memory.content
         for memory in out
     )
-    assert not any(
-        "The user has a dentist appointment" in memory.content for memory in out
-    )
+    assert not any("The user has a dentist appointment" in memory.content for memory in out)
 
 
 @pytest.mark.asyncio
@@ -1049,8 +1040,7 @@ async def test_extract_from_messages_does_not_infer_pending_task_from_generic_ad
     )
 
     assert not any(
-        "still needs to consider before making an offer" in memory.content
-        for memory in out
+        "still needs to consider before making an offer" in memory.content for memory in out
     )
 
 

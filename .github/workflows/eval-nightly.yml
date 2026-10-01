@@ -35,7 +35,7 @@ jobs:
           bun-version: 1.3.14
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.25'
+          go-version: '1.27'
       - uses: astral-sh/setup-uv@v3
       - name: Install TS workspace
         run: bun install --frozen-lockfile

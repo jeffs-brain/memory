@@ -2,8 +2,8 @@
 
 import { randomUUID } from 'node:crypto'
 import { isAbsolute, normalize, resolve } from 'node:path'
-import { z } from 'zod'
 import { enumerateFiles } from '@jeffs-brain/memory/ingest'
+import { z } from 'zod/v4'
 import { type Tool, jsonContent } from './types.js'
 
 const MAX_FILES = 500

@@ -362,7 +362,7 @@ def sanitise_query(query: str) -> FTSExpr:
     return compile(ast)
 
 
-_FALLBACK_STRIP = str.maketrans("", "", "*():^+\"?!,;$#@%=")
+_FALLBACK_STRIP = str.maketrans("", "", '*():^+"?!,;$#@%=')
 
 
 def _fallback_sanitise(query: str) -> FTSExpr:

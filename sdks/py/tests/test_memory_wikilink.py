@@ -29,9 +29,7 @@ def iso(tmp_path: Path):
 
 
 def test_extract_wikilinks_multiple():
-    links = extract_wikilinks(
-        "See [[architecture]] and [[deployment]] and [[tooling]]."
-    )
+    links = extract_wikilinks("See [[architecture]] and [[deployment]] and [[tooling]].")
     assert links == ["architecture", "deployment", "tooling"]
 
 

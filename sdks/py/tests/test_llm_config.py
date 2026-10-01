@@ -57,9 +57,7 @@ async def test_provider_from_env_auto_detect_fallback() -> None:
     """With Ollama unreachable we fall back to FakeProvider."""
     provider = provider_from_env({"OLLAMA_HOST": "http://127.0.0.1:1"})
     assert isinstance(provider, FakeProvider)
-    resp = await provider.complete(
-        CompleteRequest(messages=[Message(role=Role.USER, content="x")])
-    )
+    resp = await provider.complete(CompleteRequest(messages=[Message(role=Role.USER, content="x")]))
     assert resp.text == "ok"
     await provider.close()
 

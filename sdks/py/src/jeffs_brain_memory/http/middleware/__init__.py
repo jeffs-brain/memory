@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from .auth import AuthMiddleware
+from .auth import AuthMiddleware, LoopbackGuardMiddleware
 from .size_limit import SizeLimitMiddleware
 
-__all__ = ["AuthMiddleware", "SizeLimitMiddleware"]
+__all__ = ["AuthMiddleware", "LoopbackGuardMiddleware", "SizeLimitMiddleware"]

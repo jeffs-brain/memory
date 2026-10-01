@@ -96,12 +96,7 @@ export function getChunkMetadata(db: SqlDb, chunkId: string): Record<string, str
  *
  * Time: O(n) where n = matching rows (bounded by limit).
  */
-export function queryByMetadata(
-  db: SqlDb,
-  key: string,
-  value: string,
-  limit: number,
-): string[] {
+export function queryByMetadata(db: SqlDb, key: string, value: string, limit: number): string[] {
   if (key === '') {
     throw new Error('search: queryByMetadata requires non-empty key')
   }

@@ -82,9 +82,7 @@ def reciprocal_rank_fusion(
                     metadata=dict(cand.metadata),
                     bm25_rank=cand.bm25_rank if cand.have_bm25_rank else 0,
                     have_bm25_rank=cand.have_bm25_rank,
-                    vector_similarity=(
-                        cand.vector_similarity if cand.have_vector_sim else 0.0
-                    ),
+                    vector_similarity=(cand.vector_similarity if cand.have_vector_sim else 0.0),
                     have_vector_sim=cand.have_vector_sim,
                     score=contribution,
                 )

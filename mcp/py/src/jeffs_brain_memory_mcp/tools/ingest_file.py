@@ -36,9 +36,7 @@ async def _handle(
 
 ingest_file_tool = ToolDef(
     name="memory_ingest_file",
-    description=(
-        "Ingest a local file (<= 25 MB) into the brain. Returns the ingest result."
-    ),
+    description=("Ingest a local file (<= 25 MB) into the brain. Returns the ingest result."),
     input_model=IngestFileInput,
     handler=_handle,
 )

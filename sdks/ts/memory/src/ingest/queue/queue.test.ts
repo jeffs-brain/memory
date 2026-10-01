@@ -6,6 +6,8 @@
  */
 
 import { afterEach, describe, expect, it } from 'vitest'
+import { type PgClient, createPostgresQueue } from './postgres.js'
+import { type MockRow, createMockPgClient } from './queue.mock.js'
 import {
   BACKOFF_BASE_DELAY_MS,
   DEFAULT_MAX_RETRIES,
@@ -14,9 +16,7 @@ import {
   computeBackoff,
   validateIdentifier,
 } from './types.js'
-import { type PgClient, createPostgresQueue } from './postgres.js'
 import type { QueueAdapter, QueueJobPayload } from './types.js'
-import { type MockRow, createMockPgClient } from './queue.mock.js'
 
 // --- Pure function tests ---
 
@@ -110,7 +110,10 @@ describe('VALID_STATUSES', () => {
 describe('createPostgresQueue', () => {
   const adapters: QueueAdapter[] = []
 
-  const freshAdapter = (): { adapter: QueueAdapter; mockClient: PgClient & { rows: MockRow[] } } => {
+  const freshAdapter = (): {
+    adapter: QueueAdapter
+    mockClient: PgClient & { rows: MockRow[] }
+  } => {
     const mockClient = createMockPgClient()
     const adapter = createPostgresQueue({
       client: mockClient,
@@ -214,7 +217,11 @@ describe('createPostgresQueue', () => {
         // On the FIRST idempotency lookup, return empty (simulating the
         // race window). The INSERT will then throw the constraint error,
         // and the fallback lookup will find the pre-existing row.
-        if (normalised.includes('idempotency_key = $1') && normalised.includes('SELECT') && lookupCount === 0) {
+        if (
+          normalised.includes('idempotency_key = $1') &&
+          normalised.includes('SELECT') &&
+          lookupCount === 0
+        ) {
           lookupCount++
           // Inject a row directly so the fallback lookup finds it.
           mockClient.rows.push({
@@ -298,9 +305,9 @@ describe('createPostgresQueue', () => {
 
     it('requires non-empty worker ID', async () => {
       const { adapter } = freshAdapter()
-      await expect(
-        adapter.claim({ batchSize: 1, workerId: '' }),
-      ).rejects.toThrow('non-empty worker ID')
+      await expect(adapter.claim({ batchSize: 1, workerId: '' })).rejects.toThrow(
+        'non-empty worker ID',
+      )
     })
   })
 
@@ -451,9 +458,9 @@ describe('createPostgresQueue', () => {
     it('prevents further operations after close', async () => {
       const { adapter } = freshAdapter()
       await adapter.close()
-      await expect(
-        adapter.enqueue({ brainId: 'brain-1', payload: samplePayload }),
-      ).rejects.toThrow('closed')
+      await expect(adapter.enqueue({ brainId: 'brain-1', payload: samplePayload })).rejects.toThrow(
+        'closed',
+      )
     })
 
     it('is idempotent', async () => {

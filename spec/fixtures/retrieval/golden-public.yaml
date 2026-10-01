@@ -1,0 +1,42 @@
+queries:
+  # Public retrieval golden set. Every path and query below is synthetic:
+  # the corpus is fictional so the fixture can be redistributed freely.
+  # Each SDK synthesises one chunk per expected path (title, summary and
+  # content derived from the path slug plus the query) and a fixed slate
+  # of distractors, then asserts the top-K contains at least one
+  # `any_of` path, or every `must_retrieve` path.
+
+  - id: invoice-automation
+    q: "what do we do for invoice automation"
+    any_of:
+      - technology/invoice-processing-pipeline.md
+      - workflows/invoice-processing-pipeline-pattern.md
+      - workflows/purchase-invoice-extraction.md
+    notes: "Natural-language question with several legitimate workflow answers."
+
+  - id: quote-generation-tools
+    q: "tools that help generate quotes"
+    any_of:
+      - software/quote-generator.md
+      - workflows/quote-generation.md
+    notes: "Capability-first query."
+
+  - id: onboarding-checklist
+    q: "new starter onboarding checklist"
+    any_of:
+      - processes/onboarding-checklist.md
+      - processes/new-starter-setup.md
+    notes: "Direct lexical overlap with the slug."
+
+  - id: release-runbook
+    q: "how do we cut a release"
+    any_of:
+      - operations/release-runbook.md
+      - operations/release-checklist.md
+    notes: "Short imperative question; the answer is a runbook."
+
+  - id: backup-restore
+    q: "restore the database from a backup"
+    must_retrieve:
+      - operations/database-backup-restore.md
+    notes: "Single required answer."

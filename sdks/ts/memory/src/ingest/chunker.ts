@@ -343,7 +343,7 @@ const mergeSmallChunks = (
         out.push(c)
         continue
       }
-      const merged = prev.content + '\n\n' + c.content
+      const merged = `${prev.content}\n\n${c.content}`
       const mergedTokens = countTokens(merged)
       if (mergedTokens > maxTokens) {
         out.push(c)

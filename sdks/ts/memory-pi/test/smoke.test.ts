@@ -19,15 +19,17 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
-import type { BeforeAgentStartEventResult } from '@earendil-works/pi-coding-agent'
-import type { ExtensionAPI } from '@earendil-works/pi-coding-agent'
+import type {
+  BeforeAgentStartEvent,
+  BeforeAgentStartEventResult,
+  ContextEvent,
+  ExtensionAPI,
+  SessionShutdownEvent,
+  TurnEndEvent,
+} from '@earendil-works/pi-coding-agent'
 import { toPath } from '@jeffs-brain/memory'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
-  type BeforeAgentStartEvent,
-  type ContextEvent,
-  type SessionShutdownEvent,
-  type TurnEndEvent,
   createMemoryRuntime,
   registerMemoryHooks,
   registerMemoryTools,
@@ -273,6 +275,12 @@ describe('memory-pi smoke', () => {
         content: 'extract me',
       } as never,
       toolResults: [],
+      messageEntryId: 'entry-0',
+      toolResultEntryIds: [],
+      entries: [],
+      continue: false,
+      context: {} as never,
+      outcome: {} as never,
     }
     await handlers.turn_end?.(turnEvent)
     // Drain the queue to confirm the job ran.

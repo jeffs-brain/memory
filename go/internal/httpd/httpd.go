@@ -34,7 +34,7 @@ type Server struct {
 // NewServer returns a Server bound to addr.
 func NewServer(addr string, log *slog.Logger) *Server {
 	if addr == "" {
-		addr = ":8080"
+		addr = DefaultAddr
 	}
 	if log == nil {
 		log = slog.Default()
@@ -95,16 +95,25 @@ func (s *Server) Run(ctx context.Context) error {
 		r(mux)
 	}
 
+	addr, bindErr := ResolveBindAddr(s.addr, token)
+	if bindErr != nil {
+		s.runShutdownHooks(hooks)
+		return bindErr
+	}
+	handler := AuthMiddleware(token, mux)
+	if token == "" {
+		handler = LoopbackGuard(handler)
+	}
 	srv := &http.Server{
-		Addr:              s.addr,
-		Handler:           LogMiddleware(s.log, AuthMiddleware(token, mux)),
+		Addr:              addr,
+		Handler:           LogMiddleware(s.log, handler),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 
 	g, gctx := errgroup.WithContext(ctx)
 
 	g.Go(func() error {
-		s.log.Info("http server listening", "addr", s.addr, "routes", len(routers)+1)
+		s.log.Info("http server listening", "addr", addr, "auth", token != "", "routes", len(routers)+1)
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			return err
 		}

@@ -14,8 +14,8 @@
 import type { Readable } from 'node:stream'
 
 import {
-  type ExtractResult,
   type CsvExtractorConfig,
+  type ExtractResult,
   type JsonExtractorConfig,
   extractCSV,
   extractJSON,
@@ -39,8 +39,17 @@ export const MAX_EXTRACTED_FILES = 1000
 // ---------------------------------------------------------------------------
 
 const sanitizeArgsAllowlist: ReadonlySet<string> = new Set([
-  '-o', '--output', '-f', '--format', '-q', '--quiet',
-  '-v', '--verbose', '--stdin', '--stdout', '--no-color',
+  '-o',
+  '--output',
+  '-f',
+  '--format',
+  '-q',
+  '--quiet',
+  '-v',
+  '--verbose',
+  '--stdin',
+  '--stdout',
+  '--no-color',
 ])
 
 /**
@@ -150,7 +159,7 @@ const encodingToDecoderLabel = (encoding: string): string => {
     'Windows-1252': 'windows-1252',
     'UTF-16LE': 'utf-16le',
     'UTF-16BE': 'utf-16be',
-    'Shift_JIS': 'shift_jis',
+    Shift_JIS: 'shift_jis',
   }
   const label = map[encoding]
   if (label === undefined) {
@@ -413,7 +422,11 @@ export type ExtractorRegistry = {
   /** Extract from a buffer, routing by content type. */
   extract(raw: Buffer, opts: ExtractOptions, signal?: AbortSignal): Promise<ExtractResult>
   /** Extract from a stream, routing by content type. */
-  extractStream(source: Readable, opts: ExtractOptions, signal?: AbortSignal): Promise<ExtractResult>
+  extractStream(
+    source: Readable,
+    opts: ExtractOptions,
+    signal?: AbortSignal,
+  ): Promise<ExtractResult>
 }
 
 const skippedResult = (reason: string): ExtractResult => ({
@@ -468,7 +481,11 @@ export const createExtractorRegistry = (): ExtractorRegistry => {
       return ext.extract(raw, opts, signal)
     },
 
-    async extractStream(source: Readable, opts: ExtractOptions, signal?: AbortSignal): Promise<ExtractResult> {
+    async extractStream(
+      source: Readable,
+      opts: ExtractOptions,
+      signal?: AbortSignal,
+    ): Promise<ExtractResult> {
       const ext = findExtractor(opts.contentType)
       if (ext === undefined) {
         return skippedResult(`unsupported content type: ${opts.contentType ?? 'unknown'}`)

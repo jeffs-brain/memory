@@ -179,9 +179,8 @@ export const createWorkerPool = (opts: WorkerPoolOptions): WorkerPool => {
       return false
     }
 
-    if (claimed.length === 0) return false
-
-    const job = claimed[0]!
+    const job = claimed[0]
+    if (job === undefined) return false
 
     if (!acquireBrainSlot(job.brainId)) {
       cfg.logger.debug('per-brain concurrency limit reached, requeueing job', {
@@ -329,7 +328,7 @@ export const createWorkerPool = (opts: WorkerPoolOptions): WorkerPool => {
         timeout: 'pool shutdown timed out, some workers may still be running',
         done: 'pool stopped gracefully',
       } as const satisfies Record<typeof outcome, string>
-      const logLevel = timedOut ? 'warn' : 'info' as const
+      const logLevel = timedOut ? 'warn' : ('info' as const)
       cfg.logger[logLevel](shutdownMessages[outcome])
 
       return { timedOut }

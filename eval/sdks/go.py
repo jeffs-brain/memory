@@ -5,6 +5,7 @@ Launches `go run ./cmd/memory serve --addr 127.0.0.1:<port>` from `go`.
 TODO(eval): swap to a prebuilt binary in CI to avoid paying the `go run`
 compile cost on every nightly invocation.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass

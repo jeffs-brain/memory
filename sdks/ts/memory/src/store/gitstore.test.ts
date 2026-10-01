@@ -128,12 +128,12 @@ describe('gitstore specifics', () => {
   it('deleting a file removes it from the commit tree', async () => {
     await store.write(p('memory/victim.md'), buf('to-be-gone'))
     const afterWrite = await readGitLog(dir, 1)
-    const writtenTree = await listCommitFiles(dir, afterWrite[0]?.oid)
+    const writtenTree = await listCommitFiles(dir, afterWrite[0]!.oid)
     expect(writtenTree).toContain('memory/victim.md')
 
     await store.delete(p('memory/victim.md'))
     const afterDelete = await readGitLog(dir, 1)
-    const deletedTree = await listCommitFiles(dir, afterDelete[0]?.oid)
+    const deletedTree = await listCommitFiles(dir, afterDelete[0]!.oid)
     expect(deletedTree).not.toContain('memory/victim.md')
   })
 
@@ -147,7 +147,7 @@ describe('gitstore specifics', () => {
     // Every write is its own commit on top of the bootstrap; tree at HEAD must
     // contain all ten files.
     const [head] = await readGitLog(dir, 1)
-    const tree = await listCommitFiles(dir, head?.oid)
+    const tree = await listCommitFiles(dir, head!.oid)
     for (let i = 0; i < 10; i++) {
       expect(tree).toContain(`memory/race-${i}.md`)
     }

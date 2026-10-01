@@ -5,8 +5,8 @@
  */
 
 import { afterEach, describe, expect, it } from 'vitest'
-import type { RateLimiter } from './types.js'
 import { createTokenBucket } from './token-bucket.js'
+import type { RateLimiter } from './types.js'
 
 describe('createTokenBucket', () => {
   const limitersTeardown: RateLimiter[] = []
@@ -133,7 +133,7 @@ describe('createTokenBucket', () => {
     expect(m.refillRatePerSecond).toBe(0)
 
     // Wait for resume.
-    await new Promise(r => setTimeout(r, 100))
+    await new Promise((r) => setTimeout(r, 100))
     const m2 = lim.metrics()
     expect(m2.refillRatePerSecond).toBeGreaterThan(0)
   })
@@ -214,7 +214,7 @@ describe('createTokenBucket', () => {
     }
 
     // Wait 100ms -> should refill ~10 tokens, capped at 5.
-    await new Promise(r => setTimeout(r, 100))
+    await new Promise((r) => setTimeout(r, 100))
 
     const m = lim.metrics()
     // Should have refilled close to maxTokens.
@@ -243,35 +243,43 @@ describe('createTokenBucket', () => {
   })
 
   it('constructor throws for zero maxTokens', () => {
-    expect(() => createTokenBucket({
-      maxTokens: 0,
-      refillRatePerSecond: 10,
-      tenantId: 'test',
-    })).toThrow('maxTokens must be a positive number')
+    expect(() =>
+      createTokenBucket({
+        maxTokens: 0,
+        refillRatePerSecond: 10,
+        tenantId: 'test',
+      }),
+    ).toThrow('maxTokens must be a positive number')
   })
 
   it('constructor throws for negative maxTokens', () => {
-    expect(() => createTokenBucket({
-      maxTokens: -5,
-      refillRatePerSecond: 10,
-      tenantId: 'test',
-    })).toThrow('maxTokens must be a positive number')
+    expect(() =>
+      createTokenBucket({
+        maxTokens: -5,
+        refillRatePerSecond: 10,
+        tenantId: 'test',
+      }),
+    ).toThrow('maxTokens must be a positive number')
   })
 
   it('constructor throws for zero refillRatePerSecond', () => {
-    expect(() => createTokenBucket({
-      maxTokens: 10,
-      refillRatePerSecond: 0,
-      tenantId: 'test',
-    })).toThrow('refillRatePerSecond must be a positive number')
+    expect(() =>
+      createTokenBucket({
+        maxTokens: 10,
+        refillRatePerSecond: 0,
+        tenantId: 'test',
+      }),
+    ).toThrow('refillRatePerSecond must be a positive number')
   })
 
   it('constructor throws for negative refillRatePerSecond', () => {
-    expect(() => createTokenBucket({
-      maxTokens: 10,
-      refillRatePerSecond: -1,
-      tenantId: 'test',
-    })).toThrow('refillRatePerSecond must be a positive number')
+    expect(() =>
+      createTokenBucket({
+        maxTokens: 10,
+        refillRatePerSecond: -1,
+        tenantId: 'test',
+      }),
+    ).toThrow('refillRatePerSecond must be a positive number')
   })
 
   it('setRefillRate changes the refill rate', () => {

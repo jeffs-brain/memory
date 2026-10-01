@@ -101,7 +101,7 @@ const applyOverlapAndBuild = (pieces: readonly string[], cfg: ChunkConfig): read
 
     let chunkContent = trimmed
     if (i > 0 && cfg.overlapTokens > 0 && prevTail !== '') {
-      chunkContent = prevTail + '\n' + trimmed
+      chunkContent = `${prevTail}\n${trimmed}`
     }
 
     // Merge undersized chunks into the previous one.
@@ -110,9 +110,9 @@ const applyOverlapAndBuild = (pieces: readonly string[], cfg: ChunkConfig): read
       if (prev !== undefined) {
         chunks[chunks.length - 1] = {
           ...prev,
-          content: prev.content + '\n' + trimmed,
+          content: `${prev.content}\n${trimmed}`,
         }
-        prevTail = extractTail(prev.content + '\n' + trimmed, cfg.overlapTokens)
+        prevTail = extractTail(`${prev.content}\n${trimmed}`, cfg.overlapTokens)
         continue
       }
     }

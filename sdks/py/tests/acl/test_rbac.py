@@ -140,7 +140,5 @@ async def test_close_is_a_noop_and_idempotent() -> None:
     # Second invocation must not error.
     assert await acl.close() is None
     # The provider must still be usable after close (no resources to release).
-    await acl.write(
-        WriteTuplesRequest(writes=[grant_tuple(_user("alice"), "reader", _brain("x"))])
-    )
+    await acl.write(WriteTuplesRequest(writes=[grant_tuple(_user("alice"), "reader", _brain("x"))]))
     assert (await acl.check(_user("alice"), "read", _brain("x"))).allowed is True

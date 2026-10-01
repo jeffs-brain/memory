@@ -73,7 +73,7 @@ import { createMemoryExtension, type MemoryExtension } from '@jeffs-brain/memory
 const memory: MemoryExtension = createMemoryExtension(pi, {
   brainRoot: '/home/jeff/.local/share/jeff/brain',
   brainId: 'jeff',
-  store: { kind: 'git', remote: 'git@github.com:lleverage-ai/jeffs-brain.git' },
+  store: { kind: 'git', remote: 'git@github.com:your-org/your-brain.git' },
   embedder: { kind: 'ollama', baseUrl: 'http://localhost:11434', model: 'bge-m3' },
   provider: { kind: 'anthropic', apiKey: process.env.ANTHROPIC_API_KEY!, model: 'claude-opus-4-6' },
   acl: { actorId: 'jeff' },

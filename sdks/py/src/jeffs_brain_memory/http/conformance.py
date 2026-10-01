@@ -65,7 +65,10 @@ SKIP_CASES: dict[str, str] = {
 def load_conformance_doc(spec_dir: Path) -> dict[str, Any]:
     fixture = spec_dir / "conformance" / "http-contract.json"
     with fixture.open("r", encoding="utf-8") as fh:
-        return json.load(fh)
+        doc = json.load(fh)
+    if not isinstance(doc, dict):
+        raise ValueError(f"{fixture}: expected a JSON object")
+    return doc
 
 
 async def replay_cases(
@@ -87,25 +90,19 @@ async def replay_cases(
             report.results.append(CaseResult(name=name, ok=True, skipped=True))
             continue
         try:
-            await loop.run_in_executor(
-                None, _run_case_sync, app_factory, case, placeholders
-            )
+            await loop.run_in_executor(None, _run_case_sync, app_factory, case, placeholders)
             report.results.append(CaseResult(name=name, ok=True))
         except AssertionError as exc:
-            report.results.append(
-                CaseResult(name=name, ok=False, error=str(exc))
-            )
+            report.results.append(CaseResult(name=name, ok=False, error=str(exc)))
         except Exception as exc:  # noqa: BLE001
-            report.results.append(
-                CaseResult(name=name, ok=False, error=repr(exc))
-            )
+            report.results.append(CaseResult(name=name, ok=False, error=repr(exc)))
     return report
 
 
 def _free_port() -> int:
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.bind(("127.0.0.1", 0))
-    port = sock.getsockname()[1]
+    port: int = sock.getsockname()[1]
     sock.close()
     return port
 
@@ -152,8 +149,7 @@ def _run_case_sync(
             created = client.post("/v1/brains", json={"brainId": brain_id})
             if created.status_code not in (201, 409):
                 raise AssertionError(
-                    f"provisioning brain failed: {created.status_code} "
-                    f"{created.text}"
+                    f"provisioning brain failed: {created.status_code} {created.text}"
                 )
 
             subs = {k: v for k, v in placeholders.items() if k != "BRAIN_ID"}
@@ -176,15 +172,11 @@ def _run_case_sync(
                 if request.get("kind") == "await-sse-event":
                     sub = sse_pool.get(request.get("name", ""))
                     if sub is None:
-                        raise AssertionError(
-                            f"SSE subscriber {request.get('name')!r} not opened"
-                        )
+                        raise AssertionError(f"SSE subscriber {request.get('name')!r} not opened")
                     event_name = request.get("event", "")
                     raw, ok = sub.wait_for_event(event_name, timeout=5.0)
                     if not ok:
-                        raise AssertionError(
-                            f"timeout waiting for SSE event {event_name!r}"
-                        )
+                        raise AssertionError(f"timeout waiting for SSE event {event_name!r}")
                     _assert_sse_event(expected, raw)
                 else:
                     if _is_sse_expected(expected):
@@ -245,9 +237,9 @@ class _SSESubscriber:
                         data_buf = []
                         continue
                     if line.startswith("event:"):
-                        event = line[len("event:"):].strip()
+                        event = line[len("event:") :].strip()
                     elif line.startswith("data:"):
-                        data_buf.append(line[len("data:"):].lstrip())
+                        data_buf.append(line[len("data:") :].lstrip())
         except Exception:
             return
 
@@ -294,21 +286,17 @@ def _run_step(
         pool[name] = sub
         return
     if kind == "await-sse-event":
-        sub = pool.get(step.get("name", ""))
-        if sub is None:
-            raise AssertionError(
-                f"SSE subscriber {step.get('name')!r} not opened"
-            )
-        _, ok = sub.wait_for_event(step.get("event", ""), timeout=5.0)
+        opened = pool.get(step.get("name", ""))
+        if opened is None:
+            raise AssertionError(f"SSE subscriber {step.get('name')!r} not opened")
+        _, ok = opened.wait_for_event(step.get("event", ""), timeout=5.0)
         if not ok:
-            raise AssertionError(
-                f"timeout waiting for SSE event {step.get('event')!r}"
-            )
+            raise AssertionError(f"timeout waiting for SSE event {step.get('event')!r}")
         return
     if kind == "close-sse":
-        sub = pool.pop(step.get("name", ""), None)
-        if sub is not None:
-            sub.close()
+        closing = pool.pop(step.get("name", ""), None)
+        if closing is not None:
+            closing.close()
         return
     if kind == "":
         resp = _do_request(client, step, substitute)
@@ -393,9 +381,7 @@ def _handle_sse_request(
             timeout=httpx.Timeout(3.0),
         ) as resp:
             if "status" in expected and resp.status_code != int(expected["status"]):
-                raise AssertionError(
-                    f"want status {expected['status']} got {resp.status_code}"
-                )
+                raise AssertionError(f"want status {expected['status']} got {resp.status_code}")
             deadline = time.monotonic() + 3.0
             event_name = ""
             for line in resp.iter_lines():
@@ -409,14 +395,12 @@ def _handle_sse_request(
                     event_name = ""
                     continue
                 if line.startswith("event:"):
-                    event_name = line[len("event:"):].strip()
+                    event_name = line[len("event:") :].strip()
     except httpx.ReadTimeout:
         pass
     missing = wanted - seen
     if missing:
-        raise AssertionError(
-            f"expected SSE events {sorted(missing)} never arrived"
-        )
+        raise AssertionError(f"expected SSE events {sorted(missing)} never arrived")
 
 
 def _assert_expected_response(
@@ -433,16 +417,12 @@ def _assert_expected_response(
     if isinstance(content_type, str):
         actual_ct = resp.headers.get("content-type", "")
         if content_type not in actual_ct:
-            raise AssertionError(
-                f"want content-type containing {content_type!r} got {actual_ct!r}"
-            )
+            raise AssertionError(f"want content-type containing {content_type!r} got {actual_ct!r}")
     body_b64 = expected.get("bodyBase64")
     if isinstance(body_b64, str):
         want = base64.b64decode(substitute(body_b64))
         if resp.content != want:
-            raise AssertionError(
-                f"body mismatch: want {want!r} got {resp.content!r}"
-            )
+            raise AssertionError(f"body mismatch: want {want!r} got {resp.content!r}")
     body_obj = expected.get("body")
     if body_obj is not None:
         _assert_json_matches(body_obj, resp.content)
@@ -465,14 +445,10 @@ def _assert_json_matches(expected: Any, actual: bytes) -> None:
     try:
         got = json.loads(actual.decode("utf-8"))
     except Exception as exc:
-        raise AssertionError(
-            f"decode response JSON: {exc} body={actual!r}"
-        ) from exc
+        raise AssertionError(f"decode response JSON: {exc} body={actual!r}") from exc
     error = _compare_json(expected, got)
     if error is not None:
-        raise AssertionError(
-            f"JSON mismatch: {error}\nwant={expected}\ngot={got}"
-        )
+        raise AssertionError(f"JSON mismatch: {error}\nwant={expected}\ngot={got}")
 
 
 def _compare_json(expected: Any, actual: Any) -> str | None:
@@ -539,29 +515,19 @@ def _run_body_assertion(assertion: dict[str, Any], body: bytes) -> None:
         items = _extract_items(body)
         for item in items:
             if item.get("path") == unwanted:
-                raise AssertionError(
-                    f"items unexpectedly include {unwanted!r}. items={items}"
-                )
+                raise AssertionError(f"items unexpectedly include {unwanted!r}. items={items}")
         return
     if kind == "items-files-equal":
         want = assertion.get("paths") or []
         items = _extract_items(body)
-        got = [
-            it["path"]
-            for it in items
-            if not it.get("is_dir") and it.get("path")
-        ]
+        got = [it["path"] for it in items if not it.get("is_dir") and it.get("path")]
         if sorted(got) != sorted(want):
             raise AssertionError(f"items-files-equal: want {want} got {got}")
         return
     if kind == "items-dirs-equal":
         want = assertion.get("paths") or []
         items = _extract_items(body)
-        got = [
-            it["path"]
-            for it in items
-            if it.get("is_dir") and it.get("path")
-        ]
+        got = [it["path"] for it in items if it.get("is_dir") and it.get("path")]
         if sorted(got) != sorted(want):
             raise AssertionError(f"items-dirs-equal: want {want} got {got}")
         return
@@ -573,14 +539,10 @@ def _run_body_assertion(assertion: dict[str, Any], body: bytes) -> None:
         except Exception as exc:
             raise AssertionError(f"decode body: {exc} body={body!r}") from exc
         if not isinstance(parsed, dict):
-            raise AssertionError(
-                f"json-field-equals: body is not an object: {parsed!r}"
-            )
-        got = parsed.get(field_name)
-        if got != want_value:
-            raise AssertionError(
-                f"field {field_name!r}: want {want_value!r} got {got!r}"
-            )
+            raise AssertionError(f"json-field-equals: body is not an object: {parsed!r}")
+        actual = parsed.get(field_name)
+        if actual != want_value:
+            raise AssertionError(f"field {field_name!r}: want {want_value!r} got {actual!r}")
         return
     raise AssertionError(f"unknown bodyAssertion kind {kind!r}")
 

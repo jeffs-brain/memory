@@ -1,15 +1,12 @@
 {
   "name": "@jeffs-brain/memory-pi",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Pi extension for the @jeffs-brain/memory pipeline. Recall, extract, reflect, consolidate on every pi session via four lifecycle hooks plus 11 memory_* tools.",
   "license": "Apache-2.0",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
-  "files": [
-    "dist",
-    "README.md"
-  ],
+  "files": ["dist", "README.md"],
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -29,42 +26,33 @@
     }
   },
   "pi": {
-    "extensions": [
-      "./dist/index.js"
-    ]
+    "extensions": ["./dist/index.js"]
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc -p tsconfig.test.json",
     "test": "vitest run --passWithNoTests",
     "prepublishOnly": "npm run build"
   },
   "peerDependencies": {
-    "@earendil-works/pi-coding-agent": "^0.74.0",
+    "@earendil-works/pi-coding-agent": ">=0.78.1 <1.0.0",
     "typebox": "^1"
   },
   "dependencies": {
-    "@jeffs-brain/memory": "^1.1.0",
+    "@jeffs-brain/memory": "^1.2.0",
     "zod": "^3"
   },
   "devDependencies": {
-    "@earendil-works/pi-coding-agent": "^0.74.0",
+    "@earendil-works/pi-coding-agent": "^0.99.2",
     "@types/node": "^22.10.5",
     "typebox": "^1.1.24",
     "typescript": "^5.7.3",
-    "vitest": "^2.1.8"
+    "vitest": "^4.1.11"
   },
   "engines": {
     "node": ">=20.0.0"
   },
-  "keywords": [
-    "pi-extension",
-    "memory",
-    "rag",
-    "retrieval",
-    "embedding",
-    "knowledge-base"
-  ],
+  "keywords": ["pi-extension", "memory", "rag", "retrieval", "embedding", "knowledge-base"],
   "repository": {
     "type": "git",
     "url": "git+https://github.com/jeffs-brain/memory.git",

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
-import type { z } from 'zod'
 import type { TriggerBus } from '@jeffs-brain/memory/ingest'
+import type { z } from 'zod/v4'
 import type { MemoryClient, ProgressEmitter } from '../memory-client.js'
 
 export type ToolContent = {
@@ -28,7 +28,7 @@ export type ToolContext = {
   readonly triggerBus?: TriggerBus
 }
 
-export type Tool<TSchema extends z.ZodTypeAny = z.ZodTypeAny> = {
+export type Tool<TSchema extends z.ZodType = z.ZodType> = {
   readonly name: string
   readonly description: string
   readonly inputSchema: TSchema

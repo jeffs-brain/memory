@@ -18,19 +18,21 @@ export const defaultPathMatcher: PathMatcher = (path: string): boolean =>
   path.startsWith(DEFAULT_PATH_PREFIX) && path.length > DEFAULT_PATH_PREFIX.length
 
 /** Prefix-based path matcher. Rejects the bare prefix itself. */
-export const prefixPathMatcher = (prefix: string): PathMatcher =>
-  (path: string): boolean => path.length > prefix.length && path.startsWith(prefix)
+export const prefixPathMatcher =
+  (prefix: string): PathMatcher =>
+  (path: string): boolean =>
+    path.length > prefix.length && path.startsWith(prefix)
 
 /** Glob-based path matcher supporting * and ** patterns. */
-export const globPathMatcher = (pattern: string): PathMatcher =>
-  (path: string): boolean => globMatch(pattern, path)
+export const globPathMatcher =
+  (pattern: string): PathMatcher =>
+  (path: string): boolean =>
+    globMatch(pattern, path)
 
 export const createMutationHook = (opts: MutationHookOptions): MutationHook => {
   const debounceMs = opts.debounceIntervalMs ?? DEFAULT_DEBOUNCE_MS
   const matchers: readonly PathMatcher[] =
-    opts.pathMatchers && opts.pathMatchers.length > 0
-      ? opts.pathMatchers
-      : [defaultPathMatcher]
+    opts.pathMatchers && opts.pathMatchers.length > 0 ? opts.pathMatchers : [defaultPathMatcher]
   const optOutReasons = opts.optOutReasons ?? new Set<string>()
   const logger = opts.logger
 
@@ -115,7 +117,14 @@ export const createMutationHook = (opts: MutationHookOptions): MutationHook => {
 // Glob matching implementation.
 const globMatch = (pattern: string, name: string): boolean => matchAt(pattern, 0, name, 0)
 
-const matchAt = (pattern: string, pi: number, name: string, ni: number): boolean => {
+const matchAt = (
+  pattern: string,
+  patternStart: number,
+  name: string,
+  nameStart: number,
+): boolean => {
+  let pi = patternStart
+  let ni = nameStart
   while (pi < pattern.length && ni < name.length) {
     if (pi + 1 < pattern.length && pattern[pi] === '*' && pattern[pi + 1] === '*') {
       let nextPi = pi + 2

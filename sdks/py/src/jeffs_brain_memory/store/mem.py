@@ -10,15 +10,15 @@ from __future__ import annotations
 
 import asyncio
 import fnmatch
-import posixpath
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import AsyncIterator, Awaitable, Callable
+from typing import AsyncIterator, Callable
 
 from ..errors import ErrNotFound, ErrReadOnly
 from ..path import BrainPath, is_generated, validate_path
 from . import (
     Batch,
+    BatchFn,
     BatchOptions,
     ChangeEvent,
     ChangeKind,
@@ -155,23 +155,20 @@ class MemStore(Store):
                 raise ErrNotFound(f"memstore: rename {src}: not found")
             del self._files[src]
             self._files[dst] = _Entry(content=bytes(entry.content), mtime=_now())
-        self._dispatch(
-            ChangeEvent(kind=ChangeKind.RENAMED, path=dst, old_path=src, when=_now())
-        )
+        self._dispatch(ChangeEvent(kind=ChangeKind.RENAMED, path=dst, old_path=src, when=_now()))
 
     # --- batch / subscribe / close --------------------------------------
 
     async def batch(
         self,
-        fn: Callable[[Batch], Awaitable[None]] | Callable[[Batch], None],
+        fn: BatchFn,
         opts: BatchOptions | None = None,
     ) -> None:
         self._check_open()
         opts = opts or BatchOptions()
         async with self._lock:
             snapshot: dict[BrainPath, _Entry] = {
-                k: _Entry(content=bytes(v.content), mtime=v.mtime)
-                for k, v in self._files.items()
+                k: _Entry(content=bytes(v.content), mtime=v.mtime) for k, v in self._files.items()
             }
         b = _MemBatch(snapshot)
         result = fn(b)
@@ -216,7 +213,7 @@ class MemStore(Store):
         self._sinks.clear()
         for queue in list(self._event_queues):
             try:
-                queue.put_nowait(  # type: ignore[arg-type]
+                queue.put_nowait(
                     ChangeEvent(
                         kind=ChangeKind.DELETED,
                         path=BrainPath(""),
@@ -261,9 +258,7 @@ class _MemBatch(Batch):
             raise ErrNotFound(f"memstore: stat {path}: not found")
         return FileInfo(path=path, size=len(entry.content), mtime=entry.mtime, is_dir=False)
 
-    async def list(
-        self, dir: BrainPath | str = "", opts: ListOpts | None = None
-    ) -> list[FileInfo]:
+    async def list(self, dir: BrainPath | str = "", opts: ListOpts | None = None) -> list[FileInfo]:
         opts = opts or ListOpts()
         prefix = str(dir)
         if prefix and not prefix.endswith("/"):
@@ -299,9 +294,7 @@ class _MemBatch(Batch):
         self.files[dst] = _Entry(content=bytes(entry.content), mtime=_now())
 
 
-def _list_from_map(
-    files: dict[BrainPath, _Entry], prefix: str, opts: ListOpts
-) -> list[FileInfo]:
+def _list_from_map(files: dict[BrainPath, _Entry], prefix: str, opts: ListOpts) -> list[FileInfo]:
     result: list[FileInfo] = []
     seen_dirs: set[BrainPath] = set()
     for p, entry in files.items():
@@ -355,18 +348,12 @@ def _diff_events(
     for p, e in new.items():
         prev = old.get(p)
         if prev is None:
-            events.append(
-                ChangeEvent(kind=ChangeKind.CREATED, path=p, when=now, reason=reason)
-            )
+            events.append(ChangeEvent(kind=ChangeKind.CREATED, path=p, when=now, reason=reason))
         elif prev.content != e.content:
-            events.append(
-                ChangeEvent(kind=ChangeKind.UPDATED, path=p, when=now, reason=reason)
-            )
+            events.append(ChangeEvent(kind=ChangeKind.UPDATED, path=p, when=now, reason=reason))
     for p in old:
         if p not in new:
-            events.append(
-                ChangeEvent(kind=ChangeKind.DELETED, path=p, when=now, reason=reason)
-            )
+            events.append(ChangeEvent(kind=ChangeKind.DELETED, path=p, when=now, reason=reason))
     return events
 
 

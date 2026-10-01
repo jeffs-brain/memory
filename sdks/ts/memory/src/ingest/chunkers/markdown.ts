@@ -94,7 +94,7 @@ const splitMarkdownSections = (content: string): readonly MdSection[] => {
       const hashes = atxMatch[1] ?? ''
       const title = (atxMatch[2] ?? '').trim()
       const level = hashes.length
-      const heading = hashes + ' ' + title
+      const heading = `${hashes} ${title}`
 
       // Pop stack to appropriate depth.
       while (stack.length > 0 && (stack[stack.length - 1]?.level ?? 0) >= level) {
@@ -102,7 +102,7 @@ const splitMarkdownSections = (content: string): readonly MdSection[] => {
       }
       stack.push({ level, title: heading })
       currentPath = stack.map((h) => h.title)
-      currentContent += line + '\n'
+      currentContent += `${line}\n`
       continue
     }
 
@@ -113,20 +113,20 @@ const splitMarkdownSections = (content: string): readonly MdSection[] => {
         flush()
         const level = nextLine.trim().startsWith('=') ? 1 : 2
         const title = line.trim()
-        const heading = '#'.repeat(level) + ' ' + title
+        const heading = `${'#'.repeat(level)} ${title}`
 
         while (stack.length > 0 && (stack[stack.length - 1]?.level ?? 0) >= level) {
           stack.pop()
         }
         stack.push({ level, title: heading })
         currentPath = stack.map((h) => h.title)
-        currentContent += line + '\n' + nextLine + '\n'
+        currentContent += `${line}\n${nextLine}\n`
         i++
         continue
       }
     }
 
-    currentContent += line + '\n'
+    currentContent += `${line}\n`
   }
   flush()
   return sections
@@ -154,7 +154,7 @@ const splitSectionWithOverlap = (text: string, cfg: ChunkConfig): readonly strin
     if (i > 0 && cfg.overlapTokens > 0) {
       const prevTrimmed = (pieces[i - 1] ?? '').trim()
       const tail = extractTail(prevTrimmed, cfg.overlapTokens)
-      result.push(tail + '\n' + trimmed)
+      result.push(`${tail}\n${trimmed}`)
     } else {
       result.push(trimmed)
     }

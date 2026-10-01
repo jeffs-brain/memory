@@ -5,14 +5,14 @@ import { describe, expect, it } from 'vitest'
 import type { Embedder } from '../llm/types.js'
 import type { TypeDefinition } from './types.js'
 
-import { cosineSimilarity } from './similarity.js'
 import {
   Deduplicator,
-  deduplicateType,
   EMBEDDING_AUTO_MERGE_THRESHOLD,
   EMBEDDING_REVIEW_THRESHOLD,
   FUZZY_LABEL_THRESHOLD,
+  deduplicateType,
 } from './dedup.js'
+import { cosineSimilarity } from './similarity.js'
 
 function makeType(type: string, label: string, description: string): TypeDefinition {
   return { type, label, description, createdAt: '2026-01-01', status: 'active' }

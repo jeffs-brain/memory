@@ -29,9 +29,7 @@ async def _handle(
     progress: ProgressEmitter | None,
 ) -> dict[str, Any]:
     assert isinstance(args, ExtractInput)
-    messages = tuple(
-        ExtractMessage(role=m.role, content=m.content) for m in args.messages
-    )
+    messages = tuple(ExtractMessage(role=m.role, content=m.content) for m in args.messages)
     return await client.extract(
         ExtractArgs(
             messages=messages,

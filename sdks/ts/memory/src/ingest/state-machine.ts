@@ -163,39 +163,45 @@ export const createPipelineStateMachine = (config: PipelineStateMachineConfig) =
 
     // Terminal state: no transitions allowed.
     if (currentStage === 'dead_letter') {
-      return existing ?? {
-        documentHash,
-        stage: 'dead_letter',
-        retryCount: 0,
-        lastError: '',
-        createdAt: now,
-        updatedAt: now,
-      }
+      return (
+        existing ?? {
+          documentHash,
+          stage: 'dead_letter',
+          retryCount: 0,
+          lastError: '',
+          createdAt: now,
+          updatedAt: now,
+        }
+      )
     }
 
     // Idempotent: already at or past the target.
     if (isAtOrPast(currentStage, targetStage)) {
-      return existing ?? {
-        documentHash,
-        stage: currentStage,
-        retryCount: 0,
-        lastError: '',
-        createdAt: now,
-        updatedAt: now,
-      }
+      return (
+        existing ?? {
+          documentHash,
+          stage: currentStage,
+          retryCount: 0,
+          lastError: '',
+          createdAt: now,
+          updatedAt: now,
+        }
+      )
     }
 
     // Validate: only single-step forward transitions.
     const next = nextStage(currentStage)
     if (next !== targetStage) {
-      return existing ?? {
-        documentHash,
-        stage: currentStage,
-        retryCount: 0,
-        lastError: '',
-        createdAt: now,
-        updatedAt: now,
-      }
+      return (
+        existing ?? {
+          documentHash,
+          stage: currentStage,
+          retryCount: 0,
+          lastError: '',
+          createdAt: now,
+          updatedAt: now,
+        }
+      )
     }
 
     const entry: PipelineStateEntry = {

@@ -28,13 +28,7 @@
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "sideEffects": false,
-  "files": [
-    "dist",
-    "migrations",
-    "README.md",
-    "LICENSE",
-    "NOTICE"
-  ],
+  "files": ["dist", "migrations", "README.md", "LICENSE", "NOTICE"],
   "exports": {
     ".": {
       "import": "./dist/index.js",
@@ -50,7 +44,7 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "typecheck": "tsc -p tsconfig.test.json",
     "test": "vitest run --passWithNoTests",
     "prepublishOnly": "bun run typecheck && bun run test && bun run build"
   },
@@ -63,8 +57,8 @@
   },
   "devDependencies": {
     "@jeffs-brain/memory": "^1.0.0",
-    "@testcontainers/postgresql": "^11.14.0",
-    "testcontainers": "^11.14.0",
-    "vitest": "^2.1.8"
+    "@testcontainers/postgresql": "^12.2.0",
+    "testcontainers": "^12.2.0",
+    "vitest": "^4.1.11"
   }
 }

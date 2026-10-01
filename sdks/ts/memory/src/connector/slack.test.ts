@@ -1,7 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from 'vitest'
-import { SlackConnector, convertMrkdwn, createSlackConnector, parseSlackTimestamp } from './slack.js'
+import {
+  SlackConnector,
+  convertMrkdwn,
+  createSlackConnector,
+  parseSlackTimestamp,
+} from './slack.js'
 import type { ConnectorDocument } from './types.js'
 
 // ---------------------------------------------------------------------------
@@ -14,7 +19,7 @@ type MockHandler = {
 }
 
 function createMockFetch(handlers: readonly MockHandler[]): typeof fetch {
-  return async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+  return (async (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
     const url = typeof input === 'string' ? input : input.toString()
     for (const h of handlers) {
       if (url.includes(h.pattern)) {
@@ -22,7 +27,7 @@ function createMockFetch(handlers: readonly MockHandler[]): typeof fetch {
       }
     }
     return new Response('Not Found', { status: 404 })
-  }
+  }) as typeof fetch
 }
 
 function jsonResponse(data: Record<string, unknown>): Response {
@@ -55,12 +60,16 @@ describe('SlackConnector', () => {
   describe('configure', () => {
     it('throws when botToken is missing', async () => {
       const connector = createSlackConnector()
-      await expect(connector.configure({ channels: 'C123' })).rejects.toThrow('botToken is required')
+      await expect(connector.configure({ channels: 'C123' })).rejects.toThrow(
+        'botToken is required',
+      )
     })
 
     it('throws when channels is missing', async () => {
       const connector = createSlackConnector()
-      await expect(connector.configure({ botToken: 'xoxb-test' })).rejects.toThrow('at least one channel')
+      await expect(connector.configure({ botToken: 'xoxb-test' })).rejects.toThrow(
+        'at least one channel',
+      )
     })
 
     it('throws when channels is empty after split', async () => {
@@ -120,7 +129,7 @@ describe('SlackConnector', () => {
       expect(docs).toHaveLength(3)
       expect(docs[0]?.externalId).toBe('C123ABC:1700000001.000000')
       expect(docs[0]?.content).toBe('Hello world')
-      expect(docs[0]?.metadata['source']).toBe('slack')
+      expect(docs[0]?.metadata.source).toBe('slack')
     })
 
     it('handles paginated messages', async () => {
@@ -136,12 +145,20 @@ describe('SlackConnector', () => {
               jsonResponse({
                 ok: true,
                 messages: [
-                  { type: 'message', user: 'U001', text: `Page ${callCount} msg 1`, ts: `${1700000000 + callCount * 2 - 1}.000000` },
-                  { type: 'message', user: 'U001', text: `Page ${callCount} msg 2`, ts: `${1700000000 + callCount * 2}.000000` },
+                  {
+                    type: 'message',
+                    user: 'U001',
+                    text: `Page ${callCount} msg 1`,
+                    ts: `${1700000000 + callCount * 2 - 1}.000000`,
+                  },
+                  {
+                    type: 'message',
+                    user: 'U001',
+                    text: `Page ${callCount} msg 2`,
+                    ts: `${1700000000 + callCount * 2}.000000`,
+                  },
                 ],
-                ...(hasNextCursor
-                  ? { response_metadata: { next_cursor: 'cursor_page2' } }
-                  : {}),
+                ...(hasNextCursor ? { response_metadata: { next_cursor: 'cursor_page2' } } : {}),
               }),
             )
           },
@@ -211,8 +228,9 @@ describe('SlackConnector', () => {
       expect(docs).toHaveLength(2)
 
       const threadDoc = docs[1]
-      expect(threadDoc?.metadata['type']).toBe('thread')
-      const content = typeof threadDoc?.content === 'string' ? threadDoc.content : threadDoc?.content.toString()
+      expect(threadDoc?.metadata.type).toBe('thread')
+      const content =
+        typeof threadDoc?.content === 'string' ? threadDoc.content : threadDoc?.content.toString()
       expect(content).toContain('## Thread: Thread parent')
       expect(content).toContain('Reply one')
       expect(content).toContain('Reply two')
@@ -251,7 +269,7 @@ describe('SlackConnector', () => {
         {
           pattern: 'files.slack.com',
           handler: (_url, init) => {
-            const auth = (init?.headers as Record<string, string>)?.['Authorization']
+            const auth = (init?.headers as Record<string, string>)?.Authorization
             if (auth !== 'Bearer xoxb-test') {
               return Promise.resolve(new Response('Unauthorized', { status: 401 }))
             }
@@ -327,8 +345,7 @@ describe('SlackConnector', () => {
       const mockFetch = createMockFetch([
         {
           pattern: 'conversations.history',
-          handler: () =>
-            Promise.resolve(jsonResponse({ ok: true, messages: [] })),
+          handler: () => Promise.resolve(jsonResponse({ ok: true, messages: [] })),
         },
       ])
 
@@ -348,8 +365,7 @@ describe('SlackConnector', () => {
       const mockFetch = createMockFetch([
         {
           pattern: 'conversations.history',
-          handler: () =>
-            Promise.resolve(jsonResponse({ ok: false, error: 'channel_not_found' })),
+          handler: () => Promise.resolve(jsonResponse({ ok: false, error: 'channel_not_found' })),
         },
       ])
 
@@ -376,7 +392,12 @@ describe('SlackConnector', () => {
               jsonResponse({
                 ok: true,
                 messages: [
-                  { type: 'message', user: 'U001', text: `Message in ${channel}`, ts: '1700000001.000000' },
+                  {
+                    type: 'message',
+                    user: 'U001',
+                    text: `Message in ${channel}`,
+                    ts: '1700000001.000000',
+                  },
                 ],
               }),
             )
@@ -532,9 +553,7 @@ describe('convertMrkdwn', () => {
   })
 
   it('converts channel mentions', () => {
-    expect(convertMrkdwn('Check <#C123ABC|general> for updates')).toBe(
-      'Check #general for updates',
-    )
+    expect(convertMrkdwn('Check <#C123ABC|general> for updates')).toBe('Check #general for updates')
   })
 
   it('converts user mentions', () => {

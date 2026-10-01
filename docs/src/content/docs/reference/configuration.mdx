@@ -53,8 +53,9 @@ Variables consumed by the HTTP daemon at startup. CLI flags take precedence in e
 
 | Variable                     | Effect                                                                                                                | SDKs                |
 | ---------------------------- | --------------------------------------------------------------------------------------------------------------------- | ------------------- |
-| `JB_ADDR`                    | Bind address as `host:port`. Defaults to `:8080` when neither `--addr` nor the env var is set.                        | TS, Go, Python      |
-| `JB_AUTH_TOKEN`              | Optional shared bearer token. When set, every request must present `Authorization: Bearer <token>`.                   | TS, Go, Python      |
+| `JB_ADDR`                    | Bind address as `host:port`. Defaults to `127.0.0.1:8080`; an empty host binds loopback.                             | TS, Go, Python      |
+| `JB_AUTH_TOKEN`              | Shared bearer token. When set, every request must present `Authorization: Bearer <token>`. Required for a non-loopback bind. | TS, Go, Python |
+| `JB_INGEST_ROOT`             | Directory `ingest/file` may read server-side paths from. Unset disables path ingest; clients send `contentBase64`.    | TS, Go, Python      |
 | `JB_CONTEXTUALISE`           | Enable per-chunk contextualisation. Truthy values (`1`, `true`, `yes`) switch it on.                                  | TS, Go, Python      |
 | `JB_CONTEXTUALISE_CACHE_DIR` | Directory for cached contextualisation prompts and responses. Avoids paying the model cost twice for identical input. | TS, Go, Python      |
 | `JB_CONTEXTUALISE_MODEL`     | Model id used by the contextualisation pipeline. Defaults to the active provider model when blank.                    | TS, Go, Python      |
@@ -85,6 +86,7 @@ The matrix below summarises which SDK reads which variable. `n/a` means the SDK 
 | `JB_EMBED_URL`               | yes        | n/a    | n/a    |
 | `JB_ADDR`                    | yes        | yes    | yes    |
 | `JB_AUTH_TOKEN`              | yes        | yes    | yes    |
+| `JB_INGEST_ROOT`             | yes        | yes    | yes    |
 | `JB_CONTEXTUALISE`           | yes        | yes    | yes    |
 | `JB_CONTEXTUALISE_CACHE_DIR` | yes        | yes    | yes    |
 | `JB_CONTEXTUALISE_MODEL`     | yes        | yes    | yes    |

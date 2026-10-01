@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from 'vitest'
-import type { MemoryClient, ExtractAfterIngestArgs } from '../memory-client.js'
+import type { ExtractAfterIngestArgs, MemoryClient } from '../memory-client.js'
 import { ingestUrlTool } from './ingest-url.js'
 
 const noopClient = (): MemoryClient => ({
@@ -33,11 +33,7 @@ const noopClient = (): MemoryClient => ({
 describe('memory_ingest_url with extract option', () => {
   it('returns only ingest result when extract is false (default)', async () => {
     const client = noopClient()
-    const result = await ingestUrlTool.handler(
-      { url: 'https://example.com/doc.md' },
-      client,
-      {},
-    )
+    const result = await ingestUrlTool.handler({ url: 'https://example.com/doc.md' }, client, {})
     const payload = result.structuredContent as Record<string, unknown>
     expect(payload.path).toBe('server')
     expect(payload).not.toHaveProperty('extraction')

@@ -20,6 +20,7 @@ import {
   type ExtractedMemory,
   type Memory,
   type MemoryNote,
+  type SearchIndex as MemorySearchIndex,
   OllamaEmbedder,
   OllamaProvider,
   OpenAIEmbedder,
@@ -28,7 +29,6 @@ import {
   type RecallHit,
   type Scope,
   type SearchHit,
-  type SearchIndex as MemorySearchIndex,
   type SqliteSearchIndex,
   type Store,
   TEIEmbedder,
@@ -43,8 +43,6 @@ import {
   toPath,
 } from '@jeffs-brain/memory'
 import type { Message } from '@jeffs-brain/memory'
-import type { Retrieval } from '@jeffs-brain/memory/retrieval'
-import { createRetrieval } from '@jeffs-brain/memory/retrieval'
 import {
   AutoReranker,
   CrossEncoderReranker,
@@ -54,6 +52,8 @@ import {
   LLMReranker,
   type Reranker,
 } from '@jeffs-brain/memory/rerank'
+import type { Retrieval } from '@jeffs-brain/memory/retrieval'
+import { createRetrieval } from '@jeffs-brain/memory/retrieval'
 import { bootstrapFlatBrain } from './bootstrap-flat.js'
 import type { MemoryExtensionConfig } from './config.js'
 import {

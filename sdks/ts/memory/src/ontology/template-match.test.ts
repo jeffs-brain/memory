@@ -4,13 +4,13 @@ import { describe, expect, it } from 'vitest'
 
 import type { Embedder } from '../llm/types.js'
 
-import { getTemplate } from './templates.js'
 import {
-  TemplateMatcher,
-  TEMPLATE_MATCH_COMBINED_MINIMUM,
   type ExtractionResult,
+  TEMPLATE_MATCH_COMBINED_MINIMUM,
+  TemplateMatcher,
   type TemplateSuggestion,
 } from './template-match.js'
+import { getTemplate } from './templates.js'
 
 function makeExtraction(
   nodeTypes: Array<{ type: string; label: string; description: string }>,
@@ -89,7 +89,11 @@ describe('TemplateMatcher.matchExact', () => {
     const matcher = new TemplateMatcher({})
     const extracted = makeExtraction(
       [
-        { type: 'entity.alien_species', label: 'Alien Species', description: 'An extraterrestrial' },
+        {
+          type: 'entity.alien_species',
+          label: 'Alien Species',
+          description: 'An extraterrestrial',
+        },
         { type: 'entity.space_station', label: 'Space Station', description: 'An orbital station' },
       ],
       [{ type: 'orbits', label: 'Orbits', description: 'Orbital relationship' }],
@@ -144,10 +148,7 @@ describe('TemplateMatcher.matchExact', () => {
     const tmpl = getTemplate('order_processing')!
 
     // Use only first 3 node types
-    const extracted = makeExtraction(
-      [...tmpl.nodeTypes.slice(0, 3)],
-      [...tmpl.edgeTypes],
-    )
+    const extracted = makeExtraction([...tmpl.nodeTypes.slice(0, 3)], [...tmpl.edgeTypes])
 
     const suggestion = matcher.matchExact(extracted)
 
@@ -205,9 +206,7 @@ describe('TemplateMatcher.match', () => {
       model: () => 'fake-model',
       dimension: () => 3,
       embed: async (texts: readonly string[]): Promise<number[][]> =>
-        texts.map((text) =>
-          healthcareTexts.has(text) ? [1, 0, 0] : [0, 0, 0],
-        ),
+        texts.map((text) => (healthcareTexts.has(text) ? [1, 0, 0] : [0, 0, 0])),
     }
 
     const matcher = new TemplateMatcher({
@@ -230,8 +229,7 @@ describe('TemplateMatcher.match', () => {
       name: () => 'fake-zero',
       model: () => 'fake-model',
       dimension: () => 3,
-      embed: async (texts: readonly string[]): Promise<number[][]> =>
-        texts.map(() => [0, 0, 0]),
+      embed: async (texts: readonly string[]): Promise<number[][]> => texts.map(() => [0, 0, 0]),
     }
 
     const matcher = new TemplateMatcher({
@@ -267,4 +265,3 @@ describe('combined score calculation', () => {
     expect(TEMPLATE_MATCH_COMBINED_MINIMUM).toBe(0.3)
   })
 })
-

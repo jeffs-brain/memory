@@ -10,14 +10,10 @@ import {
   prefixPathMatcher,
 } from './mutation-hook.js'
 
-const makeEvent = (
-  kind: ChangeEvent['kind'],
-  path: string,
-  reason?: string,
-): ChangeEvent => ({
+const makeEvent = (kind: ChangeEvent['kind'], path: string, reason?: string): ChangeEvent => ({
   kind,
   path: path as Path,
-  reason,
+  ...(reason !== undefined ? { reason } : {}),
   when: new Date(),
 })
 
@@ -224,7 +220,9 @@ describe('mutation-hook', () => {
     const errorFn = vi.fn()
     const hook = createMutationHook({
       brainId: 'brain-1',
-      dispatch: () => { throw new Error('dispatch fail') },
+      dispatch: () => {
+        throw new Error('dispatch fail')
+      },
       debounceIntervalMs: 10,
       logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: errorFn },
     })

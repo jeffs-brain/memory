@@ -5,6 +5,7 @@ package knowledge
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -66,25 +67,32 @@ type defaultFetcher struct{}
 // private networks regardless of DNS rebinding or redirects.
 func (defaultFetcher) Fetch(ctx context.Context, rawURL string) ([]byte, string, error) {
 	client := &http.Client{
-		Timeout:   defaultHTTPTimeout,
-		Transport: newSSRFSafeTransport(),
+		Timeout:       defaultHTTPTimeout,
+		Transport:     newSSRFSafeTransport(),
+		CheckRedirect: checkRedirect,
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
 	if err != nil {
-		return nil, "", fmt.Errorf("knowledge: building request: %w", err)
+		return nil, "", fmt.Errorf("%w: %v", ErrInvalidURL, err)
 	}
 	req.Header.Set("Accept", "text/plain, text/markdown, text/html, application/pdf")
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, "", fmt.Errorf("knowledge: fetching %s: %w", rawURL, err)
+		if errors.Is(err, ErrBlockedAddress) || errors.Is(err, ErrInvalidURL) {
+			return nil, "", err
+		}
+		return nil, "", &FetchError{Err: err}
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, "", fmt.Errorf("knowledge: fetch %s: HTTP %d", rawURL, resp.StatusCode)
+		return nil, "", &FetchError{StatusCode: resp.StatusCode, Err: fmt.Errorf("HTTP %d", resp.StatusCode)}
 	}
-	body, err := io.ReadAll(io.LimitReader(resp.Body, maxReadBytes))
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxReadBytes+1))
 	if err != nil {
-		return nil, "", fmt.Errorf("knowledge: reading response: %w", err)
+		return nil, "", &FetchError{Err: fmt.Errorf("reading response: %w", err)}
+	}
+	if len(body) > maxReadBytes {
+		return nil, "", &FetchError{Err: fmt.Errorf("response exceeds %d byte limit", maxReadBytes)}
 	}
 	ctype := resp.Header.Get("Content-Type")
 	return body, ctype, nil
@@ -176,11 +184,11 @@ func (k *kbase) readRequestBody(req IngestRequest) ([]byte, string, string, erro
 	}
 
 	if strings.TrimSpace(req.Path) == "" {
-		return nil, "", "", fmt.Errorf("knowledge: either Content or Path required")
+		return nil, "", "", fmt.Errorf("%w: either Content or Path required", ErrInvalidContent)
 	}
 
 	if _, parseErr := url.ParseRequestURI(req.Path); parseErr == nil && strings.Contains(req.Path, "://") {
-		return nil, "", "", fmt.Errorf("knowledge: use IngestURL for %s", req.Path)
+		return nil, "", "", fmt.Errorf("%w: use IngestURL for %s", ErrInvalidContent, req.Path)
 	}
 
 	abs, err := filepath.Abs(req.Path)
@@ -192,10 +200,10 @@ func (k *kbase) readRequestBody(req IngestRequest) ([]byte, string, string, erro
 		return nil, "", "", fmt.Errorf("knowledge: stat %s: %w", abs, err)
 	}
 	if info.IsDir() {
-		return nil, "", "", fmt.Errorf("knowledge: %s is a directory", abs)
+		return nil, "", "", fmt.Errorf("%w: %s is a directory", ErrInvalidContent, abs)
 	}
 	if info.Size() > maxReadBytes {
-		return nil, "", "", fmt.Errorf("knowledge: %s exceeds %d byte limit", abs, maxReadBytes)
+		return nil, "", "", fmt.Errorf("%w: %s exceeds %d byte limit", ErrInvalidContent, abs, maxReadBytes)
 	}
 	data, err := os.ReadFile(abs)
 	if err != nil {
@@ -250,7 +258,7 @@ func extractPlain(raw []byte, ctype, ext string) (string, error) {
 	switch base {
 	case contentTypeMarkdown, contentTypeText, contentTypeJSON, contentTypeYAML:
 		if !utf8.Valid(raw) {
-			return "", fmt.Errorf("knowledge: content is not valid UTF-8")
+			return "", fmt.Errorf("%w: content is not valid UTF-8", ErrInvalidContent)
 		}
 		return string(raw), nil
 	case contentTypeHTML:
@@ -263,11 +271,11 @@ func extractPlain(raw []byte, ctype, ext string) (string, error) {
 	}
 	if strings.HasPrefix(base, "text/") {
 		if !utf8.Valid(raw) {
-			return "", fmt.Errorf("knowledge: content is not valid UTF-8")
+			return "", fmt.Errorf("%w: content is not valid UTF-8", ErrInvalidContent)
 		}
 		return string(raw), nil
 	}
-	return "", fmt.Errorf("knowledge: unsupported content-type %q", ctype)
+	return "", fmt.Errorf("%w: unsupported content-type %q", ErrInvalidContent, ctype)
 }
 
 // stripHTML drops scripts, styles, and tags to produce a plain-text
@@ -289,12 +297,12 @@ func stripHTML(raw []byte) string {
 // page and returns the concatenated text.
 func extractPDF(raw []byte) (string, error) {
 	if len(raw) == 0 {
-		return "", fmt.Errorf("knowledge: empty pdf body")
+		return "", fmt.Errorf("%w: empty pdf body", ErrInvalidContent)
 	}
 	reader := bytes.NewReader(raw)
 	r, err := pdfreader.NewReader(reader, int64(len(raw)))
 	if err != nil {
-		return "", fmt.Errorf("knowledge: opening pdf: %w", err)
+		return "", fmt.Errorf("%w: opening pdf: %v", ErrInvalidContent, err)
 	}
 	var b strings.Builder
 	pages := r.NumPage()
@@ -531,20 +539,23 @@ func collapseWhitespace(s string) string {
 func normaliseURL(raw string) (string, error) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
-		return "", fmt.Errorf("knowledge: empty URL")
+		return "", fmt.Errorf("%w: empty URL", ErrInvalidURL)
 	}
 	if !strings.Contains(raw, "://") {
 		raw = "https://" + raw
 	}
 	parsed, err := url.Parse(raw)
 	if err != nil {
-		return "", fmt.Errorf("knowledge: parsing URL: %w", err)
+		return "", fmt.Errorf("%w: %v", ErrInvalidURL, err)
 	}
 	if parsed.Host == "" {
-		return "", fmt.Errorf("knowledge: URL missing host")
+		return "", fmt.Errorf("%w: missing host", ErrInvalidURL)
 	}
 	if parsed.Scheme != "http" && parsed.Scheme != "https" {
-		return "", fmt.Errorf("ingest: unsupported scheme %q (only http and https allowed)", parsed.Scheme)
+		return "", fmt.Errorf("%w: unsupported scheme %q (only http and https allowed)", ErrInvalidURL, parsed.Scheme)
+	}
+	if parsed.User != nil {
+		return "", fmt.Errorf("%w: URL must not carry credentials", ErrInvalidURL)
 	}
 	return parsed.String(), nil
 }

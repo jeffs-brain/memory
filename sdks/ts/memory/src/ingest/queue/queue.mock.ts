@@ -89,8 +89,7 @@ export const createMockPgClient = (): PgClient & { rows: MockRow[] } => {
       const key = vals[0] as string
       const found = rows.filter(
         (r) =>
-          r.idempotency_key === key &&
-          !['dead_letter', 'completed', 'failed'].includes(r.status),
+          r.idempotency_key === key && !['dead_letter', 'completed', 'failed'].includes(r.status),
       )
       return { rows: found as unknown as R[], rowCount: found.length }
     }
@@ -110,9 +109,7 @@ export const createMockPgClient = (): PgClient & { rows: MockRow[] } => {
       const now = new Date()
       const pending = rows
         .filter(
-          (r) =>
-            r.status === 'pending' &&
-            (r.next_retry_at === null || r.next_retry_at <= now),
+          (r) => r.status === 'pending' && (r.next_retry_at === null || r.next_retry_at <= now),
         )
         .sort((a, b) => a.created_at.getTime() - b.created_at.getTime())
         .slice(0, batchSize)
@@ -212,7 +209,7 @@ export const createMockPgClient = (): PgClient & { rows: MockRow[] } => {
 
     // UPDATE recover stale
     if (normalised.includes('last_heartbeat <')) {
-      const threshold = parseInt((vals[2] as string).split(' ')[0]!, 10)
+      const threshold = Number.parseInt((vals[2] as string).split(' ')[0] ?? '', 10)
       const cutoff = new Date(Date.now() - threshold * 1000)
       let count = 0
       for (const row of rows) {

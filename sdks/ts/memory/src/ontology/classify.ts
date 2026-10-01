@@ -72,7 +72,7 @@ export class Classifier {
     }
 
     if (this.provider !== undefined) {
-      return this.classifyWithLLM(content, fileName, signal)
+      return this.classifyWithLLM(this.provider, content, fileName, signal)
     }
 
     return {
@@ -84,6 +84,7 @@ export class Classifier {
   }
 
   private async classifyWithLLM(
+    provider: Provider,
     content: string,
     fileName: string,
     signal?: AbortSignal,
@@ -92,12 +93,10 @@ export class Classifier {
     const prompt = buildClassificationPrompt(preview, fileName)
 
     try {
-      const resp = await this.provider!.complete(
+      const resp = await provider.complete(
         {
           system: CLASSIFICATION_SYSTEM_PROMPT,
-          messages: [
-            { role: 'user', content: prompt },
-          ],
+          messages: [{ role: 'user', content: prompt }],
           temperature: 0.1,
           maxTokens: 256,
           jsonMode: true,
@@ -258,9 +257,7 @@ export function isJsonDocument(content: string): boolean {
       // Empty arrays and primitive arrays are not business-relevant JSON
       if (parsed.length === 0) return false
       // At least one element must be an object or nested array
-      return parsed.some(
-        (item) => typeof item === 'object' && item !== null,
-      )
+      return parsed.some((item) => typeof item === 'object' && item !== null)
     }
 
     // Non-empty object
@@ -376,10 +373,7 @@ export function determineCategory(content: string, ontology: ResolvedOntology | 
   return categoryWinner(counts)
 }
 
-function buildCategoryCounts(
-  content: string,
-  ontology: ResolvedOntology,
-): Record<string, number> {
+function buildCategoryCounts(content: string, ontology: ResolvedOntology): Record<string, number> {
   const counts: Record<string, number> = {}
   const lower = content.toLowerCase()
 

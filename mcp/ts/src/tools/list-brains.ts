@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
-import { z } from 'zod'
+import { z } from 'zod/v4'
 import { type Tool, jsonContent } from './types.js'
 
 const schema = z.object({}).strict()

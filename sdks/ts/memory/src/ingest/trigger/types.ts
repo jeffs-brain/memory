@@ -117,10 +117,7 @@ type RawPayload = {
   mime?: unknown
 }
 
-export const parseIngestTriggerEvent = (
-  raw: string,
-  source: IngestTriggerSource,
-): ParseResult => {
+export const parseIngestTriggerEvent = (raw: string, source: IngestTriggerSource): ParseResult => {
   let parsed: unknown
   try {
     parsed = JSON.parse(raw)
@@ -153,21 +150,24 @@ export const parseIngestTriggerEvent = (
   const payload = obj.payload as IngestTriggerPayload
 
   const rawTimestamp = obj.timestamp
-  const timestamp = rawTimestamp instanceof Date
-    ? rawTimestamp
-    : typeof rawTimestamp === 'string'
-      ? new Date(rawTimestamp)
-      : new Date()
+  const timestamp =
+    rawTimestamp instanceof Date
+      ? rawTimestamp
+      : typeof rawTimestamp === 'string'
+        ? new Date(rawTimestamp)
+        : new Date()
 
-  const eventSource = (typeof obj.source === 'string' && obj.source !== '')
-    ? obj.source as IngestTriggerSource
-    : source
+  const eventSource =
+    typeof obj.source === 'string' && obj.source !== ''
+      ? (obj.source as IngestTriggerSource)
+      : source
 
   // metadata is intentionally Readonly<Record<string, unknown>> -- user-provided
   // key-value pairs with truly unknown keys at compile time.
-  const metadata = (typeof obj.metadata === 'object' && obj.metadata !== null)
-    ? obj.metadata as Readonly<Record<string, unknown>>
-    : undefined
+  const metadata =
+    typeof obj.metadata === 'object' && obj.metadata !== null
+      ? (obj.metadata as Readonly<Record<string, unknown>>)
+      : undefined
 
   const event: IngestTriggerEvent = {
     id: obj.id,

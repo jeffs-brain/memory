@@ -16,15 +16,15 @@ func TestSanitiseQuery(t *testing.T) {
 		{"hello world", "hello OR world"},
 		{"", ""},
 		{"   ", ""},
-		{`"oude reimer"`, `"oude reimer"`},
-		{"bosch*", "bosch*"},
-		{"lleverage AND bosch", "lleverage AND bosch"},
-		{"lleverage OR bosch", "lleverage OR bosch"},
-		{"lleverage NOT bosch", "lleverage AND NOT bosch"},
-		{"what about bosch", "bosch"},
+		{`"mill brook"`, `"mill brook"`},
+		{"zenco*", "zenco*"},
+		{"lleverage AND zenco", "lleverage AND zenco"},
+		{"lleverage OR zenco", "lleverage OR zenco"},
+		{"lleverage NOT zenco", "lleverage AND NOT zenco"},
+		{"what about zenco", "zenco"},
 		{"the and or", "the and or"},
 		{"(test)", "test"},
-		{"relationship between lleverage and bosch", "lleverage OR bosch"},
+		{"relationship between lleverage and zenco", "lleverage OR zenco"},
 	}
 
 	for _, tt := range tests {
@@ -52,13 +52,13 @@ func TestParseQuery(t *testing.T) {
 		},
 		{
 			name:  "single term",
-			input: "bosch",
-			want:  []Token{{Kind: TokTerm, Text: "bosch"}},
+			input: "zenco",
+			want:  []Token{{Kind: TokTerm, Text: "zenco"}},
 		},
 		{
 			name:  "stop words stripped",
-			input: "what about bosch",
-			want:  []Token{{Kind: TokTerm, Text: "bosch"}},
+			input: "what about zenco",
+			want:  []Token{{Kind: TokTerm, Text: "zenco"}},
 		},
 		{
 			name:  "all stop words",
@@ -67,44 +67,44 @@ func TestParseQuery(t *testing.T) {
 		},
 		{
 			name:  "phrase preserved",
-			input: `"oude reimer"`,
-			want:  []Token{{Kind: TokPhrase, Text: "oude reimer"}},
+			input: `"mill brook"`,
+			want:  []Token{{Kind: TokPhrase, Text: "mill brook"}},
 		},
 		{
 			name:  "phrase plus term",
-			input: `"oude reimer" bosch`,
+			input: `"mill brook" zenco`,
 			want: []Token{
-				{Kind: TokPhrase, Text: "oude reimer"},
-				{Kind: TokTerm, Text: "bosch"},
+				{Kind: TokPhrase, Text: "mill brook"},
+				{Kind: TokTerm, Text: "zenco"},
 			},
 		},
 		{
 			name:  "prefix",
-			input: "bosch*",
-			want:  []Token{{Kind: TokPrefix, Text: "bosch"}},
+			input: "zenco*",
+			want:  []Token{{Kind: TokPrefix, Text: "zenco"}},
 		},
 		{
 			name:  "explicit AND",
-			input: "lleverage AND bosch",
+			input: "lleverage AND zenco",
 			want: []Token{
 				{Kind: TokTerm, Text: "lleverage"},
-				{Kind: TokTerm, Text: "bosch", Operator: "AND"},
+				{Kind: TokTerm, Text: "zenco", Operator: "AND"},
 			},
 		},
 		{
 			name:  "explicit OR",
-			input: "lleverage OR bosch",
+			input: "lleverage OR zenco",
 			want: []Token{
 				{Kind: TokTerm, Text: "lleverage"},
-				{Kind: TokTerm, Text: "bosch", Operator: "OR"},
+				{Kind: TokTerm, Text: "zenco", Operator: "OR"},
 			},
 		},
 		{
 			name:  "explicit NOT",
-			input: "lleverage NOT bosch",
+			input: "lleverage NOT zenco",
 			want: []Token{
 				{Kind: TokTerm, Text: "lleverage"},
-				{Kind: TokTerm, Text: "bosch", Operator: "NOT"},
+				{Kind: TokTerm, Text: "zenco", Operator: "NOT"},
 			},
 		},
 		{
@@ -114,10 +114,10 @@ func TestParseQuery(t *testing.T) {
 		},
 		{
 			name:  "natural language question",
-			input: "relationship between lleverage and bosch",
+			input: "relationship between lleverage and zenco",
 			want: []Token{
 				{Kind: TokTerm, Text: "lleverage"},
-				{Kind: TokTerm, Text: "bosch"},
+				{Kind: TokTerm, Text: "zenco"},
 			},
 		},
 		{
@@ -127,18 +127,18 @@ func TestParseQuery(t *testing.T) {
 		},
 		{
 			name:  "dutch stop words stripped",
-			input: "wat is de bosch situatie",
+			input: "wat is de zenco situatie",
 			want: []Token{
-				{Kind: TokTerm, Text: "bosch"},
+				{Kind: TokTerm, Text: "zenco"},
 				{Kind: TokTerm, Text: "situatie"},
 			},
 		},
 		{
 			name:  "lowercase and is a stop word",
-			input: "lleverage and bosch",
+			input: "lleverage and zenco",
 			want: []Token{
 				{Kind: TokTerm, Text: "lleverage"},
-				{Kind: TokTerm, Text: "bosch"},
+				{Kind: TokTerm, Text: "zenco"},
 			},
 		},
 	}
@@ -174,70 +174,70 @@ func TestBuildFTS5Expr(t *testing.T) {
 		},
 		{
 			name:   "single term",
-			tokens: []Token{{Kind: TokTerm, Text: "bosch"}},
-			want:   "bosch",
+			tokens: []Token{{Kind: TokTerm, Text: "zenco"}},
+			want:   "zenco",
 		},
 		{
 			name: "two terms default OR",
 			tokens: []Token{
 				{Kind: TokTerm, Text: "lleverage"},
-				{Kind: TokTerm, Text: "bosch"},
+				{Kind: TokTerm, Text: "zenco"},
 			},
-			want: "lleverage OR bosch",
+			want: "lleverage OR zenco",
 		},
 		{
 			name: "explicit AND",
 			tokens: []Token{
 				{Kind: TokTerm, Text: "lleverage"},
-				{Kind: TokTerm, Text: "bosch", Operator: "AND"},
+				{Kind: TokTerm, Text: "zenco", Operator: "AND"},
 			},
-			want: "lleverage AND bosch",
+			want: "lleverage AND zenco",
 		},
 		{
 			name: "explicit OR",
 			tokens: []Token{
 				{Kind: TokTerm, Text: "lleverage"},
-				{Kind: TokTerm, Text: "bosch", Operator: "OR"},
+				{Kind: TokTerm, Text: "zenco", Operator: "OR"},
 			},
-			want: "lleverage OR bosch",
+			want: "lleverage OR zenco",
 		},
 		{
 			name: "NOT rewritten to AND NOT",
 			tokens: []Token{
 				{Kind: TokTerm, Text: "lleverage"},
-				{Kind: TokTerm, Text: "bosch", Operator: "NOT"},
+				{Kind: TokTerm, Text: "zenco", Operator: "NOT"},
 			},
-			want: "lleverage AND NOT bosch",
+			want: "lleverage AND NOT zenco",
 		},
 		{
 			name: "phrase token",
 			tokens: []Token{
-				{Kind: TokPhrase, Text: "oude reimer"},
+				{Kind: TokPhrase, Text: "mill brook"},
 			},
-			want: `"oude reimer"`,
+			want: `"mill brook"`,
 		},
 		{
 			name: "phrase plus term",
 			tokens: []Token{
-				{Kind: TokPhrase, Text: "oude reimer"},
-				{Kind: TokTerm, Text: "bosch"},
+				{Kind: TokPhrase, Text: "mill brook"},
+				{Kind: TokTerm, Text: "zenco"},
 			},
-			want: `"oude reimer" OR bosch`,
+			want: `"mill brook" OR zenco`,
 		},
 		{
 			name: "prefix token",
 			tokens: []Token{
-				{Kind: TokPrefix, Text: "bosch"},
+				{Kind: TokPrefix, Text: "zenco"},
 			},
-			want: "bosch*",
+			want: "zenco*",
 		},
 		{
 			name: "prefix plus term",
 			tokens: []Token{
-				{Kind: TokPrefix, Text: "bosch"},
+				{Kind: TokPrefix, Text: "zenco"},
 				{Kind: TokTerm, Text: "power"},
 			},
-			want: "bosch* OR power",
+			want: "zenco* OR power",
 		},
 		{
 			name: "three terms default OR",

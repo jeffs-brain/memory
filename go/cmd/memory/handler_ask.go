@@ -124,7 +124,8 @@ func (d *Daemon) handleAsk(w http.ResponseWriter, r *http.Request) {
 
 	chOut, err := d.LLM.CompleteStream(r.Context(), complete)
 	if err != nil {
-		_ = stream.SendJSON("error", map[string]string{"message": err.Error()})
+		d.Logger.Error("ask: completion failed", "brain", br.ID, "err", err)
+		_ = stream.SendJSON("error", map[string]string{"code": "llm_error", "message": "answer generation failed"})
 		_ = stream.SendJSON("done", map[string]any{"ok": false})
 		return
 	}

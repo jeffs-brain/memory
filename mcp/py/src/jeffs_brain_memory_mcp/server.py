@@ -78,9 +78,7 @@ def create_server(client: MemoryClient) -> Server:
         return listed
 
     @server.call_tool()
-    async def _call_tool(
-        name: str, arguments: dict[str, Any] | None
-    ) -> types.CallToolResult:
+    async def _call_tool(name: str, arguments: dict[str, Any] | None) -> types.CallToolResult:
         tool = registry.get(name)
         if tool is None:
             return types.CallToolResult(

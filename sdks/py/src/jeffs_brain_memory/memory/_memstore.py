@@ -14,7 +14,7 @@ import posixpath
 import threading
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Callable, Iterable, Protocol
+from typing import Callable, Protocol
 
 
 class NotFoundError(LookupError):

@@ -2,7 +2,7 @@
 
 Stdio Model Context Protocol server for [`@jeffs-brain/memory`](https://www.npmjs.com/package/@jeffs-brain/memory). Gives agents (Claude Code, Claude Desktop, Cursor, Windsurf, Zed) first-class access to a local or hosted Jeffs Brain.
 
-One of three wire-compatible MCP wrappers; its counterparts are the Go `cmd/memory-mcp` binary and the Python `jeffs-brain-memory-mcp` package. All three expose the same 11 `memory_*` tools defined in [`spec/MCP-TOOLS.md`](https://github.com/jeffs-brain/memory/blob/main/spec/MCP-TOOLS.md).
+One of three wire-compatible MCP wrappers; its counterparts are the Go `cmd/memory-mcp` binary and the Python `jeffs-brain-memory-mcp` package. This server and the Go one expose all 13 `memory_*` tools defined in [`spec/MCP-TOOLS.md`](https://github.com/jeffs-brain/memory/blob/main/spec/MCP-TOOLS.md); the Python one exposes 11.
 
 ## Install
 
@@ -78,7 +78,7 @@ Selected automatically:
 
 ## Tools
 
-Eleven `memory_*` tools shared with the Go and Python MCP wrappers:
+Thirteen `memory_*` tools, each advertised with its JSON Schema in `tools/list`:
 
 - `memory_remember`
 - `memory_recall`
@@ -86,6 +86,8 @@ Eleven `memory_*` tools shared with the Go and Python MCP wrappers:
 - `memory_ask`
 - `memory_ingest_file`
 - `memory_ingest_url`
+- `memory_ingest_batch`
+- `memory_ingest_directory`
 - `memory_extract`
 - `memory_reflect`
 - `memory_consolidate`

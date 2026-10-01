@@ -8,9 +8,9 @@
  * Port of go/ontology/tag.go.
  */
 
-import type { ResolvedOntology } from './store.js'
 import type { ClassificationResult } from './classify.js'
 import { determineCategory } from './classify.js'
+import type { ResolvedOntology } from './store.js'
 
 /**
  * ChunkTag is type metadata attached to a chunk for retrieval
@@ -74,10 +74,7 @@ export function tagChunks(
   return contents.map((content) => tagChunk(content, classification, ontology))
 }
 
-function matchEntityTypes(
-  lowerContent: string,
-  ontology: ResolvedOntology,
-): string[] {
+function matchEntityTypes(lowerContent: string, ontology: ResolvedOntology): string[] {
   const seen = new Set<string>()
   const matched: string[] = []
 

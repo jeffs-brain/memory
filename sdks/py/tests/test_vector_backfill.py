@@ -311,16 +311,12 @@ def test_serve_search_returns_hybrid_hits(tmp_path) -> None:
                 # a concurrent reader happy alongside the backfill writer.
                 deadline = time.monotonic() + 5.0
                 while time.monotonic() < deadline:
-                    if (
-                        _count_vectors_on_disk(tmp_path, brain_id, pinned_model)
-                        >= len(FIXTURES)
-                    ):
+                    if _count_vectors_on_disk(tmp_path, brain_id, pinned_model) >= len(FIXTURES):
                         break
                     time.sleep(0.05)
                 final = _count_vectors_on_disk(tmp_path, brain_id, pinned_model)
                 assert final >= len(FIXTURES), (
-                    "expected backfill to persist every FTS row; "
-                    f"got {final}"
+                    f"expected backfill to persist every FTS row; got {final}"
                 )
 
                 resp = client.post(
@@ -334,10 +330,7 @@ def test_serve_search_returns_hybrid_hits(tmp_path) -> None:
                 trace = body.get("trace", {})
                 assert trace.get("embedder_used") is True
                 assert int(trace.get("vector_hits") or 0) > 0
-                assert any(
-                    float(chunk.get("vectorSimilarity") or 0.0) > 0.0
-                    for chunk in chunks
-                )
+                assert any(float(chunk.get("vectorSimilarity") or 0.0) > 0.0 for chunk in chunks)
     finally:
         asyncio.run(daemon.close())
 

@@ -84,7 +84,7 @@ describe('buildProvider / anthropic baseURL wiring', () => {
     // here is enough to assert the baseURL is honoured.
     const seen: { url?: string } = {}
     const originalFetch = globalThis.fetch
-    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
       const url =
         typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
       seen.url = url

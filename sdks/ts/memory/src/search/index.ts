@@ -181,9 +181,9 @@ export async function createSearchIndex(opts: CreateSearchIndexOptions = {}): Pr
     },
     deleteByPath: (path) => {
       const ids = (
-        db
-          .prepare('SELECT id FROM knowledge_chunks WHERE path = ?')
-          .all(path) as Array<{ id: string }>
+        db.prepare('SELECT id FROM knowledge_chunks WHERE path = ?').all(path) as Array<{
+          id: string
+        }>
       ).map((r) => r.id)
       deleteByPath(db, path)
       deleteChunkMetadataBatch(db, ids)

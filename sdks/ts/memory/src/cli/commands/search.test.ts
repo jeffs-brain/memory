@@ -97,8 +97,12 @@ describe('search command', () => {
     mocked.buildReranker.mockReturnValue(reranker)
 
     await searchCommand.run?.({
+      rawArgs: [],
+      cmd: searchCommand,
       args: {
+        _: [],
         query: 'hotel',
+        brain: '/tmp/brain',
         mode: 'hybrid',
         rerank: true,
         json: true,
@@ -125,8 +129,12 @@ describe('search command', () => {
     mocked.openBrain.mockResolvedValue(store)
 
     await searchCommand.run?.({
+      rawArgs: [],
+      cmd: searchCommand,
       args: {
+        _: [],
         query: 'hotel',
+        brain: '/tmp/brain',
         mode: 'hybrid-rerank',
         rerank: false,
         json: true,

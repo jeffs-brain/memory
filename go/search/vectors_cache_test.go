@@ -359,20 +359,20 @@ func TestVectorIndex_SearchReturnsHydratedHits(t *testing.T) {
 
 	entries := []VectorEntry{
 		{
-			Path:     "clients/bosch.md",
-			Checksum: "bosch",
+			Path:     "clients/zenco.md",
+			Checksum: "zenco",
 			Model:    testModel,
 			Vector:   []float32{1, 0, 0},
-			Title:    "Bosch Power Tools",
+			Title:    "Zenco Power Tools",
 			Summary:  "Manufacturing automation partner",
 			Topic:    "clients",
 		},
 		{
-			Path:     "clients/heineken.md",
-			Checksum: "heineken",
+			Path:     "clients/northbrew.md",
+			Checksum: "northbrew",
 			Model:    testModel,
 			Vector:   []float32{0.9, 0.1, 0},
-			Title:    "Heineken",
+			Title:    "Northbrew",
 			Summary:  "Beverage distribution pipelines",
 			Topic:    "clients",
 		},
@@ -394,25 +394,25 @@ func TestVectorIndex_SearchReturnsHydratedHits(t *testing.T) {
 		byPath[h.Path] = h
 	}
 
-	bosch, ok := byPath["clients/bosch.md"]
+	zenco, ok := byPath["clients/zenco.md"]
 	if !ok {
-		t.Fatalf("bosch hit missing from results")
+		t.Fatalf("zenco hit missing from results")
 	}
-	if bosch.Title != "Bosch Power Tools" {
-		t.Errorf("bosch title = %q, want %q", bosch.Title, "Bosch Power Tools")
+	if zenco.Title != "Zenco Power Tools" {
+		t.Errorf("zenco title = %q, want %q", zenco.Title, "Zenco Power Tools")
 	}
-	if bosch.Summary != "Manufacturing automation partner" {
-		t.Errorf("bosch summary = %q", bosch.Summary)
+	if zenco.Summary != "Manufacturing automation partner" {
+		t.Errorf("zenco summary = %q", zenco.Summary)
 	}
 
-	heineken, ok := byPath["clients/heineken.md"]
+	northbrew, ok := byPath["clients/northbrew.md"]
 	if !ok {
-		t.Fatalf("heineken hit missing from results")
+		t.Fatalf("northbrew hit missing from results")
 	}
-	if heineken.Title != "Heineken" {
-		t.Errorf("heineken title = %q, want Heineken", heineken.Title)
+	if northbrew.Title != "Northbrew" {
+		t.Errorf("northbrew title = %q, want Northbrew", northbrew.Title)
 	}
-	if heineken.Summary != "Beverage distribution pipelines" {
-		t.Errorf("heineken summary = %q", heineken.Summary)
+	if northbrew.Summary != "Beverage distribution pipelines" {
+		t.Errorf("northbrew summary = %q", northbrew.Summary)
 	}
 }

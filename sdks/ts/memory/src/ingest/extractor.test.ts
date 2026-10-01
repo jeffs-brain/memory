@@ -147,7 +147,12 @@ describe('createExtractorRegistry', () => {
         return true
       },
       capability(): ExtractorCapability {
-        return { extensions: ['.txt'], mimeTypes: ['text/plain'], magicBytes: [], requiresBinary: false }
+        return {
+          extensions: ['.txt'],
+          mimeTypes: ['text/plain'],
+          magicBytes: [],
+          requiresBinary: false,
+        }
       },
     }
     registry.register(custom)
@@ -204,7 +209,12 @@ describe('createExtractorRegistry', () => {
         return true
       },
       capability(): ExtractorCapability {
-        return { extensions: [], mimeTypes: ['application/x-test'], magicBytes: [], requiresBinary: false }
+        return {
+          extensions: [],
+          mimeTypes: ['application/x-test'],
+          magicBytes: [],
+          requiresBinary: false,
+        }
       },
     }
     registry.register(custom)
@@ -306,7 +316,9 @@ describe('detectEncoding', () => {
 
   it('detects Windows-1252 for content with C1 controls', () => {
     // 0x93 and 0x94 are smart quotes in Windows-1252
-    const raw = Buffer.from([0x48, 0x65, 0x6c, 0x6c, 0x6f, 0x20, 0x93, 0x77, 0x6f, 0x72, 0x6c, 0x64, 0x94])
+    const raw = Buffer.from([
+      0x48, 0x65, 0x6c, 0x6c, 0x6f, 0x20, 0x93, 0x77, 0x6f, 0x72, 0x6c, 0x64, 0x94,
+    ])
     expect(detectEncoding(raw)).toBe('Windows-1252')
   })
 
@@ -341,7 +353,9 @@ describe('transcodeToUTF8', () => {
   })
 
   it('transcodes Windows-1252 smart quotes', () => {
-    const raw = Buffer.from([0x48, 0x65, 0x6c, 0x6c, 0x6f, 0x20, 0x93, 0x77, 0x6f, 0x72, 0x6c, 0x64, 0x94])
+    const raw = Buffer.from([
+      0x48, 0x65, 0x6c, 0x6c, 0x6f, 0x20, 0x93, 0x77, 0x6f, 0x72, 0x6c, 0x64, 0x94,
+    ])
     const result = transcodeToUTF8(raw, 'Windows-1252')
     expect(result.toString('utf8')).toContain('Hello')
     expect(result.toString('utf8')).toContain('world')

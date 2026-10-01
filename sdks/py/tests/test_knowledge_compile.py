@@ -78,7 +78,7 @@ async def test_compile_skips_non_markdown_entries() -> None:
     base, store = _kb()
     await _seed(base, ["Delta"])
     # Inject a non-markdown entry that should be ignored.
-    await store.write("raw/documents/extra.json", b"{\"k\": 1}")
+    await store.write("raw/documents/extra.json", b'{"k": 1}')
     res = await base.compile(CompileOptions())
     assert res.documents == 1
 

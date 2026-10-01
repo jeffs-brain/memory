@@ -10,15 +10,16 @@ from __future__ import annotations
 
 import asyncio
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import AsyncIterator, Awaitable, Callable
+from typing import AsyncIterator, Callable
 
 from ..errors import ErrNotFound, ErrReadOnly
 from ..path import BrainPath, validate_path
 from . import (
     Batch,
+    BatchFn,
     BatchOptions,
     ChangeEvent,
     ChangeKind,
@@ -128,9 +129,7 @@ class FsStore(Store):
             os.remove(abs_path)
         except FileNotFoundError as exc:
             raise ErrNotFound(f"fsstore: delete {path}: not found") from exc
-        self._dispatch(
-            ChangeEvent(kind=ChangeKind.DELETED, path=BrainPath(str(path)), when=_now())
-        )
+        self._dispatch(ChangeEvent(kind=ChangeKind.DELETED, path=BrainPath(str(path)), when=_now()))
 
     async def rename(self, src: BrainPath, dst: BrainPath) -> None:
         self._check_open()
@@ -153,7 +152,7 @@ class FsStore(Store):
 
     async def batch(
         self,
-        fn: Callable[[Batch], Awaitable[None]] | Callable[[Batch], None],
+        fn: BatchFn,
         opts: BatchOptions | None = None,
     ) -> None:
         self._check_open()
@@ -220,7 +219,9 @@ class _FsBatch(Batch):
         self.store = store
         self.ops: list[_Op] = []
 
-    async def _effective(self, path: BrainPath, upto: int | None = None) -> tuple[bytes | None, bool, bool]:
+    async def _effective(
+        self, path: BrainPath, upto: int | None = None
+    ) -> tuple[bytes | None, bool, bool]:
         """Return (content, present, from_store)."""
         if upto is None:
             upto = len(self.ops)
@@ -284,9 +285,7 @@ class _FsBatch(Batch):
         assert content is not None
         return FileInfo(path=path, size=len(content), mtime=_now(), is_dir=False)
 
-    async def list(
-        self, dir: BrainPath | str = "", opts: ListOpts | None = None
-    ) -> list[FileInfo]:
+    async def list(self, dir: BrainPath | str = "", opts: ListOpts | None = None) -> list[FileInfo]:
         opts = opts or ListOpts()
         base = await self.store.list(dir, opts)
         by_path: dict[BrainPath, FileInfo] = {fi.path: fi for fi in base}
@@ -307,9 +306,7 @@ class _FsBatch(Batch):
         from ..path import is_generated  # local import avoids cycle at module top.
 
         result = [
-            fi
-            for fi in by_path.values()
-            if opts.include_generated or not is_generated(fi.path)
+            fi for fi in by_path.values() if opts.include_generated or not is_generated(fi.path)
         ]
         result.sort(key=lambda fi: fi.path)
         return result
@@ -345,7 +342,7 @@ class _FsBatch(Batch):
         touched: list[BrainPath] = []
         seen: set[BrainPath] = set()
         for op in self.ops:
-            for p in ([op.path] + ([op.src] if op.kind == "rename" and op.src else [])):
+            for p in [op.path] + ([op.src] if op.kind == "rename" and op.src else []):
                 if p not in seen:
                     seen.add(p)
                     touched.append(p)

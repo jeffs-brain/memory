@@ -90,9 +90,7 @@ def test_jaccard_similarity() -> None:
 def test_trigram_index_finds_typo_match() -> None:
     from jeffs_brain_memory.retrieval import TrigramChunk
 
-    idx = build_trigram_index(
-        [TrigramChunk(id="k", path="wiki/kubernetes.md")]
-    )
+    idx = build_trigram_index([TrigramChunk(id="k", path="wiki/kubernetes.md")])
     hits = idx.search(["kubernets"], 5)
     assert len(hits) == 1
     assert hits[0].id == "k"
@@ -126,9 +124,7 @@ async def test_initial_fanout_includes_strongest_term_probe() -> None:
 
 
 async def test_rung3_refreshed_sanitised_fires() -> None:
-    src = FakeSource(
-        [FakeChunk(id="a", path="wiki/foo.md", title="foo", content="alphabet")]
-    )
+    src = FakeSource([FakeChunk(id="a", path="wiki/foo.md", title="foo", content="alphabet")])
     calls = {"n": 0}
 
     def override(expr: str) -> tuple[list[BM25Hit], bool]:
@@ -176,16 +172,12 @@ async def test_rung5_trigram_fuzzy_fires() -> None:
     src = FakeSource(
         [
             FakeChunk(id="kube", path="wiki/kubernetes.md", title="Kubernetes"),
-            FakeChunk(
-                id="arch", path="wiki/archipelago.md", title="Archipelago"
-            ),
+            FakeChunk(id="arch", path="wiki/archipelago.md", title="Archipelago"),
         ]
     )
     src.bm25_override = lambda expr: ([], True)
     r = Retriever(source=src)
-    resp = await r.retrieve(
-        Request(query="kubernets", mode=Mode.BM25, top_k=5)
-    )
+    resp = await r.retrieve(Request(query="kubernets", mode=Mode.BM25, top_k=5))
     assert resp.trace.used_retry
     trigram = [a for a in resp.attempts if a.reason == "trigram_fuzzy"]
     assert trigram and trigram[0].rung == 5
@@ -197,8 +189,6 @@ async def test_skip_retry_ladder_bypasses_rungs() -> None:
     src = FakeSource(_retry_corpus())
     src.bm25_override = lambda expr: ([], True)
     r = Retriever(source=src)
-    resp = await r.retrieve(
-        Request(query="kubernetes", mode=Mode.BM25, skip_retry_ladder=True)
-    )
+    resp = await r.retrieve(Request(query="kubernetes", mode=Mode.BM25, skip_retry_ladder=True))
     assert not resp.trace.used_retry
     assert len(resp.attempts) == 1

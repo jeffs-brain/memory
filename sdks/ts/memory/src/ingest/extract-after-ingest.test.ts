@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from 'vitest'
+import type { ExtractArgs, ExtractedMemory, Memory } from '../memory/types.js'
 import { extractAfterIngest } from './extract-after-ingest.js'
-import type { Memory, ExtractedMemory, ExtractArgs } from '../memory/types.js'
 
 const makeMemoryStub = (
   extractFn: (args: ExtractArgs) => Promise<readonly ExtractedMemory[]>,

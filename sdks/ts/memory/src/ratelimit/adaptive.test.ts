@@ -5,9 +5,9 @@
  */
 
 import { afterEach, describe, expect, it } from 'vitest'
-import type { RateLimiter } from './types.js'
 import { createAdaptiveRateLimiter } from './adaptive.js'
 import { createTokenBucket } from './token-bucket.js'
+import type { RateLimiter } from './types.js'
 
 describe('createAdaptiveRateLimiter', () => {
   const limitersTeardown: RateLimiter[] = []
@@ -67,10 +67,7 @@ describe('createAdaptiveRateLimiter', () => {
   })
 
   it('rate never drops below minRefillRate', () => {
-    const { adaptive } = makeAdaptive(
-      { refillRatePerSecond: 2 },
-      { minRefillRate: 5 },
-    )
+    const { adaptive } = makeAdaptive({ refillRatePerSecond: 2 }, { minRefillRate: 5 })
 
     // Repeatedly throttle.
     for (let i = 0; i < 20; i++) {

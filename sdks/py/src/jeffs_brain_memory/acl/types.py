@@ -99,9 +99,7 @@ class Provider(Protocol):
 
     name: str
 
-    async def check(
-        self, subject: Subject, action: Action, resource: Resource
-    ) -> CheckResult: ...
+    async def check(self, subject: Subject, action: Action, resource: Resource) -> CheckResult: ...
 
     async def write(self, request: WriteTuplesRequest) -> None: ...
 

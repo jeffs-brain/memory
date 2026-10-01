@@ -2,21 +2,38 @@
 
 /**
  * Stdio MCP server bootstrap. Wires the Model Context Protocol SDK to
- * the unified `MemoryClient` and registers the eleven `memory_*` tools
+ * the unified `MemoryClient` and registers the thirteen `memory_*` tools
  * from `./tools/`.
  */
 
+import { readFileSync } from 'node:fs'
 import { Server } from '@modelcontextprotocol/sdk/server/index.js'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js'
-import { z } from 'zod'
+import { z } from 'zod/v4'
 import { resolveConfig } from './config.js'
 import { type MemoryClient, type ProgressEmitter, createMemoryClient } from './memory-client.js'
 import { type Tool, type ToolResult, tools } from './tools/index.js'
 import type { ToolContext } from './tools/types.js'
 
 export const SERVER_NAME = '@jeffs-brain/memory-mcp'
-export const SERVER_VERSION = '1.0.0'
+
+/** Read `version` from package.json at `relative` to this module. */
+const readPackageVersion = (relative: string): string => {
+  const raw: unknown = JSON.parse(readFileSync(new URL(relative, import.meta.url), 'utf8'))
+  if (
+    typeof raw === 'object' &&
+    raw !== null &&
+    'version' in raw &&
+    typeof raw.version === 'string'
+  ) {
+    return raw.version
+  }
+  throw new Error(`package.json at ${relative} has no version`)
+}
+
+/** The published package version, read so it can never drift. */
+export const SERVER_VERSION = readPackageVersion('../package.json')
 
 type ToolRegistry = ReadonlyMap<string, Tool>
 
@@ -31,15 +48,15 @@ const buildRegistry = (): ToolRegistry => {
   return map
 }
 
-const toJsonSchema = (schema: z.ZodTypeAny): Record<string, unknown> => {
-  // TODO(next-pass): replace with zod-to-json-schema once we pull it in.
-  // Advertising a permissive object schema is enough for MCP clients to
-  // invoke the tool; the real validation happens inside `handler` via
-  // `schema.parse(args)`.
-  if (schema instanceof z.ZodObject) {
-    return { type: 'object' }
-  }
-  return { type: 'object' }
+/**
+ * The JSON Schema advertised in `tools/list`, generated from the same zod
+ * schema that validates the call. `io: 'input'` keeps defaulted fields
+ * optional, and the `$schema` marker is dropped to match the Go and
+ * Python servers.
+ */
+export const toJsonSchema = (schema: z.ZodType): Record<string, unknown> => {
+  const { $schema: _dialect, ...rest } = z.toJSONSchema(schema, { io: 'input' })
+  return rest
 }
 
 const runTool = async (

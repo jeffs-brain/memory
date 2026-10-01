@@ -2,13 +2,13 @@
 
 import { describe, expect, it, vi } from 'vitest'
 import {
-  OAuth2Client,
   InvalidOAuth2ConfigError,
-  TokenRefreshError,
-  isTokenExpired,
+  OAuth2Client,
   type OAuth2Config,
   type OAuth2Token,
   type TokenExchanger,
+  TokenRefreshError,
+  isTokenExpired,
 } from './oauth2.js'
 
 const validConfig = (): OAuth2Config => ({

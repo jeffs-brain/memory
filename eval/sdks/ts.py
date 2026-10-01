@@ -4,6 +4,7 @@
 Launches the compiled `memory` CLI from `sdks/ts/memory/dist/cli.js` via
 `node`. Builds the dist if missing. The CLI accepts `--addr host:port`.
 """
+
 from __future__ import annotations
 
 import subprocess

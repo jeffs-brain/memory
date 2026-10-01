@@ -6,6 +6,7 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 
 import { createHashEmbedder } from '../llm/index.js'
+import { toPath } from '../store/index.js'
 import { Daemon, createRouter } from './index.js'
 
 type Fixture = {
@@ -33,10 +34,10 @@ const makeFixture = async (): Promise<Fixture> => {
 const makeRequest = (
   method: string,
   path: string,
-  init: { body?: BodyInit; headers?: Record<string, string> } = {},
+  init: { body?: RequestInit['body']; headers?: Record<string, string> } = {},
 ): Request => {
   const headers = new Headers(init.headers ?? {})
-  return new Request(`http://daemon${path}`, {
+  return new Request(`http://localhost${path}`, {
     method,
     headers,
     ...(init.body !== undefined ? { body: init.body } : {}),
@@ -66,7 +67,7 @@ describe('handleSearch raw_lme scope', () => {
 
     const brain = await daemon.brains.get('lme')
     await brain.store.write(
-      'raw/lme/session-1.md',
+      toPath('raw/lme/session-1.md'),
       Buffer.from(
         [
           '---',
@@ -79,7 +80,7 @@ describe('handleSearch raw_lme scope', () => {
       ),
     )
     await brain.store.write(
-      'raw/documents/apples.md',
+      toPath('raw/documents/apples.md'),
       Buffer.from('A raw document about apples.\n'),
     )
     await brain.refresh()

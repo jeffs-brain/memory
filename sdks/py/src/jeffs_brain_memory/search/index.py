@@ -334,13 +334,14 @@ def _scope_matches_filter(row_scope: str, want: Any) -> bool:
         "wiki": {"wiki"},
         "sources": {"sources"},
     }
+    expected: set[str]
     if isinstance(want, str):
         trimmed = want.strip().lower()
         if not trimmed:
             return True
         expected = aliases.get(trimmed, {trimmed})
     elif isinstance(want, (list, tuple, set)):
-        expected: set[str] = set()
+        expected = set()
         for value in want:
             trimmed = str(value).strip().lower()
             if not trimmed:
@@ -394,7 +395,7 @@ class Index:
         regardless of this result.
         """
         try:
-            import sqlite_vec  # type: ignore[import-not-found]
+            import sqlite_vec
         except ImportError:
             _log.debug("sqlite-vec not installed; falling back to pure-Python cosine")
             return False
@@ -601,8 +602,7 @@ class Index:
             return []
 
         limit = opts.max_results or top_k or 20
-        sql = (
-            """
+        sql = """
             SELECT
                 fts.path       AS path,
                 fts.title      AS title,
@@ -624,7 +624,6 @@ class Index:
             ORDER BY fts.rank
             LIMIT ?
             """
-        )
         rows = self._conn.execute(sql, (expr, max(limit * 3, 100))).fetchall()
 
         hits: list[BM25Hit] = []
@@ -883,7 +882,8 @@ class Index:
             )
 
             def reader(path: str) -> bytes:
-                return asyncio.run(store.read(path))
+                data: bytes = asyncio.run(store.read(path))
+                return data
 
         count = 0
         with self._conn:

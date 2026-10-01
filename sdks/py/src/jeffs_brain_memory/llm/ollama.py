@@ -111,9 +111,7 @@ def _build_request(
     out: dict[str, object] = {
         "model": model,
         "stream": stream,
-        "messages": [
-            {"role": m.role.value, "content": m.content} for m in req.messages
-        ],
+        "messages": [{"role": m.role.value, "content": m.content} for m in req.messages],
     }
     if req.temperature or req.max_tokens or req.stop:
         options: dict[str, object] = {}
@@ -171,9 +169,7 @@ class OllamaEmbedder:
         data = resp.json()
         if data.get("error"):
             raise LLMError(f"llm: ollama embed: {data['error']}")
-        return [
-            [float(x) for x in row] for row in (data.get("embeddings") or [])
-        ]
+        return [[float(x) for x in row] for row in (data.get("embeddings") or [])]
 
     def dimensions(self) -> int:
         return self._dimensions

@@ -1,11 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from 'vitest'
-import {
-  ConnectorRegistry,
-  ConnectorNotFoundError,
-  ConnectorExistsError,
-} from './registry.js'
+import { ConnectorExistsError, ConnectorNotFoundError, ConnectorRegistry } from './registry.js'
 import type { Connector, ConnectorConfig, ConnectorDocument, SyncCursor } from './types.js'
 
 const stubConnector = (name: string): Connector => ({
@@ -17,7 +13,10 @@ const stubConnector = (name: string): Connector => ({
   stop: async () => {},
 })
 
-const stubFactory = (name: string) => (_cfg: ConnectorConfig): Connector => stubConnector(name)
+const stubFactory =
+  (name: string) =>
+  (_cfg: ConnectorConfig): Connector =>
+    stubConnector(name)
 
 describe('ConnectorRegistry', () => {
   it('registers and looks up a connector', () => {

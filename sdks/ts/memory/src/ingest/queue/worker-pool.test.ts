@@ -26,7 +26,9 @@ type FakeAdapterState = {
   pendingDepth: number
 }
 
-const createFakeAdapter = (initialJobs: ReadonlyArray<QueueJob> = []): QueueAdapter & {
+const createFakeAdapter = (
+  initialJobs: ReadonlyArray<QueueJob> = [],
+): QueueAdapter & {
   state: FakeAdapterState
 } => {
   const state: FakeAdapterState = {
@@ -89,11 +91,10 @@ const createFakeAdapter = (initialJobs: ReadonlyArray<QueueJob> = []): QueueAdap
       // preserving the original brain ID and retry count.
       const original = state.claimedJobs.get(jobId)
       if (original !== undefined) {
+        const { claimedBy: _claimedBy, claimedAt: _claimedAt, ...unclaimed } = original
         state.jobs.push({
-          ...original,
+          ...unclaimed,
           status: 'pending',
-          claimedBy: undefined,
-          claimedAt: undefined,
           updatedAt: new Date(),
         })
         state.claimedJobs.delete(jobId)
@@ -121,16 +122,19 @@ const createFakeAdapter = (initialJobs: ReadonlyArray<QueueJob> = []): QueueAdap
 }
 
 const makeJobs = (count: number, brainId: string): ReadonlyArray<QueueJob> =>
-  Array.from({ length: count }, (_, i): QueueJob => ({
-    id: `job-${i}`,
-    brainId,
-    payload: { kind: 'raw', content: JSON.stringify({ doc: String(i) }) },
-    status: 'pending',
-    retryCount: 0,
-    maxRetries: 3,
-    createdAt: new Date(),
-    updatedAt: new Date(),
-  }))
+  Array.from(
+    { length: count },
+    (_, i): QueueJob => ({
+      id: `job-${i}`,
+      brainId,
+      payload: { kind: 'raw', content: JSON.stringify({ doc: String(i) }) },
+      status: 'pending',
+      retryCount: 0,
+      maxRetries: 3,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    }),
+  )
 
 const makeMultiBrainJobs = (
   perBrain: number,
@@ -138,24 +142,23 @@ const makeMultiBrainJobs = (
 ): ReadonlyArray<QueueJob> => {
   let seq = 0
   return brainIds.flatMap((brainId) =>
-    Array.from({ length: perBrain }, (): QueueJob => ({
-      id: `job-${seq++}`,
-      brainId,
-      payload: { kind: 'raw' },
-      status: 'pending',
-      retryCount: 0,
-      maxRetries: 3,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    })),
+    Array.from(
+      { length: perBrain },
+      (): QueueJob => ({
+        id: `job-${seq++}`,
+        brainId,
+        payload: { kind: 'raw' },
+        status: 'pending',
+        retryCount: 0,
+        maxRetries: 3,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      }),
+    ),
   )
 }
 
-const waitFor = (
-  predicate: () => boolean,
-  timeoutMs: number = 5000,
-  intervalMs: number = 10,
-): Promise<void> =>
+const waitFor = (predicate: () => boolean, timeoutMs = 5000, intervalMs = 10): Promise<void> =>
   new Promise((resolve, reject) => {
     const deadline = Date.now() + timeoutMs
     const tick = () => {
@@ -240,10 +243,7 @@ describe('createWorkerPool', () => {
     // Wait for all 6 jobs to complete. Jobs that hit the per-brain
     // concurrency limit are requeued (not failed), so they re-enter
     // the pending pool and are eventually processed.
-    await waitFor(
-      () => adapter.state.completed.length >= 6,
-      30_000,
-    )
+    await waitFor(() => adapter.state.completed.length >= 6, 30_000)
     await pool.stop()
 
     expect(maxBrainConcurrent).toBeLessThanOrEqual(2)
@@ -363,9 +363,7 @@ describe('createWorkerPool', () => {
     pools.push(pool)
     pool.start()
 
-    await waitFor(
-      () => adapter.state.completed.length >= 4,
-    )
+    await waitFor(() => adapter.state.completed.length >= 4)
     await pool.stop()
 
     expect(bothObserved).toBe(true)
@@ -421,9 +419,7 @@ describe('createWorkerPool', () => {
     pools.push(pool)
     pool.start()
 
-    await waitFor(
-      () => adapter.state.completed.length + adapter.state.failed.length >= 3,
-    )
+    await waitFor(() => adapter.state.completed.length + adapter.state.failed.length >= 3)
     await pool.stop()
 
     const finalMetrics = pool.metrics()
@@ -555,8 +551,8 @@ describe('createWorkerPool', () => {
 })
 
 describe('resolveConcurrency and resolvePollInterval environment overrides', () => {
-  const originalWorkerCount = process.env['MEMORY_WORKER_COUNT']
-  const originalPollInterval = process.env['MEMORY_INGEST_WORKER_INTERVAL_MS']
+  const originalWorkerCount = process.env.MEMORY_WORKER_COUNT
+  const originalPollInterval = process.env.MEMORY_INGEST_WORKER_INTERVAL_MS
 
   afterEach(() => {
     // Restore original environment.
@@ -574,7 +570,7 @@ describe('resolveConcurrency and resolvePollInterval environment overrides', () 
   })
 
   it('uses MEMORY_WORKER_COUNT env var when concurrency config is omitted', async () => {
-    process.env['MEMORY_WORKER_COUNT'] = '7'
+    process.env.MEMORY_WORKER_COUNT = '7'
     const adapter = createFakeAdapter()
     let observedConcurrency = 0
 
@@ -607,7 +603,7 @@ describe('resolveConcurrency and resolvePollInterval environment overrides', () 
   })
 
   it('config concurrency takes precedence over env var', async () => {
-    process.env['MEMORY_WORKER_COUNT'] = '20'
+    process.env.MEMORY_WORKER_COUNT = '20'
     const adapter = createFakeAdapter()
 
     const pool = createWorkerPool({
@@ -629,7 +625,7 @@ describe('resolveConcurrency and resolvePollInterval environment overrides', () 
   })
 
   it('uses MEMORY_INGEST_WORKER_INTERVAL_MS env var for poll interval', async () => {
-    process.env['MEMORY_INGEST_WORKER_INTERVAL_MS'] = '50'
+    process.env.MEMORY_INGEST_WORKER_INTERVAL_MS = '50'
     const adapter = createFakeAdapter()
     let pollCount = 0
 
@@ -660,7 +656,7 @@ describe('resolveConcurrency and resolvePollInterval environment overrides', () 
   })
 
   it('ignores invalid MEMORY_WORKER_COUNT and uses default', async () => {
-    process.env['MEMORY_WORKER_COUNT'] = 'not-a-number'
+    process.env.MEMORY_WORKER_COUNT = 'not-a-number'
     const adapter = createFakeAdapter()
 
     const pool = createWorkerPool({

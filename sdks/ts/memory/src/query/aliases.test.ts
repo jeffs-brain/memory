@@ -13,38 +13,36 @@ describe('expand (alias expansion)', () => {
   })
 
   it('expands a single-alternative alias into one token (pass-through)', () => {
-    const ast = parseQuery('bosch')
-    const table = new Map<string, readonly string[]>([['bosch', ['bosch']]])
+    const ast = parseQuery('zenco')
+    const table = new Map<string, readonly string[]>([['zenco', ['zenco']]])
     const out = expand(ast, table)
-    expect(out.tokens).toEqual([{ kind: 'term', text: 'bosch' }])
+    expect(out.tokens).toEqual([{ kind: 'term', text: 'zenco' }])
   })
 
   it('expands a single-alternative alias into a replacement token', () => {
-    const ast = parseQuery('dude')
-    const table = new Map<string, readonly string[]>([['dude', ['oude']]])
+    const ast = parseQuery('hill')
+    const table = new Map<string, readonly string[]>([['hill', ['mill']]])
     const out = expand(ast, table)
-    expect(out.tokens).toEqual([{ kind: 'term', text: 'oude' }])
+    expect(out.tokens).toEqual([{ kind: 'term', text: 'mill' }])
   })
 
   it('expands multi-target aliases into phrase tokens for hyphenated values', () => {
-    const ast = parseQuery('aware production')
-    const table = new Map<string, readonly string[]>([
-      ['aware', ['royal-aware', 'a-ware', 'aware']],
-    ])
+    const ast = parseQuery('evolt production')
+    const table = new Map<string, readonly string[]>([['evolt', ['nova-evolt', 'e-volt', 'evolt']]])
     const out = expand(ast, table)
     const surface = out.tokens.map((t) => `${t.kind}:${t.text}`).sort()
-    expect(surface).toContain('phrase:royal aware')
-    expect(surface).toContain('phrase:a ware')
-    expect(surface).toContain('term:aware')
+    expect(surface).toContain('phrase:nova evolt')
+    expect(surface).toContain('phrase:e volt')
+    expect(surface).toContain('term:evolt')
     expect(surface).toContain('term:production')
   })
 
   it('matches aliases case-insensitively', () => {
-    const ast = parseQuery('BOSCH')
-    const table = new Map<string, readonly string[]>([['bosch', ['bosch', 'robert-bosch']]])
+    const ast = parseQuery('ZENCO')
+    const table = new Map<string, readonly string[]>([['zenco', ['zenco', 'zenco-group']]])
     const out = expand(ast, table)
     const surface = out.tokens.map((t) => `${t.kind}:${t.text}`).sort()
-    expect(surface).toEqual(['phrase:robert bosch', 'term:bosch'])
+    expect(surface).toEqual(['phrase:zenco group', 'term:zenco'])
   })
 
   it('carries the leading operator onto the first expanded token only', () => {
@@ -59,14 +57,14 @@ describe('expand (alias expansion)', () => {
   })
 
   it('leaves phrase and prefix tokens untouched', () => {
-    const ast = parseQuery('"bosch" kube*')
+    const ast = parseQuery('"zenco" kube*')
     const table = new Map<string, readonly string[]>([
-      ['bosch', ['bosch', 'robert-bosch']],
+      ['zenco', ['zenco', 'zenco-group']],
       ['kube', ['k8s', 'kubernetes']],
     ])
     const out = expand(ast, table)
     expect(out.tokens).toEqual([
-      { kind: 'phrase', text: 'bosch' },
+      { kind: 'phrase', text: 'zenco' },
       { kind: 'prefix', text: 'kube' },
     ])
   })

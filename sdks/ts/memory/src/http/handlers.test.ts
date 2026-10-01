@@ -10,7 +10,7 @@
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { createHashEmbedder } from '../llm/index.js'
 import type { CompletionRequest, CompletionResponse, Provider, StreamEvent } from '../llm/index.js'
@@ -79,10 +79,10 @@ const makeFixture = async (): Promise<Fixture> => {
 const makeRequest = (
   method: string,
   path: string,
-  init: { body?: BodyInit; headers?: Record<string, string> } = {},
+  init: { body?: RequestInit['body']; headers?: Record<string, string> } = {},
 ): Request => {
   const headers = new Headers(init.headers ?? {})
-  return new Request(`http://daemon${path}`, {
+  return new Request(`http://localhost${path}`, {
     method,
     headers,
     ...(init.body !== undefined ? { body: init.body } : {}),
@@ -156,17 +156,8 @@ describe('handleAsk reader modes', () => {
     await seedBrain(handler, 'lme')
 
     const brain = await daemon.brains.get('lme')
-    expect(brain.retrieval).toBeDefined()
-    const capture: { request?: Record<string, unknown> } = {}
-    const originalSearchRaw = brain.retrieval?.searchRaw.bind(brain.retrieval)
-    ;(
-      brain.retrieval as {
-        searchRaw: (request: Record<string, unknown>) => ReturnType<typeof originalSearchRaw>
-      }
-    ).searchRaw = async (request) => {
-      capture.request = request
-      return originalSearchRaw(request)
-    }
+    if (brain.retrieval === undefined) throw new Error('expected retrieval')
+    const searchRaw = vi.spyOn(brain.retrieval, 'searchRaw')
 
     const resp = await handler(
       makeRequest('POST', '/v1/brains/lme/search', {
@@ -181,7 +172,7 @@ describe('handleAsk reader modes', () => {
     )
 
     expect(resp.status).toBe(200)
-    expect(capture.request?.filters).toEqual({ paths: ['hedgehog.md'] })
+    expect(searchRaw.mock.lastCall?.[0].filters).toEqual({ paths: ['hedgehog.md'] })
   })
 
   it('basic mode keeps the existing prompt + params', async () => {
@@ -335,7 +326,7 @@ describe('handleAsk reader modes', () => {
     await seedBrain(handler, 'lme')
 
     const res = await handler(
-      new Request('http://local/v1/brains/lme/ask', {
+      new Request('http://localhost/v1/brains/lme/ask', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
@@ -356,17 +347,8 @@ describe('handleAsk reader modes', () => {
     await seedBrain(handler, 'lme')
 
     const brain = await daemon.brains.get('lme')
-    expect(brain.retrieval).toBeDefined()
-    const capture: { request?: Record<string, unknown> } = {}
-    const originalSearchRaw = brain.retrieval?.searchRaw.bind(brain.retrieval)
-    ;(
-      brain.retrieval as {
-        searchRaw: (request: Record<string, unknown>) => ReturnType<typeof originalSearchRaw>
-      }
-    ).searchRaw = async (request) => {
-      capture.request = request
-      return originalSearchRaw(request)
-    }
+    if (brain.retrieval === undefined) throw new Error('expected retrieval')
+    const searchRaw = vi.spyOn(brain.retrieval, 'searchRaw')
 
     await drainAsk(handler, {
       question: 'where does the hedgehog live',
@@ -379,8 +361,8 @@ describe('handleAsk reader modes', () => {
       },
     })
 
-    expect(capture.request?.candidateK).toBe(80)
-    expect(capture.request?.rerankTopN).toBe(40)
-    expect(capture.request?.filters).toEqual({ paths: ['hedgehog.md'] })
+    expect(searchRaw.mock.lastCall?.[0].candidateK).toBe(80)
+    expect(searchRaw.mock.lastCall?.[0].rerankTopN).toBe(40)
+    expect(searchRaw.mock.lastCall?.[0].filters).toEqual({ paths: ['hedgehog.md'] })
   })
 })

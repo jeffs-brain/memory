@@ -29,7 +29,12 @@ export {
   ENV_INGEST_WORKER_INTERVAL_MS,
 } from './types.js'
 
-export { createPostgresQueue, type PostgresQueueOptions, type PgClient, type PgListenClient } from './postgres.js'
+export {
+  createPostgresQueue,
+  type PostgresQueueOptions,
+  type PgClient,
+  type PgListenClient,
+} from './postgres.js'
 
 export type { Logger } from './adapter.js'
 export { noopLogger } from './adapter.js'

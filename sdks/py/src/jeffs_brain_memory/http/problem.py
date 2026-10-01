@@ -3,9 +3,17 @@
 
 from __future__ import annotations
 
+import logging
+import sys
 from typing import Any
 
 from starlette.responses import JSONResponse
+
+_log = logging.getLogger(__name__)
+
+#: Detail sent with every 500. The real cause is logged, never returned,
+#: so paths, SQL and upstream messages cannot leak to a caller.
+INTERNAL_ERROR_DETAIL = "internal error"
 
 
 def problem_response(
@@ -86,11 +94,37 @@ def conflict(detail: str) -> JSONResponse:
 
 
 def internal_error(detail: str) -> JSONResponse:
+    """Log ``detail`` and return a 500 carrying only the generic detail."""
+    _log.error(
+        "http: internal error: %s",
+        detail,
+        exc_info=sys.exc_info()[0] is not None,
+    )
     return problem_response(
         status=500,
         title="Internal Server Error",
-        detail=detail,
+        detail=INTERNAL_ERROR_DETAIL,
         code="internal_error",
+    )
+
+
+def bad_gateway(detail: str) -> JSONResponse:
+    """A failed upstream call, such as a URL fetch that did not succeed."""
+    return problem_response(
+        status=502,
+        title="Bad Gateway",
+        detail=detail,
+        code="bad_gateway",
+    )
+
+
+def misdirected_request(detail: str) -> JSONResponse:
+    """The Host header names a host this daemon does not serve."""
+    return problem_response(
+        status=421,
+        title="Misdirected Request",
+        detail=detail,
+        code="misdirected_request",
     )
 
 

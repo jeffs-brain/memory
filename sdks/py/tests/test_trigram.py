@@ -19,45 +19,43 @@ def test_trigrams_empty_input() -> None:
 
 
 def test_trigrams_single_word() -> None:
-    assert trigrams("bosch") == {"$bo", "bos", "osc", "sch", "ch$"}
+    assert trigrams("zenco") == {"$ze", "zen", "enc", "nco", "co$"}
 
 
 def test_trigrams_multi_word_padding() -> None:
     expected = {
-        "$ou",
-        "oud",
-        "ude",
-        "de$",
-        "$re",
-        "rei",
-        "eim",
-        "ime",
-        "mer",
-        "er$",
+        "$mi",
+        "mil",
+        "ill",
+        "ll$",
+        "$br",
+        "bro",
+        "roo",
+        "ook",
+        "ok$",
     }
-    assert trigrams("oude reimer") == expected
+    assert trigrams("mill brook") == expected
 
 
 def test_trigrams_punctuation_becomes_whitespace() -> None:
     expected = {
-        "$ou",
-        "oud",
-        "ude",
-        "de$",
-        "$re",
-        "rei",
-        "eim",
-        "ime",
-        "mer",
-        "er$",
+        "$mi",
+        "mil",
+        "ill",
+        "ll$",
+        "$br",
+        "bro",
+        "roo",
+        "ook",
+        "ok$",
         "$md",
         "md$",
     }
-    assert trigrams("oude-reimer.md") == expected
+    assert trigrams("mill-brook.md") == expected
 
 
 def test_trigrams_case_folded() -> None:
-    assert trigrams("BOSCH") == {"$bo", "bos", "osc", "sch", "ch$"}
+    assert trigrams("ZENCO") == {"$ze", "zen", "enc", "nco", "co$"}
 
 
 def test_trigrams_short_word_keeps_boundary() -> None:
@@ -89,79 +87,79 @@ def test_jaccard_empty_set_is_zero() -> None:
 
 
 def test_slug_text_strips_md_and_path() -> None:
-    assert slug_text("clients/oude-reimer.md") == "oude reimer"
+    assert slug_text("clients/mill-brook.md") == "mill brook"
 
 
 def test_slug_text_handles_no_slash() -> None:
-    assert slug_text("bosch.md") == "bosch"
+    assert slug_text("zenco.md") == "zenco"
 
 
 def test_slug_text_lowercases() -> None:
     # ``.MD`` lowercases to ``.md``, which is then stripped as the
     # extension by :func:`slug_text`.
-    assert slug_text("clients/BOSCH.MD") == "bosch"
+    assert slug_text("clients/ZENCO.MD") == "zenco"
 
 
 def test_slug_text_preserves_non_md_extension() -> None:
-    assert slug_text("clients/bosch.txt") == "bosch txt"
+    assert slug_text("clients/zenco.txt") == "zenco txt"
 
 
 def test_build_trigram_index_populates_paths() -> None:
     idx = TrigramIndex(
         [
-            "clients/oude-reimer.md",
-            "clients/bosch.md",
-            "projects/a-ware.md",
+            "clients/mill-brook.md",
+            "clients/zenco.md",
+            "projects/e-volt.md",
         ]
     )
     assert len(idx.paths) == 3
 
 
 def test_build_trigram_index_deduplicates_paths() -> None:
-    idx = TrigramIndex(["clients/bosch.md", "clients/bosch.md"])
+    idx = TrigramIndex(["clients/zenco.md", "clients/zenco.md"])
     assert len(idx.paths) == 1
 
 
 def test_fuzzy_exact_match_ranks_first() -> None:
     idx = TrigramIndex(
         [
-            "clients/oude-reimer.md",
-            "clients/bosch.md",
+            "clients/mill-brook.md",
+            "clients/zenco.md",
         ]
     )
-    hits = idx.fuzzy_search("oude", top_k=5)
+    hits = idx.fuzzy_search("mill", top_k=5)
     assert hits
-    assert hits[0].path == "clients/oude-reimer.md"
+    assert hits[0].path == "clients/mill-brook.md"
     assert hits[0].score > 0.0
 
 
 def test_fuzzy_typo_match() -> None:
     idx = TrigramIndex(
         [
-            "clients/oude-reimer.md",
-            "clients/bosch.md",
-            "projects/royal-aware.md",
+            "clients/mill-brook.md",
+            "clients/zenco.md",
+            "projects/nova-evolt.md",
         ]
     )
-    hits = idx.fuzzy_search("dude reimer", top_k=5)
+    hits = idx.fuzzy_search("hill brook", top_k=5)
     assert hits
-    assert hits[0].path == "clients/oude-reimer.md"
+    assert hits[0].path == "clients/mill-brook.md"
     assert 0 < hits[0].score < 1.0
 
 
 def test_fuzzy_miss_returns_empty() -> None:
     idx = TrigramIndex(
         [
-            "clients/oude-reimer.md",
-            "clients/bosch.md",
+            "clients/mill-brook.md",
+            "clients/zenco.md",
         ]
     )
     assert idx.fuzzy_search("kubernetes", top_k=5) == []
 
 
 def test_fuzzy_threshold_is_respected() -> None:
-    idx = TrigramIndex(["clients/oude-reimer.md", "projects/royal-aware.md"])
-    strict = idx.fuzzy_search("oude", top_k=5, threshold=0.99)
+    idx = TrigramIndex(["clients/mill-brook.md", "projects/nova-evolt.md"])
+    strict = idx.fuzzy_search("mill", top_k=5, threshold=0.99)
     assert strict == []
 
 
@@ -170,30 +168,30 @@ def test_jaccard_threshold_constant_matches_spec() -> None:
 
 
 def test_fuzzy_empty_query_returns_empty() -> None:
-    idx = TrigramIndex(["clients/bosch.md"])
+    idx = TrigramIndex(["clients/zenco.md"])
     assert idx.fuzzy_search("", top_k=5) == []
 
 
 def test_fuzzy_top_k_caps_output() -> None:
-    paths = [f"clients/{slug}-reimer.md" for slug in ("oude", "oudy", "oudz", "oudq")]
+    paths = [f"clients/{slug}-brook.md" for slug in ("mill", "milx", "milz", "milq")]
     idx = TrigramIndex(paths)
-    hits = idx.fuzzy_search("oude reimer", top_k=2)
+    hits = idx.fuzzy_search("mill brook", top_k=2)
     assert len(hits) <= 2
 
 
 @pytest.mark.parametrize(
     "query,expected_top",
     [
-        ("bosch", "clients/bosch.md"),
-        ("oude", "clients/oude-reimer.md"),
+        ("zenco", "clients/zenco.md"),
+        ("mill", "clients/mill-brook.md"),
     ],
 )
 def test_fuzzy_search_is_deterministic(query: str, expected_top: str) -> None:
     idx = TrigramIndex(
         [
-            "clients/oude-reimer.md",
-            "clients/bosch.md",
-            "projects/royal-aware.md",
+            "clients/mill-brook.md",
+            "clients/zenco.md",
+            "projects/nova-evolt.md",
         ]
     )
     assert idx.fuzzy_search(query, top_k=3)[0].path == expected_top

@@ -16,7 +16,6 @@ import {
   ErrNotFound,
   ErrPayloadTooLarge,
   ErrReadOnly,
-  StoreError,
 } from '../store/errors.js'
 
 export type Problem = {
@@ -92,18 +91,39 @@ export const confirmationRequired = (detail: string): Response =>
     detail,
   })
 
-export const internalError = (detail: string): Response =>
+/** Detail sent with every 500. The real cause is logged server-side and
+ *  never reaches the client, so paths and internals do not leak. */
+export const INTERNAL_ERROR_DETAIL = 'internal error'
+
+export const internalError = (): Response =>
   problemResponse({
     status: 500,
     title: 'Internal Server Error',
     code: 'internal_error',
+    detail: INTERNAL_ERROR_DETAIL,
+  })
+
+export const badGateway = (detail: string): Response =>
+  problemResponse({
+    status: 502,
+    title: 'Bad Gateway',
+    code: 'bad_gateway',
+    detail,
+  })
+
+export const misdirectedRequest = (detail: string): Response =>
+  problemResponse({
+    status: 421,
+    title: 'Misdirected Request',
+    code: 'misdirected_request',
     detail,
   })
 
 /**
  * Map a store-level error onto the Problem+JSON shape documented in
- * `spec/PROTOCOL.md`. Returns `undefined` when the error is unknown so
- * callers can fall back to `internalError`.
+ * `spec/PROTOCOL.md`. Returns `undefined` for unknown errors and for
+ * generic store failures so callers log them and fall back to
+ * `internalError`.
  */
 export const storeProblem = (err: unknown): Response | undefined => {
   if (err instanceof ErrNotFound) {
@@ -120,9 +140,6 @@ export const storeProblem = (err: unknown): Response | undefined => {
   }
   if (err instanceof ErrReadOnly) {
     return conflict(err.message)
-  }
-  if (err instanceof StoreError) {
-    return internalError(err.message)
   }
   return undefined
 }

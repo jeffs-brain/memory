@@ -77,11 +77,7 @@ def test_compact_keeps_recent():
     buf = Buffer(store, Scope(kind=ScopeKind.GLOBAL), cfg)
     now = datetime(2026, 4, 14, 10, 0, 0, tzinfo=timezone.utc)
     for i in range(10):
-        buf.append(
-            Observation(
-                at=now.replace(minute=i), intent="chat", summary="line " + "x" * 5
-            )
-        )
+        buf.append(Observation(at=now.replace(minute=i), intent="chat", summary="line " + "x" * 5))
     removed = buf.compact()
     assert removed == 5
     lines = buf.render().strip().split("\n")

@@ -58,9 +58,7 @@ def test_one_month_ago() -> None:
     # 2023/04/10 minus one month = 2023/03/10 under JS/Go setUTCMonth semantics.
     annotation = resolve_relative_time("What happened 1 month ago?", ANCHOR)
     assert annotation is not None
-    assert annotation.range_start == _d(2023, 3, 10).replace(
-        hour=ANCHOR.hour, minute=ANCHOR.minute
-    )
+    assert annotation.range_start == _d(2023, 3, 10).replace(hour=ANCHOR.hour, minute=ANCHOR.minute)
 
 
 def test_last_saturday() -> None:
@@ -146,15 +144,11 @@ def test_parse_question_date_rejects_unknown_formats(value: str) -> None:
 
 
 def test_annotate_ordering_first() -> None:
-    assert "earliest dated event" in annotate_ordering(
-        "When did we first discuss the project?"
-    )
+    assert "earliest dated event" in annotate_ordering("When did we first discuss the project?")
 
 
 def test_annotate_ordering_most_recent() -> None:
-    assert "most recently dated event" in annotate_ordering(
-        "What was the most recent update?"
-    )
+    assert "most recently dated event" in annotate_ordering("What was the most recent update?")
 
 
 def test_annotate_ordering_no_trigger() -> None:

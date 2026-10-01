@@ -6,9 +6,9 @@
   "packageManager": "bun@1.3.14",
   "scripts": {
     "test": "vitest run --passWithNoTests",
-    "typecheck": "tsc -b",
-    "build": "tsc -b && bun run --cwd sdks/ts/memory-pi build",
-    "build:packages": "tsc -b sdks/ts/memory sdks/ts/memory-postgres sdks/ts/memory-openfga mcp/ts install",
+    "typecheck": "tsc -b && bun run --filter '*' typecheck",
+    "build": "tsc -b",
+    "build:packages": "tsc -b sdks/ts/memory sdks/ts/memory-postgres sdks/ts/memory-openfga sdks/ts/memory-pi mcp/ts install",
     "lint": "biome check ."
   },
   "devDependencies": {
@@ -16,6 +16,6 @@
     "@types/bun": "^1.1.14",
     "@types/node": "^22.10.5",
     "typescript": "^5.7.3",
-    "vitest": "^2.1.8"
+    "vitest": "^4.1.11"
   }
 }

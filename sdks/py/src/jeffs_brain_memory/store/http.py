@@ -15,7 +15,7 @@ import json
 import logging
 import random
 from datetime import datetime, timezone
-from typing import Any, AsyncIterator, Awaitable, Callable
+from typing import Any, AsyncIterator, Callable
 from urllib.parse import quote
 
 import httpx
@@ -39,6 +39,7 @@ from ..errors import (
 from ..path import BrainPath, is_generated, validate_path
 from . import (
     Batch,
+    BatchFn,
     BatchOptions,
     ChangeEvent,
     ChangeKind,
@@ -136,7 +137,9 @@ class HttpStore(Store):
     def _url(self, path: str) -> str:
         return f"{self.base_url}{path}"
 
-    def _headers(self, *, accept: str = "application/json", content_type: str | None = None) -> dict[str, str]:
+    def _headers(
+        self, *, accept: str = "application/json", content_type: str | None = None
+    ) -> dict[str, str]:
         headers: dict[str, str] = {"accept": accept, "user-agent": self.user_agent}
         if content_type:
             headers["content-type"] = content_type
@@ -165,7 +168,6 @@ class HttpStore(Store):
                 content_type = "application/json"
         headers = self._headers(accept=accept, content_type=content_type)
         attempt = 0
-        last_response: httpx.Response | None = None
         while True:
             response = await self._client.request(
                 method,
@@ -174,7 +176,6 @@ class HttpStore(Store):
                 content=body,
                 headers=headers,
             )
-            last_response = response
             if response.status_code not in _RETRY_STATUSES or attempt >= self.max_retries:
                 return response
             wait = _retry_backoff(response, attempt)
@@ -301,7 +302,7 @@ class HttpStore(Store):
 
     async def batch(
         self,
-        fn: Callable[[Batch], Awaitable[None]] | Callable[[Batch], None],
+        fn: BatchFn,
         opts: BatchOptions | None = None,
     ) -> None:
         opts = opts or BatchOptions()
@@ -558,9 +559,7 @@ class _HttpBatch(Batch):
             raise ErrNotFound(f"HttpStore: stat {path}: not found")
         return await self.store.stat(path)
 
-    async def list(
-        self, dir: BrainPath | str = "", opts: ListOpts | None = None
-    ) -> list[FileInfo]:
+    async def list(self, dir: BrainPath | str = "", opts: ListOpts | None = None) -> list[FileInfo]:
         opts = opts or ListOpts()
         base = await self.store.list(dir, opts)
         by_path: dict[BrainPath, FileInfo] = {fi.path: fi for fi in base}

@@ -86,7 +86,11 @@ export type DeadLetterAdapter = {
    * entry is committed as resolved. If reEnqueue throws, the entry
    * remains unresolved.
    */
-  readonly retry: (id: string, resolvedBy?: string, reEnqueue?: ReEnqueueFn) => Promise<DeadLetterEntry>
+  readonly retry: (
+    id: string,
+    resolvedBy?: string,
+    reEnqueue?: ReEnqueueFn,
+  ) => Promise<DeadLetterEntry>
 
   /** Purge entries matching the given options. Returns count removed. */
   readonly purge: (opts: PurgeOptions) => Promise<number>
@@ -188,7 +192,11 @@ export const createInMemoryDeadLetterAdapter = (): DeadLetterAdapter => {
     return entry !== undefined ? cloneEntry(entry) : undefined
   }
 
-  const retry = async (id: string, resolvedBy?: string, reEnqueue?: ReEnqueueFn): Promise<DeadLetterEntry> => {
+  const retry = async (
+    id: string,
+    resolvedBy?: string,
+    reEnqueue?: ReEnqueueFn,
+  ): Promise<DeadLetterEntry> => {
     const entry = store.get(id)
     if (entry === undefined) {
       throw new DeadLetterNotFoundError(id)

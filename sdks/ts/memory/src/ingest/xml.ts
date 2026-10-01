@@ -204,9 +204,8 @@ const parseTag = (tag: string): { localName: string; attributes: XmlAttr[] } => 
 
   const attrStr = tag.substring(spaceIdx)
   const attrRegex = /(\S+?)=(?:"([^"]*)"|'([^']*)')/g
-  let match: RegExpExecArray | null
 
-  while ((match = attrRegex.exec(attrStr)) !== null) {
+  for (const match of attrStr.matchAll(attrRegex)) {
     const name = stripNamespace(match[1] ?? '')
     const value = match[2] ?? match[3] ?? ''
     // Skip xmlns declarations.

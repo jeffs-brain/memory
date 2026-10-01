@@ -5,13 +5,13 @@ import { afterEach, describe, expect, it } from 'vitest'
 import type { IndustryTemplate } from './templates.js'
 import {
   INDUSTRY_TEMPLATES,
+  _resetTemplates,
   getTemplate,
   isValidBusinessCategory,
   isValidEdgeType,
   isValidNodeType,
   listTemplates,
   registerTemplate,
-  _resetTemplates,
 } from './templates.js'
 
 describe('listTemplates', () => {
@@ -160,7 +160,11 @@ describe('registerTemplate', () => {
       { type: 'entity.course', label: 'Course', description: 'An academic course' },
     ],
     edgeTypes: [
-      { type: 'enrolled_in', label: 'Enrolled In', description: 'A student is enrolled in a course' },
+      {
+        type: 'enrolled_in',
+        label: 'Enrolled In',
+        description: 'A student is enrolled in a course',
+      },
     ],
     businessCategories: ['education'],
   }
@@ -185,7 +189,9 @@ describe('registerTemplate', () => {
   })
 
   it('rejects duplicate key', () => {
-    expect(() => registerTemplate('server_hardware', educationTemplate)).toThrow('already registered')
+    expect(() => registerTemplate('server_hardware', educationTemplate)).toThrow(
+      'already registered',
+    )
   })
 
   it('rejects invalid node type in template', () => {

@@ -65,9 +65,7 @@ class Contextualiser:
     def model_name(self) -> str:
         return self._cfg.model if self.enabled() else ""
 
-    def build_prefix(
-        self, session_id: str, session_summary: str, fact_body: str
-    ) -> str:
+    def build_prefix(self, session_id: str, session_summary: str, fact_body: str) -> str:
         """Synchronous wrapper that runs the LLM call on a dedicated loop."""
         if not self.enabled() or not fact_body:
             return ""
@@ -90,9 +88,7 @@ class Contextualiser:
             # Already inside an event loop; fall back to a task.
             loop = asyncio.new_event_loop()
             try:
-                prefix = loop.run_until_complete(
-                    self._call_provider(session_summary, fact_body)
-                )
+                prefix = loop.run_until_complete(self._call_provider(session_summary, fact_body))
             finally:
                 loop.close()
         except Exception:
@@ -140,22 +136,14 @@ class Contextualiser:
         assert provider is not None
         body = fact_body[:4096]
         summary = session_summary.strip() or "(no session header supplied)"
-        user = (
-            "Session header:\n"
-            + summary
-            + "\n\nFact body:\n"
-            + body
-            + "\n"
-        )
+        user = "Session header:\n" + summary + "\n\nFact body:\n" + body + "\n"
         max_tokens = self._cfg.max_tokens or CONTEXTUAL_PREFIX_MAX_TOKENS
         try:
             resp = await provider.complete(
                 CompleteRequest(
                     model=self.model_name(),
                     messages=[
-                        LLMMessage(
-                            role=Role.SYSTEM, content=CONTEXTUAL_PREFIX_SYSTEM_PROMPT
-                        ),
+                        LLMMessage(role=Role.SYSTEM, content=CONTEXTUAL_PREFIX_SYSTEM_PROMPT),
                         LLMMessage(role=Role.USER, content=user),
                     ],
                     max_tokens=max_tokens,

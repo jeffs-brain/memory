@@ -85,4 +85,6 @@ Learn a back-end programming language, such as Ruby, Python, or PHP.
         rendered,
     )
 
-    assert answer == "I recommended learning Ruby, Python, or PHP as a back-end programming language."
+    assert (
+        answer == "I recommended learning Ruby, Python, or PHP as a back-end programming language."
+    )

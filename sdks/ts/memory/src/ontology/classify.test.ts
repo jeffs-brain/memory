@@ -1,15 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from 'vitest'
-import type { Provider, CompletionResponse } from '../llm/types.js'
-import type { ResolvedOntology, ResolvedType } from './store.js'
+import type { CompletionResponse, Provider } from '../llm/types.js'
 import {
+  CATEGORY_WINNER_THRESHOLD,
   Classifier,
+  determineCategory,
   isJsonDocument,
   isTabularDocument,
-  determineCategory,
-  CATEGORY_WINNER_THRESHOLD,
 } from './classify.js'
+import type { ResolvedOntology, ResolvedType } from './store.js'
 
 function fakeProvider(response: string): Provider {
   return {
@@ -98,9 +98,12 @@ describe('Classifier', () => {
     })
 
     it('falls back to LLM for unstructured content', async () => {
-      const provider = fakeProvider('{"category": "entity", "confidence": 0.85, "reasoning": "customer data"}')
+      const provider = fakeProvider(
+        '{"category": "entity", "confidence": 0.85, "reasoning": "customer data"}',
+      )
       const c = new Classifier({ provider })
-      const content = 'The customer approval process requires manager sign-off for orders above $10,000.'
+      const content =
+        'The customer approval process requires manager sign-off for orders above $10,000.'
       const result = await c.classify(content, 'approval-rules.md')
       expect(result.class).toBe('unstructured')
       expect(result.confidence).toBeGreaterThan(0)
@@ -116,7 +119,8 @@ describe('Classifier', () => {
 
     it('infers customer category from JSON keywords', async () => {
       const c = new Classifier({})
-      const content = '{"customer_id": 123, "customer_name": "Acme Corp", "account_type": "enterprise"}'
+      const content =
+        '{"customer_id": 123, "customer_name": "Acme Corp", "account_type": "enterprise"}'
       const result = await c.classify(content, 'data.json')
       expect(result.category).toBe('customer')
     })
@@ -154,17 +158,23 @@ describe('determineCategory', () => {
 
 describe('LLM category mapping', () => {
   it('preserves LLM process category instead of mapping to general', async () => {
-    const provider = fakeProvider('{"category": "process", "confidence": 0.9, "reasoning": "describes a workflow"}')
+    const provider = fakeProvider(
+      '{"category": "process", "confidence": 0.9, "reasoning": "describes a workflow"}',
+    )
     const c = new Classifier({ provider })
-    const content = 'The approval workflow requires two levels of sign-off before any purchase order is released.'
+    const content =
+      'The approval workflow requires two levels of sign-off before any purchase order is released.'
     const result = await c.classify(content, 'workflow.md')
     expect(result.category).toBe('process')
   })
 
   it('preserves LLM entity category', async () => {
-    const provider = fakeProvider('{"category": "entity", "confidence": 0.85, "reasoning": "contains customer data"}')
+    const provider = fakeProvider(
+      '{"category": "entity", "confidence": 0.85, "reasoning": "contains customer data"}',
+    )
     const c = new Classifier({ provider })
-    const content = 'The customer approval process requires manager sign-off for orders above $10,000.'
+    const content =
+      'The customer approval process requires manager sign-off for orders above $10,000.'
     const result = await c.classify(content, 'approval-rules.md')
     expect(result.category).toBe('entity')
   })

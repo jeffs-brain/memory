@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from datetime import datetime
 from functools import lru_cache
 from pathlib import PurePosixPath
@@ -19,6 +20,8 @@ from ...search.frontmatter import parse_memory_frontmatter
 from ..problem import validation_error
 from ._shared import decode_json_body, resolve_brain
 from .search import filters_from_body, path_matches_filters, search_opts
+
+_log = logging.getLogger(__name__)
 
 _ASK_SSE_HEADERS = {
     "Cache-Control": "no-store",
@@ -51,9 +54,9 @@ _AUGMENTED_READER_TEMPLATE = (
     "different values on different dates, prefer the value from the most "
     "recent session date.\n"
     "- Treat explicit supersession phrases as hard overrides regardless of "
-    "how often the old value appears: \"now\", \"currently\", \"most "
-    "recently\", \"actually\", \"correction\", \"I updated\", \"I "
-    "changed\", \"no longer\".\n"
+    'how often the old value appears: "now", "currently", "most '
+    'recently", "actually", "correction", "I updated", "I '
+    'changed", "no longer".\n'
     "- Do not vote by frequency. One later correction outweighs any number "
     "of earlier mentions.\n"
     "- Never use a fact dated after the current date.\n"
@@ -64,22 +67,22 @@ _AUGMENTED_READER_TEMPLATE = (
     "- A direct statement of the full usual value outranks a newer note "
     "about only one segment, leg, or example from that routine unless "
     "the newer note explicitly says the full value changed.\n"
-    "- For habit and routine questions (\"usually\", \"normally\", "
-    "\"every week\", \"on Saturdays\", \"on weekdays\"), prefer "
+    '- For habit and routine questions ("usually", "normally", '
+    '"every week", "on Saturdays", "on weekdays"), prefer '
     "explicit habitual statements over isolated single-day examples.\n"
     "- Do not let an example note about a narrower segment override the "
-    "whole routine. For example, a \"30-minute morning commute\" note "
-    "does not replace a direct statement of a \"45-minute daily "
-    "commute to work\".\n"
+    'whole routine. For example, a "30-minute morning commute" note '
+    'does not replace a direct statement of a "45-minute daily '
+    'commute to work".\n'
     "- When one fact names the event and another fact gives the "
     "associated submission, booking, or join date for that same event "
     "or venue, combine them if the connection is explicit in the "
     "retrieved facts.\n"
     "\n"
     "Enumeration and counting:\n"
-    "- When the question asks to list, count, enumerate, or total (\"how "
-    "many\", \"list\", \"which\", \"what are all\", \"total\", \"in "
-    "total\"), return every matching item you find across the retrieved "
+    '- When the question asks to list, count, enumerate, or total ("how '
+    'many", "list", "which", "what are all", "total", "in '
+    'total"), return every matching item you find across the retrieved '
     "facts, one per line, each tagged with its session date. Then state "
     "the count or total explicitly at the end.\n"
     "- Do not summarise into a single sentence when the question demands a "
@@ -94,8 +97,8 @@ _AUGMENTED_READER_TEMPLATE = (
     "when they appear inside a planning or advice conversation. Exclude "
     "only clearly hypothetical or planned amounts.\n"
     "- If a spending or earnings question does not explicitly restrict "
-    "the timeframe (\"today\", \"this time\", \"most recent\", "
-    "\"current\"), include all confirmed historical amounts for the "
+    'the timeframe ("today", "this time", "most recent", '
+    '"current"), include all confirmed historical amounts for the '
     "same subject across sessions.\n"
     "- For totals over named items, sum only the facts that match those "
     "named items directly. Do not add alternative purchases, adjacent "
@@ -114,7 +117,7 @@ _AUGMENTED_READER_TEMPLATE = (
     "booking, or transaction, count it once. Prefer the most direct "
     "transactional fact over recap notes, budget summaries, tracker "
     "entries, or assistant bookkeeping.\n"
-    "- For \"spent\", \"cost\", and \"total amount\" questions, prefer "
+    '- For "spent", "cost", and "total amount" questions, prefer '
     "direct transactional facts over plans, budgets, broad summaries, "
     "or calculations that only restate the same purchase.\n"
     "\n"
@@ -151,9 +154,9 @@ _AUGMENTED_READER_TEMPLATE = (
     "\n"
     "Temporal reasoning:\n"
     "- Today is {today_anchor} (this is the current date). Resolve "
-    "relative references (\"recently\", \"last week\", \"a few days ago\", "
-    "\"this month\") against this anchor.\n"
-    "- For date-arithmetic questions (\"how many days between X and Y\"), "
+    'relative references ("recently", "last week", "a few days ago", '
+    '"this month") against this anchor.\n'
+    '- For date-arithmetic questions ("how many days between X and Y"), '
     "first extract each event's ISO date from the fact tags, then compute "
     "the difference in days.\n"
     "\n"
@@ -174,6 +177,7 @@ _QUESTION_DATE_FORMATS = (
     "%Y-%m-%d %H:%M",
     "%Y-%m-%d",
 )
+
 
 def _reader_today_anchor(question_date: str) -> str:
     """Render the temporal grounding line as ``YYYY-MM-DD (Weekday)``.
@@ -334,9 +338,7 @@ def _chunk_date(chunk: retrieval.RetrievedChunk) -> str:
     )
     if metadata_value:
         return metadata_value
-    _, session_date, observed_on, modified, _ = _parse_chunk_body(
-        chunk.text or chunk.summary
-    )
+    _, session_date, observed_on, modified, _ = _parse_chunk_body(chunk.text or chunk.summary)
     return session_date or observed_on or modified
 
 
@@ -398,9 +400,7 @@ def _format_augmented_chunks(
     return "\n".join(parts).strip()
 
 
-def _build_basic_prompt(
-    question: str, chunks: list[retrieval.RetrievedChunk]
-) -> str:
+def _build_basic_prompt(question: str, chunks: list[retrieval.RetrievedChunk]) -> str:
     parts: list[str] = []
     if chunks:
         parts.append("## Evidence\n")
@@ -453,34 +453,22 @@ async def ask(request: Request) -> Response:
     candidate_k_raw = body.get("candidateK")
     if not isinstance(candidate_k_raw, int) or candidate_k_raw <= 0:
         candidate_k_raw = body.get("candidate_k")
-    candidate_k = (
-        candidate_k_raw if isinstance(candidate_k_raw, int) and candidate_k_raw > 0 else 0
-    )
+    candidate_k = candidate_k_raw if isinstance(candidate_k_raw, int) and candidate_k_raw > 0 else 0
     rerank_top_n_raw = body.get("rerankTopN")
     if not isinstance(rerank_top_n_raw, int) or rerank_top_n_raw <= 0:
         rerank_top_n_raw = body.get("rerank_top_n")
     rerank_top_n = (
-        rerank_top_n_raw
-        if isinstance(rerank_top_n_raw, int) and rerank_top_n_raw > 0
-        else 0
+        rerank_top_n_raw if isinstance(rerank_top_n_raw, int) and rerank_top_n_raw > 0 else 0
     )
     mode = body.get("mode") or ""
     model = body.get("model") or ""
 
     reader_mode_raw = body.get("reader_mode") or body.get("readerMode") or "basic"
-    reader_mode = (
-        str(reader_mode_raw).strip().lower() if reader_mode_raw else "basic"
-    )
+    reader_mode = str(reader_mode_raw).strip().lower() if reader_mode_raw else "basic"
     if reader_mode not in ("basic", "augmented"):
-        return validation_error(
-            "reader_mode must be 'basic' or 'augmented'"
-        )
-    question_date_raw = (
-        body.get("question_date") or body.get("questionDate") or ""
-    )
-    question_date = (
-        str(question_date_raw) if isinstance(question_date_raw, str) else ""
-    )
+        return validation_error("reader_mode must be 'basic' or 'augmented'")
+    question_date_raw = body.get("question_date") or body.get("questionDate") or ""
+    question_date = str(question_date_raw) if isinstance(question_date_raw, str) else ""
     filters = filters_from_body(
         body.get("filters") if isinstance(body.get("filters"), dict) else body
     )
@@ -498,7 +486,7 @@ async def ask(request: Request) -> Response:
         rerank_top_n,
         filters,
     )
-    daemon = request.app.state.daemon  # type: ignore[attr-defined]
+    daemon = request.app.state.daemon
     provider = daemon.llm
 
     async def event_stream() -> AsyncIterator[bytes]:
@@ -560,12 +548,8 @@ async def ask(request: Request) -> Response:
             max_tokens=max_tokens,
         )
         try:
-            stream = provider.complete_stream(complete_request)
-            # The Fake provider returns an async iterator through
-            # `await`; accommodate both shapes.
-            if hasattr(stream, "__await__"):
-                stream = await stream  # type: ignore[assignment]
-            async for chunk in stream:  # type: ignore[async-for]
+            stream = await provider.complete_stream(complete_request)
+            async for chunk in stream:
                 if await request.is_disconnected():
                     return
                 if chunk.delta_text:
@@ -575,8 +559,12 @@ async def ask(request: Request) -> Response:
                     )
                 if chunk.stop is not None:
                     break
-        except Exception as exc:  # noqa: BLE001
-            yield _format_event("error", json.dumps({"message": str(exc)}))
+        except Exception:  # noqa: BLE001
+            _log.exception("ask: completion failed (brain %s)", br.id)
+            yield _format_event(
+                "error",
+                json.dumps({"code": "llm_error", "message": "answer generation failed"}),
+            )
             yield _format_event("done", json.dumps({"ok": False}))
             return
 

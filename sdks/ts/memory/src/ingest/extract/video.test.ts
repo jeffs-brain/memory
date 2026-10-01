@@ -43,9 +43,15 @@ const hasFFprobe = (): boolean => {
 const generateTestVideo = (outputPath: string, withAudio: boolean): void => {
   const args = [
     '-y',
-    '-f', 'lavfi', '-i', 'testsrc=duration=1:size=160x120:rate=10',
+    '-f',
+    'lavfi',
+    '-i',
+    'testsrc=duration=1:size=160x120:rate=10',
     ...(withAudio ? ['-f', 'lavfi', '-i', 'sine=frequency=440:duration=1'] : []),
-    '-c:v', 'libx264', '-preset', 'ultrafast',
+    '-c:v',
+    'libx264',
+    '-preset',
+    'ultrafast',
     ...(withAudio ? ['-c:a', 'aac', '-shortest'] : ['-an']),
     outputPath,
   ]
@@ -262,12 +268,12 @@ describe('mergeMetadata', () => {
     }
 
     const merged = mergeMetadata(video, audio)
-    expect(merged['detected_language']).toBe('en')
-    expect(merged['video_duration_seconds']).toBe('120.00')
-    expect(merged['video_width']).toBe('1920')
-    expect(merged['video_height']).toBe('1080')
-    expect(merged['video_has_audio']).toBe('true')
-    expect(merged['segments']).toBeDefined()
+    expect(merged.detected_language).toBe('en')
+    expect(merged.video_duration_seconds).toBe('120.00')
+    expect(merged.video_width).toBe('1920')
+    expect(merged.video_height).toBe('1080')
+    expect(merged.video_has_audio).toBe('true')
+    expect(merged.segments).toBeDefined()
   })
 
   it('preserves all audio metadata keys', () => {
@@ -282,9 +288,9 @@ describe('mergeMetadata', () => {
     }
 
     const merged = mergeMetadata(video, audio)
-    expect(merged['key1']).toBe('value1')
-    expect(merged['key2']).toBe('42')
-    expect(merged['key3']).toBe('true')
+    expect(merged.key1).toBe('value1')
+    expect(merged.key2).toBe('42')
+    expect(merged.key3).toBe('true')
   })
 })
 
@@ -322,8 +328,8 @@ describe('VideoExtractor integration', () => {
       const result = await e.extract(videoData, {})
 
       expect(result.text).toContain('no audio track')
-      expect(result.metadata['video_has_audio']).toBe('false')
-      expect(result.metadata['video_duration_seconds']).toBeDefined()
+      expect(result.metadata.video_has_audio).toBe('false')
+      expect(result.metadata.video_duration_seconds).toBeDefined()
     },
   )
 
@@ -393,12 +399,12 @@ describe('VideoExtractor mock pipeline', () => {
     }
 
     const merged = mergeMetadata(videoMeta, fakeAudioResult)
-    merged['source_bytes'] = '1024'
+    merged.source_bytes = '1024'
 
-    expect(merged['detected_language']).toBe('en')
-    expect(merged['video_duration_seconds']).toBe('90.50')
-    expect(merged['source_bytes']).toBe('1024')
-    expect(merged['segments']).toBeDefined()
+    expect(merged.detected_language).toBe('en')
+    expect(merged.video_duration_seconds).toBe('90.50')
+    expect(merged.source_bytes).toBe('1024')
+    expect(merged.segments).toBeDefined()
   })
 
   it('returns no-audio result when probe shows no audio stream', () => {
@@ -425,7 +431,7 @@ describe('VideoExtractor mock pipeline', () => {
       metadata: { video_has_audio: 'false' },
     }
     expect(result.text).toContain('no audio track')
-    expect(result.metadata['video_has_audio']).toBe('false')
+    expect(result.metadata.video_has_audio).toBe('false')
   })
 })
 
@@ -486,8 +492,6 @@ describe('writeStreamToFile size enforcement', () => {
     // just the pre-check.
     const e = makeExtractor({ maxFileSizeBytes: 64 })
     const oversizedStream = Readable.from(Buffer.alloc(128))
-    await expect(
-      e.extractStream(oversizedStream, {}),
-    ).rejects.toThrow('exceeds maximum')
+    await expect(e.extractStream(oversizedStream, {})).rejects.toThrow('exceeds maximum')
   })
 })

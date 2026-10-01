@@ -1,16 +1,19 @@
 # jeffs-brain-memory-mcp
 
-Stdio Model Context Protocol server for [`jeffs-brain-memory`](https://pypi.org/project/jeffs-brain-memory/). Gives agents (Claude Code, Claude Desktop, Cursor, Windsurf, Zed) first-class access to a local or hosted Jeffs Brain.
+Stdio Model Context Protocol server for [`jeffs-brain-memory`](../../sdks/py). Gives agents (Claude Code, Claude Desktop, Cursor, Windsurf, Zed) first-class access to a local or hosted Jeffs Brain.
 
-One of three wire-compatible MCP wrappers; its counterparts are the TypeScript `@jeffs-brain/memory-mcp` package and the Go `cmd/memory-mcp` binary. All three expose the same 11 `memory_*` tools defined in [`spec/MCP-TOOLS.md`](https://github.com/jeffs-brain/memory/blob/main/spec/MCP-TOOLS.md).
+One of three wire-compatible MCP wrappers; its counterparts are the TypeScript `@jeffs-brain/memory-mcp` package and the Go `cmd/memory-mcp` binary. The spec in [`spec/MCP-TOOLS.md`](https://github.com/jeffs-brain/memory/blob/main/spec/MCP-TOOLS.md) defines 13 `memory_*` tools; this server implements 11 of them, without `memory_ingest_batch` and `memory_ingest_directory`.
 
 ## Install
 
+Neither this package nor `jeffs-brain-memory` is on PyPI yet. Run the server from a checkout of [jeffs-brain/memory](https://github.com/jeffs-brain/memory); uv resolves the SDK from `sdks/py` through the path source in `pyproject.toml`:
+
 ```bash
-uv tool install jeffs-brain-memory-mcp
-# or run on demand
-uvx jeffs-brain-memory-mcp
+git clone https://github.com/jeffs-brain/memory.git
+uv run --project memory/mcp/py memory-mcp
 ```
+
+The console script is `memory-mcp`. The examples below use `/path/to/memory` for the checkout.
 
 For a one-shot install across every supported agent, use the TS orchestrator:
 
@@ -22,10 +25,10 @@ npx @jeffs-brain/install
 
 ```bash
 # Local brain (default: ~/.jeffs-brain)
-claude mcp add jeffs-brain -- uvx jeffs-brain-memory-mcp
+claude mcp add jeffs-brain -- uv run --project /path/to/memory/mcp/py memory-mcp
 
 # Hosted brain
-claude mcp add jeffs-brain --env JB_TOKEN=... -- uvx jeffs-brain-memory-mcp
+claude mcp add jeffs-brain --env JB_TOKEN=... -- uv run --project /path/to/memory/mcp/py memory-mcp
 ```
 
 ## Claude Desktop, Cursor, Windsurf
@@ -36,8 +39,8 @@ Add to the app's MCP config:
 {
   "mcpServers": {
     "jeffs-brain": {
-      "command": "uvx",
-      "args": ["jeffs-brain-memory-mcp"],
+      "command": "uv",
+      "args": ["run", "--project", "/path/to/memory/mcp/py", "memory-mcp"],
       "env": { "JB_TOKEN": "optional-hosted-token" }
     }
   }
@@ -51,8 +54,8 @@ Add to the app's MCP config:
   "context_servers": {
     "jeffs-brain": {
       "source": "custom",
-      "command": "uvx",
-      "args": ["jeffs-brain-memory-mcp"],
+      "command": "uv",
+      "args": ["run", "--project", "/path/to/memory/mcp/py", "memory-mcp"],
       "env": { "JB_TOKEN": "optional-hosted-token" }
     }
   }
@@ -78,7 +81,7 @@ Selected automatically:
 
 ## Tools
 
-Eleven `memory_*` tools shared with the TypeScript and Go MCP wrappers:
+Eleven of the thirteen `memory_*` tools in the spec. `memory_ingest_batch` and `memory_ingest_directory` are not implemented here yet, and `memory_ingest_file` and `memory_ingest_url` do not take the spec's `extract` option:
 
 - `memory_remember`
 - `memory_recall`

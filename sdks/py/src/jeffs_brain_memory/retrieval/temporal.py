@@ -27,12 +27,36 @@ __all__ = [
 
 QUESTION_TOKEN_STOP_WORDS: frozenset[str] = frozenset(
     {
-        "the", "and", "for", "with", "what",
-        "who", "when", "where", "why", "how",
-        "did", "does", "was", "were", "are",
-        "you", "your", "about", "this", "that",
-        "have", "has", "had", "from", "into",
-        "than", "then", "them", "they", "their",
+        "the",
+        "and",
+        "for",
+        "with",
+        "what",
+        "who",
+        "when",
+        "where",
+        "why",
+        "how",
+        "did",
+        "does",
+        "was",
+        "were",
+        "are",
+        "you",
+        "your",
+        "about",
+        "this",
+        "that",
+        "have",
+        "has",
+        "had",
+        "from",
+        "into",
+        "than",
+        "then",
+        "them",
+        "they",
+        "their",
     }
 )
 MAX_BM25_FANOUT_QUERIES = 4
@@ -42,21 +66,111 @@ PHRASE_PROBE_MAX_TOKENS = 4
 PHRASE_PROBE_CONNECTORS: frozenset[str] = frozenset({"and", "or", "plus"})
 PHRASE_PROBE_BOUNDARY_WORDS: frozenset[str] = frozenset(
     {
-        "a", "an", "the", "and", "or", "plus",
-        "for", "with", "what", "who", "when", "where", "why", "how",
-        "did", "does", "do", "was", "were", "is", "are", "am",
-        "you", "your", "about", "this", "that", "these", "those",
-        "have", "has", "had", "from", "into", "than", "then", "them", "they", "their",
-        "i", "me", "my", "we", "our", "us", "it", "if", "to", "of", "on", "in", "at", "by",
-        "amount", "total", "all", "list",
-        "finally", "decided", "decide", "wondering", "wonder",
-        "remembered", "remember", "thinking", "back", "previous", "conversation",
-        "can", "could", "would", "should", "remind", "follow", "specific", "exact",
-        "spent", "spend", "bought", "buy", "ordered", "order",
-        "purchased", "purchase", "paid", "pay", "submitted", "submit",
-        "many", "much", "long",
-        "last", "today", "yesterday", "tomorrow", "week", "month", "year",
-        "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday",
+        "a",
+        "an",
+        "the",
+        "and",
+        "or",
+        "plus",
+        "for",
+        "with",
+        "what",
+        "who",
+        "when",
+        "where",
+        "why",
+        "how",
+        "did",
+        "does",
+        "do",
+        "was",
+        "were",
+        "is",
+        "are",
+        "am",
+        "you",
+        "your",
+        "about",
+        "this",
+        "that",
+        "these",
+        "those",
+        "have",
+        "has",
+        "had",
+        "from",
+        "into",
+        "than",
+        "then",
+        "them",
+        "they",
+        "their",
+        "i",
+        "me",
+        "my",
+        "we",
+        "our",
+        "us",
+        "it",
+        "if",
+        "to",
+        "of",
+        "on",
+        "in",
+        "at",
+        "by",
+        "amount",
+        "total",
+        "all",
+        "list",
+        "finally",
+        "decided",
+        "decide",
+        "wondering",
+        "wonder",
+        "remembered",
+        "remember",
+        "thinking",
+        "back",
+        "previous",
+        "conversation",
+        "can",
+        "could",
+        "would",
+        "should",
+        "remind",
+        "follow",
+        "specific",
+        "exact",
+        "spent",
+        "spend",
+        "bought",
+        "buy",
+        "ordered",
+        "order",
+        "purchased",
+        "purchase",
+        "paid",
+        "pay",
+        "submitted",
+        "submit",
+        "many",
+        "much",
+        "long",
+        "last",
+        "today",
+        "yesterday",
+        "tomorrow",
+        "week",
+        "month",
+        "year",
+        "monday",
+        "tuesday",
+        "wednesday",
+        "thursday",
+        "friday",
+        "saturday",
+        "sunday",
     }
 )
 PHRASE_PROBE_TRIM_WORDS: frozenset[str] = frozenset({"many", "much", "long"})
@@ -74,13 +188,33 @@ ACTION_DATE_PROBE_RULES: tuple[tuple[re.Pattern[str], str], ...] = (
 )
 ACTION_DATE_FOCUS_SKIP_WORDS: frozenset[str] = frozenset(
     {
-        "accept", "accepted", "acceptance",
-        "begin", "began", "book", "booked", "booking",
-        "buy", "bought", "complete", "completed", "completion",
-        "date", "finish", "finished",
-        "join", "joined", "order", "ordered",
-        "purchase", "purchased", "start", "started",
-        "submit", "submitted", "submission",
+        "accept",
+        "accepted",
+        "acceptance",
+        "begin",
+        "began",
+        "book",
+        "booked",
+        "booking",
+        "buy",
+        "bought",
+        "complete",
+        "completed",
+        "completion",
+        "date",
+        "finish",
+        "finished",
+        "join",
+        "joined",
+        "order",
+        "ordered",
+        "purchase",
+        "purchased",
+        "start",
+        "started",
+        "submit",
+        "submitted",
+        "submission",
     }
 )
 INSPIRATION_QUERY_HINTS: tuple[str, ...] = (
@@ -92,16 +226,39 @@ INSPIRATION_QUERY_HINTS: tuple[str, ...] = (
 )
 INSPIRATION_FOCUS_SKIP_WORDS: frozenset[str] = frozenset(
     {
-        "find", "finding", "fresh", "idea", "ideas",
-        "inspiration", "inspired", "new", "stuck", "uninspired",
+        "find",
+        "finding",
+        "fresh",
+        "idea",
+        "ideas",
+        "inspiration",
+        "inspired",
+        "new",
+        "stuck",
+        "uninspired",
     }
 )
 LOW_SIGNAL_PHRASE_PROBE_WORDS: frozenset[str] = frozenset(
     {
-        "after", "before", "day", "days", "event", "events",
-        "first", "happen", "happened", "month", "months",
-        "second", "third", "time", "times", "week", "weeks",
-        "year", "years",
+        "after",
+        "before",
+        "day",
+        "days",
+        "event",
+        "events",
+        "first",
+        "happen",
+        "happened",
+        "month",
+        "months",
+        "second",
+        "third",
+        "time",
+        "times",
+        "week",
+        "weeks",
+        "year",
+        "years",
     }
 )
 ENUMERATION_OR_TOTAL_QUERY_RE = re.compile(
@@ -109,9 +266,7 @@ ENUMERATION_OR_TOTAL_QUERY_RE = re.compile(
     re.IGNORECASE,
 )
 SPECIFIC_RECOMMENDATION_QUERY_RE = re.compile(r"\b(?:specific|exact)\b", re.IGNORECASE)
-MONEY_EVENT_QUERY_RE = re.compile(
-    r"\b(?:spent|spend|cost|costed|paid|pay)\b", re.IGNORECASE
-)
+MONEY_EVENT_QUERY_RE = re.compile(r"\b(?:spent|spend|cost|costed|paid|pay)\b", re.IGNORECASE)
 HEAD_BIGRAM_LAST_TOKENS: frozenset[str] = frozenset(
     {
         "development",
@@ -283,6 +438,7 @@ def _derive_phrase_probes(question: str) -> list[str]:
 
     out: list[str] = []
     seen: set[str] = set()
+
     def append_phrase(phrase: str | None) -> bool:
         if phrase is None:
             return False
@@ -390,9 +546,7 @@ def derive_sub_queries(question: str) -> list[str]:
     """Return phrase probes first, then strongest-token fallbacks."""
     out: list[str] = []
     seen: set[str] = {question.strip().lower()}
-    inspiration_query = any(
-        hint in question.strip().lower() for hint in INSPIRATION_QUERY_HINTS
-    )
+    inspiration_query = any(hint in question.strip().lower() for hint in INSPIRATION_QUERY_HINTS)
 
     for probe in _derive_specific_recommendation_probes(question):
         if probe in seen:
@@ -436,9 +590,7 @@ def derive_sub_queries(question: str) -> list[str]:
 
     phrases = _filtered_phrase_probes(question)
     for phrase in phrases:
-        if inspiration_query and not _filter_question_tokens(
-            phrase, INSPIRATION_FOCUS_SKIP_WORDS
-        ):
+        if inspiration_query and not _filter_question_tokens(phrase, INSPIRATION_FOCUS_SKIP_WORDS):
             continue
         if phrase in seen:
             continue
@@ -695,12 +847,7 @@ def _should_use_priority_only_bm25(question: str) -> bool:
 
 def compile_bm25_fanout_query(query: str, phrase_probes: list[str]) -> str:
     trimmed = " ".join(query.split())
-    if (
-        trimmed
-        and trimmed in phrase_probes
-        and " " in trimmed
-        and '"' not in trimmed
-    ):
+    if trimmed and trimmed in phrase_probes and " " in trimmed and '"' not in trimmed:
         return f'"{trimmed}"'
     return trimmed
 

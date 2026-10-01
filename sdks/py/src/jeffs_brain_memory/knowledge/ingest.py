@@ -17,10 +17,9 @@ from datetime import datetime, timezone
 from typing import BinaryIO, Protocol, runtime_checkable
 from urllib.parse import urlparse
 
-import httpx
-
+from ..net import UnsafeUrlError, safe_fetch
 from ..path import BrainPath, DocumentID
-from .frontmatter import Frontmatter, parse_frontmatter
+from .frontmatter import parse_frontmatter
 from .types import Document, IngestRequest
 
 __all__ = [
@@ -31,6 +30,7 @@ __all__ = [
     "CONTENT_TYPE_JSON",
     "CONTENT_TYPE_YAML",
     "MAX_READ_BYTES",
+    "InvalidContentError",
     "DEFAULT_HTTP_TIMEOUT",
     "RAW_DOCUMENTS_PREFIX",
     "Fetcher",
@@ -76,6 +76,12 @@ _STYLE_RE = re.compile(r"<style[^>]*>.*?</\s*style\s*>", re.IGNORECASE | re.DOTA
 _TAG_RE = re.compile(r"<[^>]+>", re.DOTALL)
 
 
+class InvalidContentError(ValueError):
+    """The request content cannot be ingested: missing, empty, over the
+    size limit, not valid UTF-8, or of an unsupported type. Maps to 400
+    at the HTTP layer, like Go's ``knowledge.ErrInvalidContent``."""
+
+
 @runtime_checkable
 class Fetcher(Protocol):
     """Abstract HTTP fetcher so :func:`ingest_url` stays testable."""
@@ -87,21 +93,16 @@ class Fetcher(Protocol):
 
 @dataclass(slots=True)
 class DefaultFetcher:
-    """Production HTTP fetcher backed by :mod:`httpx`."""
+    """Production HTTP fetcher. Every hop goes through the SSRF guard in
+    :mod:`jeffs_brain_memory.net`, so non-public addresses are refused
+    with :class:`~jeffs_brain_memory.net.UnsafeUrlError` and upstream
+    failures raise :class:`~jeffs_brain_memory.net.FetchFailedError`."""
 
     timeout: float = DEFAULT_HTTP_TIMEOUT
 
     async def fetch(self, url: str) -> tuple[bytes, str]:
-        headers = {
-            "Accept": "text/plain, text/markdown, text/html, application/pdf",
-        }
-        async with httpx.AsyncClient(timeout=self.timeout, follow_redirects=True) as client:
-            resp = await client.get(url, headers=headers)
-        if resp.status_code < 200 or resp.status_code >= 300:
-            raise ValueError(f"knowledge: fetch {url}: HTTP {resp.status_code}")
-        body = resp.content[:MAX_READ_BYTES]
-        ctype = resp.headers.get("content-type", "")
-        return body, ctype
+        res = await safe_fetch(url, timeout=self.timeout, max_bytes=MAX_READ_BYTES)
+        return res.body, res.content_type
 
 
 def raw_document_path(slug: str) -> BrainPath:
@@ -172,7 +173,7 @@ def extract_plain(raw: bytes, content_type: str, extension: str) -> str:
         return _extract_pdf(raw)
     if base.startswith("text/"):
         return _decode_utf8(raw)
-    raise ValueError(f"knowledge: unsupported content-type {content_type!r}")
+    raise InvalidContentError(f"knowledge: unsupported content-type {content_type!r}")
 
 
 def _decode_utf8(raw: bytes) -> str:
@@ -180,7 +181,7 @@ def _decode_utf8(raw: bytes) -> str:
     try:
         return raw.decode("utf-8")
     except UnicodeDecodeError as exc:
-        raise ValueError("knowledge: content is not valid UTF-8") from exc
+        raise InvalidContentError("knowledge: content is not valid UTF-8") from exc
 
 
 def strip_html(raw: bytes) -> str:
@@ -209,7 +210,7 @@ def strip_html(raw: bytes) -> str:
 def _extract_pdf(raw: bytes) -> str:
     """Return the concatenated plain text of every PDF page."""
     if not raw:
-        raise ValueError("knowledge: empty pdf body")
+        raise InvalidContentError("knowledge: empty pdf body")
     try:
         import pdfplumber
     except ImportError as exc:  # pragma: no cover - optional extra
@@ -227,7 +228,7 @@ def _extract_pdf(raw: bytes) -> str:
                 if text:
                     pieces.append(text)
     except Exception as exc:  # noqa: BLE001
-        raise ValueError(f"knowledge: opening pdf: {exc}") from exc
+        raise InvalidContentError(f"knowledge: opening pdf: {exc}") from exc
     return _collapse_whitespace("\n\n".join(pieces))
 
 
@@ -278,15 +279,15 @@ def build_document(
 def build_frontmatter_yaml(doc: Document) -> str:
     """Emit the canonical YAML frontmatter block written with each ingest."""
     lines = ["---"]
-    lines.append(f'title: {_quote_yaml(doc.title)}')
+    lines.append(f"title: {_quote_yaml(doc.title)}")
     if doc.summary:
-        lines.append(f'summary: {_quote_yaml(doc.summary)}')
-    lines.append(f'source: {_quote_yaml(doc.source)}')
-    lines.append(f'source_type: {_quote_yaml(_route_source_type(doc.content_type))}')
+        lines.append(f"summary: {_quote_yaml(doc.summary)}")
+    lines.append(f"source: {_quote_yaml(doc.source)}")
+    lines.append(f"source_type: {_quote_yaml(_route_source_type(doc.content_type))}")
     if doc.ingested is not None:
-        lines.append(f'ingested: {_quote_yaml(_fmt_rfc3339(doc.ingested))}')
+        lines.append(f"ingested: {_quote_yaml(_fmt_rfc3339(doc.ingested))}")
     if doc.modified is not None:
-        lines.append(f'modified: {_quote_yaml(_fmt_rfc3339(doc.modified))}')
+        lines.append(f"modified: {_quote_yaml(_fmt_rfc3339(doc.modified))}")
     if doc.tags:
         lines.append("tags:")
         for tag in doc.tags:
@@ -299,12 +300,12 @@ def normalise_url(raw: str) -> str:
     """Trim, default-to-HTTPS, and validate a URL."""
     raw = raw.strip()
     if not raw:
-        raise ValueError("knowledge: empty URL")
+        raise UnsafeUrlError("knowledge: empty URL")
     if "://" not in raw:
         raw = "https://" + raw
     parsed = urlparse(raw)
     if not parsed.scheme or not parsed.netloc:
-        raise ValueError("knowledge: URL missing host")
+        raise UnsafeUrlError("knowledge: URL missing host")
     return parsed.geturl()
 
 
@@ -476,9 +477,9 @@ def read_body(req: IngestRequest) -> tuple[bytes, str, str]:
 
     path = (req.path or "").strip()
     if not path:
-        raise ValueError("knowledge: either content or path required")
+        raise InvalidContentError("knowledge: either content or path required")
     if "://" in path:
-        raise ValueError(f"knowledge: use ingest_url for {path}")
+        raise InvalidContentError(f"knowledge: use ingest_url for {path}")
 
     import os
 
@@ -489,7 +490,7 @@ def read_body(req: IngestRequest) -> tuple[bytes, str, str]:
         raise IsADirectoryError(f"knowledge: {abs_path} is a directory")
     size = os.path.getsize(abs_path)
     if size > MAX_READ_BYTES:
-        raise ValueError(f"knowledge: {abs_path} exceeds {MAX_READ_BYTES} byte limit")
+        raise InvalidContentError(f"knowledge: {abs_path} exceeds {MAX_READ_BYTES} byte limit")
     with open(abs_path, "rb") as handle:
         data = handle.read()
     if not ctype:

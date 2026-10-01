@@ -11,18 +11,18 @@
 # irrelevant at lookup time. See internal/search/aliases.go for the
 # loader and ParseQuery integration.
 aliases:
-  a-ware:
-    - royal-aware
-    - royal-a-ware
-    - a-ware
-  aware:
-    - royal-aware
-    - a-ware
-  bosch:
-    - bosch
-    - robert-bosch
-  dude:
-    - oude
-  reimer:
-    - reimer
-    - oude-reimer
+  e-volt:
+    - nova-evolt
+    - nova-e-volt
+    - e-volt
+  evolt:
+    - nova-evolt
+    - e-volt
+  zenco:
+    - zenco
+    - zenco-group
+  hill:
+    - mill
+  brook:
+    - brook
+    - mill-brook

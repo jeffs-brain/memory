@@ -11,9 +11,7 @@ from pydantic import BaseModel
 from ..client import MemoryClient, ProgressEmitter
 
 
-ToolHandler = Callable[
-    [BaseModel, MemoryClient, ProgressEmitter | None], Awaitable[dict[str, Any]]
-]
+ToolHandler = Callable[[BaseModel, MemoryClient, ProgressEmitter | None], Awaitable[dict[str, Any]]]
 
 
 @dataclass(frozen=True, slots=True)

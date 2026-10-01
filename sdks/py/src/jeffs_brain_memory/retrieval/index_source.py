@@ -43,9 +43,7 @@ class IndexedRow:
 class SearchIndex(Protocol):
     """Minimal interface the adapter expects from a search index."""
 
-    async def search_bm25(
-        self, expr: str, k: int, filters: Filters
-    ) -> list[IndexedRow]: ...
+    async def search_bm25(self, expr: str, k: int, filters: Filters) -> list[IndexedRow]: ...
 
     async def all_rows(self) -> list[IndexedRow]: ...
 
@@ -126,21 +124,15 @@ class IndexSource:
         model: str = "",
     ) -> None:
         if search_index is None:
-            raise ValueError(
-                "retrieval: IndexSource requires a non-nil search index"
-            )
+            raise ValueError("retrieval: IndexSource requires a non-nil search index")
         if vectors is not None and not model:
-            raise ValueError(
-                "retrieval: IndexSource: model is required when vectors is set"
-            )
+            raise ValueError("retrieval: IndexSource: model is required when vectors is set")
         self._index = search_index
         self._vectors = vectors
         self._embedder = embedder
         self._model = model
 
-    async def search_bm25(
-        self, expr: str, k: int, filters: Filters
-    ) -> list[BM25Hit]:
+    async def search_bm25(self, expr: str, k: int, filters: Filters) -> list[BM25Hit]:
         if not expr:
             return []
         limit = _fetch_limit(k)
@@ -161,15 +153,11 @@ class IndexSource:
             return []
         limit = _fetch_limit(k)
         if not _has_retrieval_filters(filters):
-            hits = await self._vectors.search(
-                embedding, self._model, limit, filters
-            )
+            hits = await self._vectors.search(embedding, self._model, limit, filters)
             return self._vector_hits(hits, limit, filters)
 
         fetch_limit = max(limit * 10, 200)
-        hits = await self._vectors.search(
-            embedding, self._model, fetch_limit, filters
-        )
+        hits = await self._vectors.search(embedding, self._model, fetch_limit, filters)
         return self._vector_hits(hits, limit, filters)
 
     async def chunks(self) -> list[TrigramChunk]:
@@ -185,9 +173,7 @@ class IndexSource:
             for r in rows
         ]
 
-    def _bm25_hits(
-        self, rows: list[IndexedRow], limit: int, filters: Filters
-    ) -> list[BM25Hit]:
+    def _bm25_hits(self, rows: list[IndexedRow], limit: int, filters: Filters) -> list[BM25Hit]:
         out: list[BM25Hit] = []
         for row in rows:
             if not _row_passes_filters(row, filters):
@@ -207,9 +193,7 @@ class IndexSource:
                 break
         return out
 
-    def _vector_hits(
-        self, rows: list[IndexedRow], limit: int, filters: Filters
-    ) -> list[VectorHit]:
+    def _vector_hits(self, rows: list[IndexedRow], limit: int, filters: Filters) -> list[VectorHit]:
         out: list[VectorHit] = []
         for row in rows:
             if not _row_passes_filters(row, filters):

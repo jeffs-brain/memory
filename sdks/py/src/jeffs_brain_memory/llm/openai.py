@@ -115,7 +115,7 @@ async def _openai_stream(
         async for line in resp.aiter_lines():
             if not line.startswith("data: "):
                 continue
-            payload_s = line[len("data: "):]
+            payload_s = line[len("data: ") :]
             if payload_s == "[DONE]":
                 return
             try:

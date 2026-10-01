@@ -79,9 +79,7 @@ class Buffer:
             summary = obs.summary
             if len(summary) > self._cfg.max_observation_len:
                 summary = summary[: self._cfg.max_observation_len]
-            line = format_observation(
-                obs.at, obs.intent, obs.outcome, summary, obs.entities
-            )
+            line = format_observation(obs.at, obs.intent, obs.outcome, summary, obs.entities)
             self._store.append(self._path(), (line + "\n").encode("utf-8"))
 
     def token_count(self) -> int:

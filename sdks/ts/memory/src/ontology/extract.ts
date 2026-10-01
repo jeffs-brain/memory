@@ -13,11 +13,11 @@
 
 import { Buffer } from 'node:buffer'
 import type { Provider } from '../llm/types.js'
-import { isValidNodeType, isValidEdgeType, type TypeEntry } from './templates.js'
 import type { ResolvedOntology, ResolvedType } from './store.js'
+import { type TypeEntry, isValidEdgeType, isValidNodeType } from './templates.js'
 
-import { jaroWinklerDistance } from './similarity.js'
 import { extractJSON } from '../llm/structured.js'
+import { jaroWinklerDistance } from './similarity.js'
 
 /** Byte count above which content is split into multiple sections. */
 export const SINGLE_SECTION_THRESHOLD = 8000
@@ -79,7 +79,8 @@ export class Extractor {
    * Returns an empty result without error when the provider is undefined.
    */
   async extract(params: ExtractionParams, signal?: AbortSignal): Promise<ExtractionResult> {
-    if (this.provider === undefined) {
+    const provider = this.provider
+    if (provider === undefined) {
       return emptyExtractionResult()
     }
 
@@ -89,20 +90,21 @@ export class Extractor {
     }
 
     if (content.length <= SINGLE_SECTION_THRESHOLD) {
-      return this.extractSingleSection(content, params, signal)
+      return this.extractSingleSection(provider, content, params, signal)
     }
 
-    return this.extractMultiSection(content, params, signal)
+    return this.extractMultiSection(provider, content, params, signal)
   }
 
   private async extractSingleSection(
+    provider: Provider,
     content: string,
     params: ExtractionParams,
     signal?: AbortSignal,
   ): Promise<ExtractionResult> {
     const systemPrompt = buildOntologyExtractionPrompt(params.existingTypes)
     const userMsg = buildUserMessage(content, params.fileName)
-    let result = await this.callLLMWithRetry(systemPrompt, userMsg, signal)
+    let result = await this.callLLMWithRetry(provider, systemPrompt, userMsg, signal)
 
     if (params.existingTypes !== undefined) {
       result = filterExistingTypes(result, params.existingTypes)
@@ -112,6 +114,7 @@ export class Extractor {
   }
 
   private async extractMultiSection(
+    provider: Provider,
     content: string,
     params: ExtractionParams,
     signal?: AbortSignal,
@@ -121,18 +124,18 @@ export class Extractor {
     const discoveredNodeTypes: TypeEntry[] = []
     const discoveredEdgeTypes: TypeEntry[] = []
 
-    for (let i = 0; i < sections.length; i++) {
+    for (const [i, section] of sections.entries()) {
       let systemPrompt = buildOntologyExtractionPrompt(params.existingTypes)
       if (discoveredNodeTypes.length > 0 || discoveredEdgeTypes.length > 0) {
         systemPrompt += buildContextPrefix(discoveredNodeTypes, discoveredEdgeTypes)
       }
 
-      let userMsg = buildUserMessage(sections[i]!, params.fileName)
+      let userMsg = buildUserMessage(section, params.fileName)
       if (sections.length > 1) {
         userMsg = `[Section ${i + 1} of ${sections.length}]\n\n${userMsg}`
       }
 
-      const result = await this.callLLMWithRetry(systemPrompt, userMsg, signal)
+      const result = await this.callLLMWithRetry(provider, systemPrompt, userMsg, signal)
       allResults.push(result)
       discoveredNodeTypes.push(...result.nodeTypes)
       discoveredEdgeTypes.push(...result.edgeTypes)
@@ -152,6 +155,7 @@ export class Extractor {
   }
 
   private async callLLMWithRetry(
+    provider: Provider,
     systemPrompt: string,
     userMsg: string,
     signal?: AbortSignal,
@@ -165,7 +169,7 @@ export class Extractor {
     for (let attempt = 0; attempt <= this.maxRetries; attempt++) {
       signal?.throwIfAborted()
 
-      const resp = await this.provider!.complete(
+      const resp = await provider.complete(
         {
           system: systemPrompt,
           messages,
@@ -302,13 +306,14 @@ export function noisyOr(confidences: readonly number[]): number {
   }
 
   const filtered = confidences.filter((c) => c >= CONFIDENCE_FLOOR)
+  const [first, ...rest] = filtered
 
-  if (filtered.length === 0) {
+  if (first === undefined) {
     return 0
   }
 
-  if (filtered.length === 1) {
-    return Math.min(filtered[0]!, CONFIDENCE_CAP)
+  if (rest.length === 0) {
+    return Math.min(first, CONFIDENCE_CAP)
   }
 
   let product = 1.0
@@ -336,11 +341,12 @@ function emptyExtractionResult(): ExtractionResult {
  * prefix (Jaro-Winkler >= 0.88), and aggregates confidence via noisy-OR.
  */
 function mergeOntologyExtractions(results: readonly ExtractionResult[]): ExtractionResult {
-  if (results.length === 0) {
+  const [first, ...rest] = results
+  if (first === undefined) {
     return emptyExtractionResult()
   }
-  if (results.length === 1) {
-    return results[0]!
+  if (rest.length === 0) {
+    return first
   }
 
   const nodeMap = new Map<string, TypeEntry>()
@@ -407,17 +413,17 @@ function fuzzyDedupByPrefix(nodeMap: Map<string, TypeEntry>): void {
   }
 
   for (const keys of byPrefix.values()) {
-    for (let i = 0; i < keys.length; i++) {
-      for (let j = i + 1; j < keys.length; j++) {
-        const entryI = nodeMap.get(keys[i]!)
-        const entryJ = nodeMap.get(keys[j]!)
+    for (const [i, keyI] of keys.entries()) {
+      for (const keyJ of keys.slice(i + 1)) {
+        const entryI = nodeMap.get(keyI)
+        const entryJ = nodeMap.get(keyJ)
         if (entryI === undefined || entryJ === undefined) continue
         const sim = jaroWinklerDistance(entryI.label, entryJ.label)
         if (sim >= FUZZY_LABEL_MERGE) {
           if (entryJ.description.length > entryI.description.length) {
-            nodeMap.delete(keys[i]!)
+            nodeMap.delete(keyI)
           } else {
-            nodeMap.delete(keys[j]!)
+            nodeMap.delete(keyJ)
           }
         }
       }
@@ -427,17 +433,17 @@ function fuzzyDedupByPrefix(nodeMap: Map<string, TypeEntry>): void {
 
 function fuzzyDedupEdges(edgeMap: Map<string, TypeEntry>): void {
   const keys = [...edgeMap.keys()]
-  for (let i = 0; i < keys.length; i++) {
-    for (let j = i + 1; j < keys.length; j++) {
-      const entryI = edgeMap.get(keys[i]!)
-      const entryJ = edgeMap.get(keys[j]!)
+  for (const [i, keyI] of keys.entries()) {
+    for (const keyJ of keys.slice(i + 1)) {
+      const entryI = edgeMap.get(keyI)
+      const entryJ = edgeMap.get(keyJ)
       if (entryI === undefined || entryJ === undefined) continue
       const sim = jaroWinklerDistance(entryI.label, entryJ.label)
       if (sim >= FUZZY_LABEL_MERGE) {
         if (entryJ.description.length > entryI.description.length) {
-          edgeMap.delete(keys[i]!)
+          edgeMap.delete(keyI)
         } else {
-          edgeMap.delete(keys[j]!)
+          edgeMap.delete(keyJ)
         }
       }
     }
@@ -540,7 +546,7 @@ function buildExistingTypesSection(existing: ResolvedOntology): string {
       parts.push(`- ${et.type}: ${et.label}`)
     }
   }
-  return parts.join('\n') + '\n'
+  return `${parts.join('\n')}\n`
 }
 
 function buildUserMessage(content: string, fileName: string): string {
@@ -556,7 +562,7 @@ function buildUserMessage(content: string, fileName: string): string {
  * prevent prompt injection via crafted file names.
  */
 function sanitiseFileName(name: string): string {
-  const cleaned = name.replace(/[\x00-\x1f\x7f-\x9f]/g, '').trim()
+  const cleaned = name.replace(/\p{Cc}/gu, '').trim()
   return cleaned.length > 256 ? cleaned.slice(0, 256) : cleaned
 }
 
@@ -579,7 +585,7 @@ function buildContextPrefix(
       lines.push(`- ${t.type}: ${t.label}`)
     }
   }
-  return lines.join('\n') + '\n'
+  return `${lines.join('\n')}\n`
 }
 
 /**
@@ -607,10 +613,8 @@ export function isTabularContent(content: string): boolean {
   const lines = content.split('\n', 6)
   if (lines.length < 3) return false
 
-  const limit = Math.min(5, lines.length)
   let tabularLines = 0
-  for (let i = 0; i < limit; i++) {
-    const line = lines[i]!
+  for (const line of lines.slice(0, 5)) {
     const commas = (line.match(/,/g) ?? []).length
     const pipes = (line.match(/\|/g) ?? []).length
     const tabs = (line.match(/\t/g) ?? []).length
@@ -623,12 +627,8 @@ export function isTabularContent(content: string): boolean {
 }
 
 function splitTabularContent(content: string, maxBytes: number): string[] {
-  const lines = content.split('\n')
-  if (lines.length === 0) return [content]
-
-  const header = lines[0]!
-  const dataLines = lines.slice(1)
-  if (dataLines.length === 0) return [content]
+  const [header, ...dataLines] = content.split('\n')
+  if (header === undefined || dataLines.length === 0) return [content]
 
   const headerBytes = Buffer.byteLength(header, 'utf8') + 1 // +1 for newline
   const sections: string[] = []
@@ -638,7 +638,7 @@ function splitTabularContent(content: string, maxBytes: number): string[] {
   for (const line of dataLines) {
     const lineBytes = Buffer.byteLength(line, 'utf8') + 1
     if (currentBytes + lineBytes > maxBytes && sectionLines.length > 0) {
-      sections.push(header + '\n' + sectionLines.join('\n'))
+      sections.push(`${header}\n${sectionLines.join('\n')}`)
       sectionLines = []
       currentBytes = headerBytes
     }
@@ -647,7 +647,7 @@ function splitTabularContent(content: string, maxBytes: number): string[] {
   }
 
   if (sectionLines.length > 0) {
-    sections.push(header + '\n' + sectionLines.join('\n'))
+    sections.push(`${header}\n${sectionLines.join('\n')}`)
   }
 
   return sections

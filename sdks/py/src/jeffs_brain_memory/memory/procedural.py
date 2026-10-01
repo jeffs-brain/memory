@@ -6,6 +6,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from typing import Any
 
 from ..llm.types import Role
 from .types import Message
@@ -53,8 +54,8 @@ def detect_procedurals(messages: list[Message]) -> list[ProceduralRecord]:
     return records
 
 
-def _detect_skill_invocations(messages: list[Message]) -> list[dict]:
-    out: list[dict] = []
+def _detect_skill_invocations(messages: list[Message]) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
     for i, m in enumerate(messages):
         if m.role != Role.ASSISTANT:
             continue
@@ -74,8 +75,8 @@ def _detect_skill_invocations(messages: list[Message]) -> list[dict]:
     return out
 
 
-def _detect_agent_invocations(messages: list[Message]) -> list[dict]:
-    out: list[dict] = []
+def _detect_agent_invocations(messages: list[Message]) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
     for i, m in enumerate(messages):
         if m.role != Role.ASSISTANT:
             continue
@@ -100,9 +101,7 @@ def _detect_agent_invocations(messages: list[Message]) -> list[dict]:
     return out
 
 
-def infer_tool_call_outcome(
-    messages: list[Message], after_index: int, tool_call_id: str
-) -> str:
+def infer_tool_call_outcome(messages: list[Message], after_index: int, tool_call_id: str) -> str:
     for m in messages[after_index:]:
         if m.role != Role.TOOL:
             continue

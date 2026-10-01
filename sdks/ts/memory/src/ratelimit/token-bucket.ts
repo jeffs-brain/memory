@@ -11,7 +11,13 @@
  */
 
 import { noopLogger } from '../llm/types.js'
-import type { RateLimitHeaders, RateLimitMetrics, RateLimitToken, RateLimiter, TokenBucketOptions } from './types.js'
+import type {
+  RateLimitHeaders,
+  RateLimitMetrics,
+  RateLimitToken,
+  RateLimiter,
+  TokenBucketOptions,
+} from './types.js'
 
 type Waiter = {
   readonly cost: number
@@ -242,7 +248,12 @@ export const createTokenBucket = (opts: TokenBucketOptions): RateLimiter => {
     }
 
     // Back off when remaining < burst/4.
-    if (headers.remaining !== undefined && headers.remaining > 0 && headers.limit !== undefined && headers.limit > 0) {
+    if (
+      headers.remaining !== undefined &&
+      headers.remaining > 0 &&
+      headers.limit !== undefined &&
+      headers.limit > 0
+    ) {
       const threshold = Math.max(1, Math.floor(maxTokens / 4))
       if (headers.remaining < threshold) {
         const newRate = Math.max(0.1, refillRate / 2)

@@ -65,9 +65,7 @@ async def delete_brain(request: Request) -> Response:
     if not brain_id:
         return validation_error("missing brainId")
     if request.headers.get("X-Confirm-Delete") != "yes":
-        return precondition_required(
-            "delete brain requires X-Confirm-Delete: yes header"
-        )
+        return precondition_required("delete brain requires X-Confirm-Delete: yes header")
     try:
         await daemon.brains.delete(brain_id)
     except BrainNotFound:

@@ -1,5 +1,5 @@
-import { z } from 'zod'
 import type { GitSignFn } from '@jeffs-brain/memory'
+import { z } from 'zod'
 
 const GitSignatureSchema = z.object({
   name: z.string().min(1),

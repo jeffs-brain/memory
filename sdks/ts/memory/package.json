@@ -1,6 +1,6 @@
 {
   "name": "@jeffs-brain/memory",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Local-first memory and hybrid retrieval library for LLM agents with pluggable stores, BM25 plus vector search, and a four-stage memory pipeline.",
   "license": "Apache-2.0",
   "author": "Alex J <alex@lleverage.ai>",
@@ -32,12 +32,7 @@
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "sideEffects": false,
-  "files": [
-    "dist",
-    "README.md",
-    "LICENSE",
-    "NOTICE"
-  ],
+  "files": ["dist", "README.md", "LICENSE", "NOTICE"],
   "exports": {
     ".": {
       "import": "./dist/index.js",
@@ -123,6 +118,10 @@
       "import": "./dist/okf/index.js",
       "types": "./dist/okf/index.d.ts"
     },
+    "./net": {
+      "import": "./dist/net/index.js",
+      "types": "./dist/net/index.d.ts"
+    },
     "./package.json": "./package.json"
   },
   "bin": {
@@ -136,13 +135,13 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json && node ./scripts/copy-conformance-fixture.mjs",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "typecheck": "tsc -p tsconfig.test.json",
     "test": "vitest run --passWithNoTests",
     "prepublishOnly": "bun run typecheck && bun run test && bun run build"
   },
   "dependencies": {
     "@noble/hashes": "^2.2.0",
-    "@stackone/defender": "^0.6.3",
+    "@stackone/defender": "^0.8.3",
     "citty": "^0.1.6",
     "isomorphic-git": "^1.37.5",
     "snowball-stemmers": "^0.6.0",

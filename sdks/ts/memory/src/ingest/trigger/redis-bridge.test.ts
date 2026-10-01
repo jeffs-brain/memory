@@ -33,7 +33,9 @@ describe('redis-bridge', () => {
   it('valid JSON on channel -> parsed and published to bus', async () => {
     const bus = createEventBus()
     const received: IngestTriggerEvent[] = []
-    bus.subscribe((event) => { received.push(event) })
+    bus.subscribe((event) => {
+      received.push(event)
+    })
 
     const event = validEvent('redis-1')
     const sub = mockRedisSubscriber([JSON.stringify(event)])
@@ -42,14 +44,16 @@ describe('redis-bridge', () => {
     await bus.close()
 
     expect(received).toHaveLength(1)
-    expect(received[0].id).toBe('redis-1')
+    expect(received[0]!.id).toBe('redis-1')
     await bridge.close()
   })
 
   it('invalid JSON on channel -> logged and discarded', async () => {
     const bus = createEventBus()
     const received: IngestTriggerEvent[] = []
-    bus.subscribe((event) => { received.push(event) })
+    bus.subscribe((event) => {
+      received.push(event)
+    })
 
     const warn = vi.fn()
     const sub = mockRedisSubscriber(['not-json'])
@@ -69,7 +73,9 @@ describe('redis-bridge', () => {
   it('reconnects on subscribe error with backoff', async () => {
     const bus = createEventBus()
     const received: IngestTriggerEvent[] = []
-    bus.subscribe((event) => { received.push(event) })
+    bus.subscribe((event) => {
+      received.push(event)
+    })
 
     const event = validEvent('redis-reconnect')
     let callCount = 0
@@ -98,7 +104,7 @@ describe('redis-bridge', () => {
 
     expect(callCount).toBe(2)
     expect(received).toHaveLength(1)
-    expect(received[0].id).toBe('redis-reconnect')
+    expect(received[0]!.id).toBe('redis-reconnect')
     expect(warn).toHaveBeenCalledWith(
       expect.stringContaining('reconnecting'),
       expect.objectContaining({ error: expect.stringContaining('connection dropped') }),

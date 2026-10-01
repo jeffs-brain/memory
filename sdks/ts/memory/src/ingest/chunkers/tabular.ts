@@ -29,11 +29,13 @@ export const tabularChunker: Chunker = async (
   const dataLines = lines.slice(1)
 
   if (dataLines.length === 0) {
-    return [{
-      id: '',
-      content: header,
-      metadata: { chunker: 'tabular' },
-    }]
+    return [
+      {
+        id: '',
+        content: header,
+        metadata: { chunker: 'tabular' },
+      },
+    ]
   }
 
   const rowsPerChunk = computeRowsPerChunk(header, dataLines, cfg)
@@ -43,7 +45,7 @@ export const tabularChunker: Chunker = async (
     signal?.throwIfAborted()
     const end = Math.min(start + rowsPerChunk, dataLines.length)
     const batch = dataLines.slice(start, end)
-    const chunkContent = header + '\n' + batch.join('\n')
+    const chunkContent = `${header}\n${batch.join('\n')}`
     chunks.push({
       id: '',
       content: chunkContent,

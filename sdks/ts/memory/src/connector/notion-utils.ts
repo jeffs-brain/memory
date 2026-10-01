@@ -13,8 +13,8 @@
  */
 export const parseRetryAfterHeader = (value: string | null): number => {
   if (value === null || value === '') return -1
-  const parsed = parseInt(value, 10)
-  return isNaN(parsed) ? -1 : parsed
+  const parsed = Number.parseInt(value, 10)
+  return Number.isNaN(parsed) ? -1 : parsed
 }
 
 // ---------- Response body size limiting ----------
@@ -31,11 +31,9 @@ export const readResponseWithLimit = async (
   // reject early.
   const contentLength = response.headers.get('Content-Length')
   if (contentLength !== null) {
-    const length = parseInt(contentLength, 10)
-    if (!isNaN(length) && length > maxBytes) {
-      throw new Error(
-        `connector/notion: response body exceeds ${String(maxBytes)} bytes limit`,
-      )
+    const length = Number.parseInt(contentLength, 10)
+    if (!Number.isNaN(length) && length > maxBytes) {
+      throw new Error(`connector/notion: response body exceeds ${String(maxBytes)} bytes limit`)
     }
   }
 
@@ -49,18 +47,19 @@ export const readResponseWithLimit = async (
     while (!readResult.done) {
       totalBytes += readResult.value.byteLength
       if (totalBytes > maxBytes) {
-        reader.cancel().catch(() => { /* intentionally empty */ })
-        throw new Error(
-          `connector/notion: response body exceeds ${String(maxBytes)} bytes limit`,
-        )
+        reader.cancel().catch(() => {
+          /* intentionally empty */
+        })
+        throw new Error(`connector/notion: response body exceeds ${String(maxBytes)} bytes limit`)
       }
       chunks.push(readResult.value)
       readResult = await reader.read()
     }
 
     const decoder = new TextDecoder()
-    return chunks.map((chunk) => decoder.decode(chunk, { stream: true })).join('') +
-      decoder.decode()
+    return (
+      chunks.map((chunk) => decoder.decode(chunk, { stream: true })).join('') + decoder.decode()
+    )
   }
 
   return response.text()
@@ -72,10 +71,7 @@ export const readResponseWithLimit = async (
  * Sleeps for the given duration, but resolves early if the signal
  * fires.
  */
-export const interruptibleSleep = (
-  signal: AbortSignal,
-  ms: number,
-): Promise<void> =>
+export const interruptibleSleep = (signal: AbortSignal, ms: number): Promise<void> =>
   new Promise<void>((resolve) => {
     const timer = setTimeout(resolve, ms)
     const onAbort = (): void => {
@@ -104,9 +100,7 @@ export const combineSignals = (a: AbortSignal, b: AbortSignal): AbortSignal => {
 /**
  * Parses a value that might be a string array or undefined.
  */
-export const parseStringArray = (
-  value: unknown,
-): readonly string[] | undefined => {
+export const parseStringArray = (value: unknown): readonly string[] | undefined => {
   if (value === undefined || value === null) return undefined
   if (Array.isArray(value)) {
     return value.filter((v): v is string => typeof v === 'string')
@@ -118,9 +112,7 @@ export const parseStringArray = (
  * Parses a block type filter from raw config. Accepts a string
  * array and converts to a Set.
  */
-export const parseBlockTypeFilter = (
-  value: unknown,
-): ReadonlySet<string> | undefined => {
+export const parseBlockTypeFilter = (value: unknown): ReadonlySet<string> | undefined => {
   if (value === undefined || value === null) return undefined
   if (Array.isArray(value)) {
     const filtered = value.filter((v): v is string => typeof v === 'string')
@@ -134,13 +126,9 @@ export const parseBlockTypeFilter = (
 /**
  * HTTP fetcher interface for dependency injection in tests.
  */
-export type NotionHTTPFetcher = (
-  url: string,
-  options: RequestInit,
-) => Promise<Response>
+export type NotionHTTPFetcher = (url: string, options: RequestInit) => Promise<Response>
 
 /**
  * Global fetch wrapper for the default HTTP fetcher.
  */
-export const globalFetch: NotionHTTPFetcher = (url, options) =>
-  fetch(url, options)
+export const globalFetch: NotionHTTPFetcher = (url, options) => fetch(url, options)

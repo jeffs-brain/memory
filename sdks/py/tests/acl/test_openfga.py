@@ -39,7 +39,9 @@ def _brain(rid: str) -> Resource:
 class _Recorder:
     calls: list[httpx.Request] = field(default_factory=list)
 
-    def transport(self, responder: Callable[[httpx.Request], httpx.Response]) -> httpx.MockTransport:
+    def transport(
+        self, responder: Callable[[httpx.Request], httpx.Response]
+    ) -> httpx.MockTransport:
         def handler(request: httpx.Request) -> httpx.Response:
             self.calls.append(request)
             return responder(request)
@@ -171,12 +173,8 @@ async def test_write_sends_correct_body_shape() -> None:
         )
         await acl.write(
             WriteTuplesRequest(
-                writes=[
-                    Tuple(subject=_user("alice"), relation="writer", resource=_brain("notes"))
-                ],
-                deletes=[
-                    Tuple(subject=_user("bob"), relation="reader", resource=_brain("notes"))
-                ],
+                writes=[Tuple(subject=_user("alice"), relation="writer", resource=_brain("notes"))],
+                deletes=[Tuple(subject=_user("bob"), relation="reader", resource=_brain("notes"))],
             )
         )
         assert len(rec.calls) == 1
@@ -229,9 +227,7 @@ async def test_network_exception_wraps_into_request_error() -> None:
         with pytest.raises(OpenFgaRequestError) as info:
             await acl.write(
                 WriteTuplesRequest(
-                    writes=[
-                        Tuple(subject=_user("a"), relation="reader", resource=_brain("x"))
-                    ]
+                    writes=[Tuple(subject=_user("a"), relation="reader", resource=_brain("x"))]
                 )
             )
         assert "network down" in str(info.value)

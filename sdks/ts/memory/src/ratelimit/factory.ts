@@ -73,20 +73,23 @@ export const createRateLimiterFactory = (opts: RateLimiterFactoryOptions): RateL
     const bucket = createTokenBucket({
       maxTokens: opts.defaultMaxTokens,
       refillRatePerSecond: opts.defaultRefillRate,
-      ...(opts.defaultMaxConcurrency !== undefined ? { maxConcurrency: opts.defaultMaxConcurrency } : {}),
+      ...(opts.defaultMaxConcurrency !== undefined
+        ? { maxConcurrency: opts.defaultMaxConcurrency }
+        : {}),
       tenantId,
       logger,
     })
 
-    const limiter: RateLimiter = opts.adaptiveEnabled === true
-      ? createAdaptiveRateLimiter({
-          bucket,
-          ...(opts.minRefillRate !== undefined ? { minRefillRate: opts.minRefillRate } : {}),
-          ...(opts.maxRefillRate !== undefined ? { maxRefillRate: opts.maxRefillRate } : {}),
-          ...(opts.recoveryFactor !== undefined ? { recoveryFactor: opts.recoveryFactor } : {}),
-          logger,
-        })
-      : bucket
+    const limiter: RateLimiter =
+      opts.adaptiveEnabled === true
+        ? createAdaptiveRateLimiter({
+            bucket,
+            ...(opts.minRefillRate !== undefined ? { minRefillRate: opts.minRefillRate } : {}),
+            ...(opts.maxRefillRate !== undefined ? { maxRefillRate: opts.maxRefillRate } : {}),
+            ...(opts.recoveryFactor !== undefined ? { recoveryFactor: opts.recoveryFactor } : {}),
+            logger,
+          })
+        : bucket
 
     tenants.set(tenantId, { limiter, lastAccessedAt: Date.now() })
     return limiter
@@ -95,7 +98,7 @@ export const createRateLimiterFactory = (opts: RateLimiterFactoryOptions): RateL
   const close = async (): Promise<void> => {
     closed = true
     clearInterval(evictionTimer)
-    const closers = [...tenants.values()].map(entry => entry.limiter.close())
+    const closers = [...tenants.values()].map((entry) => entry.limiter.close())
     tenants.clear()
     await Promise.all(closers)
   }

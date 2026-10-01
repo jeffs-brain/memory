@@ -179,15 +179,7 @@ describe('chunkMarkdown minTokens', () => {
 
   it('keeps chunks at or above minTokens threshold', () => {
     const longEnough = 'word '.repeat(40).trim()
-    const text = [
-      '# Section A',
-      '',
-      longEnough,
-      '',
-      '# Section B',
-      '',
-      longEnough,
-    ].join('\n')
+    const text = ['# Section A', '', longEnough, '', '# Section B', '', longEnough].join('\n')
     const chunks = chunkMarkdown(text, { minTokens: 10 })
     // Both sections are well above 10 tokens, so both survive.
     expect(chunks).toHaveLength(2)

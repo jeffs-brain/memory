@@ -153,9 +153,7 @@ class _SpyProvider:
     result: CheckResult = field(default_factory=lambda: allow())
     calls: list[tuple[Subject, Action, Resource]] = field(default_factory=list)
 
-    async def check(
-        self, subject: Subject, action: Action, resource: Resource
-    ) -> CheckResult:
+    async def check(self, subject: Subject, action: Action, resource: Resource) -> CheckResult:
         self.calls.append((subject, action, resource))
         return self.result
 
@@ -229,9 +227,7 @@ async def test_check_called_with_correct_subject_action_resource() -> None:
         resolve_resource=lambda p: Resource(type="document", id=str(p)),
     )
     await wrapped.delete(BrainPath("doc-1"))
-    assert spy.calls == [
-        (_alice(), "delete", Resource(type="document", id="doc-1"))
-    ]
+    assert spy.calls == [(_alice(), "delete", Resource(type="document", id="doc-1"))]
 
 
 async def test_rename_guards_both_src_and_dst() -> None:

@@ -251,9 +251,7 @@ def format_recalled_memories(memories: list[SurfacedMemory]) -> str:
     return format_recalled_memories_with_context(memories, datetime.now(timezone.utc))
 
 
-def format_recalled_memories_with_context(
-    memories: list[SurfacedMemory], now: datetime
-) -> str:
+def format_recalled_memories_with_context(memories: list[SurfacedMemory], now: datetime) -> str:
     if not memories:
         return ""
     parts: list[str] = []

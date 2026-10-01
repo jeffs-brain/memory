@@ -13,11 +13,7 @@ import type {
   TransitionCallback,
   V1PipelineStateEntry,
 } from './state-machine.js'
-import {
-  createPipelineStateMachine,
-  isValidTransition,
-  migrateFromV1,
-} from './state-machine.js'
+import { createPipelineStateMachine, isValidTransition, migrateFromV1 } from './state-machine.js'
 
 /** In-memory test store for pipeline state entries. */
 const createMemStore = (): PipelineStateStore => {
@@ -202,7 +198,9 @@ describe('createPipelineStateMachine', () => {
     let callCount = 0
     const sm = createPipelineStateMachine({
       stateStore: store,
-      onTransition: () => { callCount++ },
+      onTransition: () => {
+        callCount++
+      },
     })
 
     // Trying to advance to 'chunked' from 'received' is invalid (skip), no transition.
@@ -271,7 +269,12 @@ describe('migrateFromV1', () => {
   })
 
   it('maps all V1 stages correctly', () => {
-    const stages: Array<V1PipelineStateEntry['stage']> = ['stored', 'chunked', 'embedded', 'indexed']
+    const stages: Array<V1PipelineStateEntry['stage']> = [
+      'stored',
+      'chunked',
+      'embedded',
+      'indexed',
+    ]
     for (const stage of stages) {
       const v1: V1PipelineStateEntry = {
         documentId: 'brain-1:test',

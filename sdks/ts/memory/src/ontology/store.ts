@@ -15,9 +15,14 @@ import type { OntologyScope, OntologyTypeDefinition, TypeStatus } from './types.
 
 import { isNotFound } from '../store/errors.js'
 import { toPath } from '../store/path.js'
-import { BUILT_IN_EDGE_TYPES, BUILT_IN_NODE_TYPES, BUSINESS_CATEGORIES, NODE_TYPE_PREFIXES } from './types.js'
 import { getBuiltInEdgeTypeDescription, getBuiltInNodeTypeDescription } from './descriptions.js'
 import { formatEdgeTypeLabel, formatNodeTypeLabel } from './format.js'
+import {
+  BUILT_IN_EDGE_TYPES,
+  BUILT_IN_NODE_TYPES,
+  BUSINESS_CATEGORIES,
+  NODE_TYPE_PREFIXES,
+} from './types.js'
 import { validateTypeDefinition } from './validation.js'
 
 export type ListTypesOpts = {
@@ -46,11 +51,7 @@ export type OntologyStore = {
   listTypes(scope: OntologyScope, opts?: ListTypesOpts): Promise<readonly OntologyTypeDefinition[]>
   upsertType(scope: OntologyScope, def: OntologyTypeDefinition): Promise<void>
   deleteType(scope: OntologyScope, typeId: string): Promise<void>
-  getResolvedOntology(
-    brainId: string,
-    projectId: string,
-    orgId: string,
-  ): Promise<ResolvedOntology>
+  getResolvedOntology(brainId: string, projectId: string, orgId: string): Promise<ResolvedOntology>
   close(): Promise<void>
 }
 
@@ -86,7 +87,10 @@ function validateId(id: string): void {
  * Built-in types are hardcoded and always available without I/O.
  * Throws if any configured ID fails validation (path traversal prevention).
  */
-export function createFileOntologyStore(store: Store, config: FileOntologyStoreConfig): OntologyStore {
+export function createFileOntologyStore(
+  store: Store,
+  config: FileOntologyStoreConfig,
+): OntologyStore {
   if (config.brainId !== '') validateId(config.brainId)
   if (config.projectId !== '') validateId(config.projectId)
   if (config.orgId !== '') validateId(config.orgId)
@@ -133,7 +137,11 @@ export function createFileOntologyStore(store: Store, config: FileOntologyStoreC
     }
   }
 
-  async function writeScopeById(scope: OntologyScope, id: string, stored: StoredOntology): Promise<void> {
+  async function writeScopeById(
+    scope: OntologyScope,
+    id: string,
+    stored: StoredOntology,
+  ): Promise<void> {
     const p = scopePath(scope, id)
     const data = Buffer.from(JSON.stringify(stored), 'utf-8')
     await store.write(p, data)
@@ -414,9 +422,7 @@ function isValidTypeDefinition(value: unknown): value is OntologyTypeDefinition 
   if (value === null || typeof value !== 'object') return false
   const obj = value as Record<string, unknown>
   return (
-    typeof obj['type'] === 'string' &&
-    typeof obj['label'] === 'string' &&
-    typeof obj['status'] === 'string'
+    typeof obj.type === 'string' && typeof obj.label === 'string' && typeof obj.status === 'string'
   )
 }
 
@@ -425,14 +431,14 @@ function parseStoredOntology(raw: unknown): StoredOntology {
     return { customNodeTypes: [], customEdgeTypes: [], customBusinessCategories: [] }
   }
   const obj = raw as Record<string, unknown>
-  const nodeTypes = Array.isArray(obj['customNodeTypes'])
-    ? (obj['customNodeTypes'] as unknown[]).filter(isValidTypeDefinition)
+  const nodeTypes = Array.isArray(obj.customNodeTypes)
+    ? (obj.customNodeTypes as unknown[]).filter(isValidTypeDefinition)
     : []
-  const edgeTypes = Array.isArray(obj['customEdgeTypes'])
-    ? (obj['customEdgeTypes'] as unknown[]).filter(isValidTypeDefinition)
+  const edgeTypes = Array.isArray(obj.customEdgeTypes)
+    ? (obj.customEdgeTypes as unknown[]).filter(isValidTypeDefinition)
     : []
-  const categories = Array.isArray(obj['customBusinessCategories'])
-    ? (obj['customBusinessCategories'] as unknown[]).filter((v): v is string => typeof v === 'string')
+  const categories = Array.isArray(obj.customBusinessCategories)
+    ? (obj.customBusinessCategories as unknown[]).filter((v): v is string => typeof v === 'string')
     : []
   return {
     customNodeTypes: nodeTypes,

@@ -45,8 +45,8 @@ def test_short_tokens_always_treated_as_stopwords() -> None:
     assert is_stopword("abc") in (True, False)  # depends on curated list
 
 
-def test_bosch_is_not_a_stopword() -> None:
-    assert is_stopword("bosch") is False
+def test_zenco_is_not_a_stopword() -> None:
+    assert is_stopword("zenco") is False
 
 
 def test_known_english_filler_drops() -> None:

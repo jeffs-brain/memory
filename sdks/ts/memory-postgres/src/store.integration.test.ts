@@ -203,11 +203,11 @@ maybe('PostgresStore (testcontainers)', () => {
       ),
     )
 
-    const rows = (await superSql<{ metadata: Record<string, unknown> }>`
+    const rows = await superSql<{ metadata: Record<string, unknown> }[]>`
       select metadata from memory.documents
       where brain_id = ${brainA}::uuid and path = ${'meta/typed.md'}
       limit 1
-    `) as ReadonlyArray<{ metadata: Record<string, unknown> }>
+    `
     expect(rows[0]?.metadata).toEqual(
       expect.objectContaining({
         ontology_type: 'customer',
@@ -221,20 +221,20 @@ maybe('PostgresStore (testcontainers)', () => {
     // A plain document (no frontmatter) must still persist {} exactly as before.
     const plain = toPath('meta/plain.md')
     await store.write(plain, Buffer.from('no frontmatter here'))
-    const plainRows = (await superSql<{ metadata: Record<string, unknown> }>`
+    const plainRows = await superSql<{ metadata: Record<string, unknown> }[]>`
       select metadata from memory.documents
       where brain_id = ${brainA}::uuid and path = ${'meta/plain.md'}
       limit 1
-    `) as ReadonlyArray<{ metadata: Record<string, unknown> }>
+    `
     expect(plainRows[0]?.metadata).toEqual({})
 
     // Re-writing with changed frontmatter updates the persisted metadata.
     await store.write(typed, Buffer.from('---\nontology_type: supplier\n---\n\nNow a supplier.\n'))
-    const updated = (await superSql<{ metadata: Record<string, unknown> }>`
+    const updated = await superSql<{ metadata: Record<string, unknown> }[]>`
       select metadata from memory.documents
       where brain_id = ${brainA}::uuid and path = ${'meta/typed.md'}
       limit 1
-    `) as ReadonlyArray<{ metadata: Record<string, unknown> }>
+    `
     expect(updated[0]?.metadata).toEqual(
       expect.objectContaining({
         ontology_type: 'supplier',
@@ -268,10 +268,10 @@ maybe('PostgresStore (testcontainers)', () => {
       Buffer.from('---\nontologyType: customer\n---\n\nAcme account note.\n'),
     )
 
-    const idRows = (await superSql<{ document_id: string; path: string }>`
+    const idRows = await superSql<{ document_id: string; path: string }[]>`
       select document_id::text, path from memory.documents
       where brain_id = ${brainA}::uuid and path in (${anchorPath}, ${typedPath})
-    `) as ReadonlyArray<{ document_id: string; path: string }>
+    `
     const byPath = new Map(idRows.map((r) => [r.path, r.document_id]))
     const typedId = byPath.get(typedPath)
     const anchorId = byPath.get(anchorPath)
@@ -296,13 +296,13 @@ maybe('PostgresStore (testcontainers)', () => {
       brainA,
       tenantA,
     )
-    const edgeRows = (await superSql<{ count: number }>`
+    const edgeRows = await superSql<{ count: number }[]>`
       select count(*)::int as count from memory.document_edges
       where brain_id = ${brainA}::uuid
         and source_doc_id = ${typedId as string}::uuid
         and edge_type = 'document_ontology'
         and label = 'customer'
-    `) as ReadonlyArray<{ count: number }>
+    `
     expect((edgeRows[0]?.count ?? 0) > 0).toBe(true)
 
     await store.delete(toPath(anchorPath))

@@ -106,4 +106,18 @@ describe('createMemoryClient (local)', () => {
 
     await client.close()
   })
+
+  it.each([
+    ['http://127.0.0.1:9/internal', /non-public address/],
+    ['http://169.254.169.254/latest/meta-data/', /non-public address/],
+    ['http://[::1]/', /non-public address/],
+    ['file:///etc/passwd', /unsupported scheme/],
+  ])('refuses to ingest %s', async (url, reason) => {
+    const client = await makeLocalClient()
+    try {
+      await expect(client.ingestUrl({ url })).rejects.toThrow(reason)
+    } finally {
+      await client.close()
+    }
+  })
 })

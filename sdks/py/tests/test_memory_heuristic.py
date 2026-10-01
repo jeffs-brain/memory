@@ -11,7 +11,6 @@ from jeffs_brain_memory.memory import (
     has_tag,
     heuristic_filename,
     jaccard_similarity,
-    memory_project_topic,
     merge_heuristic,
     significant_words,
     MemoryManager,
@@ -74,18 +73,14 @@ def test_build_heuristic_content_fields():
 
 
 def test_build_heuristic_anti_pattern_marker():
-    h = Heuristic(
-        rule="Use globals", category="architecture", confidence="high", anti_pattern=True
-    )
+    h = Heuristic(rule="Use globals", category="architecture", confidence="high", anti_pattern=True)
     body = build_heuristic_content(h)
     assert "- anti-pattern" in body
     assert "Don't:" in body
 
 
 def test_merge_heuristic_increments_observations():
-    base = build_heuristic_content(
-        Heuristic(rule="Do X", category="testing", confidence="low")
-    )
+    base = build_heuristic_content(Heuristic(rule="Do X", category="testing", confidence="low"))
     out = merge_heuristic(base, Heuristic(rule="Do X", category="testing", confidence="low"))
     assert "2 observations" in out
     assert "confidence: medium" in out
@@ -98,9 +93,7 @@ def test_extract_alternative_marker():
 def test_apply_heuristics_writes_new_file():
     store = MemStore()
     mem = MemoryManager(store)
-    h = Heuristic(
-        rule="Always test stuff", category="testing", confidence="low", scope="project"
-    )
+    h = Heuristic(rule="Always test stuff", category="testing", confidence="low", scope="project")
     apply_heuristics(mem, "slug", [h])
     # find the file we just wrote
     paths = [p for p in store._docs if p.startswith("memory/project/slug/heuristic")]

@@ -21,30 +21,30 @@ func TestTrigrams(t *testing.T) {
 		},
 		{
 			name: "single word",
-			in:   "bosch",
-			want: []string{"$bo", "bos", "osc", "sch", "ch$"},
+			in:   "zenco",
+			want: []string{"$ze", "zen", "enc", "nco", "co$"},
 		},
 		{
 			name: "multi word",
-			in:   "oude reimer",
+			in:   "mill brook",
 			want: []string{
-				"$ou", "oud", "ude", "de$",
-				"$re", "rei", "eim", "ime", "mer", "er$",
+				"$mi", "mil", "ill", "ll$",
+				"$br", "bro", "roo", "ook", "ok$",
 			},
 		},
 		{
 			name: "punctuation replaced with spaces",
-			in:   "oude-reimer.md",
+			in:   "mill-brook.md",
 			want: []string{
-				"$ou", "oud", "ude", "de$",
-				"$re", "rei", "eim", "ime", "mer", "er$",
+				"$mi", "mil", "ill", "ll$",
+				"$br", "bro", "roo", "ook", "ok$",
 				"$md", "md$",
 			},
 		},
 		{
 			name: "case folded",
-			in:   "BOSCH",
-			want: []string{"$bo", "bos", "osc", "sch", "ch$"},
+			in:   "ZENCO",
+			want: []string{"$ze", "zen", "enc", "nco", "co$"},
 		},
 		{
 			name: "short word keeps boundary grams",
@@ -83,9 +83,9 @@ func TestTrigrams(t *testing.T) {
 
 func TestBuildTrigramIndex(t *testing.T) {
 	paths := []string{
-		"clients/oude-reimer.md",
-		"clients/bosch.md",
-		"projects/a-ware.md",
+		"clients/mill-brook.md",
+		"clients/zenco.md",
+		"projects/e-volt.md",
 	}
 	idx := BuildTrigramIndex(paths)
 
@@ -96,23 +96,23 @@ func TestBuildTrigramIndex(t *testing.T) {
 		t.Errorf("Paths() len = %d, want 3", len(got))
 	}
 
-	slugs, ok := idx.index["oud"]
+	slugs, ok := idx.index["mil"]
 	if !ok {
-		t.Fatal(`index["oud"] missing`)
+		t.Fatal(`index["mil"] missing`)
 	}
-	if !containsString(slugs, "clients/oude-reimer.md") {
-		t.Errorf(`index["oud"] = %v, missing oude-reimer`, slugs)
+	if !containsString(slugs, "clients/mill-brook.md") {
+		t.Errorf(`index["mil"] = %v, missing mill-brook`, slugs)
 	}
 
-	bosSlugs, ok := idx.index["bos"]
+	zenSlugs, ok := idx.index["zen"]
 	if !ok {
-		t.Fatal(`index["bos"] missing`)
+		t.Fatal(`index["zen"] missing`)
 	}
-	if !containsString(bosSlugs, "clients/bosch.md") {
-		t.Errorf(`index["bos"] = %v, missing bosch`, bosSlugs)
+	if !containsString(zenSlugs, "clients/zenco.md") {
+		t.Errorf(`index["zen"] = %v, missing zenco`, zenSlugs)
 	}
 
-	dup := BuildTrigramIndex([]string{"clients/bosch.md", "clients/bosch.md"})
+	dup := BuildTrigramIndex([]string{"clients/zenco.md", "clients/zenco.md"})
 	if len(dup.Paths()) != 1 {
 		t.Errorf("dup Paths() len = %d, want 1", len(dup.Paths()))
 	}
@@ -120,17 +120,17 @@ func TestBuildTrigramIndex(t *testing.T) {
 
 func TestFuzzySearch_ExactMatch(t *testing.T) {
 	paths := []string{
-		"clients/oude-reimer.md",
-		"clients/bosch.md",
+		"clients/mill-brook.md",
+		"clients/zenco.md",
 	}
 	idx := BuildTrigramIndex(paths)
 
-	hits := idx.FuzzySearch("oude", 5)
+	hits := idx.FuzzySearch("mill", 5)
 	if len(hits) == 0 {
-		t.Fatal("FuzzySearch('oude') returned no hits")
+		t.Fatal("FuzzySearch('mill') returned no hits")
 	}
-	if hits[0].Path != "clients/oude-reimer.md" {
-		t.Errorf("top hit = %q, want clients/oude-reimer.md", hits[0].Path)
+	if hits[0].Path != "clients/mill-brook.md" {
+		t.Errorf("top hit = %q, want clients/mill-brook.md", hits[0].Path)
 	}
 	if hits[0].Similarity <= 0 {
 		t.Errorf("similarity = %v, want > 0", hits[0].Similarity)
@@ -139,18 +139,18 @@ func TestFuzzySearch_ExactMatch(t *testing.T) {
 
 func TestFuzzySearch_Typo(t *testing.T) {
 	paths := []string{
-		"clients/oude-reimer.md",
-		"clients/bosch.md",
-		"projects/royal-aware.md",
+		"clients/mill-brook.md",
+		"clients/zenco.md",
+		"projects/nova-evolt.md",
 	}
 	idx := BuildTrigramIndex(paths)
 
-	hits := idx.FuzzySearch("dude reimer", 5)
+	hits := idx.FuzzySearch("hill brook", 5)
 	if len(hits) == 0 {
-		t.Fatal("FuzzySearch('dude reimer') returned no hits for the typo query")
+		t.Fatal("FuzzySearch('hill brook') returned no hits for the typo query")
 	}
-	if hits[0].Path != "clients/oude-reimer.md" {
-		t.Errorf("top hit = %q, want clients/oude-reimer.md", hits[0].Path)
+	if hits[0].Path != "clients/mill-brook.md" {
+		t.Errorf("top hit = %q, want clients/mill-brook.md", hits[0].Path)
 	}
 	if hits[0].Similarity <= 0 {
 		t.Errorf("similarity = %v, want > 0", hits[0].Similarity)
@@ -162,8 +162,8 @@ func TestFuzzySearch_Typo(t *testing.T) {
 
 func TestFuzzySearch_NoMatch(t *testing.T) {
 	paths := []string{
-		"clients/oude-reimer.md",
-		"clients/bosch.md",
+		"clients/mill-brook.md",
+		"clients/zenco.md",
 	}
 	idx := BuildTrigramIndex(paths)
 

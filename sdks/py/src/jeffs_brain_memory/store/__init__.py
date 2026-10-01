@@ -12,10 +12,10 @@ Concrete implementations:
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
-from typing import AsyncIterator, Callable, Iterable
+from typing import AsyncIterator, Awaitable, Callable
 
 from ..path import BrainPath
 
@@ -30,6 +30,7 @@ __all__ = [
     "BatchOptions",
     "ListOpts",
     "Batch",
+    "BatchFn",
     "Store",
 ]
 
@@ -125,7 +126,9 @@ class Batch(ABC):
     async def stat(self, path: BrainPath) -> FileInfo: ...
 
     @abstractmethod
-    async def list(self, dir: BrainPath | str = "", opts: ListOpts | None = None) -> list[FileInfo]: ...
+    async def list(
+        self, dir: BrainPath | str = "", opts: ListOpts | None = None
+    ) -> list[FileInfo]: ...
 
     @abstractmethod
     async def write(self, path: BrainPath, content: bytes) -> None: ...
@@ -138,6 +141,10 @@ class Batch(ABC):
 
     @abstractmethod
     async def rename(self, src: BrainPath, dst: BrainPath) -> None: ...
+
+
+#: The function :meth:`Store.batch` runs: sync or async, returning nothing.
+BatchFn = Callable[[Batch], Awaitable[None] | None]
 
 
 class Store(ABC):
@@ -180,7 +187,7 @@ class Store(ABC):
     @abstractmethod
     async def batch(
         self,
-        fn: "Callable[[Batch], object]",
+        fn: BatchFn,
         opts: BatchOptions | None = None,
     ) -> None: ...
 

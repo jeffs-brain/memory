@@ -37,9 +37,7 @@ def test_positive_wins_on_more_matches():
 
 def test_negative_wins_on_more_matches():
     c = Classifier()
-    r = c.classify(
-        "yes but that's wrong, incorrect, try again", ["memory/global/t.md"]
-    )
+    r = c.classify("yes but that's wrong, incorrect, try again", ["memory/global/t.md"])
     assert r.events[0].reaction == Reaction.CORRECTED
 
 

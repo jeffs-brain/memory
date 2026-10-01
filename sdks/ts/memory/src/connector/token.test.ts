@@ -2,8 +2,13 @@
 
 import { describe, expect, it } from 'vitest'
 import { createMemStore } from '../store/index.js'
-import { SecureTokenStore, InvalidEncryptionKeyError, DecryptionError, timingSafeCompare } from './token.js'
 import type { OAuth2Token } from './oauth2.js'
+import {
+  DecryptionError,
+  InvalidEncryptionKeyError,
+  SecureTokenStore,
+  timingSafeCompare,
+} from './token.js'
 
 const makeToken = (overrides?: Partial<OAuth2Token>): OAuth2Token => ({
   accessToken: 'access-abc',

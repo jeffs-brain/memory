@@ -19,6 +19,7 @@ from .types import TopicFile
 
 if TYPE_CHECKING:
     from .extract import ExtractedMemory
+    from .reflect import Heuristic
 
 _MAX_INDEX_LINES = 200
 
@@ -147,14 +148,12 @@ class MemoryManager:
 
     # ---- deferred bridges ----
 
-    def apply_extractions(
-        self, project_slug: str, memories: list["ExtractedMemory"]
-    ) -> None:
+    def apply_extractions(self, project_slug: str, memories: list["ExtractedMemory"]) -> None:
         from .extract import apply_extractions as _impl
 
         _impl(self, project_slug, memories)
 
-    def apply_heuristics(self, project_slug: str, heuristics) -> None:
+    def apply_heuristics(self, project_slug: str, heuristics: list[Heuristic]) -> None:
         from .heuristic import apply_heuristics as _impl
 
         _impl(self, project_slug, heuristics)

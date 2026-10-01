@@ -18,7 +18,6 @@ from typing import Any, Protocol, runtime_checkable
 
 from ..path import BrainPath
 from .frontmatter import Frontmatter, parse_frontmatter
-from .ingest import RAW_DOCUMENTS_PREFIX
 from .types import SearchHit, SearchMode, SearchRequest, SearchResponse
 
 __all__ = [
@@ -114,7 +113,11 @@ async def run_search(
             except Exception:  # noqa: BLE001
                 hits, trace = [], {"error": "retriever-failed"}
             if hits:
-                effective = trace.get("effective_mode", mode.value) if isinstance(trace, dict) else mode.value
+                effective = (
+                    trace.get("effective_mode", mode.value)
+                    if isinstance(trace, dict)
+                    else mode.value
+                )
                 return SearchResponse(
                     hits=hits[:max_results],
                     mode=str(effective),

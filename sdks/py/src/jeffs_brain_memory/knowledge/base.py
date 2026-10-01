@@ -11,10 +11,11 @@ from __future__ import annotations
 
 import asyncio
 import time
-from dataclasses import dataclass, field
-from typing import Any, Awaitable, Callable, Protocol, runtime_checkable
+from dataclasses import dataclass
+from typing import Any, Protocol, runtime_checkable
 
 from ..path import BrainPath, DocumentID
+from ..store import ListOpts
 from .compile import segment_document
 from .frontmatter import parse_frontmatter
 from .ingest import (
@@ -30,7 +31,6 @@ from .ingest import (
 )
 from .search import InMemoryScorer, IndexLike, Retriever, run_search
 from .types import (
-    Chunk,
     CompileOptions,
     CompileResult,
     Document,
@@ -211,20 +211,9 @@ class _KBase:
         if explicit:
             return list(explicit)
 
-        # ListOpts is optional; pass an object that mirrors the Go shape
-        # but stay defensive in case the bound store has a different
-        # signature.
-        try:
-            from ..store import ListOpts
-
-            opts = ListOpts(recursive=True, include_generated=True)
-        except Exception:  # noqa: BLE001 - ListOpts might not exist yet
-            opts = None
-
-        try:
-            entries = await self._store.list(RAW_DOCUMENTS_PREFIX, opts)
-        except TypeError:
-            entries = await self._store.list(RAW_DOCUMENTS_PREFIX)
+        entries = await self._store.list(
+            RAW_DOCUMENTS_PREFIX, ListOpts(recursive=True, include_generated=True)
+        )
 
         out: list[BrainPath] = []
         for entry in entries or []:
@@ -279,16 +268,9 @@ class _KBase:
 
     async def _list_raw_documents(self) -> list[BrainPath]:
         try:
-            from ..store import ListOpts
-
-            opts = ListOpts(recursive=True, include_generated=True)
-        except Exception:  # noqa: BLE001
-            opts = None
-
-        try:
-            entries = await self._store.list(RAW_DOCUMENTS_PREFIX, opts)
-        except TypeError:
-            entries = await self._store.list(RAW_DOCUMENTS_PREFIX)
+            entries = await self._store.list(
+                RAW_DOCUMENTS_PREFIX, ListOpts(recursive=True, include_generated=True)
+            )
         except Exception:  # noqa: BLE001
             return []
         out: list[BrainPath] = []
@@ -346,9 +328,7 @@ def _document_from_stored(path: BrainPath, data: bytes) -> Document | None:
         title = str(path).rsplit("/", 1)[-1]
         if title.endswith(".md"):
             title = title[:-3]
-    doc_id = DocumentID(
-        __import__("hashlib").sha256(data).hexdigest()[:12]
-    )
+    doc_id = DocumentID(__import__("hashlib").sha256(data).hexdigest()[:12])
     return Document(
         id=doc_id,
         brain_id="",

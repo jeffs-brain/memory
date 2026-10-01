@@ -54,9 +54,7 @@ class Classifier:
         self._positive = [re.compile(p, re.IGNORECASE) for p in POSITIVE_PATTERNS]
         self._negative = [re.compile(p, re.IGNORECASE) for p in NEGATIVE_PATTERNS]
 
-    def classify(
-        self, user_input: str, surfaced_this_turn: list[str]
-    ) -> ClassifyResult:
+    def classify(self, user_input: str, surfaced_this_turn: list[str]) -> ClassifyResult:
         result = ClassifyResult(turn_content=_truncate_snippet(user_input, 500))
         if not surfaced_this_turn or not user_input.strip():
             return result
@@ -74,9 +72,7 @@ class Classifier:
             )
         return result
 
-    def _detect_reaction(
-        self, user_input: str
-    ) -> tuple[Reaction, float, str]:
+    def _detect_reaction(self, user_input: str) -> tuple[Reaction, float, str]:
         pos_matches = 0
         pos_pattern = ""
         for r in self._positive:

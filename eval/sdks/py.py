@@ -7,6 +7,7 @@ pass identical flags.
 TODO(eval): consider `uv run --locked` once `uv.lock` is committed to the
 Python SDK to guarantee reproducible CI runs.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass

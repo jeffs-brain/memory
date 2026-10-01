@@ -6,6 +6,7 @@
  * and excludes hidden files and symlinks.
  */
 
+import type { Dirent } from 'node:fs'
 import { lstat, readFile, readdir } from 'node:fs/promises'
 import { extname, join, normalize, relative, resolve } from 'node:path'
 
@@ -75,10 +76,10 @@ const matchesGitignore = (relativePath: string, patterns: readonly string[]): bo
     // Pattern starting with / means root-relative (with separator boundary)
     if (cleaned.startsWith('/')) {
       const trimmed = cleaned.slice(1)
-      if (relativePath === trimmed || relativePath.startsWith(trimmed + '/')) return true
+      if (relativePath === trimmed || relativePath.startsWith(`${trimmed}/`)) return true
     }
     // Direct prefix match (with separator boundary)
-    if (relativePath === cleaned || relativePath.startsWith(cleaned + '/')) return true
+    if (relativePath === cleaned || relativePath.startsWith(`${cleaned}/`)) return true
   }
   return false
 }
@@ -130,9 +131,9 @@ export const enumerateFiles = async (opts: EnumerateOptions): Promise<EnumerateR
   const walk = async (dir: string): Promise<void> => {
     if (files.length >= maxFiles) return
 
-    let entries: import('node:fs').Dirent<string>[]
+    let entries: Dirent<string>[]
     try {
-      entries = await readdir(dir, { withFileTypes: true, encoding: 'utf8' }) as import('node:fs').Dirent<string>[]
+      entries = await readdir(dir, { withFileTypes: true, encoding: 'utf8' })
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err)
       skipped.push(`${dir}: ${message}`)
@@ -179,7 +180,9 @@ export const enumerateFiles = async (opts: EnumerateOptions): Promise<EnumerateR
 
         // Check file size
         if (fileStat.size > FILE_SIZE_LIMIT) {
-          skipped.push(`${relativePath}: exceeds 25 MiB limit (${Math.round(fileStat.size / 1024 / 1024)} MiB)`)
+          skipped.push(
+            `${relativePath}: exceeds 25 MiB limit (${Math.round(fileStat.size / 1024 / 1024)} MiB)`,
+          )
           continue
         }
 

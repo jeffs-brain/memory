@@ -51,7 +51,7 @@ does not require a pre-populated daemon brain.
 ## Local run
 
 ```bash
-cd ~/code/jeffs-brain/memory/eval
+cd eval  # from the repository root
 uv sync
 
 # Fast offline parity check using a seeded reference brain
@@ -231,7 +231,7 @@ The cross-SDK runner does not perform replay ingest or agentic LongMemEval runs.
 ### Single-SDK run
 
 ```bash
-set -a && source ~/code/jeffs-brain/memory/.env && set +a
+set -a && source .env && set +a
 
 memory eval lme run \
   --dataset eval/datasets/longmemeval_s.json \
@@ -253,7 +253,7 @@ memory eval lme run \
 The orchestrator extracts once and benchmarks all three daemons from the shared brain. It exercises the shared daemon `search-retrieve-only` scenario only, using actor-endpoint `retrieve-only` mode so retrieval happens in each daemon while extraction, evidence rendering, the shared augmented reader, judging, and manifest writing stay in the Go runner process:
 
 ```bash
-set -a && source ~/code/jeffs-brain/memory/.env && set +a
+set -a && source .env && set +a
 
 JB_LLM_PROVIDER=openai \
 ACTOR_MODEL=gpt-4o \
@@ -286,7 +286,7 @@ retrieval or reader changes, set `SKIP_EXTRACT=1` and point `JB_HOME` at an
 existing replay cache:
 
 ```bash
-set -a && source ~/code/jeffs-brain/memory/.env && set +a
+set -a && source .env && set +a
 
 JB_LLM_PROVIDER=openai \
 ACTOR_MODEL=gpt-4o \
@@ -332,7 +332,7 @@ Benchmark notes:
 
 ## Cost model
 
-Per the restructure plan: roughly $3 to $5 per day on a cheaper `gpt-4o-mini` reader and judge profile across three SDKs and 500 questions, so $100 to $150 per month. Paid from the Erys AI card. `JB_EVAL_BUDGET_USD` caps spend per run.
+Per the restructure plan: roughly $3 to $5 per day on a cheaper `gpt-4o-mini` reader and judge profile across three SDKs and 500 questions, so $100 to $150 per month. `JB_EVAL_BUDGET_USD` caps spend per run.
 
 ## Release-candidate runs
 

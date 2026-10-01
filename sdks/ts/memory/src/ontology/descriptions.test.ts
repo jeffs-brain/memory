@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from 'vitest'
-import { getBuiltInNodeTypeDescription, getBuiltInEdgeTypeDescription } from './descriptions.js'
+import { getBuiltInEdgeTypeDescription, getBuiltInNodeTypeDescription } from './descriptions.js'
 
 describe('getBuiltInNodeTypeDescription', () => {
   it('returns the description for entity.customer', () => {

@@ -49,9 +49,7 @@ export async function callDistillLLM(
     {
       model: model ?? '',
       system: DISTILL_SYSTEM_PROMPT,
-      messages: [
-        { role: 'user', content: raw },
-      ],
+      messages: [{ role: 'user', content: raw }],
       temperature: DEFAULT_TEMPERATURE,
       maxTokens: DEFAULT_MAX_TOKENS,
     },

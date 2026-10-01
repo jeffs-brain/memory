@@ -72,7 +72,7 @@ const SKIP: Record<string, string> = {
 // Provisioned per case; mirror Go so fresh state is guaranteed.
 const BRAIN_ID = 'conformance-brain'
 
-const BASE = 'http://conformance.test'
+const BASE = 'http://127.0.0.1'
 
 const substituteFactory = (placeholders: Record<string, string>): ((s: string) => string) => {
   const pairs = Object.entries({ ...placeholders, BRAIN_ID })
@@ -203,7 +203,7 @@ const buildRequest = (step: ConformanceStep, ctx: RunCtx): Request => {
       headers.set(k, ctx.substitute(String(v)))
     }
   }
-  let body: BodyInit | undefined
+  let body: RequestInit['body']
   if (step.bodyBase64 !== undefined && step.bodyBase64 !== '') {
     const decoded = Buffer.from(ctx.substitute(step.bodyBase64), 'base64')
     body = new Uint8Array(decoded)
@@ -458,7 +458,7 @@ const assertExpectedResponse = async (
     try {
       while (seen.size < want.size && Date.now() < deadline) {
         const race = Promise.race([
-          reader.read(),
+          reader!.read(),
           new Promise<{ done: true; value?: undefined }>((resolve) =>
             setTimeout(() => resolve({ done: true }), 200),
           ),
@@ -481,7 +481,7 @@ const assertExpectedResponse = async (
         }
       }
     } finally {
-      await reader.cancel().catch(() => undefined)
+      await reader!.cancel().catch(() => undefined)
     }
     expect(Array.from(seen).sort()).toEqual(Array.from(want).sort())
   }

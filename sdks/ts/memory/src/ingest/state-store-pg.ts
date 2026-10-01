@@ -68,9 +68,7 @@ export class PostgresPipelineStateStore implements PipelineStateStore {
     this.sql = opts.sql
     const schema = opts.schema ?? 'memory'
     if (!SCHEMA_NAME_PATTERN.test(schema)) {
-      throw new Error(
-        `Invalid schema name "${schema}": must match ^[a-z_][a-z0-9_]*$`,
-      )
+      throw new Error(`Invalid schema name "${schema}": must match ^[a-z_][a-z0-9_]*$`)
     }
     this.table = `${schema}.pipeline_state`
   }
@@ -114,7 +112,10 @@ export class PostgresPipelineStateStore implements PipelineStateStore {
     )
   }
 
-  async listIncomplete(brainId: string, _signal?: AbortSignal): Promise<readonly PipelineStateEntry[]> {
+  async listIncomplete(
+    brainId: string,
+    _signal?: AbortSignal,
+  ): Promise<readonly PipelineStateEntry[]> {
     const rows = await this.sql.unsafe<StateRow>(
       `SELECT document_hash, brain_id, stage, retry_count, last_error,
               created_at, updated_at, completed_at
@@ -128,9 +129,6 @@ export class PostgresPipelineStateStore implements PipelineStateStore {
   }
 
   async delete(documentHash: string, _signal?: AbortSignal): Promise<void> {
-    await this.sql.unsafe(
-      `DELETE FROM ${this.table} WHERE document_hash = $1`,
-      [documentHash],
-    )
+    await this.sql.unsafe(`DELETE FROM ${this.table} WHERE document_hash = $1`, [documentHash])
   }
 }

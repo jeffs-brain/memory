@@ -18,7 +18,7 @@ from ..llm.provider import Provider
 from ..llm.types import CompleteRequest
 from ..llm.types import Message as LLMMessage
 from ..llm.types import Role
-from ._memstore import ListOpts, NotFoundError
+from ._memstore import Batch, ListOpts, NotFoundError
 from .heuristic import (
     confidence_from_observations,
     count_sections,
@@ -135,7 +135,7 @@ class Consolidator:
     def _run_scope_quick(self, prefix: str, report: ConsolidationReport) -> None:
         self._detect_staleness_in(prefix, report)
 
-        def _run(b) -> None:
+        def _run(b: Batch) -> None:
             err = self._rebuild_index_in_batch(b, prefix)
             if err:
                 report.errors.append(f"rebuilding index {prefix}: {err}")
@@ -199,7 +199,7 @@ class Consolidator:
         elif self._provider is None:
             report.errors.append("deduplication skipped: no LLM provider")
 
-        def _run(b) -> None:
+        def _run(b: Batch) -> None:
             err = self._rebuild_index_in_batch(b, prefix)
             if err:
                 report.errors.append(f"rebuilding index {prefix}: {err}")
@@ -271,7 +271,7 @@ class Consolidator:
             )
         return topics
 
-    def _rebuild_index_in_batch(self, b, prefix: str) -> str:
+    def _rebuild_index_in_batch(self, b: Batch, prefix: str) -> str:
         try:
             entries = b.list(prefix, ListOpts(include_generated=True))
         except NotFoundError:
@@ -341,7 +341,7 @@ class Consolidator:
             return None
         return info.mod_time
 
-    def _merge_topics_in_batch(self, b, path_a: str, path_b: str) -> None:
+    def _merge_topics_in_batch(self, b: Batch, path_a: str, path_b: str) -> None:
         mod_a = self._modified_time(path_a) or datetime.fromtimestamp(0, tz=timezone.utc)
         mod_b = self._modified_time(path_b) or datetime.fromtimestamp(0, tz=timezone.utc)
         keeper, donor = path_a, path_b
@@ -362,7 +362,7 @@ class Consolidator:
         b.write(keeper, combined.encode("utf-8"))
         b.delete(donor)
 
-    def _reinforce_heuristics_in_batch(self, b, prefix: str) -> tuple[int, list[str]]:
+    def _reinforce_heuristics_in_batch(self, b: Batch, prefix: str) -> tuple[int, list[str]]:
         try:
             entries = b.list(prefix, ListOpts(include_generated=True))
         except NotFoundError:
@@ -413,9 +413,7 @@ def parse_deduplication_result(content: str) -> str:
     return str(parsed.get("verdict", "distinct"))
 
 
-def rebuild_with_updated_confidence(
-    fm: Frontmatter, body: str, new_confidence: str
-) -> str:
+def rebuild_with_updated_confidence(fm: Frontmatter, body: str, new_confidence: str) -> str:
     lines = ["---"]
     if fm.name:
         lines.append(f'name: "{fm.name}"')

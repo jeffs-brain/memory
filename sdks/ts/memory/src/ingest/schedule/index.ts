@@ -10,7 +10,7 @@ export type {
   SchedulerOptions,
   Scheduler,
 } from './types.js'
-export type { CronSchedule } from './cron.js'
+export type { CronSchedule, NextOccurrenceOptions } from './cron.js'
 export { parseCron, nextOccurrence, isValid } from './cron.js'
 export { createMemoryScheduleStore } from './memory-store.js'
 export { createScheduler } from './scheduler.js'

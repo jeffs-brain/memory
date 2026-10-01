@@ -47,7 +47,7 @@ func TestDetectRetrievalIntent_ConcreteFact(t *testing.T) {
 		{"have I finished the report", true},
 		{"was I booked for dinner", true},
 		{"were I the one who ordered", true},
-		{"did i travelled to bosch yesterday", true},
+		{"did i travelled to zenco yesterday", true},
 		{"How long is my daily commute to work?", true},
 		{"How often do I see my therapist, Dr. Smith?", true},
 		{"What time do I wake up on Saturday mornings?", true},

@@ -7,7 +7,7 @@ cd "$package_dir"
 
 package_name="$(node -p "JSON.parse(require('fs').readFileSync('package.json', 'utf8')).name")"
 local_version="$(node -p "JSON.parse(require('fs').readFileSync('package.json', 'utf8')).version")"
-published_version="$(npm view "$package_name" version 2>/dev/null || true)"
+published_version="$(npm view "$package_name@$local_version" version 2>/dev/null || true)"
 
 if [[ "$published_version" == "$local_version" ]]; then
   echo "Skipping $package_name@$local_version because it is already published."
@@ -39,6 +39,6 @@ if [[ "$local_version" == *-* ]]; then
   provenance_flag=""
 fi
 
-# --ignore-scripts skips prepublishOnly (typecheck + test + build already
-# ran in the CI workflow steps before this script is called).
+# --ignore-scripts skips prepublishOnly: the release workflow has already
+# run typecheck, lint, test and build as blocking steps before this.
 npm publish --access public $provenance_flag --ignore-scripts $tag_flag

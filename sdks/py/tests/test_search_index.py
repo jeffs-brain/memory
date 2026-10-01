@@ -4,14 +4,12 @@
 from __future__ import annotations
 
 import math
-from pathlib import Path
 from typing import AsyncIterator
 
 import pytest
 
 from jeffs_brain_memory.path import BrainPath
 from jeffs_brain_memory.search import (
-    BM25Hit,
     Chunk,
     Index,
     SearchOpts,
@@ -19,7 +17,6 @@ from jeffs_brain_memory.search import (
     VectorHit,
 )
 from jeffs_brain_memory.store import (
-    Batch,
     BatchOptions,
     ChangeEvent,
     FileInfo,
@@ -407,9 +404,7 @@ def test_bm25_tag_filter(idx: Index) -> None:
             ),
         ]
     )
-    hits = idx.search_bm25(
-        "Docker", opts=SearchOpts(filters={"tag": "containers"})
-    )
+    hits = idx.search_bm25("Docker", opts=SearchOpts(filters={"tag": "containers"}))
     assert [hit.path for hit in hits] == ["wiki/docker.md"]
 
 
@@ -511,9 +506,7 @@ def test_vector_search_empty_returns_empty(idx: Index) -> None:
 
 
 def test_vector_search_empty_query_returns_empty(idx: Index) -> None:
-    idx.upsert_chunks(
-        [_chunk("wiki/a.md", "alpha", scope="wiki", vector=[1.0, 0.0, 0.0])]
-    )
+    idx.upsert_chunks([_chunk("wiki/a.md", "alpha", scope="wiki", vector=[1.0, 0.0, 0.0])])
     assert idx.search_vectors([], top_k=5) == []
 
 
@@ -546,15 +539,15 @@ def test_vector_search_respects_scope_filter(idx: Index) -> None:
 def test_trigram_finds_typo_match(idx: Index) -> None:
     idx.upsert_chunks(
         [
-            _chunk("clients/oude-reimer.md", "body", title="Oude Reimer", scope="wiki"),
-            _chunk("clients/bosch.md", "body", title="Bosch", scope="wiki"),
+            _chunk("clients/mill-brook.md", "body", title="Mill Brook", scope="wiki"),
+            _chunk("clients/zenco.md", "body", title="Zenco", scope="wiki"),
         ]
     )
-    hits = idx.search_trigram("dude reimer", top_k=5)
+    hits = idx.search_trigram("hill brook", top_k=5)
     assert hits
     assert isinstance(hits[0], TrigramHit)
-    assert hits[0].path == "clients/oude-reimer.md"
-    assert hits[0].chunk_id == "clients/oude-reimer.md#0"
+    assert hits[0].path == "clients/mill-brook.md"
+    assert hits[0].chunk_id == "clients/mill-brook.md#0"
 
 
 def test_trigram_empty_index_returns_empty(idx: Index) -> None:
@@ -562,7 +555,7 @@ def test_trigram_empty_index_returns_empty(idx: Index) -> None:
 
 
 def test_trigram_respects_threshold(idx: Index) -> None:
-    idx.upsert_chunks([_chunk("clients/bosch.md", "body", scope="wiki")])
+    idx.upsert_chunks([_chunk("clients/zenco.md", "body", scope="wiki")])
     assert idx.search_trigram("unrelated query text", top_k=5) == []
 
 
@@ -721,11 +714,7 @@ def test_rebuild_clears_existing_state(idx: Index) -> None:
 def test_rebuild_indexes_raw_lme_body_without_frontmatter(idx: Index) -> None:
     files = {
         "raw/lme/session-1.md": (
-            b"---\n"
-            b"session_id: sess-1\n"
-            b"session_date: 2024-03-08\n"
-            b"---\n"
-            b"[user]: I bought apples.\n"
+            b"---\nsession_id: sess-1\nsession_date: 2024-03-08\n---\n[user]: I bought apples.\n"
         ),
     }
     idx.rebuild(_FakeStore(files))

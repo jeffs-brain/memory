@@ -13,7 +13,7 @@ import re
 import subprocess
 import threading
 from pathlib import Path
-from typing import NewType
+from typing import Callable, NewType
 from urllib.parse import urlparse
 
 BrainPath = NewType("BrainPath", str)
@@ -78,7 +78,7 @@ def _ensure_slug_map() -> "SlugMap":
         return sm  # type: ignore[return-value]
 
 
-def set_slug_map_for_test(path: str):
+def set_slug_map_for_test(path: str) -> Callable[[], None]:
     """Install a slug map backed by the given file; returns a cleanup fn."""
     with _slug_state_lock:
         prev = _slug_state.get("map")

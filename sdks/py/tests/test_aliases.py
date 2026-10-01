@@ -20,34 +20,34 @@ def test_empty_table_roundtrips_unknown_token() -> None:
 def test_from_entries_lowercases_and_trims() -> None:
     table = AliasTable.from_entries(
         {
-            "  BOSCH  ": ["Robert Bosch", "  bosch  ", "robert bosch"],
+            "  ZENCO  ": ["Zenco Group", "  zenco  ", "zenco group"],
             "empty": [],
             "": ["nothing"],
         }
     )
     assert len(table) == 1
-    assert "bosch" in table
-    expansion = table.expand("bosch")
-    assert expansion == ["robert bosch", "bosch"]
+    assert "zenco" in table
+    expansion = table.expand("zenco")
+    assert expansion == ["zenco group", "zenco"]
 
 
 def test_expand_is_case_insensitive() -> None:
-    table = AliasTable.from_entries({"bosch": ["bosch", "robert-bosch"]})
-    assert table.expand("BOSCH") == ["bosch", "robert-bosch"]
-    assert table.expand("  bosch  ") == ["bosch", "robert-bosch"]
+    table = AliasTable.from_entries({"zenco": ["zenco", "zenco-group"]})
+    assert table.expand("ZENCO") == ["zenco", "zenco-group"]
+    assert table.expand("  zenco  ") == ["zenco", "zenco-group"]
 
 
 def test_expand_returns_fresh_copy() -> None:
     """Mutating the returned list must not affect the underlying state."""
-    table = AliasTable.from_entries({"bosch": ["bosch", "robert-bosch"]})
-    first = table.expand("bosch")
+    table = AliasTable.from_entries({"zenco": ["zenco", "zenco-group"]})
+    first = table.expand("zenco")
     first.append("leaked")
-    second = table.expand("bosch")
+    second = table.expand("zenco")
     assert "leaked" not in second
 
 
 def test_expand_miss_returns_single_element_list() -> None:
-    table = AliasTable.from_entries({"bosch": ["bosch"]})
+    table = AliasTable.from_entries({"zenco": ["zenco"]})
     assert table.expand("lleverage") == ["lleverage"]
 
 
@@ -67,7 +67,7 @@ def test_set_empty_values_removes_entry() -> None:
 def test_load_missing_file_returns_empty_table(tmp_path: Path) -> None:
     table = load(tmp_path / "missing.json")
     assert len(table) == 0
-    assert table.expand("bosch") == ["bosch"]
+    assert table.expand("zenco") == ["zenco"]
 
 
 def test_load_empty_file_returns_empty_table(tmp_path: Path) -> None:
@@ -80,15 +80,15 @@ def test_load_empty_file_returns_empty_table(tmp_path: Path) -> None:
 def test_load_valid_file(tmp_path: Path) -> None:
     path = tmp_path / "aliases.json"
     payload = {
-        "a-ware": ["royal-aware", "royal-a-ware", "a-ware"],
-        "bosch": ["bosch", "robert-bosch"],
+        "e-volt": ["nova-evolt", "nova-e-volt", "e-volt"],
+        "zenco": ["zenco", "zenco-group"],
     }
     path.write_text(json.dumps(payload), encoding="utf-8")
 
     table = load(path)
     assert len(table) == 2
-    assert table.expand("a-ware") == ["royal-aware", "royal-a-ware", "a-ware"]
-    assert table.expand("bosch") == ["bosch", "robert-bosch"]
+    assert table.expand("e-volt") == ["nova-evolt", "nova-e-volt", "e-volt"]
+    assert table.expand("zenco") == ["zenco", "zenco-group"]
 
 
 def test_load_rejects_non_object(tmp_path: Path) -> None:
@@ -115,26 +115,26 @@ def test_save_is_stub(tmp_path: Path) -> None:
 def test_aliases_not_applied_to_phrases() -> None:
     from jeffs_brain_memory.search import parse
 
-    table = AliasTable.from_entries({"bosch": ["bosch", "robert-bosch"]})
-    ast = parse('"bosch factory"', aliases=table)
+    table = AliasTable.from_entries({"zenco": ["zenco", "zenco-group"]})
+    ast = parse('"zenco factory"', aliases=table)
     assert ast.tokens[0].kind == "phrase"
-    assert ast.tokens[0].text == "bosch factory"
+    assert ast.tokens[0].text == "zenco factory"
 
 
 def test_aliases_not_applied_to_prefixes() -> None:
     from jeffs_brain_memory.search import parse
 
-    table = AliasTable.from_entries({"bosch": ["bosch", "robert-bosch"]})
-    ast = parse("bosch*", aliases=table)
+    table = AliasTable.from_entries({"zenco": ["zenco", "zenco-group"]})
+    ast = parse("zenco*", aliases=table)
     assert ast.tokens[0].kind == "prefix"
-    assert ast.tokens[0].text == "bosch"
+    assert ast.tokens[0].text == "zenco"
 
 
 def test_alias_operator_sticks_to_first_expansion() -> None:
     """The pending operator must latch to the first emitted alternative."""
     from jeffs_brain_memory.search import parse
 
-    table = AliasTable.from_entries({"bosch": ["bosch", "robert-bosch"]})
-    ast = parse("foo AND bosch", aliases=table)
+    table = AliasTable.from_entries({"zenco": ["zenco", "zenco-group"]})
+    ast = parse("foo AND zenco", aliases=table)
     first_with_op = next(tok for tok in ast.tokens if tok.operator == "AND")
-    assert first_with_op.text == "bosch"
+    assert first_with_op.text == "zenco"

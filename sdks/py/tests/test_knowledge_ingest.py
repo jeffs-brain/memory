@@ -55,18 +55,20 @@ class FakeFetcher:
 async def test_ingest_markdown_happy_path() -> None:
     base, store = _make_kb()
     body = (
-        '---\n'
+        "---\n"
         'title: "First Post"\n'
-        'tags:\n  - alpha\n  - beta\n'
+        "tags:\n  - alpha\n  - beta\n"
         'summary: "a short summary"\n'
-        '---\n\n'
-        '# Heading\n\nBody paragraph with enough prose to clear the minimum '
-        'chunk length threshold comfortably.\n\n'
-        '## Second heading\n\nMore content here to establish the multi-section '
-        'behaviour expected of the chunker in the Python SDK port.\n'
+        "---\n\n"
+        "# Heading\n\nBody paragraph with enough prose to clear the minimum "
+        "chunk length threshold comfortably.\n\n"
+        "## Second heading\n\nMore content here to establish the multi-section "
+        "behaviour expected of the chunker in the Python SDK port.\n"
     )
     resp = await base.ingest(
-        IngestRequest(path="note.md", content_type=CONTENT_TYPE_MARKDOWN, content=body.encode("utf-8"))
+        IngestRequest(
+            path="note.md", content_type=CONTENT_TYPE_MARKDOWN, content=body.encode("utf-8")
+        )
     )
     assert resp.document_id
     assert resp.chunk_count > 0
@@ -98,7 +100,9 @@ async def test_ingest_strips_html_and_keeps_headline() -> None:
         "<body><h1>Hello</h1><p>Stripped <em>clean</em>.</p></body></html>"
     )
     resp = await base.ingest(
-        IngestRequest(path="page.html", content_type=CONTENT_TYPE_HTML, content=html.encode("utf-8"))
+        IngestRequest(
+            path="page.html", content_type=CONTENT_TYPE_HTML, content=html.encode("utf-8")
+        )
     )
     body = (await store.read(resp.path)).decode("utf-8")
     assert "<script>" not in body
@@ -202,7 +206,6 @@ async def test_ingest_url_propagates_fetch_error() -> None:
 
 async def test_ingest_pdf_round_trip() -> None:
     pdfkit = pytest.importorskip("pdfplumber")  # noqa: F841 - skip if unavailable
-    import subprocess
 
     # Build a one-page PDF via the pdfplumber fixture when available, or
     # fall back to a minimal hand-written PDF source the extractor can

@@ -204,9 +204,7 @@ class SpendCandidate:
     item_tokens: frozenset[str]
 
 
-def resolve_deterministic_augmented_answer(
-    question: str, rendered_evidence: str
-) -> str | None:
+def resolve_deterministic_augmented_answer(question: str, rendered_evidence: str) -> str | None:
     facts = _parse_rendered_facts(rendered_evidence)
     if not facts:
         return None
@@ -307,8 +305,8 @@ def _resolve_action_date(question: str, facts: list[RenderedFact]) -> str | None
         (
             fact
             for fact in facts
-            if _fact_action_overlap(fact.body, action) and _target_overlap(fact.body, target_tokens)
-            >= minimum_target_overlap
+            if _fact_action_overlap(fact.body, action)
+            and _target_overlap(fact.body, target_tokens) >= minimum_target_overlap
         ),
         key=lambda fact: (
             _target_overlap(fact.body, target_tokens),
@@ -338,9 +336,7 @@ def _resolve_action_date(question: str, facts: list[RenderedFact]) -> str | None
                 continue
             shared_tokens = (
                 action_tokens
-                & _significant_tokens(fact.body)
-                - target_tokens
-                - _GENERIC_ANCHOR_TOKENS
+                & _significant_tokens(fact.body) - target_tokens - _GENERIC_ANCHOR_TOKENS
             )
             target_overlap = _target_overlap(fact.body, target_tokens)
             if not shared_tokens and target_overlap < minimum_target_overlap:
@@ -358,9 +354,7 @@ def _resolve_action_date(question: str, facts: list[RenderedFact]) -> str | None
     return None
 
 
-def _resolve_named_recipient_total(
-    question: str, facts: list[RenderedFact]
-) -> str | None:
+def _resolve_named_recipient_total(question: str, facts: list[RenderedFact]) -> str | None:
     if _TOTAL_SPEND_RE.search(question) is None:
         return None
     recipients = _parse_recipients_from_question(question)
@@ -401,9 +395,7 @@ def _resolve_named_recipient_total(
     return _format_currency(total)
 
 
-def _resolve_specific_backend_languages(
-    question: str, facts: list[RenderedFact]
-) -> str | None:
+def _resolve_specific_backend_languages(question: str, facts: list[RenderedFact]) -> str | None:
     lowered_question = question.lower()
     if "back-end" not in lowered_question and "backend" not in lowered_question:
         return None
@@ -439,9 +431,7 @@ def _resolve_specific_backend_languages(
             languages = _extract_languages(clause)
             if len(languages) < 2:
                 continue
-            resource_penalty = sum(
-                1 for marker in _RESOURCE_MARKERS if marker in lowered_clause
-            )
+            resource_penalty = sum(1 for marker in _RESOURCE_MARKERS if marker in lowered_clause)
             score = len(languages) * 4
             if direct_marker:
                 score += 5
@@ -455,8 +445,7 @@ def _resolve_specific_backend_languages(
 
     languages = best[1]
     return (
-        "I recommended learning "
-        f"{_serialise_list(languages)} as a back-end programming language."
+        f"I recommended learning {_serialise_list(languages)} as a back-end programming language."
     )
 
 
@@ -653,13 +642,8 @@ def _serialise_list(items: list[str]) -> str:
 
 
 def _significant_tokens(text: str) -> set[str]:
-    tokens = {
-        _normalise_token(token)
-        for token in _TOKEN_RE.findall(text.lower())
-    }
-    tokens = {
-        token for token in tokens if len(token) > 1 and token not in _STOPWORDS
-    }
+    tokens = {_normalise_token(token) for token in _TOKEN_RE.findall(text.lower())}
+    tokens = {token for token in tokens if len(token) > 1 and token not in _STOPWORDS}
     return {
         token
         for token in tokens

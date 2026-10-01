@@ -84,7 +84,7 @@ def slug_text(path: str) -> str:
 
     Mirrors Go's ``slugText``: lowercase, keep the last slash-separated
     segment, strip a trailing ``.md``, and collapse non-alphanumerics
-    to spaces. ``clients/oude-reimer.md`` becomes ``oude reimer``.
+    to spaces. ``clients/mill-brook.md`` becomes ``mill brook``.
     """
     s = path.lower()
     if "/" in s:
