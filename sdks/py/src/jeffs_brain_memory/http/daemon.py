@@ -521,8 +521,8 @@ class Daemon:
 
     root: Path
     auth_token: str | None = None
-    #: Directory ``POST /ingest/file`` may read a server-side ``path``
-    #: from, already resolved by :func:`resolve_ingest_root`. ``None``
+    #: Absolute directory ``POST /ingest/file`` may read a server-side
+    #: ``path`` from, as validated by :func:`resolve_ingest_root`. ``None``
     #: disables path ingest; callers must send ``contentBase64``.
     ingest_root: Path | None = None
     llm: Provider | None = None

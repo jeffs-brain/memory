@@ -50,18 +50,17 @@ func resolveIngestRoot(root string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("ingest root: %w", err)
 	}
-	real, err := filepath.EvalSymlinks(abs)
-	if err != nil {
-		return "", fmt.Errorf("ingest root: %w", err)
-	}
-	info, err := os.Stat(real)
+	info, err := os.Stat(abs)
 	if err != nil {
 		return "", fmt.Errorf("ingest root: %w", err)
 	}
 	if !info.IsDir() {
-		return "", fmt.Errorf("ingest root: %s is not a directory", real)
+		return "", fmt.Errorf("ingest root: %s is not a directory", abs)
 	}
-	return real, nil
+	// Keep the configured spelling: resolveIngestPath accepts requests
+	// through it as well as through the resolved form, so a root reached
+	// via a symlink (macOS /var, for one) still matches absolute paths.
+	return abs, nil
 }
 
 // resolveIngestPath confines a requested server-side path to root. A
@@ -74,12 +73,17 @@ func resolveIngestPath(root, requested string) (string, error) {
 	if root == "" {
 		return "", errPathIngestDisabled
 	}
+	absRoot := filepath.Clean(root)
+	realRoot, err := filepath.EvalSymlinks(absRoot)
+	if err != nil {
+		return "", fmt.Errorf("ingest root unavailable: %w", err)
+	}
 	candidate := requested
 	if !filepath.IsAbs(candidate) {
-		candidate = filepath.Join(root, candidate)
+		candidate = filepath.Join(absRoot, candidate)
 	}
 	candidate = filepath.Clean(candidate)
-	if !withinRoot(root, candidate) {
+	if !withinRoot(absRoot, candidate) && !withinRoot(realRoot, candidate) {
 		return "", errPathOutsideRoot
 	}
 	real, err := filepath.EvalSymlinks(candidate)
@@ -89,7 +93,7 @@ func resolveIngestPath(root, requested string) (string, error) {
 		}
 		return "", errPathOutsideRoot
 	}
-	if !withinRoot(root, real) {
+	if !withinRoot(realRoot, real) {
 		return "", errPathOutsideRoot
 	}
 	info, err := os.Stat(real)

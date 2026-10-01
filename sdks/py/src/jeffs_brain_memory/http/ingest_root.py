@@ -30,16 +30,19 @@ class IngestPathInvalidError(Exception):
 
 
 def resolve_ingest_root(root: str | Path | None) -> Path | None:
-    """Validate the configured ingest root and return its absolute,
-    symlink-free form. Blank input disables path ingest and yields
-    ``None``. Raises when the root is missing or not a directory."""
+    """Validate the configured ingest root and return it as an absolute
+    path in its configured spelling. :func:`resolve_ingest_path` accepts
+    requests through that spelling and through the resolved form, so a
+    root reached via a symlink (macOS ``/var``, for one) still matches
+    absolute paths. Blank input disables path ingest and yields ``None``.
+    Raises when the root is missing or not a directory."""
     text = str(root).strip() if root is not None else ""
     if not text:
         return None
-    real = Path(text).resolve(strict=True)
-    if not real.is_dir():
-        raise NotADirectoryError(f"ingest root: {real} is not a directory")
-    return real
+    abs_root = Path(os.path.abspath(text))
+    if not abs_root.resolve(strict=True).is_dir():
+        raise NotADirectoryError(f"ingest root: {abs_root} is not a directory")
+    return abs_root
 
 
 def _outside_root() -> PathIngestRefusedError:

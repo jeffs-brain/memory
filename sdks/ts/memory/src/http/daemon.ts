@@ -54,8 +54,8 @@ export type DaemonConfig = {
   readonly root: string
   readonly authToken?: string
   /**
-   * Directory `POST /ingest/file` may read a server-side `path` from,
-   * already resolved by {@link resolveIngestRoot}. Unset disables path
+   * Absolute directory `POST /ingest/file` may read a server-side `path`
+   * from, as validated by {@link resolveIngestRoot}. Unset disables path
    * ingest, so callers must send `contentBase64`.
    */
   readonly ingestRoot?: string

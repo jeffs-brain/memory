@@ -15,7 +15,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 
 import type { CompletionResponse, Logger, Provider, StreamEvent } from '../llm/index.js'
 import { Daemon, createRouter } from './index.js'
-import { resolveIngestRoot } from './ingest-root.js'
+import { PathIngestRefusedError, resolveIngestPath, resolveIngestRoot } from './ingest-root.js'
 import { isLoopbackHost, validBearerToken } from './router.js'
 
 type LogEntry = { level: string; msg: string; ctx: Record<string, unknown> | undefined }
@@ -291,5 +291,26 @@ describe('resolveIngestRoot', () => {
     await expect(resolveIngestRoot(join(dir, 'nope'))).rejects.toThrow()
     await expect(resolveIngestRoot(join(dir, 'file.md'))).rejects.toThrow(/not a directory/)
     expect(await resolveIngestRoot(dir)).toBe(dir)
+  })
+})
+
+// A root reached through a symlink (macOS /var is one) must accept paths
+// spelled through the link, through its target and relative to it, and
+// still refuse an escape spelled through the link.
+describe('resolveIngestPath with a root reached through a symlink', () => {
+  it('accepts every spelling inside the root and refuses an escape', async () => {
+    const target = await tempDir('memory-ingest-target-')
+    await writeFile(join(target, 'note.md'), '# Note\n')
+    const alias = join(await tempDir('memory-ingest-alias-'), 'alias')
+    await symlink(target, alias)
+    const root = await resolveIngestRoot(alias)
+    expect(root).toBe(alias)
+
+    for (const requested of [join(alias, 'note.md'), join(target, 'note.md'), 'note.md']) {
+      expect(await resolveIngestPath(root, requested)).toBe(join(target, 'note.md'))
+    }
+    await expect(resolveIngestPath(root, join(alias, '..', 'escape.md'))).rejects.toBeInstanceOf(
+      PathIngestRefusedError,
+    )
   })
 })

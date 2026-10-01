@@ -34,10 +34,13 @@ const errorCode = (err: unknown): string | undefined =>
 export const resolveIngestRoot = async (root: string | undefined): Promise<string | undefined> => {
   const trimmed = root?.trim() ?? ''
   if (trimmed === '') return undefined
-  const real = await realpath(resolve(trimmed))
-  const info = await stat(real)
-  if (!info.isDirectory()) throw new Error(`ingest root: ${real} is not a directory`)
-  return real
+  const abs = resolve(trimmed)
+  const info = await stat(await realpath(abs))
+  if (!info.isDirectory()) throw new Error(`ingest root: ${abs} is not a directory`)
+  // Keep the configured spelling: resolveIngestPath accepts requests through
+  // it as well as through the resolved form, so a root reached via a symlink
+  // (macOS /var, for one) still matches absolute paths.
+  return abs
 }
 
 /** True when `path` is `root` or lies beneath it. Both must be absolute. */

@@ -32,8 +32,8 @@ import (
 type Daemon struct {
 	Root      string
 	AuthToken string
-	// IngestRoot is the resolved directory POST /ingest/file may read a
-	// server-side path from. Empty disables path ingest, so callers must
+	// IngestRoot is the absolute directory POST /ingest/file may read a
+	// server-side path from, as validated by resolveIngestRoot. Empty disables path ingest, so callers must
 	// send contentBase64.
 	IngestRoot     string
 	LLM            llm.Provider

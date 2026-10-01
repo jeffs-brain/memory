@@ -203,3 +203,38 @@ func TestWriteIngestError(t *testing.T) {
 		})
 	}
 }
+
+// A root reached through a symlink (macOS /var is one) must accept paths
+// spelled through the link, through its target and relative to it, and
+// still refuse an escape spelled through the link.
+func TestResolveIngestPath_RootReachedThroughSymlink(t *testing.T) {
+	target := t.TempDir()
+	if err := os.WriteFile(filepath.Join(target, "note.md"), []byte("# Note\n"), 0o600); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	alias := filepath.Join(t.TempDir(), "alias")
+	if err := os.Symlink(target, alias); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	root, err := resolveIngestRoot(alias)
+	if err != nil {
+		t.Fatalf("resolveIngestRoot: %v", err)
+	}
+	realTarget, err := filepath.EvalSymlinks(target)
+	if err != nil {
+		t.Fatalf("EvalSymlinks: %v", err)
+	}
+	want := filepath.Join(realTarget, "note.md")
+	for _, requested := range []string{filepath.Join(alias, "note.md"), filepath.Join(target, "note.md"), "note.md"} {
+		got, err := resolveIngestPath(root, requested)
+		if err != nil {
+			t.Fatalf("resolveIngestPath(%q): %v", requested, err)
+		}
+		if got != want {
+			t.Fatalf("resolveIngestPath(%q) = %q, want %q", requested, got, want)
+		}
+	}
+	if _, err := resolveIngestPath(root, filepath.Join(alias, "..", "escape.md")); !errors.Is(err, errPathOutsideRoot) {
+		t.Fatalf("escape through the link: err = %v, want errPathOutsideRoot", err)
+	}
+}

@@ -20,6 +20,11 @@ from starlette.testclient import TestClient
 
 from jeffs_brain_memory.cli.commands.serve import _assert_bind_allowed, _parse_addr
 from jeffs_brain_memory.http import create_app
+from jeffs_brain_memory.http.ingest_root import (
+    PathIngestRefusedError,
+    resolve_ingest_path,
+    resolve_ingest_root,
+)
 from jeffs_brain_memory.http.middleware.auth import is_loopback_host, valid_bearer_token
 from jeffs_brain_memory.http.problem import INTERNAL_ERROR_DETAIL
 from jeffs_brain_memory.knowledge import ingest as knowledge_ingest
@@ -176,6 +181,25 @@ def ingest_tree(tmp_path: Path) -> Iterator[tuple[Path, Path]]:
     outside.write_text("# Secret\n")
     os.symlink(outside, allowed / "escape.md")
     yield allowed, outside
+
+
+def test_root_reached_through_a_symlink(tmp_path: Path) -> None:
+    """A root reached through a symlink (macOS ``/var`` is one) must accept
+    paths spelled through the link, through its target and relative to it,
+    and still refuse an escape spelled through the link."""
+    target = tmp_path / "target"
+    target.mkdir()
+    (target / "note.md").write_text("# Note\n")
+    alias = tmp_path / "alias"
+    os.symlink(target, alias)
+    root = resolve_ingest_root(alias)
+    assert root == alias
+
+    want = (target / "note.md").resolve()
+    for requested in (str(alias / "note.md"), str(target / "note.md"), "note.md"):
+        assert resolve_ingest_path(root, requested) == want
+    with pytest.raises(PathIngestRefusedError):
+        resolve_ingest_path(root, str(alias / ".." / "escape.md"))
 
 
 def test_path_ingest_is_disabled_without_a_root(root: Path, ingest_tree: tuple[Path, Path]) -> None:
