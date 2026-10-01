@@ -57,41 +57,39 @@ func resolveIngestRoot(root string) (string, error) {
 	if !info.IsDir() {
 		return "", fmt.Errorf("ingest root: %s is not a directory", abs)
 	}
-	// Keep the configured spelling: resolveIngestPath accepts requests
-	// through it as well as through the resolved form, so a root reached
-	// via a symlink (macOS /var, for one) still matches absolute paths.
 	return abs, nil
 }
 
 // resolveIngestPath confines a requested server-side path to root. A
-// relative path is taken relative to root. Containment is checked on
-// the cleaned path first, so a path outside root is refused without
-// revealing whether it exists, and again after resolving symlinks, so
-// a link inside root cannot point the read elsewhere. Only regular
+// relative path is taken relative to root. Containment is decided on the
+// fully resolved path, so a symlink cannot point the read elsewhere and
+// any spelling of a path inside the root is accepted. A path that does
+// not exist is judged by its nearest existing ancestor, so a path outside
+// the root is refused the same way whether or not it exists. Only regular
 // files are accepted.
 func resolveIngestPath(root, requested string) (string, error) {
 	if root == "" {
 		return "", errPathIngestDisabled
 	}
-	absRoot := filepath.Clean(root)
-	realRoot, err := filepath.EvalSymlinks(absRoot)
+	realRoot, err := filepath.EvalSymlinks(filepath.Clean(root))
 	if err != nil {
 		return "", fmt.Errorf("ingest root unavailable: %w", err)
 	}
 	candidate := requested
 	if !filepath.IsAbs(candidate) {
-		candidate = filepath.Join(absRoot, candidate)
+		candidate = filepath.Join(root, candidate)
 	}
 	candidate = filepath.Clean(candidate)
-	if !withinRoot(absRoot, candidate) && !withinRoot(realRoot, candidate) {
-		return "", errPathOutsideRoot
-	}
 	real, err := filepath.EvalSymlinks(candidate)
 	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return "", fmt.Errorf("%w: file not found", knowledge.ErrInvalidContent)
+		if !errors.Is(err, os.ErrNotExist) {
+			return "", errPathOutsideRoot
 		}
-		return "", errPathOutsideRoot
+		ancestor, ok := nearestExistingAncestor(candidate)
+		if !ok || !withinRoot(realRoot, ancestor) {
+			return "", errPathOutsideRoot
+		}
+		return "", fmt.Errorf("%w: file not found", knowledge.ErrInvalidContent)
 	}
 	if !withinRoot(realRoot, real) {
 		return "", errPathOutsideRoot
@@ -104,6 +102,20 @@ func resolveIngestPath(root, requested string) (string, error) {
 		return "", fmt.Errorf("%w: path is not a regular file", knowledge.ErrInvalidContent)
 	}
 	return real, nil
+}
+
+// nearestExistingAncestor resolves the closest directory above path that
+// exists.
+func nearestExistingAncestor(path string) (string, bool) {
+	for dir := filepath.Dir(path); ; dir = filepath.Dir(dir) {
+		real, err := filepath.EvalSymlinks(dir)
+		if err == nil {
+			return real, true
+		}
+		if !errors.Is(err, os.ErrNotExist) || filepath.Dir(dir) == dir {
+			return "", false
+		}
+	}
 }
 
 // withinRoot reports whether path is root or lies beneath it. Both

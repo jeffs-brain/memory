@@ -204,28 +204,45 @@ func TestWriteIngestError(t *testing.T) {
 	}
 }
 
-// A root reached through a symlink (macOS /var is one) must accept paths
-// spelled through the link, through its target and relative to it, and
-// still refuse an escape spelled through the link.
+// A root reached through symlinks must accept every spelling of a path
+// inside it and refuse an escape, existing or not. The layout mirrors
+// macOS, where /var links to /private/var: the root is a link to a
+// directory that is itself spelled through another link.
 func TestResolveIngestPath_RootReachedThroughSymlink(t *testing.T) {
-	target := t.TempDir()
-	if err := os.WriteFile(filepath.Join(target, "note.md"), []byte("# Note\n"), 0o600); err != nil {
+	base := t.TempDir()
+	private := filepath.Join(base, "private")
+	if err := os.MkdirAll(filepath.Join(private, "target"), 0o700); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(private, "target", "note.md"), []byte("# Note\n"), 0o600); err != nil {
 		t.Fatalf("write: %v", err)
 	}
-	alias := filepath.Join(t.TempDir(), "alias")
-	if err := os.Symlink(target, alias); err != nil {
+	if err := os.WriteFile(filepath.Join(private, "secret.md"), []byte("# Secret\n"), 0o600); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	host := filepath.Join(base, "var")
+	if err := os.Symlink(private, host); err != nil {
 		t.Skipf("symlinks unavailable: %v", err)
+	}
+	alias := filepath.Join(host, "alias")
+	if err := os.Symlink(filepath.Join(host, "target"), alias); err != nil {
+		t.Fatalf("symlink: %v", err)
 	}
 	root, err := resolveIngestRoot(alias)
 	if err != nil {
 		t.Fatalf("resolveIngestRoot: %v", err)
 	}
-	realTarget, err := filepath.EvalSymlinks(target)
+	realPrivate, err := filepath.EvalSymlinks(private)
 	if err != nil {
 		t.Fatalf("EvalSymlinks: %v", err)
 	}
-	want := filepath.Join(realTarget, "note.md")
-	for _, requested := range []string{filepath.Join(alias, "note.md"), filepath.Join(target, "note.md"), "note.md"} {
+	want := filepath.Join(realPrivate, "target", "note.md")
+	for _, requested := range []string{
+		"note.md",
+		filepath.Join(alias, "note.md"),
+		filepath.Join(host, "target", "note.md"),
+		filepath.Join(private, "target", "note.md"),
+	} {
 		got, err := resolveIngestPath(root, requested)
 		if err != nil {
 			t.Fatalf("resolveIngestPath(%q): %v", requested, err)
@@ -234,7 +251,17 @@ func TestResolveIngestPath_RootReachedThroughSymlink(t *testing.T) {
 			t.Fatalf("resolveIngestPath(%q) = %q, want %q", requested, got, want)
 		}
 	}
-	if _, err := resolveIngestPath(root, filepath.Join(alias, "..", "escape.md")); !errors.Is(err, errPathOutsideRoot) {
-		t.Fatalf("escape through the link: err = %v, want errPathOutsideRoot", err)
+	for _, requested := range []string{
+		filepath.Join(alias, "..", "secret.md"),
+		filepath.Join(host, "secret.md"),
+		filepath.Join(alias, "..", "missing.md"),
+		"../missing/deeper.md",
+	} {
+		if _, err := resolveIngestPath(root, requested); !errors.Is(err, errPathOutsideRoot) {
+			t.Fatalf("resolveIngestPath(%q): err = %v, want errPathOutsideRoot", requested, err)
+		}
+	}
+	if _, err := resolveIngestPath(root, "missing.md"); !errors.Is(err, knowledge.ErrInvalidContent) {
+		t.Fatalf("missing file inside the root: err = %v, want ErrInvalidContent", err)
 	}
 }

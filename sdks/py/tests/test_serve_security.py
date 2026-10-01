@@ -21,6 +21,7 @@ from starlette.testclient import TestClient
 from jeffs_brain_memory.cli.commands.serve import _assert_bind_allowed, _parse_addr
 from jeffs_brain_memory.http import create_app
 from jeffs_brain_memory.http.ingest_root import (
+    IngestPathInvalidError,
     PathIngestRefusedError,
     resolve_ingest_path,
     resolve_ingest_root,
@@ -183,23 +184,39 @@ def ingest_tree(tmp_path: Path) -> Iterator[tuple[Path, Path]]:
     yield allowed, outside
 
 
-def test_root_reached_through_a_symlink(tmp_path: Path) -> None:
-    """A root reached through a symlink (macOS ``/var`` is one) must accept
-    paths spelled through the link, through its target and relative to it,
-    and still refuse an escape spelled through the link."""
-    target = tmp_path / "target"
-    target.mkdir()
-    (target / "note.md").write_text("# Note\n")
-    alias = tmp_path / "alias"
-    os.symlink(target, alias)
+def test_root_reached_through_symlinks(tmp_path: Path) -> None:
+    """A root reached through symlinks must accept every spelling of a path
+    inside it and refuse an escape, existing or not. The layout mirrors
+    macOS, where ``/var`` links to ``/private/var``: the root is a link to a
+    directory that is itself spelled through another link."""
+    private = tmp_path / "private"
+    (private / "target").mkdir(parents=True)
+    (private / "target" / "note.md").write_text("# Note\n")
+    (private / "secret.md").write_text("# Secret\n")
+    host = tmp_path / "var"
+    os.symlink(private, host)
+    alias = host / "alias"
+    os.symlink(host / "target", alias)
     root = resolve_ingest_root(alias)
-    assert root == alias
 
-    want = (target / "note.md").resolve()
-    for requested in (str(alias / "note.md"), str(target / "note.md"), "note.md"):
+    want = (private / "target" / "note.md").resolve()
+    for requested in (
+        "note.md",
+        str(alias / "note.md"),
+        str(host / "target" / "note.md"),
+        str(private / "target" / "note.md"),
+    ):
         assert resolve_ingest_path(root, requested) == want
-    with pytest.raises(PathIngestRefusedError):
-        resolve_ingest_path(root, str(alias / ".." / "escape.md"))
+    for requested in (
+        str(alias / ".." / "secret.md"),
+        str(host / "secret.md"),
+        str(alias / ".." / "missing.md"),
+        "../missing/deeper.md",
+    ):
+        with pytest.raises(PathIngestRefusedError):
+            resolve_ingest_path(root, requested)
+    with pytest.raises(IngestPathInvalidError):
+        resolve_ingest_path(root, "missing.md")
 
 
 def test_path_ingest_is_disabled_without_a_root(root: Path, ingest_tree: tuple[Path, Path]) -> None:

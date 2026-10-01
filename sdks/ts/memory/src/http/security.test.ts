@@ -15,7 +15,12 @@ import { afterEach, describe, expect, it } from 'vitest'
 
 import type { CompletionResponse, Logger, Provider, StreamEvent } from '../llm/index.js'
 import { Daemon, createRouter } from './index.js'
-import { PathIngestRefusedError, resolveIngestPath, resolveIngestRoot } from './ingest-root.js'
+import {
+  IngestPathInvalidError,
+  PathIngestRefusedError,
+  resolveIngestPath,
+  resolveIngestRoot,
+} from './ingest-root.js'
 import { isLoopbackHost, validBearerToken } from './router.js'
 
 type LogEntry = { level: string; msg: string; ctx: Record<string, unknown> | undefined }
@@ -294,23 +299,44 @@ describe('resolveIngestRoot', () => {
   })
 })
 
-// A root reached through a symlink (macOS /var is one) must accept paths
-// spelled through the link, through its target and relative to it, and
-// still refuse an escape spelled through the link.
-describe('resolveIngestPath with a root reached through a symlink', () => {
-  it('accepts every spelling inside the root and refuses an escape', async () => {
-    const target = await tempDir('memory-ingest-target-')
-    await writeFile(join(target, 'note.md'), '# Note\n')
-    const alias = join(await tempDir('memory-ingest-alias-'), 'alias')
-    await symlink(target, alias)
+// A root reached through symlinks must accept every spelling of a path
+// inside it and refuse an escape, existing or not. The layout mirrors
+// macOS, where /var links to /private/var: the root is a link to a
+// directory that is itself spelled through another link.
+describe('resolveIngestPath with a root reached through symlinks', () => {
+  it('accepts every spelling inside the root and refuses every escape', async () => {
+    const base = await tempDir('memory-ingest-links-')
+    const realDir = join(base, 'private')
+    await mkdir(join(realDir, 'target'), { recursive: true })
+    await writeFile(join(realDir, 'target', 'note.md'), '# Note\n')
+    await writeFile(join(realDir, 'secret.md'), '# Secret\n')
+    const host = join(base, 'var')
+    await symlink(realDir, host)
+    const alias = join(host, 'alias')
+    await symlink(join(host, 'target'), alias)
     const root = await resolveIngestRoot(alias)
-    expect(root).toBe(alias)
 
-    for (const requested of [join(alias, 'note.md'), join(target, 'note.md'), 'note.md']) {
-      expect(await resolveIngestPath(root, requested)).toBe(join(target, 'note.md'))
+    const want = join(realDir, 'target', 'note.md')
+    for (const requested of [
+      'note.md',
+      join(alias, 'note.md'),
+      join(host, 'target', 'note.md'),
+      join(realDir, 'target', 'note.md'),
+    ]) {
+      expect(await resolveIngestPath(root, requested)).toBe(want)
     }
-    await expect(resolveIngestPath(root, join(alias, '..', 'escape.md'))).rejects.toBeInstanceOf(
-      PathIngestRefusedError,
+    for (const requested of [
+      join(alias, '..', 'secret.md'),
+      join(host, 'secret.md'),
+      join(alias, '..', 'missing.md'),
+      '../missing/deeper.md',
+    ]) {
+      await expect(resolveIngestPath(root, requested)).rejects.toBeInstanceOf(
+        PathIngestRefusedError,
+      )
+    }
+    await expect(resolveIngestPath(root, 'missing.md')).rejects.toBeInstanceOf(
+      IngestPathInvalidError,
     )
   })
 })

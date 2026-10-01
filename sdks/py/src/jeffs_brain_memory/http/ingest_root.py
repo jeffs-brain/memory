@@ -31,11 +31,8 @@ class IngestPathInvalidError(Exception):
 
 def resolve_ingest_root(root: str | Path | None) -> Path | None:
     """Validate the configured ingest root and return it as an absolute
-    path in its configured spelling. :func:`resolve_ingest_path` accepts
-    requests through that spelling and through the resolved form, so a
-    root reached via a symlink (macOS ``/var``, for one) still matches
-    absolute paths. Blank input disables path ingest and yields ``None``.
-    Raises when the root is missing or not a directory."""
+    path. Blank input disables path ingest and yields ``None``. Raises when
+    the root is missing or not a directory."""
     text = str(root).strip() if root is not None else ""
     if not text:
         return None
@@ -49,28 +46,42 @@ def _outside_root() -> PathIngestRefusedError:
     return PathIngestRefusedError("path resolves outside the configured ingest root")
 
 
+def _nearest_existing_ancestor(path: Path) -> Path | None:
+    """The resolved closest directory above ``path`` that exists."""
+    for parent in path.parents:
+        try:
+            return parent.resolve(strict=True)
+        except FileNotFoundError:
+            continue
+        except OSError:
+            return None
+    return None
+
+
 def resolve_ingest_path(root: Path | None, requested: str) -> Path:
     """Resolve ``requested`` inside ``root``.
 
-    A relative path is taken relative to the root. Containment is
-    checked on the normalised path first, so a path outside the root is
-    refused without revealing whether it exists, and again after
-    resolving symlinks, so a link inside the root cannot point the read
-    elsewhere. Returns the real path of a regular file inside the root.
+    A relative path is taken relative to the root. Containment is decided
+    on the fully resolved path, so a symlink cannot point the read
+    elsewhere and any spelling of a path inside the root is accepted. A
+    path that does not exist is judged by its nearest existing ancestor,
+    so a path outside the root is refused the same way whether or not it
+    exists. Returns the real path of a regular file inside the root.
     """
     if root is None:
         raise PathIngestRefusedError(
             "server-side path ingest is disabled; send contentBase64 or start "
             "the daemon with an ingest root"
         )
-    abs_root = Path(os.path.abspath(root))
-    real_root = abs_root.resolve(strict=True)
+    abs_root = os.path.abspath(root)
+    real_root = Path(abs_root).resolve(strict=True)
     candidate = Path(os.path.normpath(os.path.join(abs_root, requested)))
-    if not (candidate.is_relative_to(abs_root) or candidate.is_relative_to(real_root)):
-        raise _outside_root()
     try:
         real = candidate.resolve(strict=True)
     except FileNotFoundError as exc:
+        ancestor = _nearest_existing_ancestor(candidate)
+        if ancestor is None or not ancestor.is_relative_to(real_root):
+            raise _outside_root() from exc
         raise IngestPathInvalidError("file not found") from exc
     except OSError as exc:
         raise _outside_root() from exc

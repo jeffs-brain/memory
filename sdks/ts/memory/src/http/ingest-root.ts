@@ -9,7 +9,7 @@
  */
 
 import { realpath, stat } from 'node:fs/promises'
-import { isAbsolute, relative, resolve, sep } from 'node:path'
+import { dirname, isAbsolute, relative, resolve, sep } from 'node:path'
 
 /** The request named a path the daemon refuses to read. Maps to 403. */
 export class PathIngestRefusedError extends Error {
@@ -27,9 +27,9 @@ const errorCode = (err: unknown): string | undefined =>
     : undefined
 
 /**
- * Validate the configured ingest root and return its absolute,
- * symlink-free form. Blank input disables path ingest and yields
- * `undefined`. Throws when the root is missing or not a directory.
+ * Validate the configured ingest root and return it as an absolute
+ * path. Blank input disables path ingest and yields `undefined`. Throws
+ * when the root is missing or not a directory.
  */
 export const resolveIngestRoot = async (root: string | undefined): Promise<string | undefined> => {
   const trimmed = root?.trim() ?? ''
@@ -37,9 +37,6 @@ export const resolveIngestRoot = async (root: string | undefined): Promise<strin
   const abs = resolve(trimmed)
   const info = await stat(await realpath(abs))
   if (!info.isDirectory()) throw new Error(`ingest root: ${abs} is not a directory`)
-  // Keep the configured spelling: resolveIngestPath accepts requests through
-  // it as well as through the resolved form, so a root reached via a symlink
-  // (macOS /var, for one) still matches absolute paths.
   return abs
 }
 
@@ -52,13 +49,25 @@ const withinRoot = (root: string, path: string): boolean => {
 const outsideRoot = (): PathIngestRefusedError =>
   new PathIngestRefusedError('path resolves outside the configured ingest root')
 
+/** The resolved closest directory above `path` that exists. */
+const nearestExistingAncestor = async (path: string): Promise<string | undefined> => {
+  for (let dir = dirname(path); ; dir = dirname(dir)) {
+    try {
+      return await realpath(dir)
+    } catch (err) {
+      if (errorCode(err) !== 'ENOENT' || dirname(dir) === dir) return undefined
+    }
+  }
+}
+
 /**
  * Resolve `requested` inside `root`. A relative path is taken relative
- * to the root. Containment is checked on the normalised path first, so
- * a path outside the root is refused without revealing whether it
- * exists, and again after resolving symlinks, so a link inside the root
- * cannot point the read elsewhere. Returns the real path of a regular
- * file inside the root.
+ * to the root. Containment is decided on the fully resolved path, so a
+ * symlink cannot point the read elsewhere and any spelling of a path
+ * inside the root is accepted. A path that does not exist is judged by
+ * its nearest existing ancestor, so a path outside the root is refused
+ * the same way whether or not it exists. Returns the real path of a
+ * regular file inside the root.
  */
 export const resolveIngestPath = async (
   root: string | undefined,
@@ -69,16 +78,16 @@ export const resolveIngestPath = async (
       'server-side path ingest is disabled; send contentBase64 or start the daemon with an ingest root',
     )
   }
-  const absRoot = resolve(root)
-  const realRoot = await realpath(absRoot)
-  const candidate = resolve(absRoot, requested)
-  if (!withinRoot(absRoot, candidate) && !withinRoot(realRoot, candidate)) throw outsideRoot()
+  const realRoot = await realpath(resolve(root))
+  const candidate = resolve(root, requested)
   let real: string
   try {
     real = await realpath(candidate)
   } catch (err) {
-    if (errorCode(err) === 'ENOENT') throw new IngestPathInvalidError('file not found')
-    throw outsideRoot()
+    if (errorCode(err) !== 'ENOENT') throw outsideRoot()
+    const ancestor = await nearestExistingAncestor(candidate)
+    if (ancestor === undefined || !withinRoot(realRoot, ancestor)) throw outsideRoot()
+    throw new IngestPathInvalidError('file not found')
   }
   if (!withinRoot(realRoot, real)) throw outsideRoot()
   const info = await stat(real)
