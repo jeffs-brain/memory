@@ -10,19 +10,21 @@ The TypeScript packages use Bun workspaces:
 
 ```bash
 bun install
-bun run typecheck
 bun run lint
+bun run typecheck   # sources and test files
 bun run test
+bun run build
 ```
 
 Node 20+ is required for the published packages. A local SQLite toolchain is needed for `better-sqlite3` in the `@jeffs-brain/memory` SDK. The media extractor tests need `ffmpeg` and `ffprobe` on the `PATH`, and the Postgres adapter tests need Docker; both skip when the tool is missing.
 
-Go (`go/`):
+Go (`go/`), Go 1.26 or newer:
 
 ```bash
 cd go
 go vet ./...
 go test -race ./...
+go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.14.0 run ./...
 ```
 
 Python (`sdks/py/` and `mcp/py/`), with [uv](https://docs.astral.sh/uv/):
@@ -35,6 +37,10 @@ uv run ruff format --check .
 uv run mypy src
 uv run pytest
 ```
+
+The docs site (`docs/`) builds with `bun install && bun run build`.
+
+CI runs all of the above on every pull request, plus `govulncheck`, `bun audit` and `pip-audit` (`.github/workflows/security.yml`). A dependency with a known vulnerability fails the build; Dependabot proposes updates weekly.
 
 ## Commit style
 

@@ -1,0 +1,78 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# Known-vulnerability scans for every ecosystem in the repository. Runs on
+# every change and weekly, so an advisory published against an unchanged
+# lockfile still surfaces. Dependabot proposes the fixes.
+name: security
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: '0 6 * * 1'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  go:
+    name: govulncheck
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: go
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.27'
+          check-latest: true
+          cache-dependency-path: go/go.sum
+      - name: Reachable vulnerabilities
+        run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+
+  npm:
+    name: bun audit (${{ matrix.dir }})
+    strategy:
+      fail-fast: false
+      matrix:
+        dir: ['.', docs]
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ${{ matrix.dir }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+      - name: Install
+        run: bun install --frozen-lockfile
+      - name: Audit
+        run: bun audit
+
+  python:
+    name: pip-audit (${{ matrix.project }})
+    strategy:
+      fail-fast: false
+      matrix:
+        project: [sdks/py, mcp/py, eval]
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ${{ matrix.project }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+      - name: Export the locked dependency set
+        # The workspace's own packages are audited as source, not as
+        # requirements, so editable path entries are dropped.
+        run: |
+          uv export --locked --all-groups --all-extras --format requirements-txt \
+            --no-emit-project --no-emit-workspace \
+            | grep -v -e '^-e ' -e '^\.\./' > "$RUNNER_TEMP/requirements.txt"
+      - name: Audit
+        run: uvx pip-audit --disable-pip -r "$RUNNER_TEMP/requirements.txt"

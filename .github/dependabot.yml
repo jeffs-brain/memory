@@ -1,0 +1,39 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# Weekly dependency updates for every ecosystem the security workflow
+# audits. Minor and patch releases are grouped per ecosystem so routine
+# updates arrive as one pull request; majors stay separate for review.
+version: 2
+
+updates:
+  - package-ecosystem: bun
+    directories: ['/', '/docs']
+    schedule:
+      interval: weekly
+    groups:
+      minor-and-patch:
+        update-types: [minor, patch]
+
+  - package-ecosystem: gomod
+    directory: /go
+    schedule:
+      interval: weekly
+    groups:
+      minor-and-patch:
+        update-types: [minor, patch]
+
+  - package-ecosystem: uv
+    directories: ['/sdks/py', '/mcp/py', '/eval']
+    schedule:
+      interval: weekly
+    groups:
+      minor-and-patch:
+        update-types: [minor, patch]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ['*']
