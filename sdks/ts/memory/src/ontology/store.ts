@@ -422,9 +422,7 @@ function isValidTypeDefinition(value: unknown): value is OntologyTypeDefinition 
   if (value === null || typeof value !== 'object') return false
   const obj = value as Record<string, unknown>
   return (
-    typeof obj['type'] === 'string' &&
-    typeof obj['label'] === 'string' &&
-    typeof obj['status'] === 'string'
+    typeof obj.type === 'string' && typeof obj.label === 'string' && typeof obj.status === 'string'
   )
 }
 
@@ -433,16 +431,14 @@ function parseStoredOntology(raw: unknown): StoredOntology {
     return { customNodeTypes: [], customEdgeTypes: [], customBusinessCategories: [] }
   }
   const obj = raw as Record<string, unknown>
-  const nodeTypes = Array.isArray(obj['customNodeTypes'])
-    ? (obj['customNodeTypes'] as unknown[]).filter(isValidTypeDefinition)
+  const nodeTypes = Array.isArray(obj.customNodeTypes)
+    ? (obj.customNodeTypes as unknown[]).filter(isValidTypeDefinition)
     : []
-  const edgeTypes = Array.isArray(obj['customEdgeTypes'])
-    ? (obj['customEdgeTypes'] as unknown[]).filter(isValidTypeDefinition)
+  const edgeTypes = Array.isArray(obj.customEdgeTypes)
+    ? (obj.customEdgeTypes as unknown[]).filter(isValidTypeDefinition)
     : []
-  const categories = Array.isArray(obj['customBusinessCategories'])
-    ? (obj['customBusinessCategories'] as unknown[]).filter(
-        (v): v is string => typeof v === 'string',
-      )
+  const categories = Array.isArray(obj.customBusinessCategories)
+    ? (obj.customBusinessCategories as unknown[]).filter((v): v is string => typeof v === 'string')
     : []
   return {
     customNodeTypes: nodeTypes,

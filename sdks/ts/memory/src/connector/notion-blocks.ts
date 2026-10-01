@@ -60,16 +60,16 @@ export const renderRichText = (texts: readonly NotionRichText[]): string => {
     let text = t.plain_text
 
     if (t.annotations?.code === true) {
-      text = '`' + text + '`'
+      text = `\`${text}\``
     }
     if (t.annotations?.bold === true) {
-      text = '**' + text + '**'
+      text = `**${text}**`
     }
     if (t.annotations?.italic === true) {
-      text = '*' + text + '*'
+      text = `*${text}*`
     }
     if (t.annotations?.strikethrough === true) {
-      text = '~~' + text + '~~'
+      text = `~~${text}~~`
     }
 
     if (t.href !== undefined && t.href !== '') {
@@ -125,7 +125,7 @@ export const blockToMarkdown = (block: NotionBlock, allowedTypes?: ReadonlySet<s
     divider: () => '---\n',
     code: () => {
       const lang = (blockData.language as string) ?? ''
-      return '```' + lang + '\n' + text + '\n```\n'
+      return `\`\`\`${lang}\n${text}\n\`\`\`\n`
     },
     equation: () => {
       const expression = (blockData.expression as string) ?? ''

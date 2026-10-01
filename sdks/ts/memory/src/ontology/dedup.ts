@@ -118,6 +118,7 @@ export class Deduplicator {
     }
 
     await this.deduplicateSemantic(
+      this.embedder,
       afterFuzzy,
       existing,
       unique,
@@ -129,6 +130,7 @@ export class Deduplicator {
   }
 
   private async deduplicateSemantic(
+    embedder: Embedder,
     candidates: readonly TypeDefinition[],
     existing: readonly TypeDefinition[],
     unique: TypeDefinition[],
@@ -140,12 +142,11 @@ export class Deduplicator {
     const existingTexts = existing.map((e) => `${e.label}: ${e.description}`)
 
     const [candidateEmbeddings, existingEmbeddings] = await Promise.all([
-      this.embedder!.embed(candidateTexts, signal),
-      this.embedder!.embed(existingTexts, signal),
+      embedder.embed(candidateTexts, signal),
+      embedder.embed(existingTexts, signal),
     ])
 
-    for (let i = 0; i < candidates.length; i++) {
-      const candidate = candidates[i]!
+    for (const [i, candidate] of candidates.entries()) {
       const candidateVec = candidateEmbeddings[i]
       if (candidateVec === undefined) {
         unique.push(candidate)

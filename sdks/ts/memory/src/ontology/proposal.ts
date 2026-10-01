@@ -383,7 +383,6 @@ export class ProposalWorkflow {
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err)
         console.warn(`ontology: skipping corrupt proposal batch at ${String(entry.path)}: ${msg}`)
-        continue
       }
     }
 

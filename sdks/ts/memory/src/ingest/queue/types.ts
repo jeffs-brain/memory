@@ -150,7 +150,7 @@ export const BACKOFF_JITTER_MAX = 1.5
  * baseDelay * 2^retryCount * random(0.5, 1.5).
  */
 export const computeBackoff = (retryCount: number): Date => {
-  const multiplier = Math.pow(2, retryCount)
+  const multiplier = 2 ** retryCount
   const jitter = BACKOFF_JITTER_MIN + Math.random() * (BACKOFF_JITTER_MAX - BACKOFF_JITTER_MIN)
   const delayMs = BACKOFF_BASE_DELAY_MS * multiplier * jitter
   return new Date(Date.now() + delayMs)

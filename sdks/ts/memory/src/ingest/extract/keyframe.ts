@@ -34,7 +34,7 @@ export type KeyframeResult = {
 
 /** Resolves keyframe config with defaults and env var overrides. */
 export const resolveKeyframeConfig = (partial: Partial<KeyframeConfig>): KeyframeConfig => {
-  const envInterval = process.env['MEMORY_KEYFRAME_INTERVAL_SECS']
+  const envInterval = process.env.MEMORY_KEYFRAME_INTERVAL_SECS
   let intervalSecs = partial.intervalSecs ?? DEFAULT_KEYFRAME_INTERVAL_SECS
   if (partial.intervalSecs === undefined && envInterval !== undefined && envInterval !== '') {
     const parsed = Number.parseInt(envInterval, 10)
@@ -44,7 +44,7 @@ export const resolveKeyframeConfig = (partial: Partial<KeyframeConfig>): Keyfram
   }
 
   const base: KeyframeConfig = {
-    ffmpegBinary: partial.ffmpegBinary ?? process.env['MEMORY_FFMPEG_PATH'] ?? 'ffmpeg',
+    ffmpegBinary: partial.ffmpegBinary ?? process.env.MEMORY_FFMPEG_PATH ?? 'ffmpeg',
     intervalSecs,
     maxKeyframes: partial.maxKeyframes ?? 20,
     timeout: partial.timeout ?? 60_000,
@@ -142,7 +142,7 @@ export const extractKeyframes = async (
         })
       }
     } catch {
-      continue
+      // A frame OCR cannot read contributes no text.
     }
   }
 
@@ -183,7 +183,7 @@ export const mergeKeyframeMetadata = (
   metadata: Record<string, string>,
   results: readonly KeyframeResult[],
 ): void => {
-  metadata['keyframe_count'] = String(results.length)
+  metadata.keyframe_count = String(results.length)
 
   if (results.length === 0) return
 
@@ -192,5 +192,5 @@ export const mergeKeyframeMetadata = (
     totalConf += kf.confidence
   }
   const avgConf = totalConf / results.length
-  metadata['keyframe_avg_confidence'] = avgConf.toFixed(4)
+  metadata.keyframe_avg_confidence = avgConf.toFixed(4)
 }

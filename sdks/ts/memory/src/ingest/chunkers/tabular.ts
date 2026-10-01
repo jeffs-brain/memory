@@ -45,7 +45,7 @@ export const tabularChunker: Chunker = async (
     signal?.throwIfAborted()
     const end = Math.min(start + rowsPerChunk, dataLines.length)
     const batch = dataLines.slice(start, end)
-    const chunkContent = header + '\n' + batch.join('\n')
+    const chunkContent = `${header}\n${batch.join('\n')}`
     chunks.push({
       id: '',
       content: chunkContent,

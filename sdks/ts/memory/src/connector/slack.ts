@@ -122,12 +122,12 @@ export class SlackConnector implements Connector {
   }
 
   async configure(config: Record<string, unknown>): Promise<void> {
-    const botToken = typeof config['botToken'] === 'string' ? config['botToken'] : ''
+    const botToken = typeof config.botToken === 'string' ? config.botToken : ''
     if (!botToken) {
       throw new Error('slack: botToken is required')
     }
 
-    const channelsRaw = typeof config['channels'] === 'string' ? config['channels'] : ''
+    const channelsRaw = typeof config.channels === 'string' ? config.channels : ''
     if (!channelsRaw) {
       throw new Error('slack: at least one channel is required')
     }
@@ -141,7 +141,7 @@ export class SlackConnector implements Connector {
     }
 
     let resolvedMaxFileSize = this.config.maxFileSize
-    const maxFileSizeRaw = config['maxFileSize']
+    const maxFileSizeRaw = config.maxFileSize
     if (typeof maxFileSizeRaw === 'string') {
       const parsed = Number.parseInt(maxFileSizeRaw, 10)
       if (Number.isNaN(parsed)) {
@@ -153,11 +153,11 @@ export class SlackConnector implements Connector {
     }
 
     const resolvedOldestTimestamp =
-      typeof config['oldestTimestamp'] === 'string'
-        ? config['oldestTimestamp']
+      typeof config.oldestTimestamp === 'string'
+        ? config.oldestTimestamp
         : this.config.oldestTimestamp
 
-    const includeThreadsRaw = config['includeThreads']
+    const includeThreadsRaw = config.includeThreads
     const includeThreads =
       typeof includeThreadsRaw === 'boolean'
         ? includeThreadsRaw
@@ -165,7 +165,7 @@ export class SlackConnector implements Connector {
           ? includeThreadsRaw !== 'false'
           : (this.config.includeThreads ?? true)
 
-    const includeFilesRaw = config['includeFiles']
+    const includeFilesRaw = config.includeFiles
     const includeFiles =
       typeof includeFilesRaw === 'boolean'
         ? includeFilesRaw
@@ -203,7 +203,7 @@ export class SlackConnector implements Connector {
       let latestTS = ''
 
       for await (const doc of this.fetchMessages(combinedSignal, lastCursor)) {
-        const ts = doc.metadata['ts']
+        const ts = doc.metadata.ts
         if (ts && ts > latestTS) {
           latestTS = ts
         }
@@ -545,10 +545,10 @@ export class SlackConnector implements Connector {
       type: 'message',
     }
     if (msg.thread_ts) {
-      metadata['thread_ts'] = msg.thread_ts
+      metadata.thread_ts = msg.thread_ts
     }
     if (msg.reply_count && msg.reply_count > 0) {
-      metadata['reply_count'] = String(msg.reply_count)
+      metadata.reply_count = String(msg.reply_count)
     }
 
     return {

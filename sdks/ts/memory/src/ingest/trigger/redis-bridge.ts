@@ -78,7 +78,7 @@ export const createRedisBridge = async (opts: RedisBridgeOptions): Promise<Redis
       } catch (err) {
         if (closed) return
         const jitteredDelay =
-          Math.min(baseDelay * Math.pow(2, attempt), maxDelay) * (0.5 + Math.random() * 0.5)
+          Math.min(baseDelay * 2 ** attempt, maxDelay) * (0.5 + Math.random() * 0.5)
         logger?.warn('trigger/redis: subscription error, reconnecting', {
           error: String(err),
           delay: String(Math.round(jitteredDelay)),

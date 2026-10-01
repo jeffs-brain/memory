@@ -209,7 +209,7 @@ export const createMockPgClient = (): PgClient & { rows: MockRow[] } => {
 
     // UPDATE recover stale
     if (normalised.includes('last_heartbeat <')) {
-      const threshold = Number.parseInt((vals[2] as string).split(' ')[0]!, 10)
+      const threshold = Number.parseInt((vals[2] as string).split(' ')[0] ?? '', 10)
       const cutoff = new Date(Date.now() - threshold * 1000)
       let count = 0
       for (const row of rows) {

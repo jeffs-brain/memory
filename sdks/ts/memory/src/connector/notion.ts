@@ -135,7 +135,7 @@ export const createNotionConnector = (
       const waitMs =
         retryAfterSeconds >= 0
           ? retryAfterSeconds * 1000
-          : Math.min(1000 * Math.pow(2, attempt) + Math.random() * 500, 60_000)
+          : Math.min(1000 * 2 ** attempt + Math.random() * 500, 60_000)
 
       await interruptibleSleep(signal, waitMs)
     }

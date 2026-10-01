@@ -59,17 +59,13 @@ const createFakePgSql = (): PgSql => {
       const brainId = safeParams[0] as string
       const matching: Record<string, unknown>[] = []
       for (const row of rows.values()) {
-        if (
-          row['brain_id'] === brainId &&
-          row['stage'] !== 'completed' &&
-          row['stage'] !== 'failed'
-        ) {
+        if (row.brain_id === brainId && row.stage !== 'completed' && row.stage !== 'failed') {
           matching.push(row)
         }
       }
       matching.sort((a, b) => {
-        const aTime = (a['created_at'] as Date).getTime()
-        const bTime = (b['created_at'] as Date).getTime()
+        const aTime = (a.created_at as Date).getTime()
+        const bTime = (b.created_at as Date).getTime()
         return aTime - bTime
       })
       return Promise.resolve(matching)

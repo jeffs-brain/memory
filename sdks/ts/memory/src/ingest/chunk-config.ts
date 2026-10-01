@@ -119,9 +119,6 @@ export const estimateTokens = (text: string): number =>
 
 export class ChunkConfigError extends Error {
   override readonly name = 'ChunkConfigError'
-  constructor(message: string) {
-    super(message)
-  }
 }
 
 /**

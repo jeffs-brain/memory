@@ -88,8 +88,8 @@ type ResolvedConfig = {
 
 const resolveConfig = (cfg: VideoExtractorConfig): ResolvedConfig => {
   const base: ResolvedConfig = {
-    ffmpegBinary: cfg.ffmpegBinary ?? process.env['MEMORY_FFMPEG_PATH'] ?? 'ffmpeg',
-    ffprobeBinary: cfg.ffprobeBinary ?? process.env['MEMORY_FFPROBE_PATH'] ?? 'ffprobe',
+    ffmpegBinary: cfg.ffmpegBinary ?? process.env.MEMORY_FFMPEG_PATH ?? 'ffmpeg',
+    ffprobeBinary: cfg.ffprobeBinary ?? process.env.MEMORY_FFPROBE_PATH ?? 'ffprobe',
     maxFileSizeBytes: cfg.maxFileSizeBytes ?? DEFAULT_MAX_VIDEO_SIZE,
     extractionTimeout: cfg.extractionTimeout ?? DEFAULT_EXTRACTION_TIMEOUT,
     keyframeExtraction: cfg.keyframeExtraction ?? false,
@@ -156,12 +156,12 @@ const mergeMetadata = (
   for (const [k, v] of Object.entries(audio)) {
     merged[k] = v
   }
-  merged['video_duration_seconds'] = String(video.duration_seconds.toFixed(2))
-  merged['video_has_audio'] = String(video.has_audio)
-  if (video.width !== undefined) merged['video_width'] = String(video.width)
-  if (video.height !== undefined) merged['video_height'] = String(video.height)
-  if (video.codec !== undefined) merged['video_codec'] = video.codec
-  if (video.frame_rate !== undefined) merged['video_frame_rate'] = video.frame_rate.toFixed(3)
+  merged.video_duration_seconds = String(video.duration_seconds.toFixed(2))
+  merged.video_has_audio = String(video.has_audio)
+  if (video.width !== undefined) merged.video_width = String(video.width)
+  if (video.height !== undefined) merged.video_height = String(video.height)
+  if (video.codec !== undefined) merged.video_codec = video.codec
+  if (video.frame_rate !== undefined) merged.video_frame_rate = video.frame_rate.toFixed(3)
   return merged
 }
 
@@ -172,7 +172,7 @@ const computeExtractionTimeout = (durationSeconds: number, baseTimeout: number):
 }
 
 const overrideTimeout = (): number | undefined => {
-  const raw = process.env['MEMORY_EXTRACTOR_TIMEOUT_MS']
+  const raw = process.env.MEMORY_EXTRACTOR_TIMEOUT_MS
   if (raw === undefined || raw === '') return undefined
   const ms = Number.parseInt(raw, 10)
   return Number.isNaN(ms) ? undefined : ms
@@ -337,7 +337,7 @@ export class VideoExtractor implements Extractor {
     const audioResult = await this.cfg.audioExtractor.extract(wavData, audioOpts)
 
     const metadata = mergeMetadata(videoMeta, audioResult.metadata)
-    metadata['source_bytes'] = String(sourceBytes)
+    metadata.source_bytes = String(sourceBytes)
 
     let resultText = audioResult.text
 
@@ -357,7 +357,7 @@ export class VideoExtractor implements Extractor {
         }
         mergeKeyframeMetadata(metadata, keyframes)
       } catch (kfErr: unknown) {
-        metadata['keyframe_error'] = kfErr instanceof Error ? kfErr.message : String(kfErr)
+        metadata.keyframe_error = kfErr instanceof Error ? kfErr.message : String(kfErr)
       }
     }
 

@@ -58,8 +58,7 @@ export const createEventBus = (opts?: TriggerBusOptions): TriggerBus => {
     if (flushing) return
     flushing = true
     try {
-      while (queue.length > 0) {
-        const event = queue.shift()!
+      for (let event = queue.shift(); event !== undefined; event = queue.shift()) {
         await deliverToAll(event)
       }
     } finally {

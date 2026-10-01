@@ -129,7 +129,7 @@ describe('SlackConnector', () => {
       expect(docs).toHaveLength(3)
       expect(docs[0]?.externalId).toBe('C123ABC:1700000001.000000')
       expect(docs[0]?.content).toBe('Hello world')
-      expect(docs[0]?.metadata['source']).toBe('slack')
+      expect(docs[0]?.metadata.source).toBe('slack')
     })
 
     it('handles paginated messages', async () => {
@@ -228,7 +228,7 @@ describe('SlackConnector', () => {
       expect(docs).toHaveLength(2)
 
       const threadDoc = docs[1]
-      expect(threadDoc?.metadata['type']).toBe('thread')
+      expect(threadDoc?.metadata.type).toBe('thread')
       const content =
         typeof threadDoc?.content === 'string' ? threadDoc.content : threadDoc?.content.toString()
       expect(content).toContain('## Thread: Thread parent')
@@ -269,7 +269,7 @@ describe('SlackConnector', () => {
         {
           pattern: 'files.slack.com',
           handler: (_url, init) => {
-            const auth = (init?.headers as Record<string, string>)?.['Authorization']
+            const auth = (init?.headers as Record<string, string>)?.Authorization
             if (auth !== 'Bearer xoxb-test') {
               return Promise.resolve(new Response('Unauthorized', { status: 401 }))
             }

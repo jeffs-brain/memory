@@ -72,7 +72,7 @@ export class Classifier {
     }
 
     if (this.provider !== undefined) {
-      return this.classifyWithLLM(content, fileName, signal)
+      return this.classifyWithLLM(this.provider, content, fileName, signal)
     }
 
     return {
@@ -84,6 +84,7 @@ export class Classifier {
   }
 
   private async classifyWithLLM(
+    provider: Provider,
     content: string,
     fileName: string,
     signal?: AbortSignal,
@@ -92,7 +93,7 @@ export class Classifier {
     const prompt = buildClassificationPrompt(preview, fileName)
 
     try {
-      const resp = await this.provider!.complete(
+      const resp = await provider.complete(
         {
           system: CLASSIFICATION_SYSTEM_PROMPT,
           messages: [{ role: 'user', content: prompt }],

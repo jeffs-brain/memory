@@ -206,9 +206,9 @@ describe('mergeKeyframeMetadata', () => {
   it('sets count to 0 for empty results', () => {
     const metadata: Record<string, string> = { existing: 'value' }
     mergeKeyframeMetadata(metadata, [])
-    expect(metadata['keyframe_count']).toBe('0')
-    expect(metadata['keyframe_avg_confidence']).toBeUndefined()
-    expect(metadata['existing']).toBe('value')
+    expect(metadata.keyframe_count).toBe('0')
+    expect(metadata.keyframe_avg_confidence).toBeUndefined()
+    expect(metadata.existing).toBe('value')
   })
 
   it('computes average confidence for results', () => {
@@ -218,16 +218,16 @@ describe('mergeKeyframeMetadata', () => {
       { timestampSecs: 60, text: 'b', confidence: 0.8 },
     ]
     mergeKeyframeMetadata(metadata, results)
-    expect(metadata['keyframe_count']).toBe('2')
-    expect(metadata['keyframe_avg_confidence']).toBe('0.8500')
+    expect(metadata.keyframe_count).toBe('2')
+    expect(metadata.keyframe_avg_confidence).toBe('0.8500')
   })
 
   it('handles single result', () => {
     const metadata: Record<string, string> = {}
     const results: readonly KeyframeResult[] = [{ timestampSecs: 30, text: 'a', confidence: 0.95 }]
     mergeKeyframeMetadata(metadata, results)
-    expect(metadata['keyframe_count']).toBe('1')
-    expect(metadata['keyframe_avg_confidence']).toBe('0.9500')
+    expect(metadata.keyframe_count).toBe('1')
+    expect(metadata.keyframe_avg_confidence).toBe('0.9500')
   })
 })
 

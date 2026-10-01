@@ -134,7 +134,7 @@ export const parseDatabaseEntry = (raw: Record<string, unknown>): ParsedDatabase
     markdown += `## ${title}\n\n`
   }
   if (propLines.length > 0) {
-    markdown += propLines.join('\n') + '\n'
+    markdown += `${propLines.join('\n')}\n`
   }
 
   return {

@@ -76,10 +76,10 @@ const matchesGitignore = (relativePath: string, patterns: readonly string[]): bo
     // Pattern starting with / means root-relative (with separator boundary)
     if (cleaned.startsWith('/')) {
       const trimmed = cleaned.slice(1)
-      if (relativePath === trimmed || relativePath.startsWith(trimmed + '/')) return true
+      if (relativePath === trimmed || relativePath.startsWith(`${trimmed}/`)) return true
     }
     // Direct prefix match (with separator boundary)
-    if (relativePath === cleaned || relativePath.startsWith(cleaned + '/')) return true
+    if (relativePath === cleaned || relativePath.startsWith(`${cleaned}/`)) return true
   }
   return false
 }

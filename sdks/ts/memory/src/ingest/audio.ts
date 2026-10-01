@@ -267,7 +267,7 @@ const computeTimeout = (
  */
 export const createAudioExtractor = (config?: AudioExtractorConfig): Extractor => {
   const pythonBinary =
-    config?.pythonBinary ?? process.env['MEMORY_WHISPER_PATH'] ?? DEFAULT_PYTHON_BINARY
+    config?.pythonBinary ?? process.env.MEMORY_WHISPER_PATH ?? DEFAULT_PYTHON_BINARY
 
   const modelSize = config?.modelSize ?? DEFAULT_WHISPER_MODEL
   const defaultLanguage = config?.defaultLanguage
@@ -276,7 +276,7 @@ export const createAudioExtractor = (config?: AudioExtractorConfig): Extractor =
 
   const logger = config?.logger ?? noopLogger
 
-  const envTimeoutMs = process.env['MEMORY_EXTRACTOR_TIMEOUT_MS']
+  const envTimeoutMs = process.env.MEMORY_EXTRACTOR_TIMEOUT_MS
   const parsedEnvTimeout = envTimeoutMs ? Number.parseInt(envTimeoutMs, 10) : Number.NaN
   const minTimeoutMs =
     config?.minTimeoutMs ??

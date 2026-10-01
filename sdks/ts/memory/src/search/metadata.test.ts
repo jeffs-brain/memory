@@ -38,9 +38,9 @@ describe('setChunkMetadata / getChunkMetadata', () => {
 
     const got = idx.getChunkMetadata('chunk_001')
     expect(Object.keys(got)).toHaveLength(3)
-    expect(got['ontology_type']).toBe('factual')
-    expect(got['confidence']).toBe('0.95')
-    expect(got['source_model']).toBe('gpt-4o')
+    expect(got.ontology_type).toBe('factual')
+    expect(got.confidence).toBe('0.95')
+    expect(got.source_model).toBe('gpt-4o')
   })
 
   it('overwrites existing values for the same key', async () => {
@@ -50,7 +50,7 @@ describe('setChunkMetadata / getChunkMetadata', () => {
     idx.setChunkMetadata('chunk_002', { confidence: '0.99' })
 
     const got = idx.getChunkMetadata('chunk_002')
-    expect(got['confidence']).toBe('0.99')
+    expect(got.confidence).toBe('0.99')
   })
 
   it('returns an empty object for a non-existent chunk', async () => {
@@ -184,6 +184,6 @@ describe('delete cleanup', () => {
     expect(Object.keys(idx.getChunkMetadata('path_chunk_1'))).toHaveLength(0)
     expect(Object.keys(idx.getChunkMetadata('path_chunk_2'))).toHaveLength(0)
     // Other chunk's metadata should be untouched
-    expect(idx.getChunkMetadata('other_chunk')['type']).toBe('factual')
+    expect(idx.getChunkMetadata('other_chunk').type).toBe('factual')
   })
 })

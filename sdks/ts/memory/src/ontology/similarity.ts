@@ -96,9 +96,8 @@ export function cosineSimilarity(a: readonly number[], b: readonly number[]): nu
   let normA = 0
   let normB = 0
 
-  for (let i = 0; i < a.length; i++) {
-    const ai = a[i]!
-    const bi = b[i]!
+  for (const [i, ai] of a.entries()) {
+    const bi = b[i] ?? 0
     dot += ai * bi
     normA += ai * ai
     normB += bi * bi

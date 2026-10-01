@@ -115,18 +115,18 @@ export const buildFileMetadata = (file: DriveFile): Readonly<Record<string, stri
   if (file.parents !== undefined && file.parents.length > 0) {
     const firstParent = file.parents[0]
     if (firstParent !== undefined) {
-      meta['parent_id'] = firstParent
+      meta.parent_id = firstParent
     }
   }
   if (file.size !== undefined && file.size !== '') {
-    meta['size'] = file.size
+    meta.size = file.size
   }
   return meta
 }
 
 export const truncateBody = (body: string): string => {
   if (body.length <= MAX_ERROR_BODY_LENGTH) return body
-  return body.slice(0, MAX_ERROR_BODY_LENGTH) + '...'
+  return `${body.slice(0, MAX_ERROR_BODY_LENGTH)}...`
 }
 
 /**
@@ -179,7 +179,7 @@ export const calculateBackoff = (
     }
   }
 
-  const exponential = RATE_LIMIT_BASE_BACKOFF_MS * Math.pow(2, attempt)
+  const exponential = RATE_LIMIT_BASE_BACKOFF_MS * 2 ** attempt
   const jitter = Math.random() * RATE_LIMIT_BASE_BACKOFF_MS
   return Math.min(exponential + jitter, RATE_LIMIT_MAX_BACKOFF_MS)
 }

@@ -552,8 +552,8 @@ describe('createWorkerPool', () => {
 })
 
 describe('resolveConcurrency and resolvePollInterval environment overrides', () => {
-  const originalWorkerCount = process.env['MEMORY_WORKER_COUNT']
-  const originalPollInterval = process.env['MEMORY_INGEST_WORKER_INTERVAL_MS']
+  const originalWorkerCount = process.env.MEMORY_WORKER_COUNT
+  const originalPollInterval = process.env.MEMORY_INGEST_WORKER_INTERVAL_MS
 
   afterEach(() => {
     // Restore original environment.
@@ -571,7 +571,7 @@ describe('resolveConcurrency and resolvePollInterval environment overrides', () 
   })
 
   it('uses MEMORY_WORKER_COUNT env var when concurrency config is omitted', async () => {
-    process.env['MEMORY_WORKER_COUNT'] = '7'
+    process.env.MEMORY_WORKER_COUNT = '7'
     const adapter = createFakeAdapter()
     let observedConcurrency = 0
 
@@ -604,7 +604,7 @@ describe('resolveConcurrency and resolvePollInterval environment overrides', () 
   })
 
   it('config concurrency takes precedence over env var', async () => {
-    process.env['MEMORY_WORKER_COUNT'] = '20'
+    process.env.MEMORY_WORKER_COUNT = '20'
     const adapter = createFakeAdapter()
 
     const pool = createWorkerPool({
@@ -626,7 +626,7 @@ describe('resolveConcurrency and resolvePollInterval environment overrides', () 
   })
 
   it('uses MEMORY_INGEST_WORKER_INTERVAL_MS env var for poll interval', async () => {
-    process.env['MEMORY_INGEST_WORKER_INTERVAL_MS'] = '50'
+    process.env.MEMORY_INGEST_WORKER_INTERVAL_MS = '50'
     const adapter = createFakeAdapter()
     let pollCount = 0
 
@@ -657,7 +657,7 @@ describe('resolveConcurrency and resolvePollInterval environment overrides', () 
   })
 
   it('ignores invalid MEMORY_WORKER_COUNT and uses default', async () => {
-    process.env['MEMORY_WORKER_COUNT'] = 'not-a-number'
+    process.env.MEMORY_WORKER_COUNT = 'not-a-number'
     const adapter = createFakeAdapter()
 
     const pool = createWorkerPool({

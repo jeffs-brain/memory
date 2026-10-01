@@ -184,9 +184,9 @@ export class GDriveConnector implements Connector {
    */
   async configure(rawConfig: Record<string, unknown>): Promise<void> {
     const clientId =
-      typeof rawConfig['oauth2_client_id'] === 'string' ? rawConfig['oauth2_client_id'] : ''
+      typeof rawConfig.oauth2_client_id === 'string' ? rawConfig.oauth2_client_id : ''
     const clientSecret =
-      typeof rawConfig['oauth2_client_secret'] === 'string' ? rawConfig['oauth2_client_secret'] : ''
+      typeof rawConfig.oauth2_client_secret === 'string' ? rawConfig.oauth2_client_secret : ''
 
     if (clientId === '') {
       throw new Error('gdrive: oauth2_client_id is required')
@@ -195,10 +195,10 @@ export class GDriveConnector implements Connector {
       throw new Error('gdrive: oauth2_client_secret is required')
     }
 
-    const mimeFilterRaw = rawConfig['mime_type_filter']
+    const mimeFilterRaw = rawConfig.mime_type_filter
     const mimeFilter = typeof mimeFilterRaw === 'string' ? mimeFilterRaw : undefined
 
-    const maxFileSizeRaw = rawConfig['max_file_size']
+    const maxFileSizeRaw = rawConfig.max_file_size
     let parsedMaxFileSize = DEFAULT_MAX_FILE_SIZE
     if (typeof maxFileSizeRaw === 'string' && maxFileSizeRaw !== '') {
       const parsed = Number(maxFileSizeRaw)
@@ -211,14 +211,12 @@ export class GDriveConnector implements Connector {
     }
 
     const redirectUri =
-      typeof rawConfig['oauth2_redirect_uri'] === 'string'
-        ? rawConfig['oauth2_redirect_uri']
-        : undefined
+      typeof rawConfig.oauth2_redirect_uri === 'string' ? rawConfig.oauth2_redirect_uri : undefined
     const accessToken =
-      typeof rawConfig['access_token'] === 'string' ? rawConfig['access_token'] : undefined
-    const folderId = typeof rawConfig['folder_id'] === 'string' ? rawConfig['folder_id'] : undefined
+      typeof rawConfig.access_token === 'string' ? rawConfig.access_token : undefined
+    const folderId = typeof rawConfig.folder_id === 'string' ? rawConfig.folder_id : undefined
 
-    const includeSharedRaw = rawConfig['include_shared_drives']
+    const includeSharedRaw = rawConfig.include_shared_drives
     const includeSharedDrives =
       typeof includeSharedRaw === 'boolean'
         ? includeSharedRaw

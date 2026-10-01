@@ -44,7 +44,7 @@ export const createRateLimiter = (config: RateLimiterConfig): RateLimiter => {
       const timer = setTimeout(resolve, ms)
       const onAbort = (): void => {
         clearTimeout(timer)
-        reject(signal!.reason ?? new DOMException('The operation was aborted.', 'AbortError'))
+        reject(signal?.reason ?? new DOMException('The operation was aborted.', 'AbortError'))
       }
       signal?.addEventListener('abort', onAbort, { once: true })
     })
@@ -102,7 +102,7 @@ export const createRateLimiter = (config: RateLimiterConfig): RateLimiter => {
     },
 
     async backoff(attempt: number): Promise<void> {
-      const multiplier = Math.pow(2, attempt)
+      const multiplier = 2 ** attempt
       let delay = baseBackoff * multiplier
       const jitter = Math.random() * MAX_JITTER_MS
       delay = Math.min(delay + jitter, maxBackoff)

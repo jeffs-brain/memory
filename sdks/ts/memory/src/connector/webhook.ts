@@ -303,11 +303,11 @@ const validatePayload = (raw: unknown): ValidationResult<WebhookPayload> => {
     return { error: 'payload must be an object' }
   }
   const obj = raw as Record<string, unknown>
-  if (!Array.isArray(obj['documents'])) {
+  if (!Array.isArray(obj.documents)) {
     return { error: 'documents array is empty' }
   }
   const documents: WebhookDocument[] = []
-  for (const item of obj['documents'] as unknown[]) {
+  for (const item of obj.documents as unknown[]) {
     const result = validateDocument(item)
     if (result.error !== undefined) {
       return { error: result.error }
@@ -328,41 +328,37 @@ const validateDocument = (raw: unknown): ValidationResult<WebhookDocument> => {
   // Required fields: validate type when present. Missing/empty values are
   // caught later by processDocument so that partial payloads return 200 with
   // per-document rejection rather than a blanket 400.
-  if (obj['externalId'] !== undefined && typeof obj['externalId'] !== 'string') {
+  if (obj.externalId !== undefined && typeof obj.externalId !== 'string') {
     return { error: 'externalId must be a string' }
   }
-  if (obj['content'] !== undefined && typeof obj['content'] !== 'string') {
+  if (obj.content !== undefined && typeof obj.content !== 'string') {
     return { error: 'content must be a string' }
   }
 
   // Optional string fields
-  if (obj['encoding'] !== undefined && typeof obj['encoding'] !== 'string') {
+  if (obj.encoding !== undefined && typeof obj.encoding !== 'string') {
     return { error: 'encoding must be a string' }
   }
-  if (obj['encoding'] !== undefined && !VALID_ENCODINGS.has(obj['encoding'] as string)) {
+  if (obj.encoding !== undefined && !VALID_ENCODINGS.has(obj.encoding as string)) {
     // Let the decoder handle the actual error message; just validate it's a string here.
     // We pass through to the decoder map which already handles unsupported encodings.
   }
-  if (obj['mime'] !== undefined && typeof obj['mime'] !== 'string') {
+  if (obj.mime !== undefined && typeof obj.mime !== 'string') {
     return { error: 'mime must be a string' }
   }
-  if (obj['title'] !== undefined && typeof obj['title'] !== 'string') {
+  if (obj.title !== undefined && typeof obj.title !== 'string') {
     return { error: 'title must be a string' }
   }
-  if (obj['url'] !== undefined && typeof obj['url'] !== 'string') {
+  if (obj.url !== undefined && typeof obj.url !== 'string') {
     return { error: 'url must be a string' }
   }
 
   // Optional metadata: must be Record<string, string> for parity with Go.
-  if (obj['metadata'] !== undefined) {
-    if (
-      obj['metadata'] === null ||
-      typeof obj['metadata'] !== 'object' ||
-      Array.isArray(obj['metadata'])
-    ) {
+  if (obj.metadata !== undefined) {
+    if (obj.metadata === null || typeof obj.metadata !== 'object' || Array.isArray(obj.metadata)) {
       return { error: 'metadata must be an object' }
     }
-    const meta = obj['metadata'] as Record<string, unknown>
+    const meta = obj.metadata as Record<string, unknown>
     for (const key of Object.keys(meta)) {
       if (typeof meta[key] !== 'string') {
         return { error: `metadata value for "${key}" must be a string` }
@@ -371,14 +367,14 @@ const validateDocument = (raw: unknown): ValidationResult<WebhookDocument> => {
   }
 
   const doc: WebhookDocument = {
-    externalId: (obj['externalId'] as string | undefined) ?? '',
-    content: (obj['content'] as string | undefined) ?? '',
-    ...(obj['encoding'] !== undefined ? { encoding: obj['encoding'] as 'utf8' | 'base64' } : {}),
-    ...(obj['mime'] !== undefined ? { mime: obj['mime'] as string } : {}),
-    ...(obj['title'] !== undefined ? { title: obj['title'] as string } : {}),
-    ...(obj['url'] !== undefined ? { url: obj['url'] as string } : {}),
-    ...(obj['metadata'] !== undefined
-      ? { metadata: obj['metadata'] as Readonly<Record<string, string>> }
+    externalId: (obj.externalId as string | undefined) ?? '',
+    content: (obj.content as string | undefined) ?? '',
+    ...(obj.encoding !== undefined ? { encoding: obj.encoding as 'utf8' | 'base64' } : {}),
+    ...(obj.mime !== undefined ? { mime: obj.mime as string } : {}),
+    ...(obj.title !== undefined ? { title: obj.title as string } : {}),
+    ...(obj.url !== undefined ? { url: obj.url as string } : {}),
+    ...(obj.metadata !== undefined
+      ? { metadata: obj.metadata as Readonly<Record<string, string>> }
       : {}),
   }
   return { value: doc }

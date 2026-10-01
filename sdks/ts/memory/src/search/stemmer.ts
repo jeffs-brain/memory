@@ -253,7 +253,7 @@ function buildBigrams(text: string): ReadonlyMap<string, number> {
   const counts = new Map<string, number>()
   let total = 0
   for (let i = 0; i + 1 < chars.length; i++) {
-    const bigram = chars[i] + chars[i + 1]!
+    const bigram = `${chars[i]}${chars[i + 1]}`
     counts.set(bigram, (counts.get(bigram) ?? 0) + 1)
     total++
   }

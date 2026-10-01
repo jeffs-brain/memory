@@ -50,7 +50,7 @@ const DEFAULT_TIMEOUT_PER_MINUTE = 30_000
 const DEFAULT_MIN_TIMEOUT = 120_000
 
 const resolveConfig = (cfg?: AudioExtractorConfig) => ({
-  pythonBinary: cfg?.pythonBinary ?? process.env['MEMORY_WHISPER_PATH'] ?? 'python3',
+  pythonBinary: cfg?.pythonBinary ?? process.env.MEMORY_WHISPER_PATH ?? 'python3',
   modelSize: cfg?.modelSize ?? 'base',
   defaultLanguage: cfg?.defaultLanguage,
   maxFileSizeBytes: cfg?.maxFileSizeBytes ?? DEFAULT_MAX_AUDIO_SIZE,
@@ -237,9 +237,9 @@ export class AudioExtractor implements Extractor {
       if (output.segments.length > 0) {
         const last = output.segments[output.segments.length - 1]
         if (last !== undefined) {
-          metadata['duration_seconds'] = String(last.end)
+          metadata.duration_seconds = String(last.end)
         }
-        metadata['segment_count'] = String(output.segments.length)
+        metadata.segment_count = String(output.segments.length)
       }
 
       return {

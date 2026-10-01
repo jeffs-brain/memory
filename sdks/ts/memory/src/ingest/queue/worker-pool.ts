@@ -179,9 +179,8 @@ export const createWorkerPool = (opts: WorkerPoolOptions): WorkerPool => {
       return false
     }
 
-    if (claimed.length === 0) return false
-
-    const job = claimed[0]!
+    const job = claimed[0]
+    if (job === undefined) return false
 
     if (!acquireBrainSlot(job.brainId)) {
       cfg.logger.debug('per-brain concurrency limit reached, requeueing job', {

@@ -14,7 +14,7 @@
 export const parseRetryAfterHeader = (value: string | null): number => {
   if (value === null || value === '') return -1
   const parsed = Number.parseInt(value, 10)
-  return isNaN(parsed) ? -1 : parsed
+  return Number.isNaN(parsed) ? -1 : parsed
 }
 
 // ---------- Response body size limiting ----------
@@ -32,7 +32,7 @@ export const readResponseWithLimit = async (
   const contentLength = response.headers.get('Content-Length')
   if (contentLength !== null) {
     const length = Number.parseInt(contentLength, 10)
-    if (!isNaN(length) && length > maxBytes) {
+    if (!Number.isNaN(length) && length > maxBytes) {
       throw new Error(`connector/notion: response body exceeds ${String(maxBytes)} bytes limit`)
     }
   }

@@ -117,7 +117,14 @@ export const createMutationHook = (opts: MutationHookOptions): MutationHook => {
 // Glob matching implementation.
 const globMatch = (pattern: string, name: string): boolean => matchAt(pattern, 0, name, 0)
 
-const matchAt = (pattern: string, pi: number, name: string, ni: number): boolean => {
+const matchAt = (
+  pattern: string,
+  patternStart: number,
+  name: string,
+  nameStart: number,
+): boolean => {
+  let pi = patternStart
+  let ni = nameStart
   while (pi < pattern.length && ni < name.length) {
     if (pi + 1 < pattern.length && pattern[pi] === '*' && pattern[pi + 1] === '*') {
       let nextPi = pi + 2

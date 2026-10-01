@@ -148,7 +148,7 @@ describe('markdownChunker', () => {
       { length: 30 },
       (_, i) => `Paragraph ${i} with enough words to accumulate tokens. More filler text here.`,
     )
-    const content = '# Big Section\n\n' + longParagraphs.join('\n\n')
+    const content = `# Big Section\n\n${longParagraphs.join('\n\n')}`
     const cfg = createChunkConfig(64, 16, 10)
     const chunks = await markdownChunker(content, cfg)
     expect(chunks.length).toBeGreaterThan(1)
@@ -415,7 +415,7 @@ describe('pageLevelChunker', () => {
 
   it('splits large pages using recursive strategy', async () => {
     const largePage = 'This is a long sentence with many words. '.repeat(100)
-    const content = largePage + '\fSmall page.'
+    const content = `${largePage}\fSmall page.`
     const cfg = createChunkConfig(64, 16, 10)
     const chunks = await pageLevelChunker(content, cfg)
     expect(chunks.length).toBeGreaterThanOrEqual(3)

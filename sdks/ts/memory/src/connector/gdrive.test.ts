@@ -463,7 +463,7 @@ describe('GDriveConnector', () => {
 
       // Third: cursor update.
       expect(docs[2].externalId).toBe('__cursor_update__')
-      expect(docs[2].metadata['new_start_page_token']).toBe('new-token-abc')
+      expect(docs[2].metadata.new_start_page_token).toBe('new-token-abc')
     })
 
     it('updates cursor after sync with no changes', async () => {
@@ -478,7 +478,7 @@ describe('GDriveConnector', () => {
       const docs = await collectDocuments(connector.fetchSince(makeAbortSignal(), cursor))
 
       expect(docs).toHaveLength(1)
-      expect(docs[0].metadata['new_start_page_token']).toBe('updated-cursor-token')
+      expect(docs[0].metadata.new_start_page_token).toBe('updated-cursor-token')
     })
   })
 
@@ -520,9 +520,7 @@ describe('GDriveConnector', () => {
       await collectDocuments(connector.fetchAll(makeAbortSignal()))
 
       expect(client.requests.length).toBeGreaterThan(0)
-      const authHeader = (client.requests[0].init.headers as Record<string, string>)[
-        'Authorization'
-      ]
+      const authHeader = (client.requests[0].init.headers as Record<string, string>).Authorization
       expect(authHeader).toBe('Bearer new-token-value')
     })
   })
@@ -548,11 +546,11 @@ describe('GDriveConnector', () => {
       const docs = await collectDocuments(connector.fetchAll(makeAbortSignal()))
 
       expect(docs).toHaveLength(1)
-      expect(docs[0].metadata['source']).toBe('gdrive')
-      expect(docs[0].metadata['file_id']).toBe('file-123')
-      expect(docs[0].metadata['mime_type']).toBe('text/plain')
-      expect(docs[0].metadata['parent_id']).toBe('parent-456')
-      expect(docs[0].metadata['size']).toBe('1024')
+      expect(docs[0].metadata.source).toBe('gdrive')
+      expect(docs[0].metadata.file_id).toBe('file-123')
+      expect(docs[0].metadata.mime_type).toBe('text/plain')
+      expect(docs[0].metadata.parent_id).toBe('parent-456')
+      expect(docs[0].metadata.size).toBe('1024')
     })
   })
 
@@ -656,9 +654,7 @@ describe('GDriveConnector', () => {
       await collectDocuments(connector.fetchAll(makeAbortSignal()))
 
       expect(client.requests.length).toBeGreaterThan(0)
-      const authHeader = (client.requests[0].init.headers as Record<string, string>)[
-        'Authorization'
-      ]
+      const authHeader = (client.requests[0].init.headers as Record<string, string>).Authorization
       expect(authHeader).toBe('Bearer refreshed-token-abc')
     })
   })
