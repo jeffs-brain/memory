@@ -59,6 +59,6 @@
     "@jeffs-brain/memory": "^1.0.0",
     "@testcontainers/postgresql": "^11.14.0",
     "testcontainers": "^11.14.0",
-    "vitest": "^2.1.8"
+    "vitest": "^4.1.11"
   }
 }
