@@ -11,7 +11,7 @@
 import type { Embedder, Logger, Provider } from '../llm/index.js'
 import { ErrNotFound } from '../store/errors.js'
 import type { Store } from '../store/index.js'
-import { type Path, joinPath, lastSegment } from '../store/path.js'
+import { type Path, joinPath, lastSegment, validatePath } from '../store/path.js'
 import { parseFrontmatter } from './frontmatter.js'
 import {
   MEMORY_AGENT_PREFIX,
@@ -39,6 +39,7 @@ const RECALL_SELECTOR_TEMPERATURE = 0
 const RECALL_SELECTOR_CANDIDATE_LIMIT = 12
 const RECALL_PRIMARY_SCOPE_RESERVE = 2
 const RECALL_WIKILINK_FOLLOW_UP_LIMIT = 2
+const RECALL_WIKILINK_READ_BATCH = 32
 const RECALL_SELECTOR_SCHEMA = JSON.stringify({
   type: 'object',
   properties: {
@@ -182,6 +183,8 @@ export type RecallDeps = {
 
 export const createRecall = (deps: RecallDeps) => {
   return async (opts: RecallOpts): Promise<readonly RecallHit[]> => {
+    const signal = opts.signal
+    signal?.throwIfAborted()
     const k = opts.k ?? DEFAULT_K
     if (k <= 0) return []
     const scope = opts.scope ?? deps.defaultScope
@@ -192,8 +195,9 @@ export const createRecall = (deps: RecallDeps) => {
     const candidateK = resolveCandidateK(k, querySignals, excludedPaths.size)
 
     const embedding = deps.embedder
-      ? await embedSafe(deps.embedder, opts.query, deps.logger)
+      ? await embedSafe(deps.embedder, opts.query, deps.logger, signal)
       : undefined
+    signal?.throwIfAborted()
 
     const hits = await searchRecallCandidates(
       deps,
@@ -204,28 +208,36 @@ export const createRecall = (deps: RecallDeps) => {
       k,
       candidateK,
       excludedPaths,
+      signal,
     )
+    signal?.throwIfAborted()
     const filteredHits = filterExcludedSearchHits(hits, excludedPaths)
     const hydrated = await hydrateRecallHits(
       deps.store,
       filteredHits.slice(0, candidateK),
       scope,
       deps.logger,
+      signal,
     )
+    signal?.throwIfAborted()
     const selected = await maybeSelectRecallHits(hydrated, {
       query: opts.query,
       k,
       logger: deps.logger,
       mode: opts.selector ?? 'off',
       ...(deps.provider !== undefined ? { provider: deps.provider } : {}),
+      ...(signal !== undefined ? { signal } : {}),
     })
+    signal?.throwIfAborted()
     const expanded = await followWikilinkHits(selected, {
       store: deps.store,
       allowedScopes,
       actorId,
       excludedPaths,
       logger: deps.logger,
+      ...(signal !== undefined ? { signal } : {}),
     })
+    signal?.throwIfAborted()
     return rerankRecallHits(expanded, opts.query, k, querySignals, scope)
   }
 }
@@ -530,6 +542,7 @@ const searchRecallCandidates = async (
   k: number,
   candidateK: number,
   excludedPaths: ReadonlySet<string>,
+  signal: AbortSignal | undefined,
 ): Promise<readonly SearchHit[]> => {
   const searchScopes = resolveRecallSearchScopes(allowedScopes, actorId)
   const scopedHits = await Promise.all(
@@ -549,6 +562,7 @@ const searchRecallCandidates = async (
             excludedPaths,
             deps.embedder,
             embedding,
+            signal,
           )
       return {
         searchScope,
@@ -634,34 +648,96 @@ const stripScopedSearchHit = (hit: ScopedSearchHit): SearchHit => ({
   score: hit.score,
 })
 
+type RecallDocumentRead =
+  | { readonly ok: true; readonly content: Buffer }
+  | { readonly ok: false; readonly error: unknown }
+
+/**
+ * Read every path once, through `store.readMany` when the store has it and
+ * one `read` per path otherwise. Each result carries what `read` would have
+ * returned or thrown for that path, so callers keep per-path semantics.
+ */
+const readRecallDocuments = async (
+  store: Store,
+  paths: readonly Path[],
+  signal: AbortSignal | undefined,
+): Promise<ReadonlyMap<Path, RecallDocumentRead>> => {
+  const out = new Map<Path, RecallDocumentRead>()
+  const unique = [...new Set(paths)]
+  if (store.readMany === undefined) {
+    for (const path of unique) {
+      signal?.throwIfAborted()
+      try {
+        out.set(path, { ok: true, content: await store.read(path) })
+      } catch (error) {
+        out.set(path, { ok: false, error })
+      }
+    }
+    return out
+  }
+
+  const valid: Path[] = []
+  for (const path of unique) {
+    try {
+      validatePath(path)
+      valid.push(path)
+    } catch (error) {
+      out.set(path, { ok: false, error })
+    }
+  }
+  if (valid.length === 0) return out
+  const contents = await store.readMany(valid)
+  for (const path of valid) {
+    const content = contents.get(path)
+    out.set(
+      path,
+      content === undefined ? { ok: false, error: new ErrNotFound(path) } : { ok: true, content },
+    )
+  }
+  return out
+}
+
+/**
+ * Hydrate search hits in hit order. A missing note is skipped. Any other
+ * failure is logged per path; when no hit could be hydrated and at least one
+ * read failed for a reason other than a missing note, the first such error is
+ * thrown so that a failed read is not reported as "nothing relevant".
+ */
 const hydrateRecallHits = async (
   store: Store,
   hits: readonly SearchHit[],
   scope: Scope,
   logger: Logger,
+  signal: AbortSignal | undefined,
 ): Promise<RecallHit[]> => {
+  if (hits.length === 0) return []
+  const reads = await readRecallDocuments(
+    store,
+    hits.map((hit) => hit.path),
+    signal,
+  )
   const out: RecallHit[] = []
+  const failures: unknown[] = []
   for (const hit of hits) {
     try {
-      const hydrated = await hydrateRecallHit(store, hit, scope)
-      if (hydrated !== undefined) out.push(hydrated)
+      const read = reads.get(hit.path)
+      if (read === undefined || !read.ok) throw read?.error ?? new ErrNotFound(hit.path)
+      out.push(buildRecallHit(hit, read.content, scope))
     } catch (err) {
       if (err instanceof ErrNotFound) continue
+      failures.push(err)
       logger.warn('memory: recall hydrate failed', {
         path: hit.path,
         err: err instanceof Error ? err.message : String(err),
       })
     }
   }
+  if (out.length === 0 && failures.length > 0) throw failures[0]
   return out
 }
 
-const hydrateRecallHit = async (
-  store: Store,
-  hit: SearchHit,
-  scope: Scope,
-): Promise<RecallHit | undefined> => {
-  const raw = (await store.read(hit.path)).toString('utf8')
+const buildRecallHit = (hit: SearchHit, content: Buffer, scope: Scope): RecallHit => {
+  const raw = content.toString('utf8')
   const { frontmatter, body } = parseFrontmatter(raw)
   const noteScope = coerceScope(frontmatter.scope) ?? inferScopeFromPath(hit.path) ?? scope
   const note: MemoryNote = {
@@ -712,11 +788,13 @@ const embedSafe = async (
   embedder: Embedder,
   text: string,
   logger: Logger,
+  signal: AbortSignal | undefined,
 ): Promise<number[] | undefined> => {
   try {
-    const [vec] = await embedder.embed([text])
+    const [vec] = await embedder.embed([text], signal)
     return vec
   } catch (err) {
+    signal?.throwIfAborted()
     logger.warn('memory: embed failed', {
       err: err instanceof Error ? err.message : String(err),
     })
@@ -733,6 +811,7 @@ const fallbackSearch = async (
   excludedPaths: ReadonlySet<string>,
   embedder?: Embedder,
   queryEmbedding?: readonly number[],
+  signal?: AbortSignal,
 ): Promise<readonly SearchHit[]> => {
   const prefix = scopePrefix(scope, actorId)
   let entries: readonly { path: Path; isDir: boolean }[]
@@ -757,7 +836,10 @@ const fallbackSearch = async (
   let semanticScores = new Map<string, number>()
   if (embedder !== undefined && queryEmbedding !== undefined && candidates.length > 0) {
     try {
-      const noteEmbeddings = await embedder.embed(candidates.map((candidate) => candidate.content))
+      const noteEmbeddings = await embedder.embed(
+        candidates.map((candidate) => candidate.content),
+        signal,
+      )
       semanticScores = new Map(
         candidates.map((candidate, index) => [
           candidate.path,
@@ -786,6 +868,7 @@ type RecallSelectorInput = {
   readonly provider?: Provider
   readonly logger: Logger
   readonly mode: RecallSelectorMode
+  readonly signal?: AbortSignal
 }
 
 type RecallSelectorCandidate = {
@@ -845,12 +928,16 @@ const runRecallSelector = async (
 
   if (input.provider.supportsStructuredDecoding()) {
     try {
-      return await input.provider.structured({
-        ...request,
-        schema: RECALL_SELECTOR_SCHEMA,
-        schemaName: 'recall_selector',
-      })
+      return await input.provider.structured(
+        {
+          ...request,
+          schema: RECALL_SELECTOR_SCHEMA,
+          schemaName: 'recall_selector',
+        },
+        input.signal,
+      )
     } catch (err) {
+      input.signal?.throwIfAborted()
       input.logger.debug('memory: structured recall selector failed, falling back to completion', {
         err: err instanceof Error ? err.message : String(err),
       })
@@ -858,12 +945,16 @@ const runRecallSelector = async (
   }
 
   try {
-    const response = await input.provider.complete({
-      ...request,
-      jsonMode: true,
-    })
+    const response = await input.provider.complete(
+      {
+        ...request,
+        jsonMode: true,
+      },
+      input.signal,
+    )
     return response.content
   } catch (err) {
+    input.signal?.throwIfAborted()
     input.logger.warn('memory: recall selector failed', {
       err: err instanceof Error ? err.message : String(err),
     })
@@ -918,7 +1009,20 @@ type WikilinkFollowUpInput = {
   readonly actorId: string
   readonly excludedPaths: ReadonlySet<string>
   readonly logger: Logger
+  readonly signal?: AbortSignal
 }
+
+type WikilinkCandidate = {
+  readonly score: number
+  /** Paths the link may resolve to, in the order scopes are tried. */
+  readonly paths: readonly Path[]
+}
+
+type WikilinkResolution =
+  | { readonly kind: 'unresolved' }
+  | { readonly kind: 'resolved'; readonly path: Path; readonly read: RecallDocumentRead }
+
+type WikilinkResolver = (candidate: WikilinkCandidate, index: number) => Promise<WikilinkResolution>
 
 const followWikilinkHits = async (
   hits: readonly RecallHit[],
@@ -926,45 +1030,105 @@ const followWikilinkHits = async (
 ): Promise<readonly RecallHit[]> => {
   if (hits.length === 0) return hits
 
+  const candidates = hits.flatMap((hit) =>
+    extractWikilinks(hit.content).map(
+      (link): WikilinkCandidate => ({
+        score: Math.max(hit.score * 0.85, 0.001),
+        paths: wikilinkCandidatePaths(link, input.allowedScopes, input.actorId),
+      }),
+    ),
+  )
+  if (candidates.length === 0) return hits
+
+  const resolve =
+    input.store.readMany === undefined
+      ? serialWikilinkResolver(input.store)
+      : batchedWikilinkResolver(input.store, candidates, input.signal)
   const blockedPaths = new Set<string>([...input.excludedPaths, ...hits.map((hit) => hit.path)])
   const linkedHits: RecallHit[] = []
+  const linkedScope = input.allowedScopes[0] ?? 'global'
 
-  for (const hit of hits) {
+  for (const [index, candidate] of candidates.entries()) {
     if (linkedHits.length >= RECALL_WIKILINK_FOLLOW_UP_LIMIT) break
-    const links = extractWikilinks(hit.content)
-    for (const link of links) {
-      if (linkedHits.length >= RECALL_WIKILINK_FOLLOW_UP_LIMIT) break
-      const resolved = await resolveWikilinkPath(
-        input.store,
-        link,
-        input.allowedScopes,
-        input.actorId,
+    if (candidate.paths.length === 0) continue
+    input.signal?.throwIfAborted()
+    const resolution = await resolve(candidate, index)
+    if (resolution.kind === 'unresolved' || blockedPaths.has(resolution.path)) continue
+    try {
+      if (!resolution.read.ok) throw resolution.read.error
+      linkedHits.push(
+        buildRecallHit(
+          { path: resolution.path, score: candidate.score },
+          resolution.read.content,
+          linkedScope,
+        ),
       )
-      if (resolved === undefined || blockedPaths.has(resolved)) continue
-      try {
-        const linked = await hydrateRecallHit(
-          input.store,
-          {
-            path: resolved,
-            score: Math.max(hit.score * 0.85, 0.001),
-          },
-          input.allowedScopes[0] ?? 'global',
-        )
-        if (linked === undefined) continue
-        linkedHits.push(linked)
-        blockedPaths.add(resolved)
-      } catch (err) {
-        if (err instanceof ErrNotFound) continue
-        input.logger.warn('memory: recall wikilink hydrate failed', {
-          path: resolved,
-          err: err instanceof Error ? err.message : String(err),
-        })
-      }
+      blockedPaths.add(resolution.path)
+    } catch (err) {
+      if (err instanceof ErrNotFound) continue
+      input.logger.warn('memory: recall wikilink hydrate failed', {
+        path: resolution.path,
+        err: err instanceof Error ? err.message : String(err),
+      })
     }
   }
 
   if (linkedHits.length === 0) return hits
   return [...hits, ...linkedHits]
+}
+
+/**
+ * Resolve a link with one `exists` per scope tried, then one `read`, as stores
+ * without `readMany` always have.
+ */
+const serialWikilinkResolver =
+  (store: Store): WikilinkResolver =>
+  async (candidate) => {
+    for (const path of candidate.paths) {
+      if (!(await store.exists(path))) continue
+      try {
+        return { kind: 'resolved', path, read: { ok: true, content: await store.read(path) } }
+      } catch (error) {
+        return { kind: 'resolved', path, read: { ok: false, error } }
+      }
+    }
+    return { kind: 'unresolved' }
+  }
+
+/**
+ * Resolve links from `readMany` results, reading the candidate paths of up to
+ * {@link RECALL_WIKILINK_READ_BATCH} paths' worth of links per call, starting
+ * at the first link not yet read. A link resolves to the first of its paths
+ * that holds a document, as the serial resolver does.
+ */
+const batchedWikilinkResolver = (
+  store: Store,
+  candidates: readonly WikilinkCandidate[],
+  signal: AbortSignal | undefined,
+): WikilinkResolver => {
+  const contents = new Map<Path, Buffer>()
+  let readUpTo = 0
+  return async (candidate, index) => {
+    if (index >= readUpTo) {
+      const batch = new Set<Path>()
+      let next = index
+      while (next < candidates.length) {
+        const paths = candidates[next]?.paths ?? []
+        if (batch.size > 0 && batch.size + paths.length > RECALL_WIKILINK_READ_BATCH) break
+        for (const path of paths) batch.add(path)
+        next += 1
+      }
+      readUpTo = next
+      signal?.throwIfAborted()
+      const read = (await store.readMany?.([...batch])) ?? new Map<Path, Buffer>()
+      for (const [path, content] of read) contents.set(path, content)
+    }
+    for (const path of candidate.paths) {
+      const content = contents.get(path)
+      if (content !== undefined) return { kind: 'resolved', path, read: { ok: true, content } }
+    }
+    return { kind: 'unresolved' }
+  }
 }
 
 const extractWikilinks = (content: string): readonly string[] => {
@@ -973,43 +1137,31 @@ const extractWikilinks = (content: string): readonly string[] => {
   return matches.map((match) => match[1]?.trim() ?? '').filter((match) => match !== '')
 }
 
-const resolveWikilinkPath = async (
-  store: Store,
+const wikilinkCandidatePaths = (
   link: string,
   allowedScopes: readonly Scope[],
   actorId: string,
-): Promise<Path | undefined> => {
+): readonly Path[] => {
   const rawTarget = link.includes('|') ? link.slice(0, link.indexOf('|')) : link
   const trimmedTarget = rawTarget.trim()
-  if (trimmedTarget === '') return undefined
+  if (trimmedTarget === '') return []
 
   const separatorIndex = trimmedTarget.indexOf(':')
   const explicitScope =
     separatorIndex === -1 ? undefined : coerceScope(trimmedTarget.slice(0, separatorIndex))
   if (explicitScope !== undefined) {
-    if (!allowedScopes.includes(explicitScope)) return undefined
+    if (!allowedScopes.includes(explicitScope)) return []
     const scopedTarget = normaliseWikilinkTarget(trimmedTarget.slice(separatorIndex + 1))
-    return resolveTopicPath(store, explicitScope, actorId, scopedTarget)
+    return scopedTarget === '' ? [] : [topicPath(explicitScope, actorId, scopedTarget)]
   }
 
   const target = normaliseWikilinkTarget(trimmedTarget)
-  for (const scope of allowedScopes) {
-    const resolved = await resolveTopicPath(store, scope, actorId, target)
-    if (resolved !== undefined) return resolved
-  }
-  return undefined
+  if (target === '') return []
+  return allowedScopes.map((scope) => topicPath(scope, actorId, target))
 }
 
-const resolveTopicPath = async (
-  store: Store,
-  scope: Scope,
-  actorId: string,
-  topic: string,
-): Promise<Path | undefined> => {
-  if (topic === '') return undefined
-  const candidate = joinPath(scopePrefix(scope, actorId), `${topic}.md`)
-  return (await store.exists(candidate)) ? candidate : undefined
-}
+const topicPath = (scope: Scope, actorId: string, topic: string): Path =>
+  joinPath(scopePrefix(scope, actorId), `${topic}.md`)
 
 const normaliseWikilinkTarget = (target: string): string =>
   target

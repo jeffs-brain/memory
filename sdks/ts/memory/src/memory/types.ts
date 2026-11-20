@@ -87,6 +87,12 @@ export type RecallOpts = {
   readonly excludedPaths?: readonly Path[]
   readonly surfacedPaths?: readonly Path[]
   readonly selector?: RecallSelectorMode
+  /**
+   * Cancels the recall. It is passed to the embedder and the selector's
+   * provider and checked between stages; once aborted, recall rejects with
+   * `signal.reason` instead of resolving with partial or empty results.
+   */
+  readonly signal?: AbortSignal
 }
 
 /** Reflection outcome persisted + returned. */

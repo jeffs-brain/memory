@@ -5,10 +5,13 @@ import type {
   CompletionRequest,
   CompletionResponse,
   Embedder,
+  Logger,
   Provider,
   StructuredRequest,
 } from '../llm/index.js'
-import { createMemStore } from '../store/memstore.js'
+import { StoreError } from '../store/errors.js'
+import type { Store } from '../store/index.js'
+import { type MemStore, createMemStore } from '../store/memstore.js'
 import { type Path, toPath } from '../store/path.js'
 import { createStoreBackedCursorStore } from './cursor.js'
 import { createMemory } from './index.js'
@@ -771,5 +774,369 @@ describe('recall', () => {
     const hits = await mem.recall({ query: 'hedgehog' })
     expect(hits[0]?.path).toBe(toPath('memory/project/tenant-a/hedgehog.md'))
     expect(hits[0]?.content).toContain('Mealworms')
+  })
+})
+
+type StoreCounts = {
+  read: number
+  exists: number
+  readMany: number
+  readManyBatchSizes: number[]
+}
+
+type StoreOverrides = {
+  readonly read?: (path: Path) => Promise<Buffer>
+  readonly readMany?: (paths: readonly Path[]) => Promise<Map<Path, Buffer>>
+}
+
+const instrumentStore = (
+  inner: MemStore,
+  mode: 'batched' | 'serial',
+  overrides: StoreOverrides = {},
+): { readonly store: Store; readonly counts: StoreCounts } => {
+  const counts: StoreCounts = { read: 0, exists: 0, readMany: 0, readManyBatchSizes: [] }
+  const store: Store = {
+    read: async (path) => {
+      counts.read += 1
+      return overrides.read !== undefined ? overrides.read(path) : inner.read(path)
+    },
+    write: (path, content) => inner.write(path, content),
+    append: (path, content) => inner.append(path, content),
+    delete: (path) => inner.delete(path),
+    rename: (src, dst) => inner.rename(src, dst),
+    exists: async (path) => {
+      counts.exists += 1
+      return inner.exists(path)
+    },
+    stat: (path) => inner.stat(path),
+    list: (dir, opts) => inner.list(dir, opts),
+    batch: (opts, fn) => inner.batch(opts, fn),
+    subscribe: (sink) => inner.subscribe(sink),
+    localPath: (path) => inner.localPath(path),
+    close: () => inner.close(),
+    ...(mode === 'batched'
+      ? {
+          readMany: async (paths: readonly Path[]) => {
+            counts.readMany += 1
+            counts.readManyBatchSizes.push(paths.length)
+            return overrides.readMany !== undefined
+              ? overrides.readMany(paths)
+              : inner.readMany(paths)
+          },
+        }
+      : {}),
+  }
+  return { store, counts }
+}
+
+const recordingLogger = (): { readonly logger: Logger; readonly warnings: string[] } => {
+  const warnings: string[] = []
+  return {
+    warnings,
+    logger: {
+      debug: () => {},
+      info: () => {},
+      warn: (msg) => {
+        warnings.push(msg)
+      },
+      error: () => {},
+    },
+  }
+}
+
+const releasePath = toPath('memory/project/tenant-a/release-notes.md')
+const checklistPath = toPath('memory/project/tenant-a/deployment-checklist.md')
+const deletedPath = toPath('memory/project/tenant-a/deleted.md')
+const otherPaths = ['rollout', 'rollback', 'oncall'].map((name) =>
+  toPath(`memory/project/tenant-a/${name}.md`),
+)
+
+const seedReleaseNotes = async (store: MemStore): Promise<SearchIndex> => {
+  await writeProjectNote({
+    store,
+    path: releasePath,
+    name: 'Release notes',
+    body: 'See [[missing-topic]], [[deployment-checklist]] and [[global:working-style]].',
+  })
+  await writeProjectNote({
+    store,
+    path: checklistPath,
+    name: 'Deployment checklist',
+    body: 'Check migrations and smoke tests.',
+  })
+  await writeGlobalNote({
+    store,
+    path: toPath('memory/global/working-style.md'),
+    name: 'Working style',
+    body: 'Prefer explicit verification.',
+  })
+  for (const [index, path] of otherPaths.entries()) {
+    await writeProjectNote({ store, path, name: `note ${index}`, body: `release body ${index}` })
+  }
+  return {
+    search: async (_query, _embedding, opts) =>
+      opts.scope === 'project'
+        ? [
+            { path: releasePath, score: 0.9 },
+            { path: deletedPath, score: 0.8 },
+            ...otherPaths.map((path, index) => ({ path, score: 0.7 - index * 0.1 })),
+          ]
+        : [],
+  }
+}
+
+describe('recall store reads', () => {
+  const recallWith = async (mode: 'batched' | 'serial', overrides: StoreOverrides = {}) => {
+    const inner = createMemStore()
+    const searchIndex = await seedReleaseNotes(inner)
+    const { store, counts } = instrumentStore(inner, mode, overrides)
+    const { logger, warnings } = recordingLogger()
+    const mem = createMemory({
+      store,
+      provider: dummyProvider(),
+      embedder: recordingEmbedder().embedder,
+      cursorStore: createStoreBackedCursorStore(inner),
+      scope: 'project',
+      actorId: 'tenant-a',
+      searchIndex,
+      logger,
+    })
+    return { mem, counts, warnings }
+  }
+
+  it('hydrates through one readMany and resolves wikilinks through another', async () => {
+    const { mem, counts, warnings } = await recallWith('batched')
+    const hits = await mem.recall({ query: 'release', k: 5 })
+
+    expect(hits.map((hit) => hit.path)).toContain(checklistPath)
+    expect(hits.map((hit) => hit.path)).not.toContain(deletedPath)
+    expect(counts).toEqual({ read: 0, exists: 0, readMany: 2, readManyBatchSizes: [5, 2] })
+    expect(warnings).toEqual([])
+  })
+
+  it('returns the same hits with or without readMany', async () => {
+    const batched = await recallWith('batched')
+    const serial = await recallWith('serial')
+    for (const k of [1, 2, 5]) {
+      const fromBatched = await batched.mem.recall({ query: 'release', k })
+      const fromSerial = await serial.mem.recall({ query: 'release', k })
+      expect(fromBatched).toStrictEqual(fromSerial)
+    }
+    expect(serial.counts.readMany).toBe(0)
+    expect(serial.counts.read).toBeGreaterThan(0)
+  })
+
+  it('reads wikilink candidates in bounded batches and keeps link order', async () => {
+    const inner = createMemStore()
+    const links = Array.from({ length: 40 }, (_, index) => `[[topic-${index}]]`).join(' ')
+    await writeProjectNote({ store: inner, path: releasePath, name: 'Hub', body: links })
+    for (const index of [35, 38]) {
+      await writeProjectNote({
+        store: inner,
+        path: toPath(`memory/project/tenant-a/topic-${index}.md`),
+        name: `topic ${index}`,
+        body: `topic body ${index}`,
+      })
+    }
+    const searchIndex: SearchIndex = { search: async () => [{ path: releasePath, score: 0.9 }] }
+    const results = await Promise.all(
+      (['batched', 'serial'] as const).map(async (mode) => {
+        const { store, counts } = instrumentStore(inner, mode)
+        const mem = createMemory({
+          store,
+          provider: dummyProvider(),
+          cursorStore: createStoreBackedCursorStore(inner),
+          scope: 'project',
+          actorId: 'tenant-a',
+          searchIndex,
+        })
+        return { hits: await mem.recall({ query: 'hub', k: 5 }), counts }
+      }),
+    )
+    const [batched, serial] = results
+    expect(batched?.hits.map((hit) => hit.path)).toEqual([
+      releasePath,
+      toPath('memory/project/tenant-a/topic-35.md'),
+      toPath('memory/project/tenant-a/topic-38.md'),
+    ])
+    expect(batched?.hits).toStrictEqual(serial?.hits)
+    expect(batched?.counts.readManyBatchSizes).toEqual([1, 32, 8])
+    expect(serial?.counts.exists).toBe(39)
+  })
+
+  it('rejects with the store error when no candidate could be read', async () => {
+    const failure = new StoreError('backend unavailable')
+    const { mem, warnings } = await recallWith('serial', {
+      read: async () => {
+        throw failure
+      },
+    })
+    await expect(mem.recall({ query: 'release', k: 5 })).rejects.toBe(failure)
+    expect(warnings).toEqual(Array(5).fill('memory: recall hydrate failed'))
+  })
+
+  it('keeps hits that hydrated when only some reads fail', async () => {
+    const failing = otherPaths[0]
+    const inner = createMemStore()
+    const searchIndex = await seedReleaseNotes(inner)
+    const { store } = instrumentStore(inner, 'serial', {
+      read: async (path) => {
+        if (path === failing) throw new StoreError('backend unavailable')
+        return inner.read(path)
+      },
+    })
+    const { logger, warnings } = recordingLogger()
+    const mem = createMemory({
+      store,
+      provider: dummyProvider(),
+      cursorStore: createStoreBackedCursorStore(inner),
+      scope: 'project',
+      actorId: 'tenant-a',
+      searchIndex,
+      logger,
+    })
+    const hits = await mem.recall({ query: 'release', k: 5 })
+    expect(hits.map((hit) => hit.path)).not.toContain(failing)
+    expect(hits.map((hit) => hit.path)).toContain(releasePath)
+    expect(warnings).toEqual(['memory: recall hydrate failed'])
+  })
+
+  it('rejects with the store error when readMany fails', async () => {
+    const failure = new StoreError('backend unavailable')
+    const { mem } = await recallWith('batched', {
+      readMany: async () => {
+        throw failure
+      },
+    })
+    await expect(mem.recall({ query: 'release', k: 5 })).rejects.toBe(failure)
+  })
+
+  it('still resolves an empty list when every candidate is missing', async () => {
+    const store = createMemStore()
+    const mem = createMemory({
+      store,
+      provider: dummyProvider(),
+      cursorStore: createStoreBackedCursorStore(store),
+      scope: 'project',
+      actorId: 'tenant-a',
+      searchIndex: { search: async () => [{ path: deletedPath, score: 0.9 }] },
+    })
+    await expect(mem.recall({ query: 'release' })).resolves.toEqual([])
+  })
+})
+
+describe('recall cancellation', () => {
+  const setup = async (embedder?: Embedder) => {
+    const inner = createMemStore()
+    const searchIndex = await seedReleaseNotes(inner)
+    const { store, counts } = instrumentStore(inner, 'batched')
+    const searches: number[] = []
+    const mem = createMemory({
+      store,
+      provider: dummyProvider(),
+      ...(embedder !== undefined ? { embedder } : {}),
+      cursorStore: createStoreBackedCursorStore(inner),
+      scope: 'project',
+      actorId: 'tenant-a',
+      searchIndex: {
+        search: async (query, embedding, opts) => {
+          searches.push(1)
+          return searchIndex.search(query, embedding, opts)
+        },
+      },
+    })
+    return { mem, counts, searches }
+  }
+
+  it('rejects at once with the reason when the signal is already aborted', async () => {
+    const { embedder, seen } = recordingEmbedder()
+    const { mem, counts, searches } = await setup(embedder)
+    const reason = new Error('caller gave up')
+    await expect(mem.recall({ query: 'release', signal: AbortSignal.abort(reason) })).rejects.toBe(
+      reason,
+    )
+    expect(seen).toEqual([])
+    expect(searches).toEqual([])
+    expect(counts.readMany).toBe(0)
+  })
+
+  it('passes the signal to the embedder and rejects when it aborts mid-embed', async () => {
+    const controller = new AbortController()
+    const reason = new Error('caller gave up')
+    let received: AbortSignal | undefined
+    const embedder: Embedder = {
+      name: () => 'stub',
+      model: () => 'stub',
+      dimension: () => 3,
+      embed: (_texts, signal) => {
+        received = signal
+        return new Promise((_resolve, reject) => {
+          signal?.addEventListener('abort', () => reject(signal.reason), { once: true })
+          controller.abort(reason)
+        })
+      },
+    }
+    const { mem, counts, searches } = await setup(embedder)
+    await expect(mem.recall({ query: 'release', signal: controller.signal })).rejects.toBe(reason)
+    expect(received).toBe(controller.signal)
+    expect(searches).toEqual([])
+    expect(counts.readMany).toBe(0)
+  })
+
+  it('stops before hydrating when the signal aborts during the search', async () => {
+    const controller = new AbortController()
+    const reason = new Error('caller gave up')
+    const inner = createMemStore()
+    const searchIndex = await seedReleaseNotes(inner)
+    const { store, counts } = instrumentStore(inner, 'batched')
+    const mem = createMemory({
+      store,
+      provider: dummyProvider(),
+      cursorStore: createStoreBackedCursorStore(inner),
+      scope: 'project',
+      actorId: 'tenant-a',
+      searchIndex: {
+        search: async (query, embedding, opts) => {
+          controller.abort(reason)
+          return searchIndex.search(query, embedding, opts)
+        },
+      },
+    })
+    await expect(mem.recall({ query: 'release', signal: controller.signal })).rejects.toBe(reason)
+    expect(counts).toEqual({ read: 0, exists: 0, readMany: 0, readManyBatchSizes: [] })
+  })
+
+  it('stops before following wikilinks when the signal aborts during hydration', async () => {
+    const controller = new AbortController()
+    const reason = new Error('caller gave up')
+    const inner = createMemStore()
+    const searchIndex = await seedReleaseNotes(inner)
+    const { store, counts } = instrumentStore(inner, 'batched', {
+      readMany: async (paths) => {
+        controller.abort(reason)
+        return inner.readMany(paths)
+      },
+    })
+    const mem = createMemory({
+      store,
+      provider: dummyProvider(),
+      cursorStore: createStoreBackedCursorStore(inner),
+      scope: 'project',
+      actorId: 'tenant-a',
+      searchIndex,
+    })
+    await expect(mem.recall({ query: 'release', signal: controller.signal })).rejects.toBe(reason)
+    expect(counts.readMany).toBe(1)
+  })
+
+  it('resolves as before when the signal never aborts', async () => {
+    const { mem } = await setup(recordingEmbedder().embedder)
+    const withSignal = await mem.recall({
+      query: 'release',
+      signal: new AbortController().signal,
+    })
+    const without = await mem.recall({ query: 'release' })
+    expect(withSignal).toStrictEqual(without)
+    expect(withSignal.length).toBeGreaterThan(0)
   })
 })
