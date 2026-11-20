@@ -1,0 +1,49 @@
+{
+  "description": "Store.readMany conformance cases. Seed the store with `seed`, then call readMany(paths) for each case. `expect` maps every path that must be present to its UTF-8 content; no other key may be present. `error` names the error class the call must reject with instead.",
+  "seed": [
+    { "path": "memory/project/alpha.md", "content": "alpha body" },
+    { "path": "memory/project/beta.md", "content": "beta body" },
+    { "path": "memory/project/nested/gamma.md", "content": "gamma body" },
+    { "path": "memory/project/_index.md", "content": "generated index" }
+  ],
+  "cases": [
+    {
+      "name": "reads every present path",
+      "paths": ["memory/project/alpha.md", "memory/project/nested/gamma.md"],
+      "expect": {
+        "memory/project/alpha.md": "alpha body",
+        "memory/project/nested/gamma.md": "gamma body"
+      }
+    },
+    {
+      "name": "leaves missing paths out",
+      "paths": ["memory/project/missing.md", "memory/project/beta.md"],
+      "expect": { "memory/project/beta.md": "beta body" }
+    },
+    {
+      "name": "leaves a directory path out",
+      "paths": ["memory/project/nested"],
+      "expect": {}
+    },
+    {
+      "name": "reads generated files like read does",
+      "paths": ["memory/project/_index.md"],
+      "expect": { "memory/project/_index.md": "generated index" }
+    },
+    {
+      "name": "collapses duplicate paths",
+      "paths": ["memory/project/beta.md", "memory/project/beta.md"],
+      "expect": { "memory/project/beta.md": "beta body" }
+    },
+    {
+      "name": "resolves an empty input to an empty map",
+      "paths": [],
+      "expect": {}
+    },
+    {
+      "name": "rejects when any path is invalid",
+      "paths": ["memory/project/alpha.md", "memory/../escape.md"],
+      "error": "ErrInvalidPath"
+    }
+  ]
+}

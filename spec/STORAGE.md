@@ -28,6 +28,7 @@ Shell-glob matching over base names follows the subset Go's `path.Match` support
 ```
 type Store = {
     read(path: Path): Promise<Buffer>
+    readMany?(paths: readonly Path[]): Promise<Map<Path, Buffer>>
     write(path: Path, content: Buffer): Promise<void>
     append(path: Path, content: Buffer): Promise<void>
     delete(path: Path): Promise<void>
@@ -41,6 +42,8 @@ type Store = {
     close(): Promise<void>
 }
 ```
+
+`readMany` is optional (see [Batched reads](#batched-reads)); every other member is required.
 
 Type shapes:
 
@@ -72,6 +75,24 @@ Semantics:
 - `list` returns entries sorted ascending by path. Non-recursive listings include one entry per immediate child (directory entries have `isDir: true`). Recursive listings walk the subtree and omit directory entries.
 - `localPath` returns a filesystem path when the backend has one (FsStore, GitStore checkout) and `undefined` otherwise (HttpStore, MemStore).
 - `close` makes the store unusable; further mutations throw `ErrReadOnly`. Idempotent.
+
+## Batched reads
+
+`readMany(paths)` is an optional capability for backends where each `read` costs a round trip (a database transaction, an HTTP request). Callers that need several documents at once, such as recall hydration, feature-detect it and fall back to one `read` per path when it is absent, so a store without it behaves exactly as before.
+
+Semantics:
+
+- Every path is validated as `read` validates it. One invalid path throws `ErrInvalidPath` and nothing is read.
+- The result holds one entry for each requested path that `read` would return, keyed by that path, with the same bytes. A path with no document, including a path that names only a directory, has no entry; `readMany` never throws `ErrNotFound`.
+- Duplicate paths collapse to one entry. Map order carries no meaning; callers keep their own order.
+- Each returned `Buffer` is the caller's own copy, as with `read`.
+- An empty input resolves to an empty map.
+- Any other failure (a backend error, a closed store) rejects the whole call; there are no partial results.
+- Where the backend can, all entries come from one consistent snapshot. `PostgresStore` reads them in one tenant transaction with one statement (`path = any($1::text[])`).
+
+A store wrapper that adds per-path behaviour to `read` (access control, auditing, caching) MUST NOT expose its inner store's `readMany` unless it applies the same behaviour to every path. Leaving `readMany` off a wrapper is always safe: callers take the per-path route.
+
+The cases every implementation must pass are in [`fixtures/store/read-many.json`](./fixtures/store/read-many.json).
 
 ## Batch semantics
 

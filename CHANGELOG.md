@@ -7,7 +7,36 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
-Nothing yet.
+### memory
+
+#### Added
+
+- `Store.readMany?(paths)`, an optional batched read specified in
+  `spec/STORAGE.md` with shared cases in
+  `spec/fixtures/store/read-many.json`. `MemStore` implements it.
+- `RecallOpts.signal`. Recall passes it to the embedder and to the
+  selector's provider, checks it between the embed, search, hydrate,
+  select and wikilink stages, and rejects with `signal.reason` once it
+  aborts.
+
+#### Changed
+
+- Recall hydrates its candidates with one `readMany` call when the store
+  has it, and resolves wikilinks with `readMany` in batches of up to 32
+  paths instead of an `exists` and a `read` per link. Stores without
+  `readMany` keep the per-path reads, and results are the same either way.
+- Recall rejects with the store's error when it could hydrate none of
+  its candidates and at least one read failed for a reason other than a
+  missing note. It used to log a warning per path and resolve `[]`.
+  Partial failures are still logged and skipped.
+
+### memory-postgres
+
+#### Added
+
+- `PostgresStore.readMany` reads every requested document in one tenant
+  transaction and one statement. At k=5 a recall against Postgres drops
+  from 26 transactions to 2.
 
 ## [1.0.1] - 2026-08-05
 

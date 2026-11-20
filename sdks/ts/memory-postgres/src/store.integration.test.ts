@@ -4,7 +4,7 @@ import { execSync } from 'node:child_process'
 import { readFileSync, readdirSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { toPath } from '@jeffs-brain/memory/store'
+import { ErrInvalidPath, type Path, toPath } from '@jeffs-brain/memory/store'
 import postgres from 'postgres'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { computeAllEdgesForDocument, computeDocumentOntologyEdges } from './edges.js'
@@ -21,6 +21,42 @@ const hasDocker = (() => {
 })()
 
 const maybe = hasDocker ? describe : describe.skip
+
+type ReadManyFixture = {
+  readonly seed: readonly { readonly path: string; readonly content: string }[]
+  readonly cases: readonly {
+    readonly name: string
+    readonly paths: readonly string[]
+    readonly expect?: Readonly<Record<string, string>>
+    readonly error?: string
+  }[]
+}
+
+const readManyFixture = JSON.parse(
+  readFileSync(
+    path.join(
+      path.dirname(fileURLToPath(import.meta.url)),
+      '../../../../spec/fixtures/store/read-many.json',
+    ),
+    'utf8',
+  ),
+) as ReadManyFixture
+
+const countingBegins = (sql: PgSql): { readonly sql: PgSql; readonly begins: () => number } => {
+  let begins = 0
+  const counted = new Proxy(sql, {
+    get(target, prop, receiver) {
+      if (prop === 'begin') {
+        return <T>(fn: (tx: PgSql) => Promise<T>): Promise<T> => {
+          begins += 1
+          return target.begin(fn)
+        }
+      }
+      return Reflect.get(target, prop, receiver)
+    },
+  })
+  return { sql: counted, begins: () => begins }
+}
 
 maybe('PostgresStore (testcontainers)', () => {
   type RawSql = ReturnType<typeof postgres>
@@ -186,6 +222,91 @@ maybe('PostgresStore (testcontainers)', () => {
     })
     expect(await storeA.exists(secret)).toBe(true)
     expect((await storeA.read(secret)).toString()).toBe('tenant-A-only')
+    await storeA.close()
+  }, 60_000)
+
+  it('readMany passes the shared fixture cases', async () => {
+    const brain = 'cccccccc-cccc-cccc-cccc-cccccccccccc'
+    await superSql.unsafe(
+      `insert into memory.brains (brain_id, tenant_id, slug, name) values
+         ('${brain}', '${tenantA}', 'brain-read-many', 'Brain readMany')`,
+    )
+    const store = await createPostgresStore({
+      sql: superSql as unknown as PgSql,
+      tenantId: tenantA,
+      brainId: brain,
+    })
+    for (const seed of readManyFixture.seed) {
+      await store.write(toPath(seed.path), Buffer.from(seed.content))
+    }
+    for (const fixtureCase of readManyFixture.cases) {
+      const paths = fixtureCase.paths as Path[]
+      if (fixtureCase.error !== undefined) {
+        expect(fixtureCase.error).toBe('ErrInvalidPath')
+        await expect(store.readMany(paths)).rejects.toBeInstanceOf(ErrInvalidPath)
+        continue
+      }
+      const got = await store.readMany(paths)
+      expect(
+        Object.fromEntries([...got].map(([p, content]) => [p, content.toString('utf8')])),
+        fixtureCase.name,
+      ).toEqual(fixtureCase.expect ?? {})
+    }
+    await store.close()
+  }, 60_000)
+
+  it('readMany reads every path in one tenant transaction', async () => {
+    const seeded = await createPostgresStore({
+      sql: superSql as unknown as PgSql,
+      tenantId: tenantA,
+      brainId: brainA,
+    })
+    const paths = Array.from({ length: 24 }, (_, i) => toPath(`read-many/note-${i}.md`))
+    for (const p of paths) await seeded.write(p, Buffer.from(`body ${p}`))
+    await seeded.close()
+
+    const counted = countingBegins(appSql as unknown as PgSql)
+    const store = await createPostgresStore({
+      sql: counted.sql,
+      tenantId: tenantA,
+      brainId: brainA,
+      initContentColumn: false,
+    })
+    const got = await store.readMany([...paths, toPath('read-many/missing.md')])
+    expect(counted.begins()).toBe(1)
+    expect(got.size).toBe(24)
+    expect(got.get(paths[3] as Path)?.toString('utf8')).toBe(`body ${paths[3]}`)
+    expect(await store.readMany([])).toEqual(new Map())
+    expect(counted.begins()).toBe(1)
+    await store.close()
+  }, 60_000)
+
+  it('readMany honours RLS like read does', async () => {
+    const superStore = await createPostgresStore({
+      sql: superSql as unknown as PgSql,
+      tenantId: tenantA,
+      brainId: brainA,
+    })
+    const secret = toPath('private/read-many-secret.md')
+    await superStore.write(secret, Buffer.from('tenant-A-only'))
+    await superStore.close()
+
+    const storeB = await createPostgresStore({
+      sql: appSql as unknown as PgSql,
+      tenantId: tenantB,
+      brainId: brainA,
+      initContentColumn: false,
+    })
+    expect((await storeB.readMany([secret])).size).toBe(0)
+    await storeB.close()
+
+    const storeA = await createPostgresStore({
+      sql: appSql as unknown as PgSql,
+      tenantId: tenantA,
+      brainId: brainA,
+      initContentColumn: false,
+    })
+    expect((await storeA.readMany([secret])).get(secret)?.toString('utf8')).toBe('tenant-A-only')
     await storeA.close()
   }, 60_000)
 

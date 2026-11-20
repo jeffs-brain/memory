@@ -40,6 +40,17 @@ export class MemStore implements Store {
     return Buffer.from(e.content)
   }
 
+  async readMany(paths: readonly Path[]): Promise<Map<Path, Buffer>> {
+    this.ensureOpen()
+    for (const p of paths) validatePath(p)
+    const out = new Map<Path, Buffer>()
+    for (const p of paths) {
+      const e = this.files.get(p)
+      if (e) out.set(p, Buffer.from(e.content))
+    }
+    return out
+  }
+
   async exists(p: Path): Promise<boolean> {
     this.ensureOpen()
     validatePath(p)
