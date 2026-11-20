@@ -241,6 +241,29 @@ export class PostgresStore implements Store {
     })
   }
 
+  /**
+   * Read several documents in one tenant transaction and one statement, so a
+   * caller hydrating N search hits pays one round trip instead of N. Missing
+   * paths are left out of the map.
+   */
+  async readMany(paths: readonly Path[]): Promise<Map<Path, Buffer>> {
+    this.ensureOpen()
+    for (const p of paths) validatePath(p)
+    const out = new Map<Path, Buffer>()
+    const unique = [...new Set<string>(paths)]
+    if (unique.length === 0) return out
+    const rows = await this.withTenant(
+      async (tx) =>
+        (await tx<Pick<DocumentRow, 'path' | 'content'>>`
+        select path, content
+        from memory.documents
+        where brain_id = ${this.brainId}::uuid and path = any(${unique}::text[])
+      `) as ReadonlyArray<Pick<DocumentRow, 'path' | 'content'>>,
+    )
+    for (const row of rows) out.set(row.path as Path, Buffer.from(row.content))
+    return out
+  }
+
   async exists(p: Path): Promise<boolean> {
     this.ensureOpen()
     validatePath(p)
