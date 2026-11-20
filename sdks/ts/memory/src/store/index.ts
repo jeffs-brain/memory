@@ -81,6 +81,12 @@ export type Batch = {
 
 export type Store = {
   read(path: Path): Promise<Buffer>
+  /**
+   * Optional batched read. Resolves one entry per requested path that `read`
+   * would return and leaves missing paths out. Callers fall back to `read`
+   * per path when a store does not implement it. See spec/STORAGE.md.
+   */
+  readMany?(paths: readonly Path[]): Promise<Map<Path, Buffer>>
   write(path: Path, content: Buffer): Promise<void>
   append(path: Path, content: Buffer): Promise<void>
   delete(path: Path): Promise<void>

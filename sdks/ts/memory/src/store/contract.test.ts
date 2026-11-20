@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
+import { readFileSync } from 'node:fs'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { ErrInvalidPath, ErrNotFound, ErrReadOnly } from './errors.js'
 import { createFsStore } from './fsstore.js'
@@ -15,12 +17,38 @@ type Factory = {
   name: string
   create: () => Promise<{ store: Store; cleanup: () => Promise<void> }>
   supportsLocalPath: boolean
+  supportsReadMany: boolean
+}
+
+type ReadManyFixture = {
+  readonly seed: readonly { readonly path: string; readonly content: string }[]
+  readonly cases: readonly {
+    readonly name: string
+    readonly paths: readonly string[]
+    readonly expect?: Readonly<Record<string, string>>
+    readonly error?: string
+  }[]
+}
+
+const readManyFixture = JSON.parse(
+  readFileSync(
+    join(
+      dirname(fileURLToPath(import.meta.url)),
+      '../../../../../spec/fixtures/store/read-many.json',
+    ),
+    'utf8',
+  ),
+) as ReadManyFixture
+
+const readManyErrors: Readonly<Record<string, new (...args: never[]) => Error>> = {
+  ErrInvalidPath,
 }
 
 const factories: Factory[] = [
   {
     name: 'memstore',
     supportsLocalPath: false,
+    supportsReadMany: true,
     create: async () => {
       const store = createMemStore()
       return { store, cleanup: async () => store.close() }
@@ -29,6 +57,7 @@ const factories: Factory[] = [
   {
     name: 'fsstore',
     supportsLocalPath: true,
+    supportsReadMany: false,
     create: async () => {
       const dir = await mkdtemp(join(tmpdir(), 'memory-fsstore-'))
       const store = await createFsStore({ root: dir })
@@ -44,6 +73,7 @@ const factories: Factory[] = [
   {
     name: 'gitstore',
     supportsLocalPath: true,
+    supportsReadMany: false,
     create: async () => {
       const dir = await mkdtemp(join(tmpdir(), 'memory-gitstore-'))
       const store = await createGitStore({ dir, init: true })
@@ -79,6 +109,40 @@ for (const factory of factories) {
     it('read missing throws ErrNotFound', async () => {
       await expect(store.read(p('memory/nope.md'))).rejects.toBeInstanceOf(ErrNotFound)
     })
+
+    it('readMany matches the declared capability', () => {
+      expect(typeof store.readMany === 'function').toBe(factory.supportsReadMany)
+    })
+
+    if (factory.supportsReadMany) {
+      for (const fixtureCase of readManyFixture.cases) {
+        it(`readMany: ${fixtureCase.name}`, async () => {
+          const readMany = store.readMany?.bind(store)
+          if (readMany === undefined) throw new Error('readMany missing')
+          for (const seed of readManyFixture.seed) {
+            await store.write(p(seed.path), buf(seed.content))
+          }
+          const paths = fixtureCase.paths as Path[]
+          if (fixtureCase.error !== undefined) {
+            const errorClass = readManyErrors[fixtureCase.error]
+            if (errorClass === undefined) throw new Error(`unknown error ${fixtureCase.error}`)
+            await expect(readMany(paths)).rejects.toBeInstanceOf(errorClass)
+            return
+          }
+          const got = await readMany(paths)
+          expect(
+            Object.fromEntries([...got].map(([path, content]) => [path, content.toString('utf8')])),
+          ).toEqual(fixtureCase.expect ?? {})
+        })
+      }
+
+      it('readMany returns copies the caller may change', async () => {
+        await store.write(p('memory/a.md'), buf('alpha'))
+        const first = await store.readMany?.([p('memory/a.md')])
+        first?.get(p('memory/a.md'))?.fill(0)
+        expect((await store.read(p('memory/a.md'))).toString('utf8')).toBe('alpha')
+      })
+    }
 
     it('write then read round-trips', async () => {
       await store.write(p('memory/a.md'), buf('hello'))
