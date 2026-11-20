@@ -12,7 +12,7 @@ All three SDKs (TypeScript, Go, Python) read from this spec. When any SDK disagr
 - `STORAGE.md`: `Store` interface, path validation rules, batch semantics, error taxonomy, `ChangeEvent` shape.
 - `MCP-TOOLS.md`: the `memory_*` MCP tool surface every SDK's MCP wrapper must expose.
 - `OKF.md`: markdown/frontmatter content profile aligned with Open Knowledge Format v0.1.
-- `fixtures/`: language-neutral test inputs: stopword lists, query parser cases, retrieval golden sets.
+- `fixtures/`: language-neutral test inputs: stopword lists, query parser cases, retrieval golden sets, store conformance cases.
 - `conformance/`: replayable case files that drive any SDK's HTTP store implementation against the contract.
 
 ## Status
